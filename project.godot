@@ -14,9 +14,9 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="AoE2 Elephant Demo"
-config/description="Age of Empires 2 style elephant selection and movement demo"
-run/main_scene="res://scenes/main.tscn"
+config/name="AoE2 RTS Demo"
+config/description="Micro RTS demo: Chinese vs Teutons"
+run/main_scene="res://scenes/civ_select.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -26,10 +26,6 @@ window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-
-[layer_names]
-
-2d_physics/layer_1="units"
 
 [rendering]
 

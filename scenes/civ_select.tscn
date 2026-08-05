@@ -1,0 +1,45 @@
+[gd_scene load_steps=2 format=3 uid="uid://civselectstub01"]
+
+[ext_resource type="Script" path="res://scripts/ui/civ_select_controller.gd" id="1_civ"]
+
+[node name="CivSelect" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_civ")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -120.0
+offset_top = -80.0
+offset_right = 120.0
+offset_bottom = 80.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="Title" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "选择文明"
+horizontal_alignment = 1
+
+[node name="ChineseButton" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+text = "中国"
+
+[node name="TeutonsButton" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+text = "条顿"
+
+[connection signal="pressed" from="VBoxContainer/ChineseButton" to="." method="_on_chinese_pressed"]
+[connection signal="pressed" from="VBoxContainer/TeutonsButton" to="." method="_on_teutons_pressed"]
