@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="BuildingDef" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/building_def.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/data/unit_def.gd" id="2"]
+[ext_resource type="Resource" path="res://data/units/swordsman.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+id = &"barracks"
+max_hp = 1200
+footprint = Vector2(3, 3)
+cost_food = 0
+cost_wood = 175
+cost_gold = 0
+build_time = 30.0
+population_provided = 0
+trainable = Array[ExtResource("2")]([ExtResource("3")])
+has_drop_off = false

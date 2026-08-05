@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="UnitDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/unit_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"chu_ko_nu"
+display_name = "Chu Ko Nu"
+max_hp = 35
+attack = 3
+attack_cooldown = 0.7
+range = 5.5
+melee_armor = 0
+pierce_armor = 0
+move_speed = 4.2
+cost_food = 0
+cost_wood = 35
+cost_gold = 50
+train_time = 30.0
+population = 1
+is_ranged = true

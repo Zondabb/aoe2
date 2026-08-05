@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="CivDef" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/civ_def.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/data/unit_def.gd" id="2"]
+[ext_resource type="Resource" path="res://data/units/teutonic_knight.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+id = &"teutons"
+display_name = "Teutons"
+extra_starting_villagers = 0
+villager_train_time_mul = 1.0
+building_hp_mul = 1.25
+melee_armor_bonus = 1
+allowed_buildings = Array[int]([0, 1, 2, 3, 4, 5, 6, 7])
+unique_unit = ExtResource("3")

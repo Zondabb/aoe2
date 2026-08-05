@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="UnitDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/unit_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"swordsman"
+display_name = "Swordsman"
+max_hp = 40
+attack = 8
+attack_cooldown = 1.2
+range = 0.6
+melee_armor = 1
+pierce_armor = 0
+move_speed = 4.0
+cost_food = 60
+cost_wood = 0
+cost_gold = 20
+train_time = 21.0
+population = 1
+is_ranged = false
