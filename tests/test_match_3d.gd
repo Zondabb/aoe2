@@ -191,6 +191,17 @@ func run() -> Array[String]:
 			failures.append("winner should stop player input orders")
 		if build_system.is_processing_unhandled_input():
 			failures.append("winner should stop building input")
+		if not bool(state.get("frozen")):
+			failures.append("winner should set MatchState.frozen")
+		var player_unit := entities.get_node_or_null("PlayerVillager1") as Node3D
+		if player_unit != null:
+			if player_unit.is_physics_processing():
+				failures.append("winner should disable player unit physics_process")
+			var start_pos := player_unit.position
+			player_unit.call("command_move", start_pos + Vector3(6.0, 0.0, 0.0))
+			player_unit.call("_physics_process", 0.5)
+			if player_unit.position.distance_to(start_pos) > 0.01:
+				failures.append("frozen MatchState should stop player unit movement")
 
 	tree.root.remove_child(scene_root)
 	scene_root.free()

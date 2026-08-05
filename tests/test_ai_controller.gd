@@ -18,6 +18,7 @@ func run() -> Array[String]:
 	_test_military_builds_and_attack_phase(failures)
 	_test_accelerated_match_progression(failures)
 	_test_ai_stops_on_winner(failures)
+	_test_hostile_scan_skips_placement_ghost(failures)
 	return failures
 
 func _test_bootstrap_wires_ai(failures: Array[String]) -> void:
@@ -272,8 +273,51 @@ func _test_ai_stops_on_winner(failures: Array[String]) -> void:
 		failures.append("winner should disable AI processing")
 	if hud != null and not bool(hud.get_node("ResultPanel").visible):
 		failures.append("winner UI should still appear when AI is present")
+	if not bool(state.get("frozen")):
+		failures.append("winner should freeze MatchState simulation")
+	var entities := scene_root.get_node("Entities")
+	var player_unit := entities.get_node_or_null("PlayerVillager1") as Node3D
+	if player_unit == null:
+		failures.append("expected a player villager to verify freeze")
+	else:
+		var start_pos := player_unit.position
+		player_unit.call("command_move", start_pos + Vector3(8.0, 0.0, 0.0))
+		player_unit.call("_physics_process", 0.5)
+		if player_unit.position.distance_to(start_pos) > 0.01:
+			failures.append("winner freeze should stop player unit simulation")
 	tree.root.remove_child(scene_root)
 	scene_root.free()
+
+func _test_hostile_scan_skips_placement_ghost(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node3D.new()
+	tree.root.add_child(root)
+	var entities := Node3D.new()
+	root.add_child(entities)
+	var state := MatchState.new()
+	state.setup_defaults()
+	var ai := AI_CONTROLLER.new()
+	ai.entities = entities
+	ai.player_team = Enums.Team.PLAYER
+	ai.ai_team = Enums.Team.AI
+	ai.match_state = state
+	root.add_child(ai)
+	var ghost := BUILDING_VIEW.instantiate() as Node3D
+	ghost.set("team", Enums.Team.PLAYER)
+	ghost.set("def", BARRACKS)
+	ghost.set("is_placement_ghost", true)
+	ghost.call("start_construction")
+	ghost.position = Vector3(2.0, 0.0, 0.0)
+	entities.add_child(ghost)
+	var scout := UNIT_VIEW.instantiate() as Node3D
+	scout.set("team", Enums.Team.AI)
+	scout.set("def", SWORDSMAN)
+	scout.position = Vector3.ZERO
+	entities.add_child(scout)
+	var nearest: Node3D = ai.call("_nearest_hostile_in_radius", scout, 20.0)
+	if nearest != null:
+		failures.append("AI hostile scan should skip placement ghosts")
+	root.free()
 
 func _add_resource(
 	parent: Node3D,

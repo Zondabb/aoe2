@@ -9,9 +9,12 @@ var population: Dictionary = {}
 var population_cap: Dictionary = {}
 var population_reserved: Dictionary = {}
 var winner := -1
+## When true, unit/building simulation should early-return (match ended).
+var frozen := false
 
 func setup_defaults() -> void:
 	winner = -1
+	frozen = false
 	for team in Enums.Team.values():
 		resources[team] = {
 			Enums.ResourceType.FOOD: 200,
@@ -64,4 +67,5 @@ func set_winner(team: Enums.Team) -> void:
 	if winner != -1:
 		return
 	winner = team
+	frozen = true
 	winner_decided.emit(team)

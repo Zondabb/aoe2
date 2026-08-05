@@ -53,6 +53,9 @@ func setup(
 	civ = player_civ
 
 func _process(_delta: float) -> void:
+	if _ghost != null and not is_instance_valid(_ghost):
+		cancel_placement()
+		return
 	if _ghost == null or _camera == null:
 		return
 	_update_ghost_position(get_viewport().get_mouse_position())
@@ -142,7 +145,8 @@ func confirm_placement() -> bool:
 
 func cancel_placement() -> void:
 	if _ghost != null:
-		_ghost.queue_free()
+		if is_instance_valid(_ghost) and not _ghost.is_queued_for_deletion():
+			_ghost.queue_free()
 		_ghost = null
 	placement_changed.emit(false)
 

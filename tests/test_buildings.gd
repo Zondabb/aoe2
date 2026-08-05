@@ -19,6 +19,8 @@ func run() -> Array[String]:
 	_test_train_queue_spends_and_spawns(failures)
 	_test_parallel_queues_reserve_population(failures)
 	_test_trainables_are_filtered_by_civ(failures)
+	_test_placement_ghost_not_attackable(failures)
+	_test_cancel_placement_after_ghost_freed(failures)
 	return failures
 
 func _test_placement_rejects_overlap(failures: Array[String]) -> void:
@@ -129,3 +131,46 @@ func _test_trainables_are_filtered_by_civ(failures: Array[String]) -> void:
 	if teuton_units.size() != 1 or CHINESE.unique_unit in teuton_units:
 		failures.append("Teuton archery range should not expose the Chinese unique unit")
 	range_building.free()
+
+func _test_placement_ghost_not_attackable(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node3D.new()
+	tree.root.add_child(root)
+	var ghost := BUILDING_VIEW.instantiate() as Node3D
+	ghost.set("team", Enums.Team.PLAYER)
+	ghost.set("def", HOUSE)
+	ghost.set("is_placement_ghost", true)
+	ghost.call("start_construction")
+	root.add_child(ghost)
+	var hp_before: float = float(ghost.get("hp"))
+	ghost.call("take_damage", 50.0)
+	if float(ghost.get("hp")) != hp_before:
+		failures.append("placement ghost take_damage should be a no-op")
+	if ghost.is_queued_for_deletion():
+		failures.append("placement ghost should not be destroyed by damage")
+	var attacker := UNIT_VIEW.instantiate() as UnitAgent
+	attacker.def = VILLAGER
+	attacker.team = Enums.Team.AI
+	root.add_child(attacker)
+	attacker.command_attack(ghost)
+	if attacker.order == Enums.OrderType.ATTACK:
+		failures.append("command_attack should refuse placement ghosts")
+	root.free()
+
+func _test_cancel_placement_after_ghost_freed(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node3D.new()
+	tree.root.add_child(root)
+	var build_system := BUILD_SYSTEM.new()
+	root.add_child(build_system)
+	var ghost := BUILDING_VIEW.instantiate() as Node3D
+	ghost.set("is_placement_ghost", true)
+	root.add_child(ghost)
+	build_system.set("_ghost", ghost)
+	ghost.free()
+	build_system.call("cancel_placement")
+	if build_system.get("_ghost") != null:
+		failures.append("cancel_placement should clear a freed ghost reference safely")
+	if bool(build_system.call("is_placing")):
+		failures.append("cancel_placement after external free should end placement")
+	root.free()

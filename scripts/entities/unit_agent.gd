@@ -58,6 +58,8 @@ func register_population() -> void:
 func _physics_process(delta: float) -> void:
 	if def == null:
 		return
+	if match_state != null and match_state.frozen:
+		return
 	if order == Enums.OrderType.MOVE:
 		_process_move(delta)
 	elif order == Enums.OrderType.GATHER:
@@ -97,11 +99,19 @@ func command_move(target: Vector3) -> void:
 func command_gather(resource: Node3D) -> void:
 	if resource == null or float(resource.get("amount")) <= 0.0:
 		return
+	_build_target = null
+	_attack_target = null
+	var new_type := int(resource.get("resource_type"))
+	# Demo: switching resource type while carrying → drop off current, then gather new.
+	if carry_amount > 0.0 and carry_type != -1 and carry_type != new_type:
+		_last_resource = resource
+		_gather_target = resource
+		order = Enums.OrderType.GATHER
+		_begin_drop_off()
+		return
 	_gather_target = resource
 	_last_resource = resource
 	_drop_off_target = null
-	_build_target = null
-	_attack_target = null
 	_gather_state = "to_resource"
 	order = Enums.OrderType.GATHER
 
@@ -126,6 +136,7 @@ func command_attack(target: Node) -> void:
 		target_3d == null
 		or not is_instance_valid(target_3d)
 		or target_3d.get("team") == team
+		or target_3d.get("is_placement_ghost") == true
 		or not target_3d.has_method("take_damage")
 	):
 		return

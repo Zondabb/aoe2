@@ -184,11 +184,11 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 	)
 	if ai_controller != null and ai_controller.has_method("stop"):
 		ai_controller.call("stop")
+	# MatchState.frozen is the primary stop; also disable entity physics for both teams.
 	var entities := match_root.get_node_or_null("Entities") if match_root != null else null
 	if entities != null:
 		for entity in entities.get_children():
-			if entity.get("team") == Enums.Team.AI:
-				entity.set_physics_process(false)
+			entity.set_physics_process(false)
 	_refresh()
 
 func _return_to_civ_select() -> void:

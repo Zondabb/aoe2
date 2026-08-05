@@ -205,6 +205,7 @@ func _enemy_at_screen(screen_position: Vector2) -> Node3D:
 		if (
 			enemy == null
 			or enemy.get("team") == Enums.Team.PLAYER
+			or enemy.get("is_placement_ghost") == true
 			or enemy.is_queued_for_deletion()
 			or _camera.is_position_behind(enemy.global_position)
 		):

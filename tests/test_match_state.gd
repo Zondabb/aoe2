@@ -19,4 +19,9 @@ func run() -> Array[String]:
 	u.population = 1
 	if m.can_train(Enums.Team.PLAYER, u):
 		failures.append("pop full should block")
+	if bool(m.frozen):
+		failures.append("defaults should not start frozen")
+	m.set_winner(Enums.Team.PLAYER)
+	if not bool(m.frozen) or m.winner != Enums.Team.PLAYER:
+		failures.append("set_winner should freeze the match")
 	return failures

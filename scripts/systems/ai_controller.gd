@@ -470,6 +470,8 @@ func _nearest_hostile_in_radius(unit: Node3D, radius: float) -> Node3D:
 	for node in entities.get_children():
 		if node.get("team") != player_team:
 			continue
+		if node.get("is_placement_ghost") == true:
+			continue
 		if not node.has_method("take_damage"):
 			continue
 		if float(node.get("hp")) <= 0.0:

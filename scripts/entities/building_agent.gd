@@ -46,6 +46,8 @@ func _ready() -> void:
 	set_selected(false)
 
 func _physics_process(delta: float) -> void:
+	if match_state != null and match_state.frozen:
+		return
 	if not is_complete or train_queue.is_empty():
 		return
 	train_progress += delta
@@ -76,7 +78,7 @@ func add_build_progress(amount: float) -> void:
 		_complete_construction()
 
 func take_damage(amount: float) -> void:
-	if amount <= 0.0 or hp <= 0.0:
+	if is_placement_ghost or amount <= 0.0 or hp <= 0.0:
 		return
 	hp = maxf(0.0, hp - amount)
 	if hp > 0.0:
