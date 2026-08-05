@@ -1,0 +1,20 @@
+{
+  "key": "tree_oak",
+  "slp_id": 1251,
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\1251.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\dat\\pal_2.pal",
+  "note": "Oak tree (pal_2)",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 119,
+  "frame_h": 143,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "hotspots": [
+    {
+      "x": 52,
+      "y": 142
+    }
+  ]
+}

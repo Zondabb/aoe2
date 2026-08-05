@@ -1,0 +1,32 @@
+{
+  "key": "berry_bush",
+  "slp_id": 2560,
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\2560.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Berry bush / food",
+  "cols": 2,
+  "rows": 2,
+  "frame_w": 88,
+  "frame_h": 64,
+  "frame_count": 4,
+  "directions": 1,
+  "frames_per_direction": 4,
+  "hotspots": [
+    {
+      "x": 42,
+      "y": 39
+    },
+    {
+      "x": 47,
+      "y": 42
+    },
+    {
+      "x": 43,
+      "y": 46
+    },
+    {
+      "x": 44,
+      "y": 44
+    }
+  ]
+}

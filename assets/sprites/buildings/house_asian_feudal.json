@@ -1,0 +1,28 @@
+{
+  "key": "house_asian_feudal",
+  "slp_id": 2233,
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\2233.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Asian feudal houses",
+  "cols": 2,
+  "rows": 2,
+  "frame_w": 238,
+  "frame_h": 166,
+  "frame_count": 3,
+  "directions": 1,
+  "frames_per_direction": 3,
+  "hotspots": [
+    {
+      "x": 132,
+      "y": 122
+    },
+    {
+      "x": 110,
+      "y": 123
+    },
+    {
+      "x": 133,
+      "y": 105
+    }
+  ]
+}

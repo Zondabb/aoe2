@@ -1,0 +1,5 @@
+{
+  "aoe2_resources": "D:/BaiduNetdiskDownload/gaoqingban2/gaoqingban2/resources",
+  "player_color": 1,
+  "notes": "Copy to config.json (gitignored) to override local paths."
+}

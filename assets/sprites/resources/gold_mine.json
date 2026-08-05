@@ -1,0 +1,44 @@
+{
+  "key": "gold_mine",
+  "slp_id": 4479,
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\4479.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Gold mine",
+  "cols": 3,
+  "rows": 3,
+  "frame_w": 89,
+  "frame_h": 54,
+  "frame_count": 7,
+  "directions": 1,
+  "frames_per_direction": 7,
+  "hotspots": [
+    {
+      "x": 38,
+      "y": 20
+    },
+    {
+      "x": 34,
+      "y": 22
+    },
+    {
+      "x": 36,
+      "y": 18
+    },
+    {
+      "x": 36,
+      "y": 23
+    },
+    {
+      "x": 33,
+      "y": 19
+    },
+    {
+      "x": 39,
+      "y": 19
+    },
+    {
+      "x": 28,
+      "y": 21
+    }
+  ]
+}

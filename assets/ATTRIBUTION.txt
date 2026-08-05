@@ -1,0 +1,15 @@
+Age of Empires II artwork attribution
+=====================================
+
+Converted PNG sprites under assets/sprites/ are derived from Age of Empires II
+(HD / local install) SLP graphics for personal learning and demo purposes only.
+
+Copyright for original game art belongs to the respective rights holders
+(Ensemble Studios / Microsoft / World's Edge and related licensees).
+
+Do not redistribute the original game directory, DRS archives, or unconverted
+SLP files with this repository. Only small converted demo assets and the
+offline export tools are intended to be committed.
+
+Source install path (local, not in repo):
+  D:/BaiduNetdiskDownload/gaoqingban2/gaoqingban2/resources

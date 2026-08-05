@@ -1,3 +1,11 @@
 # Miscellaneous project folder file
 # Godot will recreate imported assets on first open.
 .godot/
+
+# Local SLP export config / raw dumps (never commit full game tree)
+tools/slp_export/config.json
+tools/slp_export/**/__pycache__/
+tools/slp_export/.pytest_cache/
+assets/sprites/**/raw/
+*.drs
+

@@ -1,0 +1,108 @@
+# SLP / DRS export toolchain
+
+Offline Python tools to convert Age of Empires II HD SLP graphics into PNG
+sprite sheets for the Godot demo. Runtime never reads DRS/SLP.
+
+## Prerequisites
+
+- Python 3.10+
+- Pillow, pytest: `pip install -r requirements.txt`
+- Local AoE2 HD `resources` tree (not committed)
+
+Default path (see `config.example.json`):
+
+```text
+D:/BaiduNetdiskDownload/gaoqingban2/gaoqingban2/resources
+```
+
+Copy the example config if you need a different path:
+
+```powershell
+Copy-Item config.example.json config.json
+```
+
+`config.json` is gitignored.
+
+## Layout (HD)
+
+This install already unpacks DRS archives into folders:
+
+| Path | Contents |
+|------|----------|
+| `_common/drs/graphics/{id}.slp` | Units, buildings, resources |
+| `_common/drs/interface/{id}.slp` / `.bina` | UI + palettes (`50500.bina` = main JASC-PAL) |
+| `_common/dat/pal_*.pal`, `clf_pal.pal` | Tree / cliff palettes |
+| `_common/slp/*.slp` | Loose UI SLPs |
+
+`drs.py` also understands classic packed `.drs` archives if you point at one.
+
+## Commands
+
+From `tools/slp_export`:
+
+```powershell
+# Palette tests (set AOE2_RES to override)
+$env:AOE2_RES = "D:\BaiduNetdiskDownload\gaoqingban2\gaoqingban2\resources"
+pytest tests/test_palette.py -q
+
+# Smoke-export one SLP -> assets/sprites/_smoke/
+python export_sprites.py --smoke
+
+# Priority demo list -> assets/sprites/{units,buildings,resources}/
+python export_sprites.py --priority
+
+# Default: smoke + priority
+python export_sprites.py
+
+# Single id
+python export_sprites.py --id 1484 --key villager_walk --category units --directions 8
+```
+
+Outputs:
+
+- `{key}.png` — packed sheet
+- `{key}.json` — `{cols, rows, frame_w, frame_h, directions, hotspots, ...}`
+- `export_report.json` — success / missing summary
+
+## Discovered priority IDs
+
+| Key | SLP ID | Notes |
+|-----|--------|-------|
+| villager_walk | 1484 | Male villager moving |
+| militia_walk | 997 | Basic melee stand-in |
+| swordsman_walk | 604 | ROR swordsman moving |
+| archer_walk | 12 | Archer moving |
+| chu_ko_nu_walk | 225 | Chinese unique |
+| teutonic_knight_walk | 1198 | Teuton unique |
+| tc_dark_main | 891 | Single TC layer (not full multi-part TC) |
+| tc_asian_feudal_top | 901 | Asian feudal TC top |
+| house_dark | 2223 | Dark Age houses |
+| house_asian_feudal | 2233 | Asian feudal houses |
+| barracks_asian_feudal | 131 | |
+| archery_asian_feudal | 22 | |
+| stable_asian_feudal | 1007 | Chinese-facing set |
+| stable_ne_feudal | 1006 | Teuton-facing set |
+| tree_oak | 1251 | Uses `pal_2.pal` |
+| gold_mine | 4479 | |
+| berry_bush | 2560 | Food source |
+
+IDs sourced from the openage AoC SLP list and verified present under
+`_common/drs/graphics/`.
+
+## Placeholders / limits
+
+- Town Centers are multi-SLP layers in the original game; we export representative tops only.
+- `directions` / `frames_per_direction` are authoring hints (8-dir units); confirm against `empires2_x1_p1.dat` when wiring animations.
+- Player-color pixels remapped for player 1 (blue band); shadow pixels approximated.
+- Do not commit the full game tree — only tools + small converted PNGs.
+
+## Modules
+
+| File | API |
+|------|-----|
+| `palette.py` | `load_pal(path) -> list[(r,g,b,a)]` |
+| `drs.py` | `extract(drs_path, file_id or name) -> bytes` |
+| `slp.py` | `decode(bytes, palette) -> list[Image]` |
+| `export_sprites.py` | CLI entry |
+
+See `../../assets/ATTRIBUTION.txt` for copyright notice.

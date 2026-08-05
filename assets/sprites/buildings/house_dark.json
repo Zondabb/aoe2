@@ -1,0 +1,28 @@
+{
+  "key": "house_dark",
+  "slp_id": 2223,
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\2223.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Dark Age houses",
+  "cols": 2,
+  "rows": 2,
+  "frame_w": 178,
+  "frame_h": 120,
+  "frame_count": 3,
+  "directions": 1,
+  "frames_per_direction": 3,
+  "hotspots": [
+    {
+      "x": 84,
+      "y": 73
+    },
+    {
+      "x": 89,
+      "y": 78
+    },
+    {
+      "x": 89,
+      "y": 71
+    }
+  ]
+}
