@@ -55,7 +55,7 @@ python export_sprites.py --priority
 python export_sprites.py
 
 # Single id
-python export_sprites.py --id 1484 --key villager_walk --category units --directions 8
+python export_sprites.py --id 1484 --key villager_walk --category units --directions 5
 ```
 
 Outputs:
@@ -63,6 +63,12 @@ Outputs:
 - `{key}.png` — packed sheet
 - `{key}.json` — `{cols, rows, frame_w, frame_h, directions, hotspots, ...}`
 - `export_report.json` — success / missing summary
+
+### Unit directions + flip
+
+Classic AoE unit SLPs store **5 authored facings** (frame counts like 50/60/75 divide by 5, not 8). Runtime covers the other three by **horizontal flip** of the mirrored authored dir. JSON `directions` is therefore `5` for unit walks; `frames_per_direction = frame_count / 5`.
+
+`hotspots` in the JSON are **cell-relative** (after sheet packing: centered X, bottom-aligned Y inside `frame_w`×`frame_h`), so atlas sampling can anchor directly against the sheet cell.
 
 ## Discovered priority IDs
 
@@ -92,7 +98,7 @@ IDs sourced from the openage AoC SLP list and verified present under
 ## Placeholders / limits
 
 - Town Centers are multi-SLP layers in the original game; we export representative tops only.
-- `directions` / `frames_per_direction` are authoring hints (8-dir units); confirm against `empires2_x1_p1.dat` when wiring animations.
+- Unit sheets: 5 authored dirs + flip (see above); buildings/resources use `directions: 1`.
 - Player-color pixels remapped for player 1 (blue band); shadow pixels approximated.
 - Do not commit the full game tree — only tools + small converted PNGs.
 

@@ -92,42 +92,42 @@
       "key": "villager_walk",
       "category": "units",
       "id": 1484,
-      "directions": 8,
+      "directions": 5,
       "note": "Male villager moving"
     },
     {
       "key": "militia_walk",
       "category": "units",
       "id": 997,
-      "directions": 8,
+      "directions": 5,
       "note": "Militia / swordsman tier moving"
     },
     {
       "key": "swordsman_walk",
       "category": "units",
       "id": 604,
-      "directions": 8,
+      "directions": 5,
       "note": "ROR swordsman moving"
     },
     {
       "key": "archer_walk",
       "category": "units",
       "id": 12,
-      "directions": 8,
+      "directions": 5,
       "note": "Archer moving"
     },
     {
       "key": "chu_ko_nu_walk",
       "category": "units",
       "id": 225,
-      "directions": 8,
+      "directions": 5,
       "note": "Chu-Ko-Nu moving"
     },
     {
       "key": "teutonic_knight_walk",
       "category": "units",
       "id": 1198,
-      "directions": 8,
+      "directions": 5,
       "note": "Teutonic knight moving"
     },
     {
@@ -211,7 +211,7 @@
   ],
   "placeholders": [
     "Full TC is multi-layer (base + roofs); demo uses single top pieces (891/901).",
-    "Unit sheets assume 8 directions; exact frames_per_direction should be confirmed from empires2.dat later.",
+    "Unit sheets use 5 authored directions + horizontal flip for the mirrored facings.",
     "Shadow pixels are approximated as checkerboard alpha, not the in-game shadow table."
   ]
 }

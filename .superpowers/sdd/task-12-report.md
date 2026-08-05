@@ -21,11 +21,19 @@ Complete.
 
 ## Commit
 
-`feat(tools): add DRS/SLP sprite export pipeline`
+`e08a652` — `feat(tools): add DRS/SLP sprite export pipeline`
 
 ## Concerns
 
 - TC is multi-layer in original; demo exports single top pieces (891/901) only.
-- `directions` / `frames_per_direction` are hints until confirmed from `empires2.dat`.
 - Shadow pixels approximated; outline (behind-tree) commands skipped for cleaner PNG.
 - Do not start Task 13 in this session.
+
+## Review follow-up (Important findings)
+
+Fixed before Task 13:
+
+1. **Unit `directions: 8` → `5`** — classic AoE authors 5 facings + horizontal flip; frame counts (50/60/75) divide by 5. Exporter default / PRIORITY unit walks / smoke unit fallbacks updated; walk JSON regenerated (`frames_per_direction` now exact). Flip rule documented in `tools/slp_export/README.md`.
+2. **Hotspots vs sheet padding** — `pack_sheet` returns per-frame pad offsets (center-X, bottom-Y); `export_one` writes **cell-relative** hotspots into JSON so atlas sampling anchors correctly.
+
+Verification: `pytest tests/test_palette.py -q` → `3 passed`; `export_sprites.py --priority` → 17/17 ok.

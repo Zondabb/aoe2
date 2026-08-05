@@ -22,13 +22,14 @@ DEFAULT_CONFIG = TOOLS_DIR / "config.json"
 EXAMPLE_CONFIG = TOOLS_DIR / "config.example.json"
 
 # Priority demo assets (IDs from openage aoc-slp-list / HD graphics folder).
+# Classic AoE unit SLPs author 5 facing directions; mirror (flip X) for the other 3.
 PRIORITY: List[Dict[str, Any]] = [
-    {"key": "villager_walk", "category": "units", "id": 1484, "directions": 8, "note": "Male villager moving"},
-    {"key": "militia_walk", "category": "units", "id": 997, "directions": 8, "note": "Militia / swordsman tier moving"},
-    {"key": "swordsman_walk", "category": "units", "id": 604, "directions": 8, "note": "ROR swordsman moving"},
-    {"key": "archer_walk", "category": "units", "id": 12, "directions": 8, "note": "Archer moving"},
-    {"key": "chu_ko_nu_walk", "category": "units", "id": 225, "directions": 8, "note": "Chu-Ko-Nu moving"},
-    {"key": "teutonic_knight_walk", "category": "units", "id": 1198, "directions": 8, "note": "Teutonic knight moving"},
+    {"key": "villager_walk", "category": "units", "id": 1484, "directions": 5, "note": "Male villager moving"},
+    {"key": "militia_walk", "category": "units", "id": 997, "directions": 5, "note": "Militia / swordsman tier moving"},
+    {"key": "swordsman_walk", "category": "units", "id": 604, "directions": 5, "note": "ROR swordsman moving"},
+    {"key": "archer_walk", "category": "units", "id": 12, "directions": 5, "note": "Archer moving"},
+    {"key": "chu_ko_nu_walk", "category": "units", "id": 225, "directions": 5, "note": "Chu-Ko-Nu moving"},
+    {"key": "teutonic_knight_walk", "category": "units", "id": 1198, "directions": 5, "note": "Teutonic knight moving"},
     {"key": "tc_dark_main", "category": "buildings", "id": 891, "directions": 1, "note": "Dark Age TC main top (single layer)"},
     {"key": "tc_asian_feudal_top", "category": "buildings", "id": 901, "directions": 1, "note": "Asian feudal TC top piece"},
     {"key": "house_dark", "category": "buildings", "id": 2223, "directions": 1, "note": "Dark Age houses"},
@@ -61,7 +62,14 @@ def resolve_palette(resources: Path, name: str = "interface") -> Path:
     raise FileNotFoundError(f"unknown palette {name}")
 
 
-def pack_sheet(frames: Sequence[Image.Image]) -> tuple[Image.Image, int, int, int, int]:
+def pack_sheet(
+    frames: Sequence[Image.Image],
+) -> tuple[Image.Image, int, int, int, int, List[Dict[str, int]]]:
+    """Pack frames into a grid. Each cell is max(w)×max(h); content is centered X, bottom-aligned Y.
+
+    Returns pad offsets per frame (relative to cell top-left) so hotspots can be remapped
+    from original-frame space into cell space.
+    """
     if not frames:
         raise ValueError("no frames")
     frame_w = max(im.width for im in frames)
@@ -70,12 +78,16 @@ def pack_sheet(frames: Sequence[Image.Image]) -> tuple[Image.Image, int, int, in
     cols = int(math.ceil(math.sqrt(n)))
     rows = int(math.ceil(n / cols))
     sheet = Image.new("RGBA", (cols * frame_w, rows * frame_h), (0, 0, 0, 0))
+    pads: List[Dict[str, int]] = []
     for i, im in enumerate(frames):
         c, r = i % cols, i // cols
-        ox = c * frame_w + (frame_w - im.width) // 2
-        oy = r * frame_h + (frame_h - im.height)
+        pad_x = (frame_w - im.width) // 2
+        pad_y = frame_h - im.height
+        ox = c * frame_w + pad_x
+        oy = r * frame_h + pad_y
         sheet.paste(im, (ox, oy), im)
-    return sheet, cols, rows, frame_w, frame_h
+        pads.append({"x": pad_x, "y": pad_y})
+    return sheet, cols, rows, frame_w, frame_h, pads
 
 
 def export_one(
@@ -111,13 +123,19 @@ def export_one(
         raise FileNotFoundError(f"SLP {file_id} not found under graphics/interface/slp")
 
     frames, metas = decode_with_meta(data, palette, player=player, max_frames=max_frames)
-    sheet, cols, rows, frame_w, frame_h = pack_sheet(frames)
+    sheet, cols, rows, frame_w, frame_h, pads = pack_sheet(frames)
 
     cat_dir = out_dir / category
     cat_dir.mkdir(parents=True, exist_ok=True)
     png_path = cat_dir / f"{key}.png"
     json_path = cat_dir / f"{key}.json"
     sheet.save(png_path)
+
+    # SLP hotspots are relative to the original frame top-left; remap into uniform sheet cells.
+    hotspots = [
+        {"x": m.hotspot_x + pads[i]["x"], "y": m.hotspot_y + pads[i]["y"]}
+        for i, m in enumerate(metas)
+    ]
 
     meta = {
         "key": key,
@@ -132,7 +150,7 @@ def export_one(
         "frame_count": len(frames),
         "directions": directions,
         "frames_per_direction": (len(frames) // directions) if directions > 0 else len(frames),
-        "hotspots": [{"x": m.hotspot_x, "y": m.hotspot_y} for m in metas],
+        "hotspots": hotspots,
     }
     json_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return meta
@@ -143,8 +161,8 @@ def export_smoke(resources: Path, sprites_root: Path) -> Dict[str, Any]:
     last: Exception | None = None
     for file_id, key, directions, max_frames in (
         (50731, "ui_50731", 1, None),
-        (8, "archer_stand", 8, 16),
-        (12, "archer_walk", 8, 16),
+        (8, "archer_stand", 5, 16),
+        (12, "archer_walk", 5, 16),
     ):
         try:
             return export_one(
@@ -190,7 +208,7 @@ def export_priority(resources: Path, out_dir: Path, player: int = 1) -> Dict[str
         "discovered_ids": PRIORITY,
         "placeholders": [
             "Full TC is multi-layer (base + roofs); demo uses single top pieces (891/901).",
-            "Unit sheets assume 8 directions; exact frames_per_direction should be confirmed from empires2.dat later.",
+            "Unit sheets use 5 authored directions + horizontal flip for the mirrored facings.",
             "Shadow pixels are approximated as checkerboard alpha, not the in-game shadow table.",
         ],
     }
@@ -209,7 +227,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--id", type=int, default=None, help="export a single SLP id")
     parser.add_argument("--key", type=str, default=None, help="output key name for --id")
     parser.add_argument("--category", type=str, default="units")
-    parser.add_argument("--directions", type=int, default=8)
+    parser.add_argument(
+        "--directions",
+        type=int,
+        default=5,
+        help="authored facing count (classic units: 5 + flip; buildings: 1)",
+    )
     parser.add_argument("--out", type=Path, default=ROOT / "assets" / "sprites")
     args = parser.parse_args(argv)
 
