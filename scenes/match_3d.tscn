@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/input/rts_camera_3d.gd" id="1_camera"]
 [ext_resource type="Script" path="res://scripts/match/match_bootstrap.gd" id="2_bootstrap"]
@@ -14,6 +14,20 @@ roughness = 1.0
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
 material = SubResource("StandardMaterial3D_ground")
 size = Vector2(120, 120)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_move"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.95, 0.9, 0.2, 0.85)
+disable_receive_shadows = true
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_move"]
+material = SubResource("StandardMaterial3D_move")
+top_radius = 0.55
+bottom_radius = 0.55
+height = 0.04
+radial_segments = 28
+rings = 1
 
 [sub_resource type="Environment" id="Environment_match"]
 background_mode = 1
@@ -44,6 +58,11 @@ current = true
 script = ExtResource("1_camera")
 
 [node name="Entities" type="Node3D" parent="."]
+
+[node name="MoveMarker" type="MeshInstance3D" parent="."]
+visible = false
+cast_shadow = 0
+mesh = SubResource("CylinderMesh_move")
 
 [node name="SelectionController" type="Control" parent="."]
 layout_mode = 3

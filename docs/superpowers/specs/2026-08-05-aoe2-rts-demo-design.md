@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05  
 **Engine:** Godot 4.7  
-**Status:** Draft for implementation planning  
+**Status:** Approved/Implemented  
 
 ## Goal
 

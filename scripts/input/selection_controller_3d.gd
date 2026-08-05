@@ -6,6 +6,7 @@ signal selection_changed(selected: Array[Node3D])
 const GroundPickerScript := preload("res://scripts/input/ground_picker.gd")
 const DRAG_THRESHOLD := 6.0
 const CLICK_RADIUS := 18.0
+const MOVE_MARKER_DURATION := 1.35
 
 @export var camera_path: NodePath
 
@@ -14,10 +15,25 @@ var _selected_units: Array[Node3D] = []
 var _drag_start := Vector2.ZERO
 var _drag_current := Vector2.ZERO
 var _dragging := false
+var _move_marker: MeshInstance3D
+var _move_marker_ttl := 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_camera = get_node_or_null(camera_path) as Camera3D
+	set_process(true)
+
+func _process(delta: float) -> void:
+	if _move_marker_ttl <= 0.0:
+		return
+	_move_marker_ttl = maxf(0.0, _move_marker_ttl - delta)
+	if _move_marker != null and is_instance_valid(_move_marker):
+		var fade := clampf(_move_marker_ttl / MOVE_MARKER_DURATION, 0.0, 1.0)
+		var material := _move_marker.get_active_material(0) as StandardMaterial3D
+		if material != null:
+			material.albedo_color.a = 0.85 * fade
+		if _move_marker_ttl <= 0.0:
+			_move_marker.visible = false
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera == null:
@@ -105,11 +121,38 @@ func _select_box(box: Rect2, additive: bool) -> void:
 
 func _issue_move(target: Vector3) -> void:
 	var ground_target := Vector3(target.x, 0.0, target.z)
+	var issued := false
 	for unit in _selected_units.duplicate():
 		if not is_instance_valid(unit):
 			_selected_units.erase(unit)
 		elif unit.get("team") == Enums.Team.PLAYER and unit.has_method("command_move"):
 			unit.call("command_move", ground_target)
+			issued = true
+	if issued:
+		_show_move_marker(ground_target)
+
+func _show_move_marker(ground_target: Vector3) -> void:
+	_ensure_move_marker()
+	if _move_marker == null:
+		return
+	_move_marker.position = Vector3(ground_target.x, 0.04, ground_target.z)
+	_move_marker.visible = true
+	_move_marker_ttl = MOVE_MARKER_DURATION
+	var mesh := _move_marker.mesh
+	if mesh != null:
+		var material := mesh.surface_get_material(0) as StandardMaterial3D
+		if material != null:
+			var unique_material := material.duplicate() as StandardMaterial3D
+			unique_material.albedo_color = Color(0.95, 0.9, 0.2, 0.85)
+			mesh.surface_set_material(0, unique_material)
+
+func _ensure_move_marker() -> void:
+	if _move_marker != null and is_instance_valid(_move_marker):
+		return
+	var match_root := get_parent()
+	if match_root == null:
+		return
+	_move_marker = match_root.get_node_or_null("MoveMarker") as MeshInstance3D
 
 func _issue_gather(resource: Node3D) -> void:
 	for unit in _selected_units.duplicate():

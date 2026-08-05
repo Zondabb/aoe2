@@ -29,7 +29,7 @@ func _ready() -> void:
 
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as MeshInstance3D
-	if ground == null or ground.mesh != null:
+	if ground == null:
 		return
 
 	var material := StandardMaterial3D.new()
@@ -40,10 +40,15 @@ func _setup_ground() -> void:
 		if terrain != null:
 			material.albedo_texture = terrain
 			material.uv1_scale = Vector3(24.0, 24.0, 24.0)
-	var plane := PlaneMesh.new()
-	plane.size = GROUND_SIZE
-	plane.material = material
-	ground.mesh = plane
+	if ground.mesh == null:
+		var plane := PlaneMesh.new()
+		plane.size = GROUND_SIZE
+		ground.mesh = plane
+	elif ground.mesh is PlaneMesh:
+		var plane_mesh := (ground.mesh as PlaneMesh).duplicate() as PlaneMesh
+		plane_mesh.size = GROUND_SIZE
+		ground.mesh = plane_mesh
+	ground.material_override = material
 
 func _spawn_entities() -> void:
 	var entities := get_node_or_null("../Entities") as Node3D

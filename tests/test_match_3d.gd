@@ -82,6 +82,8 @@ func run() -> Array[String]:
 		elif billboard.sprite_frames == null or not billboard.sprite_frames.has_animation(&"dir_0"):
 			failures.append("villager billboard should have direction walk animations")
 
+		if unit.get_node("SelectionRing").visible:
+			failures.append("selection ring should start hidden")
 		selection.call("_add_selection", unit)
 		if not unit.get_node("SelectionRing").visible:
 			failures.append("selection should show the unit selection ring")
@@ -90,12 +92,26 @@ func run() -> Array[String]:
 		selection.call("_issue_move", move_target)
 		if unit.get("order") != Enums.OrderType.MOVE:
 			failures.append("right-click move should issue a move order")
+		var move_marker := scene_root.get_node_or_null("MoveMarker") as MeshInstance3D
+		if move_marker == null or not move_marker.visible:
+			failures.append("move order should show a ground move marker")
+		elif not is_equal_approx(move_marker.position.x, 5.0) or not is_equal_approx(
+			move_marker.position.z, 0.0
+		):
+			failures.append("move marker should sit on the ground target")
 		var original_position: Vector3 = unit.position
 		unit.call("_physics_process", 0.5)
 		if unit.position.x <= original_position.x:
 			failures.append("unit should move toward its target on the XZ plane")
 		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
 			failures.append("moving unit should remain on y=0")
+		var stable_button := hud.find_child("StableButton", true, false) as Button
+		if stable_button == null or stable_button.visible:
+			failures.append("Chinese HUD should hide the stable build button")
+		var ground := scene_root.get_node("Map/Ground") as MeshInstance3D
+		var ground_material := ground.material_override as StandardMaterial3D
+		if ground_material == null or ground_material.albedo_texture == null:
+			failures.append("match ground should apply the terrain texture")
 
 		var food_bush := entities.get_node_or_null("PlayerFoodBush")
 		var town_center := entities.get_node_or_null("PlayerTownCenter")
@@ -195,6 +211,14 @@ func run() -> Array[String]:
 			failures.append("player base should use the selected Teutons civilization")
 		if chinese_ai_tc == null or chinese_ai_tc.get("civ").id != &"chinese":
 			failures.append("AI should switch to Chinese when player selects Teutons")
+		var teutons_hud := teutons_match.get_node_or_null("HUD")
+		var teutons_stable := (
+			teutons_hud.find_child("StableButton", true, false) as Button
+			if teutons_hud != null
+			else null
+		)
+		if teutons_stable == null or not teutons_stable.visible:
+			failures.append("Teutons HUD should show the stable build button")
 		tree.root.remove_child(teutons_match)
 		teutons_match.free()
 

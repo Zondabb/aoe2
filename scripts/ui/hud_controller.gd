@@ -4,6 +4,7 @@ extends Control
 const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
 const BARRACKS: BuildingDef = preload("res://data/buildings/barracks.tres")
 const ARCHERY_RANGE: BuildingDef = preload("res://data/buildings/archery_range.tres")
+const STABLE: BuildingDef = preload("res://data/buildings/stable.tres")
 
 var match_state: MatchState
 var civ: CivDef
@@ -17,6 +18,7 @@ var _selected_building: Node3D
 @onready var _result_panel := %ResultPanel as Control
 @onready var _result_label := %ResultLabel as Label
 @onready var _return_button := %ReturnButton as Button
+@onready var _stable_button := %StableButton as Button
 
 func setup(
 	state: MatchState,
@@ -34,6 +36,9 @@ func setup(
 	_result_panel = get_node_or_null("ResultPanel") as Control
 	_result_label = find_child("ResultLabel", true, false) as Label
 	_return_button = find_child("ReturnButton", true, false) as Button
+	_stable_button = get_node_or_null("%StableButton") as Button
+	if _stable_button == null:
+		_stable_button = find_child("StableButton", true, false) as Button
 	if not selection.is_connected("selection_changed", _on_selection_changed):
 		selection.connect("selection_changed", _on_selection_changed)
 	if not match_state.winner_decided.is_connected(_on_winner_decided):
@@ -43,6 +48,9 @@ func setup(
 	_connect_build_button(%HouseButton, HOUSE)
 	_connect_build_button(%BarracksButton, BARRACKS)
 	_connect_build_button(%ArcheryButton, ARCHERY_RANGE)
+	if _stable_button != null:
+		_connect_build_button(_stable_button, STABLE)
+		_stable_button.visible = _civ_allows_stable()
 	_on_selection_changed([])
 	_refresh()
 	if match_state.winner != -1:
@@ -60,6 +68,9 @@ func _connect_build_button(button: Button, building_def: BuildingDef) -> void:
 	var callback := _request_build.bind(building_def)
 	if not button.pressed.is_connected(callback):
 		button.pressed.connect(callback)
+
+func _civ_allows_stable() -> bool:
+	return civ != null and Enums.BuildingType.STABLE in civ.allowed_buildings
 
 func _on_selection_changed(_selected: Array[Node3D]) -> void:
 	_disconnect_selected_building()
@@ -134,6 +145,9 @@ func _refresh() -> void:
 	%HouseButton.disabled = not _can_build(HOUSE)
 	%BarracksButton.disabled = not _can_build(BARRACKS)
 	%ArcheryButton.disabled = not _can_build(ARCHERY_RANGE)
+	if _stable_button != null:
+		_stable_button.visible = _civ_allows_stable()
+		_stable_button.disabled = not _can_build(STABLE)
 	for child in _train_panel.get_children():
 		var button := child as Button
 		if button != null and button.get_meta("unit_def", null) is UnitDef:

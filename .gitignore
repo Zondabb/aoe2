@@ -6,6 +6,16 @@
 tools/slp_export/config.json
 tools/slp_export/**/__pycache__/
 tools/slp_export/.pytest_cache/
+tools/slp_export/out/
+tools/slp_export/tmp/
+tools/slp_export/raw/
 assets/sprites/**/raw/
 *.drs
+*.slp
+*.DRS
+*.SLP
 
+# OS / editor noise
+Thumbs.db
+desktop.ini
+*.tmp
