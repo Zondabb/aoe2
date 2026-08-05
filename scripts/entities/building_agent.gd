@@ -7,6 +7,7 @@ signal destroyed(building: BuildingAgent)
 
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
+const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: BuildingDef
@@ -26,6 +27,7 @@ var _construction_started := false
 var _population_cap_registered := false
 var _reserved_population := 0
 var _ghost_visual_valid: Variant = null
+var _use_billboard := false
 
 func _ready() -> void:
 	if not is_placement_ghost:
@@ -139,11 +141,16 @@ func set_ghost_visual(valid: bool) -> void:
 	if _ghost_visual_valid == valid:
 		return
 	_ghost_visual_valid = valid
+	var tint := Color(0.2, 0.9, 0.35, 0.55) if valid else Color(0.95, 0.2, 0.2, 0.55)
+	var billboard := get_node_or_null("Billboard") as Sprite3D
+	if _use_billboard and billboard != null:
+		billboard.modulate = tint
+		return
 	var body := get_node_or_null("Body") as MeshInstance3D
 	if body == null:
 		return
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.2, 0.9, 0.35, 0.55) if valid else Color(0.95, 0.2, 0.2, 0.55)
+	material.albedo_color = tint
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	body.material_override = material
 
@@ -151,7 +158,7 @@ func clear_ghost_visual() -> void:
 	is_placement_ghost = false
 	_ghost_visual_valid = null
 	_register_groups()
-	_apply_team_color()
+	_configure_visuals()
 
 func _complete_construction() -> void:
 	if is_complete and _population_cap_registered:
@@ -194,19 +201,43 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	return true
 
 func _configure_visuals() -> void:
+	_use_billboard = false
 	var body := get_node_or_null("Body") as MeshInstance3D
+	var billboard := get_node_or_null("Billboard") as Sprite3D
+	var civ_id: StringName = civ.id if civ != null else &""
+	var base := SpriteCatalogScript.building_sheet_base(def.id, civ_id)
+	if billboard != null and SpriteCatalogScript.sheet_paths_exist(base):
+		var meta := SpriteCatalogScript.load_meta(base)
+		var texture := SpriteCatalogScript.load_texture(base)
+		if not meta.is_empty() and texture != null:
+			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
+			var hotspot := SpriteCatalogScript.average_hotspot(meta)
+			var offset := SpriteCatalogScript.offset_for_hotspot(meta, hotspot)
+			var pixel_size := SpriteCatalogScript.BUILDING_PIXEL_SIZE
+			var frame_w := float(meta.get("frame_w", 1))
+			var target_width := maxf(def.footprint.x, def.footprint.y) * 1.15
+			if frame_w > 0.0:
+				pixel_size = clampf(target_width / frame_w, 0.018, 0.05)
+			SpriteCatalogScript.configure_billboard_sprite(billboard, pixel_size, offset)
+			billboard.modulate = Color.WHITE
+			billboard.visible = true
+			_use_billboard = true
 	if body != null and body.mesh is BoxMesh:
 		var box := (body.mesh as BoxMesh).duplicate() as BoxMesh
 		box.size = Vector3(def.footprint.x, 2.2, def.footprint.y)
 		body.mesh = box
 		body.position.y = box.size.y * 0.5
+		body.visible = not _use_billboard
+	if billboard != null and not _use_billboard:
+		billboard.visible = false
 	var ring := get_node_or_null("SelectionRing") as MeshInstance3D
 	if ring != null and ring.mesh is CylinderMesh:
 		var cylinder := (ring.mesh as CylinderMesh).duplicate() as CylinderMesh
 		cylinder.top_radius = maxf(def.footprint.x, def.footprint.y) * 0.62
 		cylinder.bottom_radius = cylinder.top_radius
 		ring.mesh = cylinder
-	_apply_team_color()
+	if not _use_billboard:
+		_apply_team_color()
 
 func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as MeshInstance3D

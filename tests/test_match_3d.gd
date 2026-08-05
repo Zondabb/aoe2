@@ -73,6 +73,14 @@ func run() -> Array[String]:
 			failures.append("spawned villager should initialize from its unit definition")
 		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
 			failures.append("unit simulation should stay on y=0")
+		var billboard := unit.get_node_or_null("Billboard") as AnimatedSprite3D
+		var body := unit.get_node_or_null("Body") as MeshInstance3D
+		if billboard == null or not bool(unit.get("_use_billboard")):
+			failures.append("villager should bind an AnimatedSprite3D billboard when sheet exists")
+		elif body != null and body.visible:
+			failures.append("capsule placeholder should hide when billboard sprite is bound")
+		elif billboard.sprite_frames == null or not billboard.sprite_frames.has_animation(&"dir_0"):
+			failures.append("villager billboard should have direction walk animations")
 
 		selection.call("_add_selection", unit)
 		if not unit.get_node("SelectionRing").visible:

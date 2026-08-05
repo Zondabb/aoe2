@@ -3,6 +3,7 @@ extends Node
 
 const GROUND_SIZE := Vector2(120.0, 120.0)
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
+const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const VILLAGER_DEF := preload("res://data/units/villager.tres")
@@ -34,6 +35,11 @@ func _setup_ground() -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = GROUND_COLOR
 	material.roughness = 1.0
+	if ResourceLoader.exists(TERRAIN_TEXTURE):
+		var terrain := load(TERRAIN_TEXTURE) as Texture2D
+		if terrain != null:
+			material.albedo_texture = terrain
+			material.uv1_scale = Vector3(24.0, 24.0, 24.0)
 	var plane := PlaneMesh.new()
 	plane.size = GROUND_SIZE
 	plane.material = material
@@ -134,6 +140,7 @@ func _make_marker(size: Vector3, color: Color) -> MeshInstance3D:
 	mesh.size = size
 	mesh.material = material
 	var marker := MeshInstance3D.new()
+	marker.name = "Marker"
 	marker.position.y = size.y * 0.5
 	marker.mesh = mesh
 	return marker

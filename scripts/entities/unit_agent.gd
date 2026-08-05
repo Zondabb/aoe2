@@ -5,8 +5,10 @@ const ARRIVAL_DISTANCE := 0.15
 const GATHER_RANGE := 1.2
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
+const ANIM_FPS := 12.0
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
+const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
@@ -30,6 +32,10 @@ var _attack_target: Node3D
 var _attack_cooldown_remaining := 0.0
 var _gather_state := ""
 var _population_registered := false
+var _use_billboard := false
+var _facing_dir := 0
+var _facing_flip := false
+var _anim_frame := 0.0
 
 func _ready() -> void:
 	add_to_group("units")
@@ -41,7 +47,7 @@ func _ready() -> void:
 	if def != null and civ != null and not def.is_ranged:
 		melee_armor += civ.melee_armor_bonus
 	register_population()
-	_apply_team_color()
+	_setup_presentation()
 	set_selected(false)
 
 func register_population() -> void:
@@ -69,6 +75,7 @@ func _process_move(delta: float) -> void:
 		sim_pos = _move_target
 		position = sim_pos
 		order = Enums.OrderType.NONE
+		_apply_billboard_frame(false)
 		return
 
 	var step := minf(def.move_speed * delta, distance)
@@ -76,7 +83,7 @@ func _process_move(delta: float) -> void:
 	sim_pos += velocity
 	sim_pos.y = 0.0
 	position = sim_pos
-	rotation.y = atan2(velocity.x, velocity.z)
+	_update_billboard_facing(velocity, delta, true)
 
 func command_move(target: Vector3) -> void:
 	_move_target = Vector3(target.x, 0.0, target.z)
@@ -267,12 +274,65 @@ func _move_toward(target: Vector3, delta: float) -> void:
 	sim_pos += velocity
 	sim_pos.y = 0.0
 	position = sim_pos
-	rotation.y = atan2(velocity.x, velocity.z)
+	_update_billboard_facing(velocity, delta, true)
 
 func set_selected(selected: bool) -> void:
 	var selection_ring := get_node_or_null("SelectionRing") as MeshInstance3D
 	if selection_ring != null:
 		selection_ring.visible = selected
+
+func _setup_presentation() -> void:
+	var body := get_node_or_null("Body") as MeshInstance3D
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite3D
+	_use_billboard = false
+	if billboard != null and def != null:
+		var base := SpriteCatalogScript.unit_sheet_base(def.id)
+		if SpriteCatalogScript.sheet_paths_exist(base):
+			var meta := SpriteCatalogScript.load_meta(base)
+			var texture := SpriteCatalogScript.load_texture(base)
+			if not meta.is_empty() and texture != null:
+				billboard.sprite_frames = SpriteCatalogScript.build_unit_sprite_frames(
+					meta, texture
+				)
+				var hotspot := SpriteCatalogScript.average_hotspot(meta)
+				var offset := SpriteCatalogScript.offset_for_hotspot(meta, hotspot)
+				SpriteCatalogScript.configure_billboard_sprite(
+					billboard, SpriteCatalogScript.UNIT_PIXEL_SIZE, offset
+				)
+				billboard.visible = true
+				_use_billboard = true
+				_apply_billboard_frame(false)
+	if body != null:
+		body.visible = not _use_billboard
+		if not _use_billboard:
+			_apply_team_color()
+	if billboard != null and not _use_billboard:
+		billboard.visible = false
+
+func _update_billboard_facing(velocity: Vector3, delta: float, moving: bool) -> void:
+	if not _use_billboard:
+		return
+	var facing: Dictionary = SpriteCatalogScript.quantize_xz_facing(velocity)
+	_facing_dir = int(facing["dir"])
+	_facing_flip = bool(facing["flip"])
+	if moving:
+		_anim_frame = fmod(_anim_frame + ANIM_FPS * delta, 1024.0)
+	_apply_billboard_frame(moving)
+
+func _apply_billboard_frame(moving: bool) -> void:
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite3D
+	if billboard == null or billboard.sprite_frames == null:
+		return
+	var anim := StringName("dir_%d" % _facing_dir)
+	if not billboard.sprite_frames.has_animation(anim):
+		return
+	billboard.flip_h = _facing_flip
+	if billboard.animation != anim:
+		billboard.animation = anim
+	var frame_count := billboard.sprite_frames.get_frame_count(anim)
+	if frame_count <= 0:
+		return
+	billboard.frame = (int(_anim_frame) % frame_count) if moving else 0
 
 func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as MeshInstance3D
