@@ -37,6 +37,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			mouse_event.pressed
 			and mouse_event.button_index == MOUSE_BUTTON_RIGHT
 		):
+			var enemy := _enemy_at_screen(mouse_event.position)
+			if enemy != null:
+				_issue_attack(enemy)
+				return
 			var building := _unfinished_building_at_screen(mouse_event.position)
 			if building != null:
 				_issue_build(building)
@@ -134,6 +138,41 @@ func _issue_build(building: Node3D) -> void:
 			and unit.has_method("command_build")
 		):
 			unit.call("command_build", building)
+
+func _issue_attack(target: Node3D) -> void:
+	for unit in _selected_units.duplicate():
+		if not is_instance_valid(unit):
+			_selected_units.erase(unit)
+			continue
+		if (
+			unit.get("team") == Enums.Team.PLAYER
+			and target.get("team") != Enums.Team.PLAYER
+			and unit.has_method("command_attack")
+		):
+			unit.call("command_attack", target)
+
+func _enemy_at_screen(screen_position: Vector2) -> Node3D:
+	var closest: Node3D
+	var closest_distance := CLICK_RADIUS
+	var candidates: Array[Node] = []
+	candidates.assign(get_tree().get_nodes_in_group("units"))
+	candidates.append_array(get_tree().get_nodes_in_group("buildings"))
+	for node in candidates:
+		var enemy := node as Node3D
+		if (
+			enemy == null
+			or enemy.get("team") == Enums.Team.PLAYER
+			or enemy.is_queued_for_deletion()
+			or _camera.is_position_behind(enemy.global_position)
+		):
+			continue
+		var distance := _camera.unproject_position(enemy.global_position).distance_to(
+			screen_position
+		)
+		if distance <= closest_distance:
+			closest = enemy
+			closest_distance = distance
+	return closest
 
 func _resource_at_screen(screen_position: Vector2) -> Node3D:
 	var closest: Node3D

@@ -2,12 +2,16 @@
 class_name MatchState
 extends RefCounted
 
+signal winner_decided(team: Enums.Team)
+
 var resources: Dictionary = {}
 var population: Dictionary = {}
 var population_cap: Dictionary = {}
 var population_reserved: Dictionary = {}
+var winner := -1
 
 func setup_defaults() -> void:
+	winner = -1
 	for team in Enums.Team.values():
 		resources[team] = {
 			Enums.ResourceType.FOOD: 200,
@@ -55,3 +59,9 @@ func register_pop(team: Enums.Team, used_delta: int, cap_delta: int) -> void:
 
 func reserve_pop(team: Enums.Team, amount: int) -> void:
 	population_reserved[team] += amount
+
+func set_winner(team: Enums.Team) -> void:
+	if winner != -1:
+		return
+	winner = team
+	winner_decided.emit(team)

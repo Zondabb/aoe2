@@ -6,11 +6,15 @@ const GATHER_RANGE := 1.2
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
+const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
+@export var civ: CivDef
 
-var hp := 0
+var hp := 0.0
+var melee_armor := 0.0
+var pierce_armor := 0.0
 var order: Enums.OrderType = Enums.OrderType.NONE
 var sim_pos := Vector3.ZERO
 var carry_type := -1
@@ -22,6 +26,8 @@ var _gather_target: Node3D
 var _last_resource: Node3D
 var _drop_off_target: Node3D
 var _build_target: Node3D
+var _attack_target: Node3D
+var _attack_cooldown_remaining := 0.0
 var _gather_state := ""
 var _population_registered := false
 
@@ -29,7 +35,11 @@ func _ready() -> void:
 	add_to_group("units")
 	sim_pos = Vector3(position.x, 0.0, position.z)
 	position = sim_pos
-	hp = def.max_hp if def != null else 0
+	hp = float(def.max_hp) if def != null else 0.0
+	melee_armor = float(def.melee_armor) if def != null else 0.0
+	pierce_armor = float(def.pierce_armor) if def != null else 0.0
+	if def != null and civ != null and not def.is_ranged:
+		melee_armor += civ.melee_armor_bonus
 	register_population()
 	_apply_team_color()
 	set_selected(false)
@@ -48,6 +58,8 @@ func _physics_process(delta: float) -> void:
 		_process_gather(delta)
 	elif order == Enums.OrderType.BUILD:
 		_process_build(delta)
+	elif order == Enums.OrderType.ATTACK:
+		_process_attack(delta)
 
 func _process_move(delta: float) -> void:
 	var offset := _move_target - sim_pos
@@ -71,6 +83,7 @@ func command_move(target: Vector3) -> void:
 	_gather_target = null
 	_drop_off_target = null
 	_build_target = null
+	_attack_target = null
 	_gather_state = ""
 	order = Enums.OrderType.MOVE
 
@@ -81,6 +94,7 @@ func command_gather(resource: Node3D) -> void:
 	_last_resource = resource
 	_drop_off_target = null
 	_build_target = null
+	_attack_target = null
 	_gather_state = "to_resource"
 	order = Enums.OrderType.GATHER
 
@@ -93,10 +107,59 @@ func command_build(building: Node3D) -> void:
 	):
 		return
 	_build_target = building
+	_attack_target = null
 	_gather_target = null
 	_drop_off_target = null
 	_gather_state = ""
 	order = Enums.OrderType.BUILD
+
+func command_attack(target: Node) -> void:
+	var target_3d := target as Node3D
+	if (
+		target_3d == null
+		or not is_instance_valid(target_3d)
+		or target_3d.get("team") == team
+		or not target_3d.has_method("take_damage")
+	):
+		return
+	_attack_target = target_3d
+	_gather_target = null
+	_drop_off_target = null
+	_build_target = null
+	_gather_state = ""
+	order = Enums.OrderType.ATTACK
+
+func _process_attack(delta: float) -> void:
+	if not _attack_target_available():
+		_attack_target = null
+		order = Enums.OrderType.NONE
+		return
+	_attack_cooldown_remaining = maxf(0.0, _attack_cooldown_remaining - delta)
+	if _distance_to(_attack_target) > def.range:
+		_move_toward(_attack_target.position, delta)
+		return
+	if _attack_cooldown_remaining > 0.0:
+		return
+	CombatSystemScript.apply_hit(def, _attack_target)
+	_attack_cooldown_remaining = def.attack_cooldown
+	if not _attack_target_available():
+		_attack_target = null
+		order = Enums.OrderType.NONE
+
+func take_damage(amount: float) -> void:
+	if amount <= 0.0 or hp <= 0.0:
+		return
+	hp = maxf(0.0, hp - amount)
+	if hp <= 0.0:
+		queue_free()
+
+func _attack_target_available() -> bool:
+	return (
+		is_instance_valid(_attack_target)
+		and not _attack_target.is_queued_for_deletion()
+		and float(_attack_target.get("hp")) > 0.0
+		and _attack_target.get("team") != team
+	)
 
 func _process_build(delta: float) -> void:
 	if not is_instance_valid(_build_target) or bool(_build_target.get("is_complete")):

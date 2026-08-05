@@ -12,4 +12,10 @@ func run() -> Array[String]:
 	var zero := CombatMath.apply_armor(0.0, 5.0)
 	if not is_equal_approx(zero, 0.0):
 		failures.append("expected 0 got %s" % zero)
+	var melee_armor := CombatMath.armor_for(false, 3.0, 7.0)
+	if not is_equal_approx(melee_armor, 3.0):
+		failures.append("melee attacks should use melee armor")
+	var pierce_armor := CombatMath.armor_for(true, 3.0, 7.0)
+	if not is_equal_approx(pierce_armor, 7.0):
+		failures.append("ranged attacks should use pierce armor")
 	return failures

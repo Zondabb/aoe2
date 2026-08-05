@@ -3,6 +3,7 @@ extends Node3D
 
 signal construction_completed(building: BuildingAgent)
 signal train_queue_changed
+signal destroyed(building: BuildingAgent)
 
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
@@ -13,7 +14,9 @@ const AI_COLOR := Color(0.88, 0.18, 0.14)
 @export var accepts_all_resources := false
 @export var accepted_resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
 var match_state: MatchState
-var hp := 0
+var hp := 0.0
+var melee_armor := 0.0
+var pierce_armor := 0.0
 var build_progress := 0.0
 var is_complete := true
 var is_placement_ghost := false
@@ -32,10 +35,10 @@ func _ready() -> void:
 		_configure_visuals()
 		if _construction_started and def.build_time > 0.0:
 			is_complete = false
-			hp = maxi(1, int(def.max_hp * build_progress / def.build_time))
+			hp = maxf(1.0, _max_hp() * build_progress / def.build_time)
 		else:
 			build_progress = def.build_time
-			hp = def.max_hp
+			hp = _max_hp()
 			_complete_construction()
 	set_physics_process(not train_queue.is_empty())
 	set_selected(false)
@@ -65,10 +68,30 @@ func add_build_progress(amount: float) -> void:
 	if is_complete or def == null or amount <= 0.0:
 		return
 	build_progress = minf(build_progress + amount, def.build_time)
-	hp = maxi(1, int(def.max_hp * build_progress / maxf(def.build_time, 0.001)))
+	hp = maxf(1.0, _max_hp() * build_progress / maxf(def.build_time, 0.001))
 	if build_progress >= def.build_time:
-		hp = def.max_hp
+		hp = _max_hp()
 		_complete_construction()
+
+func take_damage(amount: float) -> void:
+	if amount <= 0.0 or hp <= 0.0:
+		return
+	hp = maxf(0.0, hp - amount)
+	if hp > 0.0:
+		return
+	destroyed.emit(self)
+	if def != null and def.id == &"town_center" and match_state != null:
+		var winning_team := (
+			Enums.Team.AI if team == Enums.Team.PLAYER else Enums.Team.PLAYER
+		)
+		match_state.set_winner(winning_team)
+	queue_free()
+
+func _max_hp() -> float:
+	if def == null:
+		return 0.0
+	var hp_multiplier := civ.building_hp_mul if civ != null else 1.0
+	return float(def.max_hp) * hp_multiplier
 
 func enqueue_train(unit_def: UnitDef) -> bool:
 	if (
@@ -159,6 +182,7 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	var unit := unit_view.instantiate() as Node3D
 	unit.set("team", team)
 	unit.set("def", unit_def)
+	unit.set("civ", civ)
 	unit.set("match_state", match_state)
 	match_state.reserve_pop(team, -_reserved_population)
 	_reserved_population = 0
