@@ -35,6 +35,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			mouse_event.pressed
 			and mouse_event.button_index == MOUSE_BUTTON_RIGHT
 		):
+			var resource := _resource_at_screen(mouse_event.position)
+			if resource != null:
+				_issue_gather(resource)
+				return
 			var target: Variant = GroundPickerScript.pick_ground(
 				_camera, mouse_event.position
 			)
@@ -94,6 +98,36 @@ func _issue_move(target: Vector3) -> void:
 			_selected_units.erase(unit)
 		elif unit.get("team") == Enums.Team.PLAYER:
 			unit.call("command_move", ground_target)
+
+func _issue_gather(resource: Node3D) -> void:
+	for unit in _selected_units.duplicate():
+		if not is_instance_valid(unit):
+			_selected_units.erase(unit)
+			continue
+		var unit_def := unit.get("def") as UnitDef
+		if (
+			unit.get("team") == Enums.Team.PLAYER
+			and unit_def != null
+			and unit_def.id == &"villager"
+		):
+			unit.call("command_gather", resource)
+
+func _resource_at_screen(screen_position: Vector2) -> Node3D:
+	var closest: Node3D
+	var closest_distance := CLICK_RADIUS
+	for node in get_tree().get_nodes_in_group("resource_nodes"):
+		var resource := node as Node3D
+		if resource == null or not resource.visible:
+			continue
+		if _camera.is_position_behind(resource.global_position):
+			continue
+		var distance := _camera.unproject_position(resource.global_position).distance_to(
+			screen_position
+		)
+		if distance <= closest_distance:
+			closest = resource
+			closest_distance = distance
+	return closest
 
 func _player_units() -> Array[Node3D]:
 	var result: Array[Node3D] = []

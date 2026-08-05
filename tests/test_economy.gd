@@ -1,0 +1,65 @@
+extends RefCounted
+
+const RESOURCE_NODE_SCRIPT := preload("res://scripts/entities/resource_node.gd")
+const BUILDING_AGENT_SCRIPT := preload("res://scripts/entities/building_agent.gd")
+const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
+const VILLAGER_DEF := preload("res://data/units/villager.tres")
+
+func run() -> Array[String]:
+	var failures: Array[String] = []
+	_test_resource_extraction(failures)
+	_test_gather_and_drop_off(failures)
+	return failures
+
+func _test_resource_extraction(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCRIPT.new()
+	resource.amount = 6.0
+	resource.gather_rate = 4.0
+	if not is_equal_approx(resource.extract(1.0), 4.0):
+		failures.append("resource should extract at its gather rate")
+	if not is_equal_approx(resource.extract(1.0), 2.0):
+		failures.append("resource extraction should be capped by remaining amount")
+	if not is_zero_approx(resource.amount):
+		failures.append("resource should become empty after final extraction")
+	resource.free()
+
+func _test_gather_and_drop_off(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node3D.new()
+	tree.root.add_child(root)
+
+	var state := MatchState.new()
+	state.setup_defaults()
+	var initial_food := state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD)
+
+	var resource := RESOURCE_NODE_SCRIPT.new()
+	resource.resource_type = Enums.ResourceType.FOOD
+	resource.amount = 100.0
+	resource.gather_rate = 10.0
+	resource.position = Vector3(1.0, 0.0, 0.0)
+	root.add_child(resource)
+
+	var town_center := BUILDING_AGENT_SCRIPT.new()
+	town_center.team = Enums.Team.PLAYER
+	town_center.accepts_all_resources = true
+	town_center.position = Vector3(3.0, 0.0, 0.0)
+	root.add_child(town_center)
+
+	var villager := UNIT_VIEW.instantiate()
+	villager.def = VILLAGER_DEF
+	villager.team = Enums.Team.PLAYER
+	villager.match_state = state
+	root.add_child(villager)
+	villager.command_gather(resource)
+
+	for _step in 40:
+		villager._physics_process(0.25)
+
+	if state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD) <= initial_food:
+		failures.append("villager should deposit gathered resources at a friendly drop-off")
+	if villager.carry_amount > villager.carry_capacity:
+		failures.append("villager carry amount should never exceed capacity")
+	if villager.order != Enums.OrderType.GATHER:
+		failures.append("villager should return to gathering while the node has resources")
+
+	root.free()

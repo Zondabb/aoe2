@@ -45,10 +45,10 @@ func run() -> Array[String]:
 		selection.call("_ready")
 
 	var entities := scene_root.get_node("Entities")
-	if entities.get_child_count() != 1:
-		failures.append("bootstrap should spawn one player villager")
+	if entities.get_child_count() != 5:
+		failures.append("bootstrap should spawn a villager, TC, and three resources")
 	else:
-		var unit := entities.get_child(0)
+		var unit := entities.get_node("PlayerVillager")
 		unit.call("_ready")
 		if unit.get("team") != Enums.Team.PLAYER:
 			failures.append("spawned villager should belong to player")
@@ -71,6 +71,19 @@ func run() -> Array[String]:
 			failures.append("unit should move toward its target on the XZ plane")
 		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
 			failures.append("moving unit should remain on y=0")
+
+		var food_bush := entities.get_node_or_null("FoodBush")
+		var town_center := entities.get_node_or_null("TownCenter")
+		if food_bush == null or not food_bush.has_method("extract"):
+			failures.append("bootstrap should spawn gatherable food")
+		elif town_center == null or not town_center.has_method("accepts_resource"):
+			failures.append("bootstrap should spawn a resource drop-off TC")
+		else:
+			selection.call("_issue_gather", food_bush)
+			if unit.get("order") != Enums.OrderType.GATHER:
+				failures.append("resource command should issue a gather order")
+	if scene_root.get_node_or_null("ResourceLabel") == null:
+		failures.append("match should display resource counters")
 
 	scene_root.queue_free()
 

@@ -2,8 +2,10 @@ class_name UnitAgent
 extends Node3D
 
 const ARRIVAL_DISTANCE := 0.15
+const GATHER_RANGE := 1.2
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
+const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
@@ -11,7 +13,15 @@ const AI_COLOR := Color(0.88, 0.18, 0.14)
 var hp := 0
 var order: Enums.OrderType = Enums.OrderType.NONE
 var sim_pos := Vector3.ZERO
+var carry_type := -1
+var carry_amount := 0.0
+@export var carry_capacity := 10.0
+var match_state: MatchState
 var _move_target := Vector3.ZERO
+var _gather_target: Node3D
+var _last_resource: Node3D
+var _drop_off_target: Node3D
+var _gather_state := ""
 
 func _ready() -> void:
 	add_to_group("units")
@@ -22,9 +32,14 @@ func _ready() -> void:
 	set_selected(false)
 
 func _physics_process(delta: float) -> void:
-	if order != Enums.OrderType.MOVE or def == null:
+	if def == null:
 		return
+	if order == Enums.OrderType.MOVE:
+		_process_move(delta)
+	elif order == Enums.OrderType.GATHER:
+		_process_gather(delta)
 
+func _process_move(delta: float) -> void:
 	var offset := _move_target - sim_pos
 	offset.y = 0.0
 	var distance := offset.length()
@@ -43,7 +58,108 @@ func _physics_process(delta: float) -> void:
 
 func command_move(target: Vector3) -> void:
 	_move_target = Vector3(target.x, 0.0, target.z)
+	_gather_target = null
+	_drop_off_target = null
+	_gather_state = ""
 	order = Enums.OrderType.MOVE
+
+func command_gather(resource: Node3D) -> void:
+	if resource == null or float(resource.get("amount")) <= 0.0:
+		return
+	_gather_target = resource
+	_last_resource = resource
+	_drop_off_target = null
+	_gather_state = "to_resource"
+	order = Enums.OrderType.GATHER
+
+func _process_gather(delta: float) -> void:
+	match _gather_state:
+		"to_resource":
+			if not _resource_available(_gather_target):
+				_finish_or_drop_off()
+			elif _distance_to(_gather_target) <= GATHER_RANGE:
+				_gather_state = "gathering"
+			else:
+				_move_toward(_gather_target.position, delta)
+		"gathering":
+			_gather(delta)
+		"to_drop_off":
+			_process_drop_off(delta)
+		_:
+			order = Enums.OrderType.NONE
+
+func _gather(delta: float) -> void:
+	if not _resource_available(_gather_target):
+		_finish_or_drop_off()
+		return
+	if _distance_to(_gather_target) > GATHER_RANGE:
+		_gather_state = "to_resource"
+		return
+	var remaining_capacity := carry_capacity - carry_amount
+	if remaining_capacity <= 0.0:
+		_begin_drop_off()
+		return
+	if carry_type == -1:
+		carry_type = int(_gather_target.get("resource_type"))
+	var gather_rate := float(_gather_target.get("gather_rate"))
+	var gather_time := minf(delta, remaining_capacity / gather_rate)
+	carry_amount += float(_gather_target.call("extract", gather_time))
+	if carry_amount >= carry_capacity or not _resource_available(_gather_target):
+		_begin_drop_off()
+
+func _begin_drop_off() -> void:
+	if carry_amount <= 0.0:
+		order = Enums.OrderType.NONE
+		return
+	_drop_off_target = GatherSystemScript.nearest_drop_off(self, carry_type)
+	if _drop_off_target == null:
+		order = Enums.OrderType.NONE
+		return
+	_gather_state = "to_drop_off"
+
+func _process_drop_off(delta: float) -> void:
+	if not is_instance_valid(_drop_off_target):
+		_begin_drop_off()
+		return
+	if _distance_to(_drop_off_target) > GATHER_RANGE:
+		_move_toward(_drop_off_target.position, delta)
+		return
+	if match_state != null:
+		match_state.add_resource(team, carry_type, int(round(carry_amount)))
+	carry_amount = 0.0
+	carry_type = -1
+	_drop_off_target = null
+	if _resource_available(_last_resource):
+		_gather_target = _last_resource
+		_gather_state = "to_resource"
+	else:
+		order = Enums.OrderType.NONE
+		_gather_state = ""
+
+func _finish_or_drop_off() -> void:
+	if carry_amount > 0.0:
+		_begin_drop_off()
+	else:
+		order = Enums.OrderType.NONE
+		_gather_state = ""
+
+func _resource_available(resource: Node3D) -> bool:
+	return is_instance_valid(resource) and float(resource.get("amount")) > 0.0
+
+func _distance_to(target: Node3D) -> float:
+	return position.distance_to(target.position)
+
+func _move_toward(target: Vector3, delta: float) -> void:
+	var offset := Vector3(target.x, 0.0, target.z) - sim_pos
+	var distance := offset.length()
+	if distance <= ARRIVAL_DISTANCE:
+		return
+	var step := minf(def.move_speed * delta, distance)
+	var velocity := offset.normalized() * step
+	sim_pos += velocity
+	sim_pos.y = 0.0
+	position = sim_pos
+	rotation.y = atan2(velocity.x, velocity.z)
 
 func set_selected(selected: bool) -> void:
 	var selection_ring := get_node_or_null("SelectionRing") as MeshInstance3D
