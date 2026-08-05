@@ -8,6 +8,7 @@ func _initialize() -> void:
 	failures.append_array(load("res://tests/test_match_state.gd").new().run())
 	failures.append_array(load("res://tests/test_match_3d.gd").new().run())
 	failures.append_array(load("res://tests/test_economy.gd").new().run())
+	failures.append_array(load("res://tests/test_buildings.gd").new().run())
 	if failures.is_empty():
 		print("ALL TESTS PASSED")
 		quit(0)

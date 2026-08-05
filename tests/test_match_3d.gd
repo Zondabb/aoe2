@@ -43,6 +43,16 @@ func run() -> Array[String]:
 		failures.append("match scene should contain selection controller")
 	else:
 		selection.call("_ready")
+	var build_system := scene_root.get_node_or_null("BuildSystem")
+	if build_system == null or build_system.get_script() == null:
+		failures.append("match scene should contain a wired build system")
+	elif build_system.get("match_state") == null:
+		failures.append("bootstrap should configure the build system")
+	var hud := scene_root.get_node_or_null("HUD")
+	if hud == null or hud.get_script() == null:
+		failures.append("match scene should contain the building HUD")
+	elif hud.get("build_system") != build_system or hud.get("selection") != selection:
+		failures.append("bootstrap should connect HUD building controls")
 
 	var entities := scene_root.get_node("Entities")
 	if entities.get_child_count() != 5:
@@ -78,12 +88,54 @@ func run() -> Array[String]:
 			failures.append("bootstrap should spawn gatherable food")
 		elif town_center == null or not town_center.has_method("accepts_resource"):
 			failures.append("bootstrap should spawn a resource drop-off TC")
+		elif town_center.get("def") == null or town_center.get("match_state") != scene_root.get_node("Bootstrap").get("match_state"):
+			failures.append("bootstrap should configure the town center for training")
 		else:
+			town_center.call("_ready")
 			selection.call("_issue_gather", food_bush)
 			if unit.get("order") != Enums.OrderType.GATHER:
 				failures.append("resource command should issue a gather order")
-	if scene_root.get_node_or_null("ResourceLabel") == null:
-		failures.append("match should display resource counters")
+			selection.call("_clear_selection")
+			selection.call("_add_selection", town_center)
+			if hud.get_node("TrainPanel").get_child_count() != 1:
+				failures.append("selecting the town center should show its train button")
+			if bool(build_system.call(
+				"begin_placement",
+				load("res://data/buildings/house.tres")
+			)):
+				failures.append("building placement should require a selected villager")
+			selection.call("_clear_selection")
+			selection.call("_add_selection", unit)
+			var state := (
+				scene_root.get_node("Bootstrap").get("match_state") as MatchState
+			)
+			var initial_wood: int = state.get_resource(
+				Enums.Team.PLAYER, Enums.ResourceType.WOOD
+			)
+			if not bool(build_system.call(
+				"begin_placement",
+				load("res://data/buildings/house.tres")
+			)):
+				failures.append("HUD build system should begin affordable house placement")
+			else:
+				var ghost := build_system.get("_ghost") as Node3D
+				if ghost.is_in_group("buildings"):
+					failures.append("placement preview should not be a selectable building")
+				ghost.position = Vector3(8.0, 0.0, 0.0)
+				if not bool(build_system.call("confirm_placement")):
+					failures.append("build system should confirm a valid house placement")
+				elif unit.get("order") != Enums.OrderType.BUILD:
+					failures.append("placed foundation should command selected villager to build")
+				elif state.get_resource(
+					Enums.Team.PLAYER, Enums.ResourceType.WOOD
+				) >= initial_wood:
+					failures.append("confirming placement should spend building resources")
+				unit.call("command_move", Vector3.ZERO)
+				selection.call("_issue_build", ghost)
+				if unit.get("order") != Enums.OrderType.BUILD:
+					failures.append("right-clicking a foundation should resume construction")
+	if hud != null and hud.get_node_or_null("TopBar/ResourcesLabel") == null:
+		failures.append("HUD should display resource counters")
 
 	scene_root.queue_free()
 

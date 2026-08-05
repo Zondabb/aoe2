@@ -4,22 +4,20 @@ extends Node
 const GROUND_SIZE := Vector2(120.0, 120.0)
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
+const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const VILLAGER_DEF := preload("res://data/units/villager.tres")
+const TOWN_CENTER_DEF := preload("res://data/buildings/town_center.tres")
+const CHINESE_CIV := preload("res://data/civs/chinese.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
-const BuildingAgentScript := preload("res://scripts/entities/building_agent.gd")
 
 var match_state := MatchState.new()
-var _resource_label: Label
 
 func _ready() -> void:
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	_setup_ground()
 	_spawn_entities()
-	_setup_resource_label()
-
-func _process(_delta: float) -> void:
-	_update_resource_label()
+	_setup_building_controls()
 
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as MeshInstance3D
@@ -47,12 +45,14 @@ func _spawn_entities() -> void:
 	villager.position = Vector3.ZERO
 	entities.add_child(villager)
 
-	var town_center := BuildingAgentScript.new()
+	var town_center := BUILDING_VIEW.instantiate() as Node3D
 	town_center.name = "TownCenter"
-	town_center.team = Enums.Team.PLAYER
-	town_center.accepts_all_resources = true
+	town_center.set("team", Enums.Team.PLAYER)
+	town_center.set("def", TOWN_CENTER_DEF)
+	town_center.set("civ", CHINESE_CIV)
+	town_center.set("match_state", match_state)
+	town_center.set("accepts_all_resources", true)
 	town_center.position = Vector3(-4.0, 0.0, 0.0)
-	town_center.add_child(_make_marker(Vector3(3.0, 2.2, 3.0), Color(0.22, 0.42, 0.78)))
 	entities.add_child(town_center)
 
 	_spawn_resource(
@@ -96,24 +96,24 @@ func _make_marker(size: Vector3, color: Color) -> MeshInstance3D:
 	marker.mesh = mesh
 	return marker
 
-func _setup_resource_label() -> void:
+func _setup_building_controls() -> void:
 	var match_root := get_parent()
 	if match_root == null:
 		return
-	_resource_label = match_root.get_node_or_null("ResourceLabel") as Label
-	if _resource_label == null:
-		_resource_label = Label.new()
-		_resource_label.name = "ResourceLabel"
-		_resource_label.position = Vector2(16.0, 16.0)
-		_resource_label.add_theme_font_size_override("font_size", 22)
-		match_root.add_child.call_deferred(_resource_label)
-	_update_resource_label()
-
-func _update_resource_label() -> void:
-	if _resource_label == null or match_state.resources.is_empty():
+	var camera := match_root.get_node_or_null("CameraRig/Camera3D") as Camera3D
+	var entities := match_root.get_node_or_null("Entities") as Node3D
+	var selection := match_root.get_node_or_null("SelectionController") as Control
+	var build_system := match_root.get_node_or_null("BuildSystem") as Node
+	var hud := match_root.get_node_or_null("HUD") as Control
+	if (
+		camera == null
+		or entities == null
+		or selection == null
+		or build_system == null
+		or hud == null
+	):
 		return
-	_resource_label.text = "Food %d   Wood %d   Gold %d" % [
-		match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD),
-		match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.WOOD),
-		match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.GOLD),
-	]
+	build_system.call(
+		"setup", camera, entities, selection, match_state, CHINESE_CIV
+	)
+	hud.call("setup", match_state, CHINESE_CIV, build_system, selection)

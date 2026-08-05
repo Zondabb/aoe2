@@ -1,8 +1,10 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/input/rts_camera_3d.gd" id="1_camera"]
 [ext_resource type="Script" path="res://scripts/match/match_bootstrap.gd" id="2_bootstrap"]
 [ext_resource type="Script" path="res://scripts/input/selection_controller_3d.gd" id="3_selection"]
+[ext_resource type="Script" path="res://scripts/systems/build_system.gd" id="4_build"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="5_hud"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
 albedo_color = Color(0.2, 0.48, 0.16, 1)
@@ -53,12 +55,10 @@ mouse_filter = 2
 script = ExtResource("3_selection")
 camera_path = NodePath("../CameraRig/Camera3D")
 
+[node name="BuildSystem" type="Node" parent="."]
+script = ExtResource("4_build")
+
+[node name="HUD" parent="." instance=ExtResource("5_hud")]
+
 [node name="Bootstrap" type="Node" parent="."]
 script = ExtResource("2_bootstrap")
-
-[node name="ResourceLabel" type="Label" parent="."]
-offset_left = 16.0
-offset_top = 16.0
-offset_right = 420.0
-offset_bottom = 48.0
-theme_override_font_sizes/font_size = 22

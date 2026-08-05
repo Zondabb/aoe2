@@ -5,6 +5,7 @@ extends RefCounted
 var resources: Dictionary = {}
 var population: Dictionary = {}
 var population_cap: Dictionary = {}
+var population_reserved: Dictionary = {}
 
 func setup_defaults() -> void:
 	for team in Enums.Team.values():
@@ -15,6 +16,7 @@ func setup_defaults() -> void:
 		}
 		population[team] = 0
 		population_cap[team] = 0
+		population_reserved[team] = 0
 
 func get_resource(team: Enums.Team, type: Enums.ResourceType) -> int:
 	return resources[team][type]
@@ -40,8 +42,16 @@ func add_resource(team: Enums.Team, type: Enums.ResourceType, amount: int) -> vo
 func can_train(team: Enums.Team, def: UnitDef) -> bool:
 	if not can_afford(team, def.cost_food, def.cost_wood, def.cost_gold):
 		return false
-	return population[team] + def.population <= population_cap[team]
+	return (
+		population[team]
+		+ population_reserved[team]
+		+ def.population
+		<= population_cap[team]
+	)
 
 func register_pop(team: Enums.Team, used_delta: int, cap_delta: int) -> void:
 	population[team] += used_delta
 	population_cap[team] += cap_delta
+
+func reserve_pop(team: Enums.Team, amount: int) -> void:
+	population_reserved[team] += amount

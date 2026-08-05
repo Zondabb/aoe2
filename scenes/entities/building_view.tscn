@@ -1,0 +1,28 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/entities/building_agent.gd" id="1_building"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_body"]
+size = Vector3(2, 2.2, 2)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ring"]
+albedo_color = Color(0.2, 0.9, 1, 0.65)
+transparency = 1
+shading_mode = 0
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_ring"]
+material = SubResource("StandardMaterial3D_ring")
+top_radius = 1.25
+bottom_radius = 1.25
+height = 0.04
+
+[node name="BuildingAgent" type="Node3D"]
+script = ExtResource("1_building")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.1, 0)
+mesh = SubResource("BoxMesh_body")
+
+[node name="SelectionRing" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.03, 0)
+mesh = SubResource("CylinderMesh_ring")

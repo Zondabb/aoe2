@@ -21,15 +21,23 @@ var _move_target := Vector3.ZERO
 var _gather_target: Node3D
 var _last_resource: Node3D
 var _drop_off_target: Node3D
+var _build_target: Node3D
 var _gather_state := ""
+var _population_registered := false
 
 func _ready() -> void:
 	add_to_group("units")
 	sim_pos = Vector3(position.x, 0.0, position.z)
 	position = sim_pos
 	hp = def.max_hp if def != null else 0
+	register_population()
 	_apply_team_color()
 	set_selected(false)
+
+func register_population() -> void:
+	if match_state != null and def != null and not _population_registered:
+		match_state.register_pop(team, def.population, 0)
+		_population_registered = true
 
 func _physics_process(delta: float) -> void:
 	if def == null:
@@ -38,6 +46,8 @@ func _physics_process(delta: float) -> void:
 		_process_move(delta)
 	elif order == Enums.OrderType.GATHER:
 		_process_gather(delta)
+	elif order == Enums.OrderType.BUILD:
+		_process_build(delta)
 
 func _process_move(delta: float) -> void:
 	var offset := _move_target - sim_pos
@@ -60,6 +70,7 @@ func command_move(target: Vector3) -> void:
 	_move_target = Vector3(target.x, 0.0, target.z)
 	_gather_target = null
 	_drop_off_target = null
+	_build_target = null
 	_gather_state = ""
 	order = Enums.OrderType.MOVE
 
@@ -69,8 +80,42 @@ func command_gather(resource: Node3D) -> void:
 	_gather_target = resource
 	_last_resource = resource
 	_drop_off_target = null
+	_build_target = null
 	_gather_state = "to_resource"
 	order = Enums.OrderType.GATHER
+
+func command_build(building: Node3D) -> void:
+	if (
+		building == null
+		or bool(building.get("is_complete"))
+		or def == null
+		or def.id != &"villager"
+	):
+		return
+	_build_target = building
+	_gather_target = null
+	_drop_off_target = null
+	_gather_state = ""
+	order = Enums.OrderType.BUILD
+
+func _process_build(delta: float) -> void:
+	if not is_instance_valid(_build_target) or bool(_build_target.get("is_complete")):
+		_build_target = null
+		order = Enums.OrderType.NONE
+		return
+	var build_range := 1.0
+	var building_def := _build_target.get("def") as BuildingDef
+	if building_def != null:
+		build_range += maxf(
+			building_def.footprint.x, building_def.footprint.y
+		) * 0.5
+	if _distance_to(_build_target) > build_range:
+		_move_toward(_build_target.position, delta)
+		return
+	_build_target.call("add_build_progress", delta)
+	if bool(_build_target.get("is_complete")):
+		_build_target = null
+		order = Enums.OrderType.NONE
 
 func _process_gather(delta: float) -> void:
 	match _gather_state:
@@ -174,3 +219,8 @@ func _apply_team_color() -> void:
 	material.albedo_color = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
 	material.roughness = 0.8
 	body.material_override = material
+
+func _exit_tree() -> void:
+	if _population_registered and match_state != null and def != null:
+		match_state.register_pop(team, -def.population, 0)
+		_population_registered = false
