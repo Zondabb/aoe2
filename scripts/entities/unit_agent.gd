@@ -268,6 +268,7 @@ func _move_toward(target: Vector3, delta: float) -> void:
 	var offset := Vector3(target.x, 0.0, target.z) - sim_pos
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
+		_apply_billboard_frame(false)
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step

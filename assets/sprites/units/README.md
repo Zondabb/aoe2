@@ -8,9 +8,9 @@ Exported walk sheets use **5 authored facings** plus **horizontal flip** for the
 |------:|--------|-------|
 | 0 | South (+Z) | Authored |
 | 1 | Southwest | Authored; SE uses this + `flip_h` |
-| 2 | West (−X) | Authored; East uses this + `flip_h` |
+| 2 | West (-X) | Authored; East uses this + `flip_h` |
 | 3 | Northwest | Authored; NE uses this + `flip_h` |
-| 4 | North (−Z) | Authored |
+| 4 | North (-Z) | Authored |
 
 Sheet packing is sequential: frame index = `direction * frames_per_direction + step`, then placed into the PNG grid (`cols` × `rows` from the sidecar JSON).
 
