@@ -8,13 +8,19 @@ const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const VILLAGER_DEF := preload("res://data/units/villager.tres")
 const TOWN_CENTER_DEF := preload("res://data/buildings/town_center.tres")
 const CHINESE_CIV := preload("res://data/civs/chinese.tres")
+const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 
 var match_state := MatchState.new()
+var player_civ: CivDef
+var ai_civ: CivDef
 
 func _ready() -> void:
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
+	player_civ = _civ_for_id(GameSession.player_civ_id)
+	ai_civ = _opposite_civ(player_civ)
+	GameSession.ai_civ_id = ai_civ.id
 	_setup_ground()
 	_spawn_entities()
 	_setup_building_controls()
@@ -37,36 +43,71 @@ func _spawn_entities() -> void:
 	if entities == null or entities.get_child_count() > 0:
 		return
 
-	var villager := UNIT_VIEW.instantiate()
-	villager.name = "PlayerVillager"
-	villager.set("team", Enums.Team.PLAYER)
-	villager.set("def", VILLAGER_DEF)
-	villager.set("match_state", match_state)
-	villager.position = Vector3.ZERO
-	entities.add_child(villager)
+	_spawn_base(
+		entities, Enums.Team.PLAYER, player_civ,
+		Vector3(-40.0, 0.0, -40.0), "Player", 1.0
+	)
+	_spawn_base(
+		entities, Enums.Team.AI, ai_civ,
+		Vector3(40.0, 0.0, 40.0), "Ai", -1.0
+	)
 
+func _spawn_base(
+	entities: Node3D,
+	team: Enums.Team,
+	civ: CivDef,
+	origin: Vector3,
+	prefix: String,
+	direction: float
+) -> void:
 	var town_center := BUILDING_VIEW.instantiate() as Node3D
-	town_center.name = "TownCenter"
-	town_center.set("team", Enums.Team.PLAYER)
+	town_center.name = "%sTownCenter" % prefix
+	town_center.set("team", team)
 	town_center.set("def", TOWN_CENTER_DEF)
-	town_center.set("civ", CHINESE_CIV)
+	town_center.set("civ", civ)
 	town_center.set("match_state", match_state)
 	town_center.set("accepts_all_resources", true)
-	town_center.position = Vector3(-4.0, 0.0, 0.0)
+	town_center.position = origin
 	entities.add_child(town_center)
 
+	var villager_count := 3 + civ.extra_starting_villagers
+	var villager_offsets := [
+		Vector3(5.0, 0.0, 0.0),
+		Vector3(3.5, 0.0, 3.5),
+		Vector3(0.0, 0.0, 5.0),
+		Vector3(5.0, 0.0, 5.0),
+	]
+	for index in villager_count:
+		var villager := UNIT_VIEW.instantiate() as Node3D
+		villager.name = "%sVillager%d" % [prefix, index + 1]
+		villager.set("team", team)
+		villager.set("def", VILLAGER_DEF)
+		villager.set("civ", civ)
+		villager.set("match_state", match_state)
+		villager.position = origin + villager_offsets[index] * direction
+		entities.add_child(villager)
+
 	_spawn_resource(
-		entities, "FoodBush", Enums.ResourceType.FOOD,
-		Vector3(4.0, 0.0, 1.0), Color(0.35, 0.75, 0.20)
+		entities, "%sFoodBush" % prefix, Enums.ResourceType.FOOD,
+		origin + Vector3(9.0, 0.0, 2.0) * direction,
+		Color(0.35, 0.75, 0.20)
 	)
 	_spawn_resource(
-		entities, "Tree", Enums.ResourceType.WOOD,
-		Vector3(5.0, 0.0, -2.0), Color(0.12, 0.42, 0.12)
+		entities, "%sTree" % prefix, Enums.ResourceType.WOOD,
+		origin + Vector3(7.0, 0.0, -6.0) * direction,
+		Color(0.12, 0.42, 0.12)
 	)
 	_spawn_resource(
-		entities, "GoldMine", Enums.ResourceType.GOLD,
-		Vector3(6.0, 0.0, 3.0), Color(0.92, 0.72, 0.12)
+		entities, "%sGoldMine" % prefix, Enums.ResourceType.GOLD,
+		origin + Vector3(5.0, 0.0, 9.0) * direction,
+		Color(0.92, 0.72, 0.12)
 	)
+
+func _civ_for_id(civ_id: StringName) -> CivDef:
+	return TEUTONS_CIV if civ_id == &"teutons" else CHINESE_CIV
+
+func _opposite_civ(civ: CivDef) -> CivDef:
+	return CHINESE_CIV if civ.id == &"teutons" else TEUTONS_CIV
 
 func _spawn_resource(
 	parent: Node3D,
@@ -114,6 +155,6 @@ func _setup_building_controls() -> void:
 	):
 		return
 	build_system.call(
-		"setup", camera, entities, selection, match_state, CHINESE_CIV
+		"setup", camera, entities, selection, match_state, player_civ
 	)
-	hud.call("setup", match_state, CHINESE_CIV, build_system, selection)
+	hud.call("setup", match_state, player_civ, build_system, selection)

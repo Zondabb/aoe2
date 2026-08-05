@@ -4,16 +4,13 @@ extends Control
 signal civ_chosen(civ_id: StringName)
 
 func _on_chinese_pressed() -> void:
-	civ_chosen.emit(&"chinese")
+	_choose_civ(&"chinese")
 
 func _on_teutons_pressed() -> void:
-	civ_chosen.emit(&"teutons")
+	_choose_civ(&"teutons")
 
-func _ready() -> void:
-	# Temporary bridge until Task 10 wires the selected civilization into the match.
-	if not civ_chosen.is_connected(_temp_log):
-		civ_chosen.connect(_temp_log)
-
-func _temp_log(civ_id: StringName) -> void:
-	print("Selected civ: ", civ_id)
+func _choose_civ(civ_id: StringName) -> void:
+	GameSession.player_civ_id = civ_id
+	GameSession.ai_civ_id = &"teutons" if civ_id == &"chinese" else &"chinese"
+	civ_chosen.emit(civ_id)
 	get_tree().change_scene_to_file("res://scenes/match_3d.tscn")

@@ -14,6 +14,9 @@ var _selected_building: Node3D
 @onready var _resources_label := %ResourcesLabel as Label
 @onready var _population_label := %PopulationLabel as Label
 @onready var _train_panel := %TrainPanel as VBoxContainer
+@onready var _result_panel := %ResultPanel as Control
+@onready var _result_label := %ResultLabel as Label
+@onready var _return_button := %ReturnButton as Button
 
 func setup(
 	state: MatchState,
@@ -28,13 +31,22 @@ func setup(
 	_resources_label = get_node_or_null("TopBar/ResourcesLabel") as Label
 	_population_label = get_node_or_null("TopBar/PopulationLabel") as Label
 	_train_panel = get_node_or_null("TrainPanel") as VBoxContainer
+	_result_panel = get_node_or_null("ResultPanel") as Control
+	_result_label = find_child("ResultLabel", true, false) as Label
+	_return_button = find_child("ReturnButton", true, false) as Button
 	if not selection.is_connected("selection_changed", _on_selection_changed):
 		selection.connect("selection_changed", _on_selection_changed)
+	if not match_state.winner_decided.is_connected(_on_winner_decided):
+		match_state.winner_decided.connect(_on_winner_decided)
+	if _return_button != null and not _return_button.pressed.is_connected(_return_to_civ_select):
+		_return_button.pressed.connect(_return_to_civ_select)
 	_connect_build_button(%HouseButton, HOUSE)
 	_connect_build_button(%BarracksButton, BARRACKS)
 	_connect_build_button(%ArcheryButton, ARCHERY_RANGE)
 	_on_selection_changed([])
 	_refresh()
+	if match_state.winner != -1:
+		_on_winner_decided(match_state.winner)
 
 func _process(_delta: float) -> void:
 	_ensure_selected_building_valid()
@@ -99,6 +111,7 @@ func _can_enqueue(unit_def: UnitDef) -> bool:
 		and bool(_selected_building.get("is_complete"))
 		and (_selected_building.get("train_queue") as Array).is_empty()
 		and match_state != null
+		and match_state.winner == -1
 		and match_state.can_train(Enums.Team.PLAYER, unit_def)
 	)
 
@@ -127,7 +140,7 @@ func _refresh() -> void:
 			button.disabled = not _can_enqueue(button.get_meta("unit_def") as UnitDef)
 
 func _can_build(building_def: BuildingDef) -> bool:
-	if selection == null or match_state == null:
+	if selection == null or match_state == null or match_state.winner != -1:
 		return false
 	for unit in selection.call("get_selected_units"):
 		var unit_def := unit.get("def") as UnitDef
@@ -139,3 +152,24 @@ func _can_build(building_def: BuildingDef) -> bool:
 				building_def.cost_gold
 			)
 	return false
+
+func _on_winner_decided(winning_team: Enums.Team) -> void:
+	if _result_panel != null:
+		_result_panel.visible = true
+	if _result_label != null:
+		_result_label.text = "胜利" if winning_team == Enums.Team.PLAYER else "失败"
+	if selection != null:
+		selection.set_process_unhandled_input(false)
+	if build_system != null:
+		build_system.call("cancel_placement")
+		build_system.set_process(false)
+		build_system.set_process_unhandled_input(false)
+	var entities := get_parent().get_node_or_null("Entities") if get_parent() != null else null
+	if entities != null:
+		for entity in entities.get_children():
+			if entity.get("team") == Enums.Team.AI:
+				entity.set_physics_process(false)
+	_refresh()
+
+func _return_to_civ_select() -> void:
+	get_tree().change_scene_to_file("res://scenes/civ_select.tscn")

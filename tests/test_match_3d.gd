@@ -3,13 +3,20 @@ extends RefCounted
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
+	var tree := Engine.get_main_loop() as SceneTree
+	var game_session := tree.root.get_node_or_null("GameSession")
+	if game_session == null:
+		failures.append("GameSession should be configured as an autoload")
+	else:
+		game_session.set("player_civ_id", &"chinese")
+		game_session.set("ai_civ_id", &"teutons")
 	var packed := load("res://scenes/match_3d.tscn") as PackedScene
 	if packed == null:
 		failures.append("match scene should load")
 		return failures
 
 	var scene_root := packed.instantiate()
-	(Engine.get_main_loop() as SceneTree).root.add_child(scene_root)
+	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
 	if not scene_root.get_node_or_null("Map/Ground") is MeshInstance3D:
 		failures.append("match scene should contain ground mesh")
@@ -55,10 +62,10 @@ func run() -> Array[String]:
 		failures.append("bootstrap should connect HUD building controls")
 
 	var entities := scene_root.get_node("Entities")
-	if entities.get_child_count() != 5:
-		failures.append("bootstrap should spawn a villager, TC, and three resources")
+	if entities.get_child_count() != 15:
+		failures.append("bootstrap should spawn both bases with Chinese extra villager")
 	else:
-		var unit := entities.get_node("PlayerVillager")
+		var unit := entities.get_node("PlayerVillager1")
 		unit.call("_ready")
 		if unit.get("team") != Enums.Team.PLAYER:
 			failures.append("spawned villager should belong to player")
@@ -82,12 +89,23 @@ func run() -> Array[String]:
 		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
 			failures.append("moving unit should remain on y=0")
 
-		var food_bush := entities.get_node_or_null("FoodBush")
-		var town_center := entities.get_node_or_null("TownCenter")
+		var food_bush := entities.get_node_or_null("PlayerFoodBush")
+		var town_center := entities.get_node_or_null("PlayerTownCenter")
+		var ai_town_center := entities.get_node_or_null("AiTownCenter")
 		if food_bush == null or not food_bush.has_method("extract"):
 			failures.append("bootstrap should spawn gatherable food")
 		elif town_center == null or not town_center.has_method("accepts_resource"):
 			failures.append("bootstrap should spawn a resource drop-off TC")
+		elif town_center.position != Vector3(-40.0, 0.0, -40.0):
+			failures.append("player TC should spawn at the player base origin")
+		elif ai_town_center == null or ai_town_center.position != Vector3(40.0, 0.0, 40.0):
+			failures.append("AI TC should spawn at the opposite base origin")
+		elif entities.get_node_or_null("PlayerVillager4") == null:
+			failures.append("Chinese should start with four villagers")
+		elif entities.get_node_or_null("AiVillager4") != null:
+			failures.append("Teutons should start with three villagers")
+		elif ai_town_center.get("civ").id != &"teutons":
+			failures.append("AI should use the civilization opposite the player")
 		elif town_center.get("def") == null or town_center.get("match_state") != scene_root.get_node("Bootstrap").get("match_state"):
 			failures.append("bootstrap should configure the town center for training")
 		else:
@@ -136,8 +154,41 @@ func run() -> Array[String]:
 					failures.append("right-clicking a foundation should resume construction")
 	if hud != null and hud.get_node_or_null("TopBar/ResourcesLabel") == null:
 		failures.append("HUD should display resource counters")
+	if hud != null:
+		var state := scene_root.get_node("Bootstrap").get("match_state") as MatchState
+		state.set_winner(Enums.Team.PLAYER)
+		var result_panel := hud.get_node_or_null("ResultPanel") as Control
+		var result_label := hud.find_child("ResultLabel", true, false) as Label
+		if result_panel == null or not result_panel.visible:
+			failures.append("winner should show the result panel")
+		elif result_label == null or result_label.text != "胜利":
+			failures.append("player win should display victory text")
+		if selection.is_processing_unhandled_input():
+			failures.append("winner should stop player input orders")
+		if build_system.is_processing_unhandled_input():
+			failures.append("winner should stop building input")
 
-	scene_root.queue_free()
+	tree.root.remove_child(scene_root)
+	scene_root.free()
+
+	if game_session != null:
+		game_session.set("player_civ_id", &"teutons")
+		var teutons_match := packed.instantiate()
+		tree.root.add_child(teutons_match)
+		teutons_match.get_node("Bootstrap").call("_ready")
+		var teutons_entities := teutons_match.get_node("Entities")
+		if teutons_entities.get_node_or_null("PlayerVillager4") != null:
+			failures.append("Teutons should start with three villagers")
+		if teutons_entities.get_node_or_null("AiVillager4") == null:
+			failures.append("Chinese AI should start with four villagers")
+		var teutons_player_tc := teutons_entities.get_node_or_null("PlayerTownCenter")
+		var chinese_ai_tc := teutons_entities.get_node_or_null("AiTownCenter")
+		if teutons_player_tc == null or teutons_player_tc.get("civ").id != &"teutons":
+			failures.append("player base should use the selected Teutons civilization")
+		if chinese_ai_tc == null or chinese_ai_tc.get("civ").id != &"chinese":
+			failures.append("AI should switch to Chinese when player selects Teutons")
+		tree.root.remove_child(teutons_match)
+		teutons_match.free()
 
 	var picker_script := load("res://scripts/input/ground_picker.gd")
 	if picker_script == null:
