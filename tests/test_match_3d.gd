@@ -9,6 +9,8 @@ func run() -> Array[String]:
 		return failures
 
 	var scene_root := packed.instantiate()
+	(Engine.get_main_loop() as SceneTree).root.add_child(scene_root)
+	scene_root.get_node("Bootstrap").call("_ready")
 	if not scene_root.get_node_or_null("Map/Ground") is MeshInstance3D:
 		failures.append("match scene should contain ground mesh")
 	var camera := scene_root.get_node_or_null("CameraRig/Camera3D") as Camera3D
@@ -36,8 +38,41 @@ func run() -> Array[String]:
 		failures.append("match scene should contain entities root")
 	if scene_root.get_node_or_null("Bootstrap") == null:
 		failures.append("match scene should contain bootstrap")
+	var selection := scene_root.get_node_or_null("SelectionController")
+	if selection == null or selection.get_script() == null:
+		failures.append("match scene should contain selection controller")
+	else:
+		selection.call("_ready")
 
-	scene_root.free()
+	var entities := scene_root.get_node("Entities")
+	if entities.get_child_count() != 1:
+		failures.append("bootstrap should spawn one player villager")
+	else:
+		var unit := entities.get_child(0)
+		unit.call("_ready")
+		if unit.get("team") != Enums.Team.PLAYER:
+			failures.append("spawned villager should belong to player")
+		if unit.get("def") == null or unit.get("hp") != unit.get("def").max_hp:
+			failures.append("spawned villager should initialize from its unit definition")
+		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
+			failures.append("unit simulation should stay on y=0")
+
+		selection.call("_add_selection", unit)
+		if not unit.get_node("SelectionRing").visible:
+			failures.append("selection should show the unit selection ring")
+
+		var move_target := Vector3(5.0, 8.0, 0.0)
+		selection.call("_issue_move", move_target)
+		if unit.get("order") != Enums.OrderType.MOVE:
+			failures.append("right-click move should issue a move order")
+		var original_position: Vector3 = unit.position
+		unit.call("_physics_process", 0.5)
+		if unit.position.x <= original_position.x:
+			failures.append("unit should move toward its target on the XZ plane")
+		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
+			failures.append("moving unit should remain on y=0")
+
+	scene_root.queue_free()
 
 	var picker_script := load("res://scripts/input/ground_picker.gd")
 	if picker_script == null:

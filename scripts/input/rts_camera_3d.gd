@@ -2,8 +2,6 @@
 class_name RtsCamera3D
 extends Camera3D
 
-const GroundPickerScript := preload("res://scripts/input/ground_picker.gd")
-
 @export_range(0.0, 90.0, 0.1) var pitch_degrees := 50.0
 @export_range(-180.0, 180.0, 0.1) var yaw_degrees := 45.0
 @export var pan_speed := 24.0
@@ -50,10 +48,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mouse_event.pressed and mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			distance = clampf(distance + zoom_step, min_distance, max_distance)
 			_apply_view()
-		elif mouse_event.pressed and mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			var ground_position: Variant = GroundPickerScript.pick_ground(self, mouse_event.position)
-			if ground_position != null:
-				print("Ground pick: ", ground_position)
 
 func _pan(input_direction: Vector2, delta: float) -> void:
 	var rig := get_parent_node_3d()
