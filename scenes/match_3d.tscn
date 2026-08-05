@@ -1,0 +1,45 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/input/rts_camera_3d.gd" id="1_camera"]
+[ext_resource type="Script" path="res://scripts/match/match_bootstrap.gd" id="2_bootstrap"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.2, 0.48, 0.16, 1)
+roughness = 1.0
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+material = SubResource("StandardMaterial3D_ground")
+size = Vector2(120, 120)
+
+[sub_resource type="Environment" id="Environment_match"]
+background_mode = 1
+background_color = Color(0.42, 0.62, 0.78, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.82, 0.88, 1, 1)
+ambient_light_energy = 0.65
+
+[node name="Match" type="Node3D"]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -35, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_match")
+
+[node name="Map" type="Node3D" parent="."]
+
+[node name="Ground" type="MeshInstance3D" parent="Map"]
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="CameraRig" type="Node3D" parent="."]
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+current = true
+script = ExtResource("1_camera")
+
+[node name="Entities" type="Node3D" parent="."]
+
+[node name="Bootstrap" type="Node" parent="."]
+script = ExtResource("2_bootstrap")

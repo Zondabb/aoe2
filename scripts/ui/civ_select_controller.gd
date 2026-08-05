@@ -10,9 +10,10 @@ func _on_teutons_pressed() -> void:
 	civ_chosen.emit(&"teutons")
 
 func _ready() -> void:
-	# Temporary: just print until match scene exists (Task 10 wires change_scene).
+	# Temporary bridge until Task 10 wires the selected civilization into the match.
 	if not civ_chosen.is_connected(_temp_log):
 		civ_chosen.connect(_temp_log)
 
 func _temp_log(civ_id: StringName) -> void:
 	print("Selected civ: ", civ_id)
+	get_tree().change_scene_to_file("res://scenes/match_3d.tscn")
