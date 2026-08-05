@@ -164,7 +164,13 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 		build_system.call("cancel_placement")
 		build_system.set_process(false)
 		build_system.set_process_unhandled_input(false)
-	var entities := get_parent().get_node_or_null("Entities") if get_parent() != null else null
+	var match_root := get_parent()
+	var ai_controller := (
+		match_root.get_node_or_null("AiController") if match_root != null else null
+	)
+	if ai_controller != null and ai_controller.has_method("stop"):
+		ai_controller.call("stop")
+	var entities := match_root.get_node_or_null("Entities") if match_root != null else null
 	if entities != null:
 		for entity in entities.get_children():
 			if entity.get("team") == Enums.Team.AI:

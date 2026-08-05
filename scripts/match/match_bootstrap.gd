@@ -24,6 +24,7 @@ func _ready() -> void:
 	_setup_ground()
 	_spawn_entities()
 	_setup_building_controls()
+	_setup_ai_controller()
 
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as MeshInstance3D
@@ -158,3 +159,18 @@ func _setup_building_controls() -> void:
 		"setup", camera, entities, selection, match_state, player_civ
 	)
 	hud.call("setup", match_state, player_civ, build_system, selection)
+
+func _setup_ai_controller() -> void:
+	var match_root := get_parent()
+	if match_root == null:
+		return
+	var entities := match_root.get_node_or_null("Entities") as Node3D
+	if entities == null:
+		return
+	var ai := match_root.get_node_or_null("AiController") as Node
+	if ai == null:
+		ai = Node.new()
+		ai.name = "AiController"
+		ai.set_script(load("res://scripts/systems/ai_controller.gd"))
+		match_root.add_child(ai)
+	ai.call("setup", match_state, entities, ai_civ, Enums.Team.AI, Enums.Team.PLAYER)
