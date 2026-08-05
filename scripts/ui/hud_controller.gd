@@ -37,6 +37,7 @@ func setup(
 	_refresh()
 
 func _process(_delta: float) -> void:
+	_ensure_selected_building_valid()
 	_refresh()
 
 func _request_build(building_def: BuildingDef) -> void:
@@ -49,22 +50,35 @@ func _connect_build_button(button: Button, building_def: BuildingDef) -> void:
 		button.pressed.connect(callback)
 
 func _on_selection_changed(_selected: Array[Node3D]) -> void:
-	if (
-		_selected_building != null
-		and _selected_building.is_connected(
-			"train_queue_changed", _rebuild_train_buttons
-		)
-	):
-		_selected_building.disconnect("train_queue_changed", _rebuild_train_buttons)
+	_disconnect_selected_building()
 	_selected_building = selection.call("get_selected_building") as Node3D
 	if _selected_building != null:
 		_selected_building.connect("train_queue_changed", _rebuild_train_buttons)
+		if not _selected_building.is_connected("tree_exited", _on_selected_building_exited):
+			_selected_building.connect("tree_exited", _on_selected_building_exited)
 	_rebuild_train_buttons()
+
+func _disconnect_selected_building() -> void:
+	if _selected_building == null or not is_instance_valid(_selected_building):
+		return
+	if _selected_building.is_connected("train_queue_changed", _rebuild_train_buttons):
+		_selected_building.disconnect("train_queue_changed", _rebuild_train_buttons)
+	if _selected_building.is_connected("tree_exited", _on_selected_building_exited):
+		_selected_building.disconnect("tree_exited", _on_selected_building_exited)
+
+func _on_selected_building_exited() -> void:
+	_selected_building = null
+	_rebuild_train_buttons()
+
+func _ensure_selected_building_valid() -> void:
+	if _selected_building != null and not is_instance_valid(_selected_building):
+		_selected_building = null
+		_rebuild_train_buttons()
 
 func _rebuild_train_buttons() -> void:
 	for child in _train_panel.get_children():
 		child.queue_free()
-	if _selected_building == null:
+	if _selected_building == null or not is_instance_valid(_selected_building):
 		return
 	for unit_def in _selected_building.call("get_trainable_units"):
 		var button := Button.new()
@@ -75,12 +89,13 @@ func _rebuild_train_buttons() -> void:
 		_train_panel.add_child(button)
 
 func _enqueue_train(unit_def: UnitDef) -> void:
-	if _selected_building != null:
+	if _selected_building != null and is_instance_valid(_selected_building):
 		_selected_building.call("enqueue_train", unit_def)
 
 func _can_enqueue(unit_def: UnitDef) -> bool:
 	return (
 		_selected_building != null
+		and is_instance_valid(_selected_building)
 		and bool(_selected_building.get("is_complete"))
 		and (_selected_building.get("train_queue") as Array).is_empty()
 		and match_state != null
