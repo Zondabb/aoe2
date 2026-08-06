@@ -26,29 +26,31 @@ func run() -> Array[String]:
 func _test_placement_rejects_overlap(failures: Array[String]) -> void:
 	var existing := BUILDING_AGENT.new()
 	existing.def = HOUSE
-	existing.position = Vector3.ZERO
-	if BUILD_SYSTEM.can_place(HOUSE.footprint, Vector3.ZERO, [existing]):
+	existing.sim_pos = Vector2.ZERO
+	if BUILD_SYSTEM.can_place(HOUSE.footprint, Vector2.ZERO, [existing]):
 		failures.append("building placement should reject footprint overlap")
-	if not BUILD_SYSTEM.can_place(HOUSE.footprint, Vector3(3.0, 0.0, 0.0), [existing]):
+	if not BUILD_SYSTEM.can_place(HOUSE.footprint, Vector2(3.0, 0.0), [existing]):
 		failures.append("building placement should allow separated footprints")
 	existing.free()
 
 func _test_villager_constructs_building(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
 	var state := MatchState.new()
 	state.setup_defaults()
 
-	var house := BUILDING_VIEW.instantiate() as Node3D
+	var house := BUILDING_VIEW.instantiate() as Node2D
 	house.set("def", HOUSE)
 	house.set("match_state", state)
+	house.set("sim_pos", Vector2.ZERO)
 	house.call("start_construction")
 	root.add_child(house)
 
 	var villager := UNIT_VIEW.instantiate() as UnitAgent
 	villager.def = VILLAGER
 	villager.match_state = state
+	villager.sim_pos = Vector2.ZERO
 	root.add_child(villager)
 	villager.command_build(house)
 	villager._physics_process(HOUSE.build_time)
@@ -63,16 +65,17 @@ func _test_villager_constructs_building(failures: Array[String]) -> void:
 
 func _test_train_queue_spends_and_spawns(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
 	var state := MatchState.new()
 	state.setup_defaults()
 	var initial_food := state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD)
 
-	var town_center := BUILDING_VIEW.instantiate() as Node3D
+	var town_center := BUILDING_VIEW.instantiate() as Node2D
 	town_center.set("def", TOWN_CENTER)
 	town_center.set("civ", CHINESE)
 	town_center.set("match_state", state)
+	town_center.set("sim_pos", Vector2.ZERO)
 	root.add_child(town_center)
 	town_center.call("_ready")
 
@@ -97,16 +100,17 @@ func _test_train_queue_spends_and_spawns(failures: Array[String]) -> void:
 
 func _test_parallel_queues_reserve_population(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
 	var state := MatchState.new()
 	state.setup_defaults()
-	var town_centers: Array[Node3D] = []
+	var town_centers: Array[Node2D] = []
 	for index in 2:
-		var town_center := BUILDING_VIEW.instantiate() as Node3D
+		var town_center := BUILDING_VIEW.instantiate() as Node2D
 		town_center.name = "TownCenter%d" % index
 		town_center.set("def", TOWN_CENTER)
 		town_center.set("match_state", state)
+		town_center.set("sim_pos", Vector2(float(index) * 10.0, 0.0))
 		root.add_child(town_center)
 		town_center.call("_ready")
 		town_centers.append(town_center)
@@ -134,12 +138,13 @@ func _test_trainables_are_filtered_by_civ(failures: Array[String]) -> void:
 
 func _test_placement_ghost_not_attackable(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
-	var ghost := BUILDING_VIEW.instantiate() as Node3D
+	var ghost := BUILDING_VIEW.instantiate() as Node2D
 	ghost.set("team", Enums.Team.PLAYER)
 	ghost.set("def", HOUSE)
 	ghost.set("is_placement_ghost", true)
+	ghost.set("sim_pos", Vector2.ZERO)
 	ghost.call("start_construction")
 	root.add_child(ghost)
 	var hp_before: float = float(ghost.get("hp"))
@@ -151,6 +156,7 @@ func _test_placement_ghost_not_attackable(failures: Array[String]) -> void:
 	var attacker := UNIT_VIEW.instantiate() as UnitAgent
 	attacker.def = VILLAGER
 	attacker.team = Enums.Team.AI
+	attacker.sim_pos = Vector2.ZERO
 	root.add_child(attacker)
 	attacker.command_attack(ghost)
 	if attacker.order == Enums.OrderType.ATTACK:
@@ -159,11 +165,11 @@ func _test_placement_ghost_not_attackable(failures: Array[String]) -> void:
 
 func _test_cancel_placement_after_ghost_freed(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
 	var build_system := BUILD_SYSTEM.new()
 	root.add_child(build_system)
-	var ghost := BUILDING_VIEW.instantiate() as Node3D
+	var ghost := BUILDING_VIEW.instantiate() as Node2D
 	ghost.set("is_placement_ghost", true)
 	root.add_child(ghost)
 	build_system.set("_ghost", ghost)

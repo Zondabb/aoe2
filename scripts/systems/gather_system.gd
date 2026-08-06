@@ -2,10 +2,10 @@ class_name GatherSystem
 extends RefCounted
 
 static func nearest_drop_off(
-	unit: Node3D,
+	unit: Node2D,
 	resource_type: Enums.ResourceType
-) -> Node3D:
-	var nearest: Node3D
+) -> Node2D:
+	var nearest: Node2D
 	var nearest_distance := INF
 	var candidates: Array[Node] = []
 	if unit.is_inside_tree():
@@ -15,12 +15,12 @@ static func nearest_drop_off(
 			if child.has_method("accepts_resource"):
 				candidates.append(child)
 	for node in candidates:
-		var building := node as Node3D
+		var building := node as Node2D
 		if building == null or building.get("team") != unit.get("team"):
 			continue
 		if not building.call("accepts_resource", resource_type):
 			continue
-		var distance := unit.position.distance_squared_to(building.position)
+		var distance: float = unit.get("sim_pos").distance_squared_to(building.get("sim_pos"))
 		if distance < nearest_distance:
 			nearest = building
 			nearest_distance = distance

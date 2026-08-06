@@ -1,5 +1,5 @@
 class_name BuildingAgent
-extends Node3D
+extends Node2D
 
 signal construction_completed(building: BuildingAgent)
 signal train_queue_changed
@@ -8,6 +8,7 @@ signal destroyed(building: BuildingAgent)
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: BuildingDef
@@ -15,6 +16,7 @@ const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.
 @export var accepts_all_resources := false
 @export var accepted_resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
 var match_state: MatchState
+var sim_pos := Vector2.ZERO
 var hp := 0.0
 var melee_armor := 0.0
 var pierce_armor := 0.0
@@ -30,6 +32,9 @@ var _ghost_visual_valid: Variant = null
 var _use_billboard := false
 
 func _ready() -> void:
+	if sim_pos == Vector2.ZERO:
+		sim_pos = position
+	_sync_visual()
 	if not is_placement_ghost:
 		_register_groups()
 	if def != null:
@@ -135,7 +140,7 @@ func get_trainable_units() -> Array[UnitDef]:
 	return result
 
 func set_selected(selected: bool) -> void:
-	var selection_ring := get_node_or_null("SelectionRing") as MeshInstance3D
+	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
 	if selection_ring != null:
 		selection_ring.visible = selected
 
@@ -144,17 +149,14 @@ func set_ghost_visual(valid: bool) -> void:
 		return
 	_ghost_visual_valid = valid
 	var tint := Color(0.2, 0.9, 0.35, 0.55) if valid else Color(0.95, 0.2, 0.2, 0.55)
-	var billboard := get_node_or_null("Billboard") as Sprite3D
+	var billboard := get_node_or_null("Billboard") as CanvasItem
 	if _use_billboard and billboard != null:
 		billboard.modulate = tint
 		return
-	var body := get_node_or_null("Body") as MeshInstance3D
+	var body := get_node_or_null("Body") as CanvasItem
 	if body == null:
 		return
-	var material := StandardMaterial3D.new()
-	material.albedo_color = tint
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	body.material_override = material
+	body.modulate = tint
 
 func clear_ghost_visual() -> void:
 	is_placement_ghost = false
@@ -182,13 +184,13 @@ func _train_time(unit_def: UnitDef) -> float:
 	return unit_def.train_time
 
 func _spawn_trained_unit(unit_def: UnitDef) -> bool:
-	var parent := get_parent_node_3d()
+	var parent := get_parent() as Node2D
 	if parent == null:
 		return false
 	var unit_view := load("res://scenes/entities/unit_view.tscn") as PackedScene
 	if unit_view == null:
 		return false
-	var unit := unit_view.instantiate() as Node3D
+	var unit := unit_view.instantiate() as Node2D
 	unit.set("team", team)
 	unit.set("def", unit_def)
 	unit.set("civ", civ)
@@ -196,16 +198,17 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	match_state.reserve_pop(team, -_reserved_population)
 	_reserved_population = 0
 	unit.call("register_population")
-	unit.position = position + Vector3(
-		(def.footprint.x * 0.5 if def != null else 1.0) + 0.8, 0.0, 0.0
+	var spawn_offset := Vector2(
+		(def.footprint.x * 0.5 if def != null else 1.0) + 0.8, 0.0
 	)
+	unit.set("sim_pos", sim_pos + spawn_offset)
 	parent.add_child(unit)
 	return true
 
 func _configure_visuals() -> void:
 	_use_billboard = false
-	var body := get_node_or_null("Body") as MeshInstance3D
-	var billboard := get_node_or_null("Billboard") as Sprite3D
+	var body := get_node_or_null("Body") as CanvasItem
+	var billboard := get_node_or_null("Billboard") as Sprite2D
 	var civ_id: StringName = civ.id if civ != null else &""
 	var base := SpriteCatalogScript.building_sheet_base(def.id, civ_id)
 	if billboard != null and SpriteCatalogScript.sheet_paths_exist(base):
@@ -214,43 +217,44 @@ func _configure_visuals() -> void:
 		if not meta.is_empty() and texture != null:
 			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
 			var hotspot := SpriteCatalogScript.average_hotspot(meta)
-			var offset := SpriteCatalogScript.offset_for_hotspot(meta, hotspot)
-			var pixel_size := SpriteCatalogScript.BUILDING_PIXEL_SIZE
+			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
 			var frame_w := float(meta.get("frame_w", 1))
-			var target_width := maxf(def.footprint.x, def.footprint.y) * 1.15
+			var target_width := maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 1.15
+			var pixel_scale := SpriteCatalogScript.BUILDING_PIXEL_SCALE_2D
 			if frame_w > 0.0:
-				pixel_size = clampf(target_width / frame_w, 0.018, 0.05)
-			SpriteCatalogScript.configure_iso_sprite(billboard, pixel_size, offset)
+				pixel_scale = clampf(target_width / frame_w, 1.2, 3.0)
+			SpriteCatalogScript.configure_sprite_2d(billboard, pixel_scale, offset)
 			billboard.modulate = Color.WHITE
 			billboard.visible = true
 			_use_billboard = true
-	if body != null and body.mesh is BoxMesh:
-		var box := (body.mesh as BoxMesh).duplicate() as BoxMesh
-		box.size = Vector3(def.footprint.x, 2.2, def.footprint.y)
-		body.mesh = box
-		body.position.y = box.size.y * 0.5
+	if body != null:
 		body.visible = not _use_billboard
+		var footprint := def.footprint if def != null else Vector2.ONE
+		body.scale = Vector2(
+			maxi(int(footprint.x * 8.0), 12),
+			maxi(int(footprint.y * 6.0), 10)
+		)
 	if billboard != null and not _use_billboard:
 		billboard.visible = false
-	var ring := get_node_or_null("SelectionRing") as MeshInstance3D
-	if ring != null and ring.mesh is CylinderMesh:
-		var cylinder := (ring.mesh as CylinderMesh).duplicate() as CylinderMesh
-		cylinder.top_radius = maxf(def.footprint.x, def.footprint.y) * 0.62
-		cylinder.bottom_radius = cylinder.top_radius
-		ring.mesh = cylinder
-	var shadow_radius := maxf(def.footprint.x, def.footprint.y) * 0.55
-	SpriteCatalogScript.ensure_ground_shadow(self, shadow_radius)
+	var ring := get_node_or_null("SelectionRing") as Polygon2D
+	if ring != null and def != null:
+		var radius := maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.45
+		ring.polygon = SpriteCatalogScript._ellipse_points(radius, radius * 0.5, 28)
+	var shadow_radius := 18.0
+	if def != null:
+		shadow_radius = maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.4
+	SpriteCatalogScript.ensure_ground_shadow_2d(self, shadow_radius)
 	if not _use_billboard:
 		_apply_team_color()
 
 func _apply_team_color() -> void:
-	var body := get_node_or_null("Body") as MeshInstance3D
+	var body := get_node_or_null("Body") as CanvasItem
 	if body == null:
 		return
-	var material := StandardMaterial3D.new()
-	material.albedo_color = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
-	material.roughness = 0.85
-	body.material_override = material
+	body.modulate = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
+
+func _sync_visual() -> void:
+	IsoMathScript.sync_node(self, sim_pos)
 
 func _register_groups() -> void:
 	add_to_group("buildings")

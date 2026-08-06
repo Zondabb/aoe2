@@ -1,45 +1,29 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/entities/unit_agent.gd" id="1_unit"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_body"]
-albedo_color = Color(0.18, 0.42, 0.95, 1)
-roughness = 0.8
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_body"]
+size = Vector2(16, 24)
 
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
-material = SubResource("StandardMaterial3D_body")
-radius = 0.38
-height = 1.7
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ring"]
-transparency = 1
-shading_mode = 0
-albedo_color = Color(0.25, 0.95, 0.35, 0.92)
-disable_receive_shadows = true
-
-[sub_resource type="TorusMesh" id="TorusMesh_ring"]
-material = SubResource("StandardMaterial3D_ring")
-inner_radius = 0.42
-outer_radius = 0.56
-rings = 28
-ring_segments = 10
-
-[node name="UnitAgent" type="Node3D"]
+[node name="UnitAgent" type="Node2D"]
+y_sort_enabled = true
 script = ExtResource("1_unit")
 
-[node name="Body" type="MeshInstance3D" parent="."]
-position = Vector3(0, 0.85, 0)
-mesh = SubResource("CapsuleMesh_body")
+[node name="GroundShadow" type="Polygon2D" parent="."]
+z_index = -1
+color = Color(0, 0, 0, 0.35)
+polygon = PackedVector2Array(16, 0, 11.3, 4.4, 0, 8, -11.3, 4.4, -16, 0, -11.3, -4.4, 0, -8, 11.3, -4.4)
 
-[node name="Billboard" type="AnimatedSprite3D" parent="."]
-billboard = 0
-shaded = false
-alpha_cut = 1
-texture_filter = 0
-pixel_size = 0.04
-
-[node name="SelectionRing" type="MeshInstance3D" parent="."]
+[node name="Body" type="Sprite2D" parent="."]
 visible = false
-position = Vector3(0, 0.035, 0)
-cast_shadow = 0
-mesh = SubResource("TorusMesh_ring")
+modulate = Color(0.18, 0.42, 0.95, 1)
+texture = SubResource("PlaceholderTexture2D_body")
+
+[node name="Billboard" type="AnimatedSprite2D" parent="."]
+texture_filter = 0
+
+[node name="SelectionRing" type="Polygon2D" parent="."]
+visible = false
+z_index = -1
+color = Color(0.25, 0.95, 0.35, 0.55)
+polygon = PackedVector2Array(18, 0, 12.7, 5.5, 0, 10, -12.7, 5.5, -18, 0, -12.7, -5.5, 0, -10, 12.7, -5.5)

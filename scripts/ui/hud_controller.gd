@@ -13,7 +13,7 @@ var match_state: MatchState
 var civ: CivDef
 var build_system: Node
 var selection: Control
-var _selected_building: Node3D
+var _selected_building: Node2D
 
 @onready var _resources_label := %ResourcesLabel as Label
 @onready var _population_label := %PopulationLabel as Label
@@ -78,9 +78,9 @@ func _connect_build_button(button: Button, building_def: BuildingDef) -> void:
 func _civ_allows_stable() -> bool:
 	return civ != null and Enums.BuildingType.STABLE in civ.allowed_buildings
 
-func _on_selection_changed(_selected: Array[Node3D]) -> void:
+func _on_selection_changed(_selected: Array) -> void:
 	_disconnect_selected_building()
-	_selected_building = selection.call("get_selected_building") as Node3D
+	_selected_building = selection.call("get_selected_building") as Node2D
 	if _selected_building != null:
 		_selected_building.connect("train_queue_changed", _rebuild_train_buttons)
 		if not _selected_building.is_connected("tree_exited", _on_selected_building_exited):

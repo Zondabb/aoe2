@@ -25,7 +25,7 @@ const ARCHER: UnitDef = preload("res://data/units/archer.tres")
 const BuildSystemScript := preload("res://scripts/systems/build_system.gd")
 
 var match_state: MatchState
-var entities: Node3D
+var entities: Node2D
 var ai_civ: CivDef
 var player_team: Enums.Team = Enums.Team.PLAYER
 var ai_team: Enums.Team = Enums.Team.AI
@@ -38,7 +38,7 @@ var _next_build_slot := 0
 
 func setup(
 	state: MatchState,
-	entities_root: Node3D,
+	entities_root: Node2D,
 	civ: CivDef,
 	ai_side: Enums.Team = Enums.Team.AI,
 	player_side: Enums.Team = Enums.Team.PLAYER
@@ -126,7 +126,7 @@ func _attack_actions() -> void:
 			if unit.get("order") != Enums.OrderType.ATTACK or unit.get("_attack_target") != enemy_tc:
 				unit.call("command_attack", enemy_tc)
 		else:
-			unit.call("command_move", Vector3(-40.0, 0.0, -40.0))
+			unit.call("command_move", Vector2(-40.0, -40.0))
 
 func _train_villagers() -> void:
 	if _count_villagers() >= VILLAGER_TARGET:
@@ -200,7 +200,7 @@ func _ensure_building(building_def: BuildingDef) -> void:
 		building_def.cost_gold
 	):
 		return
-	var foundation := BUILDING_VIEW.instantiate() as Node3D
+	var foundation := BUILDING_VIEW.instantiate() as Node2D
 	foundation.name = "Ai%sFoundation%d" % [
 		String(building_def.id).to_pascal_case(),
 		_next_build_slot,
@@ -209,7 +209,7 @@ func _ensure_building(building_def: BuildingDef) -> void:
 	foundation.set("def", building_def)
 	foundation.set("civ", ai_civ)
 	foundation.set("match_state", match_state)
-	foundation.position = place_position
+	foundation.set("sim_pos", place_position)
 	foundation.call("start_construction")
 	entities.add_child(foundation)
 	builder.call("command_build", foundation)
@@ -224,20 +224,21 @@ func _next_build_position(building_def: BuildingDef) -> Variant:
 		if node.get("def") is BuildingDef:
 			existing.append(node)
 	var offsets := [
-		Vector3(-8.0, 0.0, 0.0),
-		Vector3(-8.0, 0.0, -6.0),
-		Vector3(-6.0, 0.0, 8.0),
-		Vector3(0.0, 0.0, -8.0),
-		Vector3(-12.0, 0.0, 2.0),
-		Vector3(-10.0, 0.0, -10.0),
-		Vector3(-4.0, 0.0, 10.0),
-		Vector3(-14.0, 0.0, -4.0),
-		Vector3(2.0, 0.0, -10.0),
-		Vector3(-16.0, 0.0, 6.0),
+		Vector2(-8.0, 0.0),
+		Vector2(-8.0, -6.0),
+		Vector2(-6.0, 8.0),
+		Vector2(0.0, -8.0),
+		Vector2(-12.0, 2.0),
+		Vector2(-10.0, -10.0),
+		Vector2(-4.0, 10.0),
+		Vector2(-14.0, -4.0),
+		Vector2(2.0, -10.0),
+		Vector2(-16.0, 6.0),
 	]
+	var origin: Vector2 = town_center.get("sim_pos")
 	for index in offsets.size():
 		var slot := (_next_build_slot + index) % offsets.size()
-		var candidate: Vector3 = town_center.position + offsets[slot]
+		var candidate: Vector2 = origin + offsets[slot]
 		if BuildSystemScript.can_place(building_def.footprint, candidate, existing):
 			return candidate
 	return null
@@ -266,7 +267,7 @@ func _assign_idle_villagers() -> void:
 		Enums.ResourceType.WOOD: 0,
 		Enums.ResourceType.GOLD: 0,
 	}
-	var idle: Array[Node3D] = []
+	var idle: Array[Node2D] = []
 	for villager in _ai_villagers():
 		var order: Enums.OrderType = villager.get("order")
 		if order == Enums.OrderType.NONE:
@@ -274,7 +275,7 @@ func _assign_idle_villagers() -> void:
 			continue
 		if order != Enums.OrderType.GATHER:
 			continue
-		var resource := villager.get("_last_resource") as Node3D
+		var resource := villager.get("_last_resource") as Node2D
 		if resource == null or not is_instance_valid(resource):
 			continue
 		var resource_type: int = int(resource.get("resource_type"))
@@ -315,7 +316,7 @@ func _underfilled_resource_type(counts: Dictionary, total: int) -> Enums.Resourc
 			best_type = resource_type
 	return best_type
 
-func _try_enqueue(building: Node3D, unit_def: UnitDef) -> bool:
+func _try_enqueue(building: Node2D, unit_def: UnitDef) -> bool:
 	if building == null or unit_def == null:
 		return false
 	if not bool(building.get("is_complete")):
@@ -324,7 +325,7 @@ func _try_enqueue(building: Node3D, unit_def: UnitDef) -> bool:
 		return false
 	return bool(building.call("enqueue_train", unit_def))
 
-func _find_building_for_unit(unit_def: UnitDef) -> Node3D:
+func _find_building_for_unit(unit_def: UnitDef) -> Node2D:
 	if unit_def == null:
 		return null
 	if unit_def.id == &"teutonic_knight":
@@ -348,43 +349,43 @@ func _count_military() -> int:
 			count += 1
 	return count
 
-func _ai_units() -> Array[Node3D]:
-	var result: Array[Node3D] = []
+func _ai_units() -> Array[Node2D]:
+	var result: Array[Node2D] = []
 	if entities == null:
 		return result
 	for node in entities.get_children():
 		if node.get("team") != ai_team:
 			continue
 		if node.get("def") is UnitDef:
-			result.append(node as Node3D)
+			result.append(node as Node2D)
 	return result
 
-func _ai_villagers() -> Array[Node3D]:
-	var result: Array[Node3D] = []
+func _ai_villagers() -> Array[Node2D]:
+	var result: Array[Node2D] = []
 	for unit in _ai_units():
 		var unit_def := unit.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"villager":
 			result.append(unit)
 	return result
 
-func _ai_buildings() -> Array[Node3D]:
-	var result: Array[Node3D] = []
+func _ai_buildings() -> Array[Node2D]:
+	var result: Array[Node2D] = []
 	if entities == null:
 		return result
 	for node in entities.get_children():
 		if node.get("team") != ai_team:
 			continue
 		if node.get("def") is BuildingDef:
-			result.append(node as Node3D)
+			result.append(node as Node2D)
 	return result
 
-func _idle_villager() -> Node3D:
+func _idle_villager() -> Node2D:
 	for villager in _ai_villagers():
 		if villager.get("order") == Enums.OrderType.NONE:
 			return villager
 	return null
 
-func _any_villager() -> Node3D:
+func _any_villager() -> Node2D:
 	var villagers := _ai_villagers()
 	return villagers[0] if not villagers.is_empty() else null
 
@@ -406,7 +407,7 @@ func _has_incomplete_building(building_id: StringName) -> bool:
 			return true
 	return false
 
-func _find_complete_building(building_id: StringName) -> Node3D:
+func _find_complete_building(building_id: StringName) -> Node2D:
 	for building in _ai_buildings():
 		var building_def := building.get("def") as BuildingDef
 		if (
@@ -417,7 +418,7 @@ func _find_complete_building(building_id: StringName) -> Node3D:
 			return building
 	return null
 
-func _find_town_center(team: Enums.Team) -> Node3D:
+func _find_town_center(team: Enums.Team) -> Node2D:
 	if entities == null:
 		return null
 	for node in entities.get_children():
@@ -425,46 +426,46 @@ func _find_town_center(team: Enums.Team) -> Node3D:
 			continue
 		var building_def := node.get("def") as BuildingDef
 		if building_def != null and building_def.id == &"town_center":
-			return node as Node3D
+			return node as Node2D
 	return null
 
-func _nearest_resource(from_unit: Node3D, resource_type: Enums.ResourceType) -> Node3D:
-	var nearest: Node3D
+func _nearest_resource(from_unit: Node2D, resource_type: Enums.ResourceType) -> Node2D:
+	var nearest: Node2D
 	var nearest_distance := INF
 	for node in _resource_nodes():
 		if int(node.get("resource_type")) != int(resource_type):
 			continue
 		if float(node.get("amount")) <= 0.0:
 			continue
-		var distance := from_unit.position.distance_squared_to(node.position)
+		var distance: float = from_unit.get("sim_pos").distance_squared_to(node.get("sim_pos"))
 		if distance < nearest_distance:
 			nearest = node
 			nearest_distance = distance
 	return nearest
 
-func _nearest_any_resource(from_unit: Node3D) -> Node3D:
-	var nearest: Node3D
+func _nearest_any_resource(from_unit: Node2D) -> Node2D:
+	var nearest: Node2D
 	var nearest_distance := INF
 	for node in _resource_nodes():
 		if float(node.get("amount")) <= 0.0:
 			continue
-		var distance := from_unit.position.distance_squared_to(node.position)
+		var distance: float = from_unit.get("sim_pos").distance_squared_to(node.get("sim_pos"))
 		if distance < nearest_distance:
 			nearest = node
 			nearest_distance = distance
 	return nearest
 
-func _resource_nodes() -> Array[Node3D]:
-	var result: Array[Node3D] = []
+func _resource_nodes() -> Array[Node2D]:
+	var result: Array[Node2D] = []
 	if entities == null:
 		return result
 	for node in entities.get_children():
 		if node.has_method("extract"):
-			result.append(node as Node3D)
+			result.append(node as Node2D)
 	return result
 
-func _nearest_hostile_in_radius(unit: Node3D, radius: float) -> Node3D:
-	var nearest: Node3D
+func _nearest_hostile_in_radius(unit: Node2D, radius: float) -> Node2D:
+	var nearest: Node2D
 	var nearest_distance := INF
 	var radius_squared := radius * radius
 	for node in entities.get_children():
@@ -476,8 +477,8 @@ func _nearest_hostile_in_radius(unit: Node3D, radius: float) -> Node3D:
 			continue
 		if float(node.get("hp")) <= 0.0:
 			continue
-		var distance := unit.position.distance_squared_to(node.position)
+		var distance: float = unit.get("sim_pos").distance_squared_to(node.get("sim_pos"))
 		if distance <= radius_squared and distance < nearest_distance:
-			nearest = node as Node3D
+			nearest = node as Node2D
 			nearest_distance = distance
 	return nearest

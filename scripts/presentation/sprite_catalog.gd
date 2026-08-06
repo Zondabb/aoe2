@@ -46,13 +46,27 @@ const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const ISO_CAMERA_YAW_DEGREES := 45.0
 const ISO_SPRITE_YAW_RADIANS := deg_to_rad(ISO_CAMERA_YAW_DEGREES + 180.0)
 
+const UNIT_PIXEL_SCALE_2D := 2.2
+const BUILDING_PIXEL_SCALE_2D := 2.0
+const RESOURCE_PIXEL_SCALE_2D := 2.0
+
 ## Authored sheet rows: 0=S, 1=SW, 2=W, 3=NW, 4=N. Mirrored facings use flip_h.
-static func quantize_xz_facing(velocity: Vector3) -> Dictionary:
-	var planar := Vector3(velocity.x, 0.0, velocity.z)
-	if planar.length_squared() < 0.000001:
+## Accepts Vector2 logical (x,z) or Vector3 (x,_,z).
+static func quantize_xz_facing(velocity: Variant) -> Dictionary:
+	var vx := 0.0
+	var vz := 0.0
+	if velocity is Vector2:
+		var v2 := velocity as Vector2
+		vx = v2.x
+		vz = v2.y
+	elif velocity is Vector3:
+		var v3 := velocity as Vector3
+		vx = v3.x
+		vz = v3.z
+	if vx * vx + vz * vz < 0.000001:
 		return {"dir": 0, "flip": false}
 	# 0 = +Z (South), increasing toward +X (East).
-	var angle := atan2(planar.x, planar.z)
+	var angle := atan2(vx, vz)
 	var sector := posmod(int(round(angle / (PI / 4.0))), 8)
 	match sector:
 		0:
@@ -240,3 +254,53 @@ static func ensure_ground_shadow(parent: Node3D, radius: float) -> void:
 	shadow.position = Vector3(0.0, 0.012, 0.0)
 	shadow.scale = Vector3(1.15, 1.0, 0.7)
 	shadow.visible = true
+
+
+static func offset_for_hotspot_2d(meta: Dictionary, hotspot: Vector2) -> Vector2:
+	## Sprite2D Y grows downward; keep feet on the node origin.
+	var frame_w := float(meta.get("frame_w", 1))
+	var frame_h := float(meta.get("frame_h", 1))
+	return Vector2(frame_w * 0.5 - hotspot.x, frame_h * 0.5 - hotspot.y)
+
+
+static func configure_sprite_2d(
+	sprite: Node, pixel_scale: float, offset_pixels: Vector2
+) -> void:
+	if sprite is AnimatedSprite2D:
+		var animated := sprite as AnimatedSprite2D
+		animated.centered = true
+		animated.offset = offset_pixels
+		animated.scale = Vector2(pixel_scale, pixel_scale)
+		animated.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		animated.position = Vector2.ZERO
+	elif sprite is Sprite2D:
+		var static_sprite := sprite as Sprite2D
+		static_sprite.centered = true
+		static_sprite.offset = offset_pixels
+		static_sprite.scale = Vector2(pixel_scale, pixel_scale)
+		static_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		static_sprite.position = Vector2.ZERO
+
+
+static func ensure_ground_shadow_2d(parent: Node2D, radius_px: float) -> void:
+	if parent == null:
+		return
+	var shadow := parent.get_node_or_null("GroundShadow") as Polygon2D
+	if shadow == null:
+		shadow = Polygon2D.new()
+		shadow.name = "GroundShadow"
+		shadow.z_index = -1
+		parent.add_child(shadow)
+		parent.move_child(shadow, 0)
+	shadow.polygon = _ellipse_points(radius_px * 1.15, radius_px * 0.55, 24)
+	shadow.color = Color(0.0, 0.0, 0.0, 0.35)
+	shadow.visible = true
+
+
+static func _ellipse_points(radius_x: float, radius_y: float, segments: int) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	var count := maxi(segments, 8)
+	for index in count:
+		var angle := TAU * float(index) / float(count)
+		points.append(Vector2(cos(angle) * radius_x, sin(angle) * radius_y))
+	return points

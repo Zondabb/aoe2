@@ -1,16 +1,21 @@
 class_name ResourceNode
-extends Node3D
+extends Node2D
 
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 @export var resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
 @export var amount := 100.0
 @export var gather_rate := 4.0
 
+var sim_pos := Vector2.ZERO
 var _use_billboard := false
 
 func _ready() -> void:
 	add_to_group("resource_nodes")
+	if sim_pos == Vector2.ZERO:
+		sim_pos = position
+	IsoMathScript.sync_node(self, sim_pos)
 	_setup_presentation()
 
 func extract(delta: float) -> float:
@@ -24,8 +29,8 @@ func extract(delta: float) -> float:
 	return extracted
 
 func _setup_presentation() -> void:
-	var existing_billboard := get_node_or_null("Billboard") as Sprite3D
-	var existing_marker := get_node_or_null("Marker") as MeshInstance3D
+	var existing_billboard := get_node_or_null("Billboard") as Sprite2D
+	var existing_marker := get_node_or_null("Marker") as CanvasItem
 	var base := SpriteCatalogScript.resource_sheet_base(resource_type)
 	if SpriteCatalogScript.sheet_paths_exist(base):
 		var meta := SpriteCatalogScript.load_meta(base)
@@ -33,18 +38,18 @@ func _setup_presentation() -> void:
 		if not meta.is_empty() and texture != null:
 			var billboard := existing_billboard
 			if billboard == null:
-				billboard = Sprite3D.new()
+				billboard = Sprite2D.new()
 				billboard.name = "Billboard"
 				add_child(billboard)
 			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
 			var hotspot := SpriteCatalogScript.average_hotspot(meta)
-			var offset := SpriteCatalogScript.offset_for_hotspot(meta, hotspot)
-			SpriteCatalogScript.configure_iso_sprite(
-				billboard, SpriteCatalogScript.RESOURCE_PIXEL_SIZE, offset
+			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
+			SpriteCatalogScript.configure_sprite_2d(
+				billboard, SpriteCatalogScript.RESOURCE_PIXEL_SCALE_2D, offset
 			)
 			billboard.visible = true
 			_use_billboard = true
-			SpriteCatalogScript.ensure_ground_shadow(self, 0.7)
+			SpriteCatalogScript.ensure_ground_shadow_2d(self, 16.0)
 			if existing_marker != null:
 				existing_marker.visible = false
 			return

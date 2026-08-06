@@ -1,5 +1,7 @@
-# tests/test_match_3d.gd
+# tests/test_match_2d.gd
 extends RefCounted
+
+const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
@@ -10,7 +12,7 @@ func run() -> Array[String]:
 	else:
 		game_session.set("player_civ_id", &"chinese")
 		game_session.set("ai_civ_id", &"teutons")
-	var packed := load("res://scenes/match_3d.tscn") as PackedScene
+	var packed := load("res://scenes/match_2d.tscn") as PackedScene
 	if packed == null:
 		failures.append("match scene should load")
 		return failures
@@ -18,39 +20,30 @@ func run() -> Array[String]:
 	var scene_root := packed.instantiate()
 	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
-	if not scene_root.get_node_or_null("Map/Ground") is MeshInstance3D:
-		failures.append("match scene should contain ground mesh")
-	var camera := scene_root.get_node_or_null("CameraRig/Camera3D") as Camera3D
+	var ground := scene_root.get_node_or_null("Map/Ground") as Node2D
+	if ground == null or ground.get_child_count() == 0:
+		failures.append("match scene should contain iso grass ground tiles")
+	var camera := scene_root.get_node_or_null("Camera2D") as Camera2D
 	if camera == null:
 		failures.append("match scene should contain camera")
 	elif camera.get_script() == null:
 		failures.append("match camera should have controller script")
 	else:
-		var focused_rig := camera.get_parent_node_3d()
-		if focused_rig == null:
-			failures.append("camera should have a rig parent")
-		elif (
-			not is_equal_approx(focused_rig.position.x, -40.0)
-			or not is_equal_approx(focused_rig.position.z, -40.0)
-		):
+		var expected := IsoMathScript.world_to_screen(Vector2(-40.0, -40.0))
+		if not camera.position.is_equal_approx(expected):
 			failures.append("camera should start focused on the player base")
 		camera.call("_ready")
-		if camera.get("pitch_degrees") != 45.0 or camera.get("yaw_degrees") != 45.0:
-			failures.append("match camera should use the requested view angles")
-		if int(camera.projection) != int(Camera3D.PROJECTION_ORTHOGONAL):
-			failures.append("match camera should use orthographic projection for iso cards")
 		var zoom_event := InputEventMouseButton.new()
 		zoom_event.button_index = MOUSE_BUTTON_WHEEL_UP
 		zoom_event.pressed = true
-		for index in 10:
+		for index in 20:
 			camera.call("_unhandled_input", zoom_event)
-		if camera.get("distance") != 18.0:
-			failures.append("match camera zoom should clamp at minimum distance")
-		var rig := camera.get_parent_node_3d()
-		var original_rig_position := rig.position
+		if not is_equal_approx(camera.zoom.x, camera.get("max_zoom")):
+			failures.append("match camera zoom should clamp at maximum zoom")
+		var original_position := camera.position
 		camera.call("_pan", Vector2.RIGHT, 1.0)
-		if rig.position == original_rig_position:
-			failures.append("match camera pan should move its rig")
+		if camera.position == original_position:
+			failures.append("match camera pan should move the camera")
 	if scene_root.get_node_or_null("Entities") == null:
 		failures.append("match scene should contain entities root")
 	if scene_root.get_node_or_null("Bootstrap") == null:
@@ -71,7 +64,9 @@ func run() -> Array[String]:
 	elif hud.get("build_system") != build_system or hud.get("selection") != selection:
 		failures.append("bootstrap should connect HUD building controls")
 
-	var entities := scene_root.get_node("Entities")
+	var entities := scene_root.get_node("Entities") as Node2D
+	if not entities.y_sort_enabled:
+		failures.append("Entities root should enable y_sort for iso depth")
 	if entities.get_child_count() != 15:
 		failures.append("bootstrap should spawn both bases with Chinese extra villager")
 	else:
@@ -81,18 +76,14 @@ func run() -> Array[String]:
 			failures.append("spawned villager should belong to player")
 		if unit.get("def") == null or unit.get("hp") != unit.get("def").max_hp:
 			failures.append("spawned villager should initialize from its unit definition")
-		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
-			failures.append("unit simulation should stay on y=0")
-		var billboard := unit.get_node_or_null("Billboard") as AnimatedSprite3D
-		var body := unit.get_node_or_null("Body") as MeshInstance3D
+		var billboard := unit.get_node_or_null("Billboard") as AnimatedSprite2D
+		var body := unit.get_node_or_null("Body") as CanvasItem
 		if billboard == null or not bool(unit.get("_use_billboard")):
-			failures.append("villager should bind an AnimatedSprite3D iso sprite when sheet exists")
+			failures.append("villager should bind an AnimatedSprite2D when sheet exists")
 		elif body != null and body.visible:
-			failures.append("capsule placeholder should hide when iso sprite is bound")
+			failures.append("placeholder body should hide when 2D sprite is bound")
 		elif billboard.sprite_frames == null or not billboard.sprite_frames.has_animation(&"dir_0"):
 			failures.append("villager sprite should have direction walk animations")
-		elif int(billboard.billboard) != int(BaseMaterial3D.BILLBOARD_DISABLED):
-			failures.append("villager sprite should disable camera billboard")
 		elif unit.get_node_or_null("GroundShadow") == null:
 			failures.append("villager should have a ground shadow under the sprite")
 
@@ -102,48 +93,44 @@ func run() -> Array[String]:
 		if not unit.get_node("SelectionRing").visible:
 			failures.append("selection should show the unit selection ring")
 
-		var move_target := Vector3(5.0, 8.0, 0.0)
+		var move_target := Vector2(5.0, 0.0)
 		selection.call("_issue_move", move_target)
 		if unit.get("order") != Enums.OrderType.MOVE:
 			failures.append("right-click move should issue a move order")
-		var move_marker := scene_root.get_node_or_null("MoveMarker") as MeshInstance3D
+		var move_marker := scene_root.get_node_or_null("MoveMarker") as Node2D
 		if move_marker == null or not move_marker.visible:
 			failures.append("move order should show a ground move marker")
-		elif not is_equal_approx(move_marker.position.x, 5.0) or not is_equal_approx(
-			move_marker.position.z, 0.0
-		):
-			failures.append("move marker should sit on the ground target")
-		var original_position: Vector3 = unit.position
+		elif not move_marker.position.is_equal_approx(IsoMathScript.world_to_screen(move_target)):
+			failures.append("move marker should sit on the iso screen target")
+		var original_sim: Vector2 = unit.get("sim_pos")
 		unit.call("_physics_process", 0.5)
-		if unit.position.x <= original_position.x:
-			failures.append("unit should move toward its target on the XZ plane")
-		if unit.position.y != 0.0 or unit.get("sim_pos").y != 0.0:
-			failures.append("moving unit should remain on y=0")
+		if unit.get("sim_pos").x <= original_sim.x:
+			failures.append("unit should move toward its target on the logical plane")
+		if not unit.position.is_equal_approx(IsoMathScript.world_to_screen(unit.get("sim_pos"))):
+			failures.append("unit Node2D position should stay synced to iso screen coords")
 		var stable_button := hud.find_child("StableButton", true, false) as Button
 		if stable_button == null or stable_button.visible:
 			failures.append("Chinese HUD should hide the stable build button")
 		for drop_button_name in ["MillButton", "LumberButton", "MiningButton"]:
 			if hud.find_child(drop_button_name, true, false) == null:
 				failures.append("HUD should expose %s for drop-off buildings" % drop_button_name)
-		var ground := scene_root.get_node("Map/Ground") as MeshInstance3D
-		var ground_material := ground.material_override as StandardMaterial3D
-		if ground_material == null or ground_material.albedo_texture == null:
-			failures.append("match ground should apply the terrain texture")
-		var player_billboard := unit.get_node_or_null("Billboard") as AnimatedSprite3D
-		var ai_villager := entities.get_node_or_null("AiVillager1") as Node3D
+		if ground.get_child_count() < 10:
+			failures.append("match ground should spawn grass tiles covering the play area")
+		var player_billboard := unit.get_node_or_null("Billboard") as AnimatedSprite2D
+		var ai_villager := entities.get_node_or_null("AiVillager1") as Node2D
 		if ai_villager != null:
 			ai_villager.call("_ready")
 		var ai_billboard := (
-			ai_villager.get_node_or_null("Billboard") as AnimatedSprite3D
+			ai_villager.get_node_or_null("Billboard") as AnimatedSprite2D
 			if ai_villager != null
 			else null
 		)
 		if player_billboard == null or ai_billboard == null:
 			failures.append("units should expose Billboard nodes for team tint checks")
 		elif not bool(unit.get("_use_billboard")) or not bool(ai_villager.get("_use_billboard")):
-			failures.append("both teams should bind billboard sprites for tint checks")
+			failures.append("both teams should bind 2D sprites for tint checks")
 		elif is_equal_approx(player_billboard.modulate.r, ai_billboard.modulate.r):
-			failures.append("player and AI billboards should use different team tints")
+			failures.append("player and AI sprites should use different team tints")
 
 		var food_bush := entities.get_node_or_null("PlayerFoodBush")
 		var town_center := entities.get_node_or_null("PlayerTownCenter")
@@ -152,9 +139,9 @@ func run() -> Array[String]:
 			failures.append("bootstrap should spawn gatherable food")
 		elif town_center == null or not town_center.has_method("accepts_resource"):
 			failures.append("bootstrap should spawn a resource drop-off TC")
-		elif town_center.position != Vector3(-40.0, 0.0, -40.0):
+		elif town_center.get("sim_pos") != Vector2(-40.0, -40.0):
 			failures.append("player TC should spawn at the player base origin")
-		elif ai_town_center == null or ai_town_center.position != Vector3(40.0, 0.0, 40.0):
+		elif ai_town_center == null or ai_town_center.get("sim_pos") != Vector2(40.0, 40.0):
 			failures.append("AI TC should spawn at the opposite base origin")
 		elif entities.get_node_or_null("PlayerVillager4") == null:
 			failures.append("Chinese should start with four villagers")
@@ -192,10 +179,11 @@ func run() -> Array[String]:
 			)):
 				failures.append("HUD build system should begin affordable house placement")
 			else:
-				var ghost := build_system.get("_ghost") as Node3D
+				var ghost := build_system.get("_ghost") as Node2D
 				if ghost.is_in_group("buildings"):
 					failures.append("placement preview should not be a selectable building")
-				ghost.position = Vector3(8.0, 0.0, 0.0)
+				ghost.set("sim_pos", Vector2(8.0, 0.0))
+				IsoMathScript.sync_node(ghost, Vector2(8.0, 0.0))
 				if not bool(build_system.call("confirm_placement")):
 					failures.append("build system should confirm a valid house placement")
 				elif unit.get("order") != Enums.OrderType.BUILD:
@@ -204,7 +192,7 @@ func run() -> Array[String]:
 					Enums.Team.PLAYER, Enums.ResourceType.WOOD
 				) >= initial_wood:
 					failures.append("confirming placement should spend building resources")
-				unit.call("command_move", Vector3.ZERO)
+				unit.call("command_move", Vector2.ZERO)
 				selection.call("_issue_build", ghost)
 				if unit.get("order") != Enums.OrderType.BUILD:
 					failures.append("right-clicking a foundation should resume construction")
@@ -225,14 +213,14 @@ func run() -> Array[String]:
 			failures.append("winner should stop building input")
 		if not bool(state.get("frozen")):
 			failures.append("winner should set MatchState.frozen")
-		var player_unit := entities.get_node_or_null("PlayerVillager1") as Node3D
+		var player_unit := entities.get_node_or_null("PlayerVillager1") as Node2D
 		if player_unit != null:
 			if player_unit.is_physics_processing():
 				failures.append("winner should disable player unit physics_process")
-			var start_pos := player_unit.position
-			player_unit.call("command_move", start_pos + Vector3(6.0, 0.0, 0.0))
+			var start_sim: Vector2 = player_unit.get("sim_pos")
+			player_unit.call("command_move", start_sim + Vector2(6.0, 0.0))
 			player_unit.call("_physics_process", 0.5)
-			if player_unit.position.distance_to(start_pos) > 0.01:
+			if player_unit.get("sim_pos").distance_to(start_sim) > 0.01:
 				failures.append("frozen MatchState should stop player unit movement")
 
 	tree.root.remove_child(scene_root)
@@ -265,13 +253,8 @@ func run() -> Array[String]:
 		tree.root.remove_child(teutons_match)
 		teutons_match.free()
 
-	var picker_script := load("res://scripts/input/ground_picker.gd")
-	if picker_script == null:
-		failures.append("ground picker should load")
-	else:
-		var picked: Variant = picker_script.intersect_ground(
-			Vector3(2.0, 10.0, 3.0), Vector3(0.0, -1.0, 0.0)
-		)
-		if picked != Vector3(2.0, 0.0, 3.0):
-			failures.append("ground picker should intersect the y=0 plane")
+	if not IsoMathScript.world_to_screen(Vector2(1, 0)).is_equal_approx(Vector2(22, 11)):
+		failures.append("IsoMath world_to_screen should use 2:1 diamond mapping")
+	if not IsoMathScript.screen_to_world(Vector2(22, 11)).is_equal_approx(Vector2(1, 0)):
+		failures.append("IsoMath screen_to_world should invert world_to_screen")
 	return failures

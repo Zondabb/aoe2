@@ -1,40 +1,29 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/entities/building_agent.gd" id="1_building"]
 
-[sub_resource type="BoxMesh" id="BoxMesh_body"]
-size = Vector3(2, 2.2, 2)
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_body"]
+size = Vector2(24, 20)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ring"]
-albedo_color = Color(0.25, 0.9, 1, 0.7)
-transparency = 1
-shading_mode = 0
-disable_receive_shadows = true
-
-[sub_resource type="CylinderMesh" id="CylinderMesh_ring"]
-material = SubResource("StandardMaterial3D_ring")
-top_radius = 1.25
-bottom_radius = 1.25
-height = 0.035
-radial_segments = 32
-rings = 1
-
-[node name="BuildingAgent" type="Node3D"]
+[node name="BuildingAgent" type="Node2D"]
+y_sort_enabled = true
 script = ExtResource("1_building")
 
-[node name="Body" type="MeshInstance3D" parent="."]
-position = Vector3(0, 1.1, 0)
-mesh = SubResource("BoxMesh_body")
+[node name="GroundShadow" type="Polygon2D" parent="."]
+z_index = -1
+color = Color(0, 0, 0, 0.35)
+polygon = PackedVector2Array(28, 0, 19.8, 7.7, 0, 14, -19.8, 7.7, -28, 0, -19.8, -7.7, 0, -14, 19.8, -7.7)
 
-[node name="Billboard" type="Sprite3D" parent="."]
-billboard = 0
-shaded = false
-alpha_cut = 1
-texture_filter = 0
-pixel_size = 0.03
-
-[node name="SelectionRing" type="MeshInstance3D" parent="."]
+[node name="Body" type="Sprite2D" parent="."]
 visible = false
-position = Vector3(0, 0.03, 0)
-cast_shadow = 0
-mesh = SubResource("CylinderMesh_ring")
+modulate = Color(0.18, 0.42, 0.95, 1)
+texture = SubResource("PlaceholderTexture2D_body")
+
+[node name="Billboard" type="Sprite2D" parent="."]
+texture_filter = 0
+
+[node name="SelectionRing" type="Polygon2D" parent="."]
+visible = false
+z_index = -1
+color = Color(0.25, 0.9, 1, 0.55)
+polygon = PackedVector2Array(30, 0, 21.2, 8.25, 0, 15, -21.2, 8.25, -30, 0, -21.2, -8.25, 0, -15, 21.2, -8.25)

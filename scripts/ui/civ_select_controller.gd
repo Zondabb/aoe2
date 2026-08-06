@@ -13,4 +13,4 @@ func _choose_civ(civ_id: StringName) -> void:
 	GameSession.player_civ_id = civ_id
 	GameSession.ai_civ_id = &"teutons" if civ_id == &"chinese" else &"chinese"
 	civ_chosen.emit(civ_id)
-	get_tree().change_scene_to_file("res://scenes/match_3d.tscn")
+	get_tree().change_scene_to_file("res://scenes/match_2d.tscn")

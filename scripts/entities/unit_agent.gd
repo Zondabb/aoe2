@@ -1,17 +1,17 @@
 class_name UnitAgent
-extends Node3D
+extends Node2D
 
 const ARRIVAL_DISTANCE := 0.15
 const GATHER_RANGE := 1.2
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
-## Soft tint so billboard sprites remain readable while teams stay distinct.
 const PLAYER_BILLBOARD_TINT := Color(0.65, 0.82, 1.0, 1.0)
 const AI_BILLBOARD_TINT := Color(1.0, 0.62, 0.58, 1.0)
 const ANIM_FPS := 12.0
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
@@ -21,17 +21,17 @@ var hp := 0.0
 var melee_armor := 0.0
 var pierce_armor := 0.0
 var order: Enums.OrderType = Enums.OrderType.NONE
-var sim_pos := Vector3.ZERO
+var sim_pos := Vector2.ZERO
 var carry_type := -1
 var carry_amount := 0.0
 @export var carry_capacity := 10.0
 var match_state: MatchState
-var _move_target := Vector3.ZERO
-var _gather_target: Node3D
-var _last_resource: Node3D
-var _drop_off_target: Node3D
-var _build_target: Node3D
-var _attack_target: Node3D
+var _move_target := Vector2.ZERO
+var _gather_target: Node2D
+var _last_resource: Node2D
+var _drop_off_target: Node2D
+var _build_target: Node2D
+var _attack_target: Node2D
 var _attack_cooldown_remaining := 0.0
 var _gather_state := ""
 var _population_registered := false
@@ -42,8 +42,9 @@ var _anim_frame := 0.0
 
 func _ready() -> void:
 	add_to_group("units")
-	sim_pos = Vector3(position.x, 0.0, position.z)
-	position = sim_pos
+	if sim_pos == Vector2.ZERO:
+		sim_pos = position
+	_sync_visual()
 	hp = float(def.max_hp) if def != null else 0.0
 	melee_armor = float(def.melee_armor) if def != null else 0.0
 	pierce_armor = float(def.pierce_armor) if def != null else 0.0
@@ -74,24 +75,21 @@ func _physics_process(delta: float) -> void:
 
 func _process_move(delta: float) -> void:
 	var offset := _move_target - sim_pos
-	offset.y = 0.0
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
 		sim_pos = _move_target
-		position = sim_pos
+		_sync_visual()
 		order = Enums.OrderType.NONE
 		_apply_billboard_frame(false)
 		return
-
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	sim_pos += velocity
-	sim_pos.y = 0.0
-	position = sim_pos
+	_sync_visual()
 	_update_billboard_facing(velocity, delta, true)
 
-func command_move(target: Vector3) -> void:
-	_move_target = Vector3(target.x, 0.0, target.z)
+func command_move(target: Vector2) -> void:
+	_move_target = target
 	_gather_target = null
 	_drop_off_target = null
 	_build_target = null
@@ -99,13 +97,12 @@ func command_move(target: Vector3) -> void:
 	_gather_state = ""
 	order = Enums.OrderType.MOVE
 
-func command_gather(resource: Node3D) -> void:
+func command_gather(resource: Node2D) -> void:
 	if resource == null or float(resource.get("amount")) <= 0.0:
 		return
 	_build_target = null
 	_attack_target = null
 	var new_type := int(resource.get("resource_type"))
-	# Demo: switching resource type while carrying → drop off current, then gather new.
 	if carry_amount > 0.0 and carry_type != -1 and carry_type != new_type:
 		_last_resource = resource
 		_gather_target = resource
@@ -118,7 +115,7 @@ func command_gather(resource: Node3D) -> void:
 	_gather_state = "to_resource"
 	order = Enums.OrderType.GATHER
 
-func command_build(building: Node3D) -> void:
+func command_build(building: Node2D) -> void:
 	if (
 		building == null
 		or bool(building.get("is_complete"))
@@ -134,16 +131,16 @@ func command_build(building: Node3D) -> void:
 	order = Enums.OrderType.BUILD
 
 func command_attack(target: Node) -> void:
-	var target_3d := target as Node3D
+	var target_2d := target as Node2D
 	if (
-		target_3d == null
-		or not is_instance_valid(target_3d)
-		or target_3d.get("team") == team
-		or target_3d.get("is_placement_ghost") == true
-		or not target_3d.has_method("take_damage")
+		target_2d == null
+		or not is_instance_valid(target_2d)
+		or target_2d.get("team") == team
+		or target_2d.get("is_placement_ghost") == true
+		or not target_2d.has_method("take_damage")
 	):
 		return
-	_attack_target = target_3d
+	_attack_target = target_2d
 	_gather_target = null
 	_drop_off_target = null
 	_build_target = null
@@ -157,7 +154,7 @@ func _process_attack(delta: float) -> void:
 		return
 	_attack_cooldown_remaining = maxf(0.0, _attack_cooldown_remaining - delta)
 	if _distance_to(_attack_target) > def.range:
-		_move_toward(_attack_target.position, delta)
+		_move_toward(_attack_target.get("sim_pos"), delta)
 		return
 	if _attack_cooldown_remaining > 0.0:
 		return
@@ -194,7 +191,7 @@ func _process_build(delta: float) -> void:
 			building_def.footprint.x, building_def.footprint.y
 		) * 0.5
 	if _distance_to(_build_target) > build_range:
-		_move_toward(_build_target.position, delta)
+		_move_toward(_build_target.get("sim_pos"), delta)
 		return
 	_build_target.call("add_build_progress", delta)
 	if bool(_build_target.get("is_complete")):
@@ -209,7 +206,7 @@ func _process_gather(delta: float) -> void:
 			elif _distance_to(_gather_target) <= GATHER_RANGE:
 				_gather_state = "gathering"
 			else:
-				_move_toward(_gather_target.position, delta)
+				_move_toward(_gather_target.get("sim_pos"), delta)
 		"gathering":
 			_gather(delta)
 		"to_drop_off":
@@ -251,7 +248,7 @@ func _process_drop_off(delta: float) -> void:
 		_begin_drop_off()
 		return
 	if _distance_to(_drop_off_target) > GATHER_RANGE:
-		_move_toward(_drop_off_target.position, delta)
+		_move_toward(_drop_off_target.get("sim_pos"), delta)
 		return
 	if match_state != null:
 		match_state.add_resource(team, carry_type, int(round(carry_amount)))
@@ -272,14 +269,14 @@ func _finish_or_drop_off() -> void:
 		order = Enums.OrderType.NONE
 		_gather_state = ""
 
-func _resource_available(resource: Node3D) -> bool:
+func _resource_available(resource: Node2D) -> bool:
 	return is_instance_valid(resource) and float(resource.get("amount")) > 0.0
 
-func _distance_to(target: Node3D) -> float:
-	return position.distance_to(target.position)
+func _distance_to(target: Node2D) -> float:
+	return sim_pos.distance_to(target.get("sim_pos"))
 
-func _move_toward(target: Vector3, delta: float) -> void:
-	var offset := Vector3(target.x, 0.0, target.z) - sim_pos
+func _move_toward(target: Vector2, delta: float) -> void:
+	var offset := target - sim_pos
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
 		_apply_billboard_frame(false)
@@ -287,18 +284,20 @@ func _move_toward(target: Vector3, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	sim_pos += velocity
-	sim_pos.y = 0.0
-	position = sim_pos
+	_sync_visual()
 	_update_billboard_facing(velocity, delta, true)
 
 func set_selected(selected: bool) -> void:
-	var selection_ring := get_node_or_null("SelectionRing") as MeshInstance3D
+	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
 	if selection_ring != null:
 		selection_ring.visible = selected
 
+func _sync_visual() -> void:
+	IsoMathScript.sync_node(self, sim_pos)
+
 func _setup_presentation() -> void:
-	var body := get_node_or_null("Body") as MeshInstance3D
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite3D
+	var body := get_node_or_null("Body") as CanvasItem
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	_use_billboard = false
 	if billboard != null and def != null:
 		var base := SpriteCatalogScript.unit_sheet_base(def.id)
@@ -310,15 +309,15 @@ func _setup_presentation() -> void:
 					meta, texture
 				)
 				var hotspot := SpriteCatalogScript.average_hotspot(meta)
-				var offset := SpriteCatalogScript.offset_for_hotspot(meta, hotspot)
-				SpriteCatalogScript.configure_billboard_sprite(
-					billboard, SpriteCatalogScript.UNIT_PIXEL_SIZE, offset
+				var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
+				SpriteCatalogScript.configure_sprite_2d(
+					billboard, SpriteCatalogScript.UNIT_PIXEL_SCALE_2D, offset
 				)
 				billboard.visible = true
 				_use_billboard = true
 				_apply_team_color()
 				_apply_billboard_frame(false)
-				SpriteCatalogScript.ensure_ground_shadow(self, 0.55)
+				SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
 	if body != null:
 		body.visible = not _use_billboard
 		if not _use_billboard:
@@ -326,9 +325,9 @@ func _setup_presentation() -> void:
 	if billboard != null and not _use_billboard:
 		billboard.visible = false
 	if not _use_billboard:
-		SpriteCatalogScript.ensure_ground_shadow(self, 0.55)
+		SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
 
-func _update_billboard_facing(velocity: Vector3, delta: float, moving: bool) -> void:
+func _update_billboard_facing(velocity: Vector2, delta: float, moving: bool) -> void:
 	if not _use_billboard:
 		return
 	var facing: Dictionary = SpriteCatalogScript.quantize_xz_facing(velocity)
@@ -339,7 +338,7 @@ func _update_billboard_facing(velocity: Vector3, delta: float, moving: bool) -> 
 	_apply_billboard_frame(moving)
 
 func _apply_billboard_frame(moving: bool) -> void:
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite3D
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard == null or billboard.sprite_frames == null:
 		return
 	var anim := StringName("dir_%d" % _facing_dir)
@@ -354,13 +353,10 @@ func _apply_billboard_frame(moving: bool) -> void:
 	billboard.frame = (int(_anim_frame) % frame_count) if moving else 0
 
 func _apply_team_color() -> void:
-	var body := get_node_or_null("Body") as MeshInstance3D
+	var body := get_node_or_null("Body") as CanvasItem
 	if body != null and body.visible:
-		var material := StandardMaterial3D.new()
-		material.albedo_color = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
-		material.roughness = 0.8
-		body.material_override = material
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite3D
+		body.modulate = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard != null and _use_billboard:
 		billboard.modulate = (
 			PLAYER_BILLBOARD_TINT if team == Enums.Team.PLAYER else AI_BILLBOARD_TINT

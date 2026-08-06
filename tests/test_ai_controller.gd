@@ -27,7 +27,7 @@ func _test_bootstrap_wires_ai(failures: Array[String]) -> void:
 	if game_session != null:
 		game_session.set("player_civ_id", &"chinese")
 		game_session.set("ai_civ_id", &"teutons")
-	var packed := load("res://scenes/match_3d.tscn") as PackedScene
+	var packed := load("res://scenes/match_2d.tscn") as PackedScene
 	var scene_root := packed.instantiate()
 	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
@@ -45,38 +45,38 @@ func _test_bootstrap_wires_ai(failures: Array[String]) -> void:
 
 func _test_eco_assigns_gather_and_trains(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
-	var entities := Node3D.new()
+	var entities := Node2D.new()
 	entities.name = "Entities"
 	root.add_child(entities)
 	var state := MatchState.new()
 	state.setup_defaults()
 	state.register_pop(Enums.Team.AI, 0, 20)
 
-	var town_center := BUILDING_VIEW.instantiate() as Node3D
+	var town_center := BUILDING_VIEW.instantiate() as Node2D
 	town_center.set("team", Enums.Team.AI)
 	town_center.set("def", TOWN_CENTER)
 	town_center.set("civ", TEUTONS)
 	town_center.set("match_state", state)
 	town_center.set("accepts_all_resources", true)
-	town_center.position = Vector3(40.0, 0.0, 40.0)
+	town_center.set("sim_pos", Vector2(40.0, 40.0))
 	entities.add_child(town_center)
 
-	var villagers: Array[Node3D] = []
+	var villagers: Array[Node2D] = []
 	for index in 3:
-		var villager := UNIT_VIEW.instantiate() as Node3D
+		var villager := UNIT_VIEW.instantiate() as Node2D
 		villager.set("team", Enums.Team.AI)
 		villager.set("def", VILLAGER)
 		villager.set("civ", TEUTONS)
 		villager.set("match_state", state)
-		villager.position = Vector3(42.0 + index, 0.0, 40.0)
+		villager.set("sim_pos", Vector2(42.0 + index, 40.0))
 		entities.add_child(villager)
 		villagers.append(villager)
 
-	_add_resource(entities, Enums.ResourceType.FOOD, Vector3(49.0, 0.0, 42.0))
-	_add_resource(entities, Enums.ResourceType.WOOD, Vector3(47.0, 0.0, 34.0))
-	_add_resource(entities, Enums.ResourceType.GOLD, Vector3(45.0, 0.0, 49.0))
+	_add_resource(entities, Enums.ResourceType.FOOD, Vector2(49.0, 42.0))
+	_add_resource(entities, Enums.ResourceType.WOOD, Vector2(47.0, 34.0))
+	_add_resource(entities, Enums.ResourceType.GOLD, Vector2(45.0, 49.0))
 
 	var ai := AI_CONTROLLER.new()
 	root.add_child(ai)
@@ -103,9 +103,9 @@ func _test_eco_assigns_gather_and_trains(failures: Array[String]) -> void:
 
 func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
-	var entities := Node3D.new()
+	var entities := Node2D.new()
 	root.add_child(entities)
 	var state := MatchState.new()
 	state.setup_defaults()
@@ -113,34 +113,34 @@ func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.WOOD, 500)
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.GOLD, 200)
 
-	var ai_tc := BUILDING_VIEW.instantiate() as Node3D
+	var ai_tc := BUILDING_VIEW.instantiate() as Node2D
 	ai_tc.set("team", Enums.Team.AI)
 	ai_tc.set("def", TOWN_CENTER)
 	ai_tc.set("civ", TEUTONS)
 	ai_tc.set("match_state", state)
-	ai_tc.position = Vector3(40.0, 0.0, 40.0)
+	ai_tc.set("sim_pos", Vector2(40.0, 40.0))
 	entities.add_child(ai_tc)
 
-	var player_tc := BUILDING_VIEW.instantiate() as Node3D
+	var player_tc := BUILDING_VIEW.instantiate() as Node2D
 	player_tc.set("team", Enums.Team.PLAYER)
 	player_tc.set("def", TOWN_CENTER)
 	player_tc.set("civ", CHINESE)
 	player_tc.set("match_state", state)
-	player_tc.position = Vector3(-40.0, 0.0, -40.0)
+	player_tc.set("sim_pos", Vector2(-40.0, -40.0))
 	entities.add_child(player_tc)
 
 	for index in 8:
-		var villager := UNIT_VIEW.instantiate() as Node3D
+		var villager := UNIT_VIEW.instantiate() as Node2D
 		villager.set("team", Enums.Team.AI)
 		villager.set("def", VILLAGER)
 		villager.set("civ", TEUTONS)
 		villager.set("match_state", state)
-		villager.position = Vector3(42.0 + (index % 4), 0.0, 41.0 + int(index / 4))
+		villager.set("sim_pos", Vector2(42.0 + (index % 4), 41.0 + int(index / 4)))
 		entities.add_child(villager)
 
-	_add_resource(entities, Enums.ResourceType.FOOD, Vector3(49.0, 0.0, 42.0))
-	_add_resource(entities, Enums.ResourceType.WOOD, Vector3(47.0, 0.0, 34.0))
-	_add_resource(entities, Enums.ResourceType.GOLD, Vector3(45.0, 0.0, 49.0))
+	_add_resource(entities, Enums.ResourceType.FOOD, Vector2(49.0, 42.0))
+	_add_resource(entities, Enums.ResourceType.WOOD, Vector2(47.0, 34.0))
+	_add_resource(entities, Enums.ResourceType.GOLD, Vector2(45.0, 49.0))
 
 	var ai := AI_CONTROLLER.new()
 	root.add_child(ai)
@@ -162,12 +162,12 @@ func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 		failures.append("MILITARY AI should place at least one military foundation")
 
 	for index in 6:
-		var soldier := UNIT_VIEW.instantiate() as Node3D
+		var soldier := UNIT_VIEW.instantiate() as Node2D
 		soldier.set("team", Enums.Team.AI)
 		soldier.set("def", SWORDSMAN)
 		soldier.set("civ", TEUTONS)
 		soldier.set("match_state", state)
-		soldier.position = Vector3(30.0 + index, 0.0, 30.0)
+		soldier.set("sim_pos", Vector2(30.0 + index, 30.0))
 		entities.add_child(soldier)
 
 	ai.evaluate()
@@ -188,7 +188,6 @@ func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 
 	ai.match_time = 0.0
 	ai.phase = AI_CONTROLLER.Phase.MILITARY
-	# Remove soldiers so count drops, then force time push.
 	for node in entities.get_children().duplicate():
 		var unit_def := node.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"swordsman":
@@ -206,15 +205,14 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 	if game_session != null:
 		game_session.set("player_civ_id", &"chinese")
 		game_session.set("ai_civ_id", &"teutons")
-	var packed := load("res://scenes/match_3d.tscn") as PackedScene
+	var packed := load("res://scenes/match_2d.tscn") as PackedScene
 	var scene_root := packed.instantiate()
 	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
 	var bootstrap := scene_root.get_node("Bootstrap")
 	var state := bootstrap.get("match_state") as MatchState
-	var entities := scene_root.get_node("Entities") as Node3D
+	var entities := scene_root.get_node("Entities") as Node2D
 	var ai := scene_root.get_node("AiController")
-	# Give AI ample stockpile so the accelerated loop can build and train.
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.FOOD, 800)
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.WOOD, 800)
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.GOLD, 400)
@@ -224,7 +222,6 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 		for node in entities.get_children():
 			if node.has_method("_physics_process"):
 				node.call("_physics_process", 0.5)
-			# Instant-finish AI foundations so military buildings come online.
 			if (
 				node.get("team") == Enums.Team.AI
 				and node.get("def") is BuildingDef
@@ -259,7 +256,7 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 
 func _test_ai_stops_on_winner(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var packed := load("res://scenes/match_3d.tscn") as PackedScene
+	var packed := load("res://scenes/match_2d.tscn") as PackedScene
 	var scene_root := packed.instantiate()
 	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
@@ -276,23 +273,23 @@ func _test_ai_stops_on_winner(failures: Array[String]) -> void:
 	if not bool(state.get("frozen")):
 		failures.append("winner should freeze MatchState simulation")
 	var entities := scene_root.get_node("Entities")
-	var player_unit := entities.get_node_or_null("PlayerVillager1") as Node3D
+	var player_unit := entities.get_node_or_null("PlayerVillager1") as Node2D
 	if player_unit == null:
 		failures.append("expected a player villager to verify freeze")
 	else:
-		var start_pos := player_unit.position
-		player_unit.call("command_move", start_pos + Vector3(8.0, 0.0, 0.0))
+		var start_sim: Vector2 = player_unit.get("sim_pos")
+		player_unit.call("command_move", start_sim + Vector2(8.0, 0.0))
 		player_unit.call("_physics_process", 0.5)
-		if player_unit.position.distance_to(start_pos) > 0.01:
+		if player_unit.get("sim_pos").distance_to(start_sim) > 0.01:
 			failures.append("winner freeze should stop player unit simulation")
 	tree.root.remove_child(scene_root)
 	scene_root.free()
 
 func _test_hostile_scan_skips_placement_ghost(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
-	var entities := Node3D.new()
+	var entities := Node2D.new()
 	root.add_child(entities)
 	var state := MatchState.new()
 	state.setup_defaults()
@@ -302,31 +299,31 @@ func _test_hostile_scan_skips_placement_ghost(failures: Array[String]) -> void:
 	ai.ai_team = Enums.Team.AI
 	ai.match_state = state
 	root.add_child(ai)
-	var ghost := BUILDING_VIEW.instantiate() as Node3D
+	var ghost := BUILDING_VIEW.instantiate() as Node2D
 	ghost.set("team", Enums.Team.PLAYER)
 	ghost.set("def", BARRACKS)
 	ghost.set("is_placement_ghost", true)
+	ghost.set("sim_pos", Vector2(2.0, 0.0))
 	ghost.call("start_construction")
-	ghost.position = Vector3(2.0, 0.0, 0.0)
 	entities.add_child(ghost)
-	var scout := UNIT_VIEW.instantiate() as Node3D
+	var scout := UNIT_VIEW.instantiate() as Node2D
 	scout.set("team", Enums.Team.AI)
 	scout.set("def", SWORDSMAN)
-	scout.position = Vector3.ZERO
+	scout.set("sim_pos", Vector2.ZERO)
 	entities.add_child(scout)
-	var nearest: Node3D = ai.call("_nearest_hostile_in_radius", scout, 20.0)
+	var nearest: Node2D = ai.call("_nearest_hostile_in_radius", scout, 20.0)
 	if nearest != null:
 		failures.append("AI hostile scan should skip placement ghosts")
 	root.free()
 
 func _add_resource(
-	parent: Node3D,
+	parent: Node2D,
 	resource_type: Enums.ResourceType,
-	spawn_position: Vector3
+	spawn_position: Vector2
 ) -> void:
 	var resource := ResourceNodeScript.new()
 	resource.resource_type = resource_type
 	resource.amount = 200.0
 	resource.gather_rate = 4.0
-	resource.position = spawn_position
+	resource.sim_pos = spawn_position
 	parent.add_child(resource)

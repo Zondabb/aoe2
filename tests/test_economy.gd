@@ -26,7 +26,7 @@ func _test_resource_extraction(failures: Array[String]) -> void:
 
 func _test_gather_and_drop_off(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
 
 	var state := MatchState.new()
@@ -37,19 +37,20 @@ func _test_gather_and_drop_off(failures: Array[String]) -> void:
 	resource.resource_type = Enums.ResourceType.FOOD
 	resource.amount = 100.0
 	resource.gather_rate = 10.0
-	resource.position = Vector3(1.0, 0.0, 0.0)
+	resource.sim_pos = Vector2(1.0, 0.0)
 	root.add_child(resource)
 
 	var town_center := BUILDING_AGENT_SCRIPT.new()
 	town_center.team = Enums.Team.PLAYER
 	town_center.accepts_all_resources = true
-	town_center.position = Vector3(3.0, 0.0, 0.0)
+	town_center.sim_pos = Vector2(3.0, 0.0)
 	root.add_child(town_center)
 
 	var villager := UNIT_VIEW.instantiate()
 	villager.def = VILLAGER_DEF
 	villager.team = Enums.Team.PLAYER
 	villager.match_state = state
+	villager.sim_pos = Vector2.ZERO
 	root.add_child(villager)
 	villager.command_gather(resource)
 
@@ -67,7 +68,7 @@ func _test_gather_and_drop_off(failures: Array[String]) -> void:
 
 func _test_gather_switch_drops_off_first(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
-	var root := Node3D.new()
+	var root := Node2D.new()
 	tree.root.add_child(root)
 
 	var state := MatchState.new()
@@ -79,26 +80,27 @@ func _test_gather_switch_drops_off_first(failures: Array[String]) -> void:
 	food.resource_type = Enums.ResourceType.FOOD
 	food.amount = 100.0
 	food.gather_rate = 10.0
-	food.position = Vector3(1.0, 0.0, 0.0)
+	food.sim_pos = Vector2(1.0, 0.0)
 	root.add_child(food)
 
 	var wood := RESOURCE_NODE_SCRIPT.new()
 	wood.resource_type = Enums.ResourceType.WOOD
 	wood.amount = 100.0
 	wood.gather_rate = 10.0
-	wood.position = Vector3(5.0, 0.0, 0.0)
+	wood.sim_pos = Vector2(5.0, 0.0)
 	root.add_child(wood)
 
 	var town_center := BUILDING_AGENT_SCRIPT.new()
 	town_center.team = Enums.Team.PLAYER
 	town_center.accepts_all_resources = true
-	town_center.position = Vector3(3.0, 0.0, 0.0)
+	town_center.sim_pos = Vector2(3.0, 0.0)
 	root.add_child(town_center)
 
 	var villager := UNIT_VIEW.instantiate()
 	villager.def = VILLAGER_DEF
 	villager.team = Enums.Team.PLAYER
 	villager.match_state = state
+	villager.sim_pos = Vector2.ZERO
 	root.add_child(villager)
 	villager.carry_type = Enums.ResourceType.FOOD
 	villager.carry_amount = 5.0

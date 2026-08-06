@@ -5,22 +5,22 @@ signal placement_changed(active: bool)
 
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
-const GroundPickerScript := preload("res://scripts/input/ground_picker.gd")
+const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 var match_state: MatchState
 var civ: CivDef
-var _camera: Camera3D
-var _entities: Node3D
+var _camera: Camera2D
+var _entities: Node2D
 var _selection: Control
-var _ghost: Node3D
+var _ghost: Node2D
 var _placement_valid := false
 
 static func can_place(
-	footprint: Vector2, center: Vector3, existing_buildings: Array
+	footprint: Vector2, center: Vector2, existing_buildings: Array
 ) -> bool:
 	var candidate_half := footprint * 0.5
 	for value in existing_buildings:
-		var building := value as Node3D
+		var building := value as Node2D
 		if building == null:
 			continue
 		var building_def := building.get("def") as BuildingDef
@@ -28,9 +28,10 @@ static func can_place(
 			building_def.footprint if building_def != null else Vector2.ONE
 		)
 		var existing_half := existing_footprint * 0.5
+		var building_pos: Vector2 = building.get("sim_pos")
 		var offset := Vector2(
-			absf(center.x - building.position.x),
-			absf(center.z - building.position.z)
+			absf(center.x - building_pos.x),
+			absf(center.y - building_pos.y)
 		)
 		if (
 			offset.x < candidate_half.x + existing_half.x
@@ -40,8 +41,8 @@ static func can_place(
 	return true
 
 func setup(
-	camera: Camera3D,
-	entities: Node3D,
+	camera: Camera2D,
+	entities: Node2D,
 	selection: Control,
 	state: MatchState,
 	player_civ: CivDef
@@ -56,17 +57,14 @@ func _process(_delta: float) -> void:
 	if _ghost != null and not is_instance_valid(_ghost):
 		cancel_placement()
 		return
-	if _ghost == null or _camera == null:
+	if _ghost == null:
 		return
 	_update_ghost_position(get_viewport().get_mouse_position())
 
 func _update_ghost_position(screen_position: Vector2) -> void:
-	var ground_position: Variant = GroundPickerScript.pick_ground(
-		_camera, screen_position
-	)
-	if ground_position == null:
-		return
-	_ghost.position = ground_position as Vector3
+	var logical := _viewport_to_logical(screen_position)
+	_ghost.set("sim_pos", logical)
+	IsoMathScript.sync_node(_ghost, logical)
 	_update_placement_validity()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -104,7 +102,7 @@ func begin_placement(building_def: BuildingDef) -> bool:
 	):
 		return false
 	cancel_placement()
-	_ghost = BUILDING_VIEW.instantiate() as Node3D
+	_ghost = BUILDING_VIEW.instantiate() as Node2D
 	_ghost.name = "%sFoundation" % String(building_def.id).to_pascal_case()
 	_ghost.set("team", Enums.Team.PLAYER)
 	_ghost.set("def", building_def)
@@ -153,8 +151,8 @@ func cancel_placement() -> void:
 func is_placing() -> bool:
 	return _ghost != null
 
-func _selected_builders() -> Array[Node3D]:
-	var result: Array[Node3D] = []
+func _selected_builders() -> Array[Node2D]:
+	var result: Array[Node2D] = []
 	if _selection == null:
 		return result
 	for unit in _selection.call("get_selected_units"):
@@ -177,7 +175,7 @@ func _update_placement_validity() -> void:
 	_placement_valid = (
 		can_place(
 			(_ghost.get("def") as BuildingDef).footprint,
-			_ghost.position,
+			_ghost.get("sim_pos"),
 			existing
 		)
 		and match_state.can_afford(
@@ -188,3 +186,7 @@ func _update_placement_validity() -> void:
 		)
 	)
 	_ghost.call("set_ghost_visual", _placement_valid)
+
+func _viewport_to_logical(screen_position: Vector2) -> Vector2:
+	var canvas := get_viewport().get_canvas_transform().affine_inverse() * screen_position
+	return IsoMathScript.screen_to_world(canvas)
