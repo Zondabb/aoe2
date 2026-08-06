@@ -318,12 +318,15 @@ func _setup_presentation() -> void:
 				_use_billboard = true
 				_apply_team_color()
 				_apply_billboard_frame(false)
+				SpriteCatalogScript.ensure_ground_shadow(self, 0.55)
 	if body != null:
 		body.visible = not _use_billboard
 		if not _use_billboard:
 			_apply_team_color()
 	if billboard != null and not _use_billboard:
 		billboard.visible = false
+	if not _use_billboard:
+		SpriteCatalogScript.ensure_ground_shadow(self, 0.55)
 
 func _update_billboard_facing(velocity: Vector3, delta: float, moving: bool) -> void:
 	if not _use_billboard:

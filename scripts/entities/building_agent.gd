@@ -220,7 +220,7 @@ func _configure_visuals() -> void:
 			var target_width := maxf(def.footprint.x, def.footprint.y) * 1.15
 			if frame_w > 0.0:
 				pixel_size = clampf(target_width / frame_w, 0.018, 0.05)
-			SpriteCatalogScript.configure_billboard_sprite(billboard, pixel_size, offset)
+			SpriteCatalogScript.configure_iso_sprite(billboard, pixel_size, offset)
 			billboard.modulate = Color.WHITE
 			billboard.visible = true
 			_use_billboard = true
@@ -238,6 +238,8 @@ func _configure_visuals() -> void:
 		cylinder.top_radius = maxf(def.footprint.x, def.footprint.y) * 0.62
 		cylinder.bottom_radius = cylinder.top_radius
 		ring.mesh = cylinder
+	var shadow_radius := maxf(def.footprint.x, def.footprint.y) * 0.55
+	SpriteCatalogScript.ensure_ground_shadow(self, shadow_radius)
 	if not _use_billboard:
 		_apply_team_color()
 

@@ -32,7 +32,7 @@ position = Vector3(0, 0.85, 0)
 mesh = SubResource("CapsuleMesh_body")
 
 [node name="Billboard" type="AnimatedSprite3D" parent="."]
-billboard = 2
+billboard = 0
 shaded = false
 alpha_cut = 1
 texture_filter = 0

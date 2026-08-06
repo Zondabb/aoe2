@@ -35,8 +35,10 @@ func run() -> Array[String]:
 		):
 			failures.append("camera should start focused on the player base")
 		camera.call("_ready")
-		if camera.get("pitch_degrees") != 50.0 or camera.get("yaw_degrees") != 45.0:
+		if camera.get("pitch_degrees") != 45.0 or camera.get("yaw_degrees") != 45.0:
 			failures.append("match camera should use the requested view angles")
+		if int(camera.projection) != int(Camera3D.PROJECTION_ORTHOGONAL):
+			failures.append("match camera should use orthographic projection for iso cards")
 		var zoom_event := InputEventMouseButton.new()
 		zoom_event.button_index = MOUSE_BUTTON_WHEEL_UP
 		zoom_event.pressed = true
@@ -84,11 +86,15 @@ func run() -> Array[String]:
 		var billboard := unit.get_node_or_null("Billboard") as AnimatedSprite3D
 		var body := unit.get_node_or_null("Body") as MeshInstance3D
 		if billboard == null or not bool(unit.get("_use_billboard")):
-			failures.append("villager should bind an AnimatedSprite3D billboard when sheet exists")
+			failures.append("villager should bind an AnimatedSprite3D iso sprite when sheet exists")
 		elif body != null and body.visible:
-			failures.append("capsule placeholder should hide when billboard sprite is bound")
+			failures.append("capsule placeholder should hide when iso sprite is bound")
 		elif billboard.sprite_frames == null or not billboard.sprite_frames.has_animation(&"dir_0"):
-			failures.append("villager billboard should have direction walk animations")
+			failures.append("villager sprite should have direction walk animations")
+		elif int(billboard.billboard) != int(BaseMaterial3D.BILLBOARD_DISABLED):
+			failures.append("villager sprite should disable camera billboard")
+		elif unit.get_node_or_null("GroundShadow") == null:
+			failures.append("villager should have a ground shadow under the sprite")
 
 		if unit.get_node("SelectionRing").visible:
 			failures.append("selection ring should start hidden")

@@ -29,4 +29,4 @@ Sheet packing is sequential: frame index = `direction * frames_per_direction + s
 | 6 | W | dir 2 |
 | 7 | SW | dir 1 |
 
-Unit nodes stay unrotated on Y; facing is presentation-only via `AnimatedSprite3D` animation + `flip_h`. Hotspots in JSON are **cell-relative** (centered X, bottom-aligned Y inside each sheet cell) and drive the billboard offset so feet stay on the ground peg.
+Unit root nodes stay unrotated on Y; walk facing is presentation-only via `AnimatedSprite3D` animation + `flip_h`. Sprites use **no camera billboard**: they stand upright and face the fixed RTS camera yaw (`SpriteCatalog.ISO_SPRITE_YAW_RADIANS`) so AoE isometric art reads correctly. Hotspots in JSON are **cell-relative** and drive the sprite offset so feet stay on the ground peg. A `GroundShadow` disc anchors them to the plane.

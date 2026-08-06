@@ -38,6 +38,15 @@ func run() -> Array[String]:
 				failures.append(
 					"hotspot offset.y should be positive so sprites stand above ground"
 				)
+			var probe := AnimatedSprite3D.new()
+			SpriteCatalogScript.configure_iso_sprite(probe, 0.04, offset)
+			if int(probe.billboard) != int(BaseMaterial3D.BILLBOARD_DISABLED):
+				failures.append("iso sprites should disable billboard mode")
+			if not is_equal_approx(
+				probe.rotation.y, SpriteCatalogScript.ISO_SPRITE_YAW_RADIANS
+			):
+				failures.append("iso sprites should face the fixed RTS camera yaw")
+			probe.free()
 
 	if not ResourceLoader.exists("res://assets/terrain/grass.png"):
 		failures.append("terrain grass texture should exist")

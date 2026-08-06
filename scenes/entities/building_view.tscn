@@ -27,7 +27,7 @@ position = Vector3(0, 1.1, 0)
 mesh = SubResource("BoxMesh_body")
 
 [node name="Billboard" type="Sprite3D" parent="."]
-billboard = 2
+billboard = 0
 shaded = false
 alpha_cut = 1
 texture_filter = 0

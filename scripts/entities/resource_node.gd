@@ -39,11 +39,12 @@ func _setup_presentation() -> void:
 			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
 			var hotspot := SpriteCatalogScript.average_hotspot(meta)
 			var offset := SpriteCatalogScript.offset_for_hotspot(meta, hotspot)
-			SpriteCatalogScript.configure_billboard_sprite(
+			SpriteCatalogScript.configure_iso_sprite(
 				billboard, SpriteCatalogScript.RESOURCE_PIXEL_SIZE, offset
 			)
 			billboard.visible = true
 			_use_billboard = true
+			SpriteCatalogScript.ensure_ground_shadow(self, 0.7)
 			if existing_marker != null:
 				existing_marker.visible = false
 			return

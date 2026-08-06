@@ -2,7 +2,9 @@
 class_name RtsCamera3D
 extends Camera3D
 
-@export_range(0.0, 90.0, 0.1) var pitch_degrees := 50.0
+const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+
+@export_range(0.0, 90.0, 0.1) var pitch_degrees := 45.0
 @export_range(-180.0, 180.0, 0.1) var yaw_degrees := 45.0
 @export var pan_speed := 24.0
 @export var edge_margin := 18.0
@@ -10,6 +12,8 @@ extends Camera3D
 @export var min_distance := 18.0
 @export var max_distance := 80.0
 @export var distance := 42.0
+@export var use_orthographic := true
+@export var ortho_size_factor := 0.55
 
 func _ready() -> void:
 	_apply_view()
@@ -67,9 +71,15 @@ func _pan(input_direction: Vector2, delta: float) -> void:
 
 func _apply_view() -> void:
 	distance = clampf(distance, min_distance, max_distance)
+	yaw_degrees = SpriteCatalogScript.ISO_CAMERA_YAW_DEGREES
 	var rig := get_parent_node_3d()
 	if rig != null:
 		rig.rotation.y = deg_to_rad(yaw_degrees)
 	var pitch := deg_to_rad(pitch_degrees)
 	position = Vector3(0.0, sin(pitch) * distance, cos(pitch) * distance)
 	rotation = Vector3(-pitch, 0.0, 0.0)
+	if use_orthographic:
+		projection = PROJECTION_ORTHOGONAL
+		size = clampf(distance * ortho_size_factor, 8.0, 55.0)
+	else:
+		projection = PROJECTION_PERSPECTIVE

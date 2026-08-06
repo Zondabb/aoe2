@@ -42,6 +42,9 @@ const UNIT_PIXEL_SIZE := 0.04
 const BUILDING_PIXEL_SIZE := 0.03
 const RESOURCE_PIXEL_SIZE := 0.035
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
+## Must match RtsCamera3D yaw so upright sprites face the lens (no billboard).
+const ISO_CAMERA_YAW_DEGREES := 45.0
+const ISO_SPRITE_YAW_RADIANS := deg_to_rad(ISO_CAMERA_YAW_DEGREES + 180.0)
 
 ## Authored sheet rows: 0=S, 1=SW, 2=W, 3=NW, 4=N. Mirrored facings use flip_h.
 static func quantize_xz_facing(velocity: Vector3) -> Dictionary:
@@ -183,9 +186,15 @@ static func _atlas_frame(
 
 
 static func configure_billboard_sprite(sprite: Node, pixel_size: float, offset: Vector2) -> void:
+	## Backward-compatible name: now configures fixed-yaw isometric cards (no billboard).
+	configure_iso_sprite(sprite, pixel_size, offset)
+
+
+static func configure_iso_sprite(sprite: Node, pixel_size: float, offset: Vector2) -> void:
+	## Upright Sprite3D facing the fixed RTS camera — AoE sheets are pre-isometric.
 	if sprite is AnimatedSprite3D:
 		var animated := sprite as AnimatedSprite3D
-		animated.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+		animated.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 		animated.shaded = false
 		animated.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 		animated.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
@@ -193,9 +202,10 @@ static func configure_billboard_sprite(sprite: Node, pixel_size: float, offset: 
 		animated.centered = true
 		animated.offset = offset
 		animated.position = Vector3.ZERO
+		animated.rotation = Vector3(0.0, ISO_SPRITE_YAW_RADIANS, 0.0)
 	elif sprite is Sprite3D:
 		var static_sprite := sprite as Sprite3D
-		static_sprite.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+		static_sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 		static_sprite.shaded = false
 		static_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 		static_sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
@@ -203,3 +213,30 @@ static func configure_billboard_sprite(sprite: Node, pixel_size: float, offset: 
 		static_sprite.centered = true
 		static_sprite.offset = offset
 		static_sprite.position = Vector3.ZERO
+		static_sprite.rotation = Vector3(0.0, ISO_SPRITE_YAW_RADIANS, 0.0)
+
+
+static func ensure_ground_shadow(parent: Node3D, radius: float) -> void:
+	if parent == null:
+		return
+	var shadow := parent.get_node_or_null("GroundShadow") as MeshInstance3D
+	if shadow == null:
+		shadow = MeshInstance3D.new()
+		shadow.name = "GroundShadow"
+		shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(shadow)
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = 0.025
+	mesh.radial_segments = 24
+	mesh.rings = 1
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(0.0, 0.0, 0.0, 0.35)
+	mesh.material = material
+	shadow.mesh = mesh
+	shadow.position = Vector3(0.0, 0.012, 0.0)
+	shadow.scale = Vector3(1.15, 1.0, 0.7)
+	shadow.visible = true
