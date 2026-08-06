@@ -28,7 +28,16 @@ position = Vector2(0, -880)
 current = true
 script = ExtResource("1_camera")
 
-[node name="SelectionController" type="Control" parent="."]
+[node name="BuildSystem" type="Node" parent="."]
+script = ExtResource("4_build")
+
+[node name="AiController" type="Node" parent="."]
+script = ExtResource("6_ai")
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="SelectionController" type="Control" parent="UILayer"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -37,15 +46,9 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("3_selection")
-camera_path = NodePath("../Camera2D")
+camera_path = NodePath("../../Camera2D")
 
-[node name="BuildSystem" type="Node" parent="."]
-script = ExtResource("4_build")
-
-[node name="AiController" type="Node" parent="."]
-script = ExtResource("6_ai")
-
-[node name="HUD" parent="." instance=ExtResource("5_hud")]
+[node name="HUD" parent="UILayer" instance=ExtResource("5_hud")]
 
 [node name="Bootstrap" type="Node" parent="."]
 script = ExtResource("2_bootstrap")

@@ -187,7 +187,7 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 		build_system.call("cancel_placement")
 		build_system.set_process(false)
 		build_system.set_process_unhandled_input(false)
-	var match_root := get_parent()
+	var match_root := _match_root()
 	var ai_controller := (
 		match_root.get_node_or_null("AiController") if match_root != null else null
 	)
@@ -199,6 +199,14 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 		for entity in entities.get_children():
 			entity.set_physics_process(false)
 	_refresh()
+
+func _match_root() -> Node:
+	var node: Node = self
+	while node != null:
+		if node.name == "Match":
+			return node
+		node = node.get_parent()
+	return get_parent()
 
 func _return_to_civ_select() -> void:
 	get_tree().change_scene_to_file("res://scenes/civ_select.tscn")

@@ -169,9 +169,9 @@ func _setup_building_controls() -> void:
 		return
 	var camera := match_root.get_node_or_null("Camera2D") as Camera2D
 	var entities := match_root.get_node_or_null("Entities") as Node2D
-	var selection := match_root.get_node_or_null("SelectionController") as Control
+	var selection := match_root.get_node_or_null("UILayer/SelectionController") as Control
 	var build_system := match_root.get_node_or_null("BuildSystem") as Node
-	var hud := match_root.get_node_or_null("HUD") as Control
+	var hud := match_root.get_node_or_null("UILayer/HUD") as Control
 	if (
 		camera == null
 		or entities == null

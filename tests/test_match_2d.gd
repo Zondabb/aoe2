@@ -48,7 +48,7 @@ func run() -> Array[String]:
 		failures.append("match scene should contain entities root")
 	if scene_root.get_node_or_null("Bootstrap") == null:
 		failures.append("match scene should contain bootstrap")
-	var selection := scene_root.get_node_or_null("SelectionController")
+	var selection := scene_root.get_node_or_null("UILayer/SelectionController")
 	if selection == null or selection.get_script() == null:
 		failures.append("match scene should contain selection controller")
 	else:
@@ -58,11 +58,14 @@ func run() -> Array[String]:
 		failures.append("match scene should contain a wired build system")
 	elif build_system.get("match_state") == null:
 		failures.append("bootstrap should configure the build system")
-	var hud := scene_root.get_node_or_null("HUD")
+	var hud := scene_root.get_node_or_null("UILayer/HUD")
 	if hud == null or hud.get_script() == null:
 		failures.append("match scene should contain the building HUD")
 	elif hud.get("build_system") != build_system or hud.get("selection") != selection:
 		failures.append("bootstrap should connect HUD building controls")
+	var ui_layer := scene_root.get_node_or_null("UILayer") as CanvasLayer
+	if ui_layer == null:
+		failures.append("HUD/selection should live on a CanvasLayer fixed to the viewport")
 
 	var entities := scene_root.get_node("Entities") as Node2D
 	if not entities.y_sort_enabled:
@@ -242,7 +245,7 @@ func run() -> Array[String]:
 			failures.append("player base should use the selected Teutons civilization")
 		if chinese_ai_tc == null or chinese_ai_tc.get("civ").id != &"chinese":
 			failures.append("AI should switch to Chinese when player selects Teutons")
-		var teutons_hud := teutons_match.get_node_or_null("HUD")
+		var teutons_hud := teutons_match.get_node_or_null("UILayer/HUD")
 		var teutons_stable := (
 			teutons_hud.find_child("StableButton", true, false) as Button
 			if teutons_hud != null
