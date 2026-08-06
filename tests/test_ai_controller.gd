@@ -262,13 +262,13 @@ func _test_ai_stops_on_winner(failures: Array[String]) -> void:
 	scene_root.get_node("Bootstrap").call("_ready")
 	var ai := scene_root.get_node("AiController")
 	var state := scene_root.get_node("Bootstrap").get("match_state") as MatchState
-	var hud := scene_root.get_node("HUD")
+	var hud := scene_root.get_node_or_null("UILayer/HUD")
 	state.set_winner(Enums.Team.PLAYER)
 	if bool(ai.get("enabled")):
 		failures.append("winner should stop the AI controller")
 	if ai.is_processing():
 		failures.append("winner should disable AI processing")
-	if hud != null and not bool(hud.get_node("ResultPanel").visible):
+	if hud == null or not bool(hud.get_node("ResultPanel").visible):
 		failures.append("winner UI should still appear when AI is present")
 	if not bool(state.get("frozen")):
 		failures.append("winner should freeze MatchState simulation")

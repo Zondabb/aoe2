@@ -128,10 +128,18 @@ func _show_move_marker(logical_target: Vector2) -> void:
 func _ensure_move_marker() -> void:
 	if _move_marker != null and is_instance_valid(_move_marker):
 		return
-	var match_root := get_parent()
+	var match_root := _match_root()
 	if match_root == null:
 		return
 	_move_marker = match_root.get_node_or_null("MoveMarker") as Node2D
+
+func _match_root() -> Node:
+	var node: Node = self
+	while node != null:
+		if node.name == "Match":
+			return node
+		node = node.get_parent()
+	return get_parent()
 
 func _issue_gather(resource: Node2D) -> void:
 	for unit in _selected.duplicate():
