@@ -131,9 +131,11 @@ static func average_hotspot(meta: Dictionary) -> Vector2:
 
 static func offset_for_hotspot(meta: Dictionary, hotspot: Vector2) -> Vector2:
 	## Keep the cell hotspot at the node origin (feet / ground peg).
+	## Sprite3D offset Y is up when billboarded; atlas hotspot Y grows downward,
+	## so a near-bottom hotspot must produce a positive offset.y.
 	var frame_w := float(meta.get("frame_w", 1))
 	var frame_h := float(meta.get("frame_h", 1))
-	return Vector2(frame_w * 0.5 - hotspot.x, frame_h * 0.5 - hotspot.y)
+	return Vector2(frame_w * 0.5 - hotspot.x, hotspot.y - frame_h * 0.5)
 
 
 static func build_unit_sprite_frames(meta: Dictionary, texture: Texture2D) -> SpriteFrames:

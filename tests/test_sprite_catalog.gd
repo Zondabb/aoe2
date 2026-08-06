@@ -31,6 +31,13 @@ func run() -> Array[String]:
 			var frames := SpriteCatalogScript.build_unit_sprite_frames(meta, texture)
 			if not frames.has_animation(&"dir_0") or frames.get_frame_count(&"dir_0") <= 0:
 				failures.append("villager SpriteFrames should include dir_0 walk frames")
+			var hotspot := SpriteCatalogScript.average_hotspot(meta)
+			var offset := SpriteCatalogScript.offset_for_hotspot(meta, hotspot)
+			# Feet sit below the frame center in atlas space → billboard must lift up.
+			if offset.y <= 0.0:
+				failures.append(
+					"hotspot offset.y should be positive so sprites stand above ground"
+				)
 
 	if not ResourceLoader.exists("res://assets/terrain/grass.png"):
 		failures.append("terrain grass texture should exist")
