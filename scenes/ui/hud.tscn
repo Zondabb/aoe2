@@ -51,7 +51,7 @@ text = "人口 0 / 0"
 layout_mode = 0
 offset_left = 8.0
 offset_top = 60.0
-offset_right = 520.0
+offset_right = 780.0
 offset_bottom = 112.0
 mouse_filter = 2
 color = Color(0.05, 0.07, 0.09, 0.62)
@@ -60,34 +60,52 @@ color = Color(0.05, 0.07, 0.09, 0.62)
 layout_mode = 0
 offset_left = 16.0
 offset_top = 68.0
-offset_right = 512.0
+offset_right = 772.0
 offset_bottom = 104.0
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
 mouse_filter = 1
 
 [node name="HouseButton" type="Button" parent="BuildPanel"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(84, 0)
 layout_mode = 2
 text = "建房"
 
 [node name="BarracksButton" type="Button" parent="BuildPanel"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(84, 0)
 layout_mode = 2
 text = "建兵营"
 
 [node name="ArcheryButton" type="Button" parent="BuildPanel"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(84, 0)
 layout_mode = 2
 text = "建靶场"
 
 [node name="StableButton" type="Button" parent="BuildPanel"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(84, 0)
 layout_mode = 2
 text = "建马厩"
+
+[node name="MillButton" type="Button" parent="BuildPanel"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(84, 0)
+layout_mode = 2
+text = "建磨坊"
+
+[node name="LumberButton" type="Button" parent="BuildPanel"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(84, 0)
+layout_mode = 2
+text = "伐木场"
+
+[node name="MiningButton" type="Button" parent="BuildPanel"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(84, 0)
+layout_mode = 2
+text = "采矿营"
 
 [node name="TrainPanel" type="VBoxContainer" parent="."]
 unique_name_in_owner = true

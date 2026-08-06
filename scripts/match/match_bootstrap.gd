@@ -24,8 +24,14 @@ func _ready() -> void:
 	GameSession.ai_civ_id = ai_civ.id
 	_setup_ground()
 	_spawn_entities()
+	_focus_camera_on_player_base()
 	_setup_building_controls()
 	_setup_ai_controller()
+
+func _focus_camera_on_player_base() -> void:
+	var camera := get_node_or_null("../CameraRig/Camera3D") as Camera3D
+	if camera != null and camera.has_method("focus_on"):
+		camera.call("focus_on", Vector3(-40.0, 0.0, -40.0))
 
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as MeshInstance3D

@@ -14,6 +14,12 @@ extends Camera3D
 func _ready() -> void:
 	_apply_view()
 
+func focus_on(world_position: Vector3) -> void:
+	var rig := get_parent_node_3d()
+	if rig != null:
+		rig.position = Vector3(world_position.x, 0.0, world_position.z)
+	_apply_view()
+
 func _process(delta: float) -> void:
 	var pan_input := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):

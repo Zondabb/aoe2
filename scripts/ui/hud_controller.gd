@@ -5,6 +5,9 @@ const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
 const BARRACKS: BuildingDef = preload("res://data/buildings/barracks.tres")
 const ARCHERY_RANGE: BuildingDef = preload("res://data/buildings/archery_range.tres")
 const STABLE: BuildingDef = preload("res://data/buildings/stable.tres")
+const MILL: BuildingDef = preload("res://data/buildings/mill.tres")
+const LUMBER_CAMP: BuildingDef = preload("res://data/buildings/lumber_camp.tres")
+const MINING_CAMP: BuildingDef = preload("res://data/buildings/mining_camp.tres")
 
 var match_state: MatchState
 var civ: CivDef
@@ -48,6 +51,9 @@ func setup(
 	_connect_build_button(%HouseButton, HOUSE)
 	_connect_build_button(%BarracksButton, BARRACKS)
 	_connect_build_button(%ArcheryButton, ARCHERY_RANGE)
+	_connect_build_button(%MillButton, MILL)
+	_connect_build_button(%LumberButton, LUMBER_CAMP)
+	_connect_build_button(%MiningButton, MINING_CAMP)
 	if _stable_button != null:
 		_connect_build_button(_stable_button, STABLE)
 		_stable_button.visible = _civ_allows_stable()
@@ -145,6 +151,9 @@ func _refresh() -> void:
 	%HouseButton.disabled = not _can_build(HOUSE)
 	%BarracksButton.disabled = not _can_build(BARRACKS)
 	%ArcheryButton.disabled = not _can_build(ARCHERY_RANGE)
+	%MillButton.disabled = not _can_build(MILL)
+	%LumberButton.disabled = not _can_build(LUMBER_CAMP)
+	%MiningButton.disabled = not _can_build(MINING_CAMP)
 	if _stable_button != null:
 		_stable_button.visible = _civ_allows_stable()
 		_stable_button.disabled = not _can_build(STABLE)

@@ -26,6 +26,14 @@ func run() -> Array[String]:
 	elif camera.get_script() == null:
 		failures.append("match camera should have controller script")
 	else:
+		var focused_rig := camera.get_parent_node_3d()
+		if focused_rig == null:
+			failures.append("camera should have a rig parent")
+		elif (
+			not is_equal_approx(focused_rig.position.x, -40.0)
+			or not is_equal_approx(focused_rig.position.z, -40.0)
+		):
+			failures.append("camera should start focused on the player base")
 		camera.call("_ready")
 		if camera.get("pitch_degrees") != 50.0 or camera.get("yaw_degrees") != 45.0:
 			failures.append("match camera should use the requested view angles")
@@ -108,10 +116,28 @@ func run() -> Array[String]:
 		var stable_button := hud.find_child("StableButton", true, false) as Button
 		if stable_button == null or stable_button.visible:
 			failures.append("Chinese HUD should hide the stable build button")
+		for drop_button_name in ["MillButton", "LumberButton", "MiningButton"]:
+			if hud.find_child(drop_button_name, true, false) == null:
+				failures.append("HUD should expose %s for drop-off buildings" % drop_button_name)
 		var ground := scene_root.get_node("Map/Ground") as MeshInstance3D
 		var ground_material := ground.material_override as StandardMaterial3D
 		if ground_material == null or ground_material.albedo_texture == null:
 			failures.append("match ground should apply the terrain texture")
+		var player_billboard := unit.get_node_or_null("Billboard") as AnimatedSprite3D
+		var ai_villager := entities.get_node_or_null("AiVillager1") as Node3D
+		if ai_villager != null:
+			ai_villager.call("_ready")
+		var ai_billboard := (
+			ai_villager.get_node_or_null("Billboard") as AnimatedSprite3D
+			if ai_villager != null
+			else null
+		)
+		if player_billboard == null or ai_billboard == null:
+			failures.append("units should expose Billboard nodes for team tint checks")
+		elif not bool(unit.get("_use_billboard")) or not bool(ai_villager.get("_use_billboard")):
+			failures.append("both teams should bind billboard sprites for tint checks")
+		elif is_equal_approx(player_billboard.modulate.r, ai_billboard.modulate.r):
+			failures.append("player and AI billboards should use different team tints")
 
 		var food_bush := entities.get_node_or_null("PlayerFoodBush")
 		var town_center := entities.get_node_or_null("PlayerTownCenter")

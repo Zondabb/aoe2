@@ -5,6 +5,9 @@ const ARRIVAL_DISTANCE := 0.15
 const GATHER_RANGE := 1.2
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
+## Soft tint so billboard sprites remain readable while teams stay distinct.
+const PLAYER_BILLBOARD_TINT := Color(0.65, 0.82, 1.0, 1.0)
+const AI_BILLBOARD_TINT := Color(1.0, 0.62, 0.58, 1.0)
 const ANIM_FPS := 12.0
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
@@ -313,6 +316,7 @@ func _setup_presentation() -> void:
 				)
 				billboard.visible = true
 				_use_billboard = true
+				_apply_team_color()
 				_apply_billboard_frame(false)
 	if body != null:
 		body.visible = not _use_billboard
@@ -348,12 +352,16 @@ func _apply_billboard_frame(moving: bool) -> void:
 
 func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as MeshInstance3D
-	if body == null:
-		return
-	var material := StandardMaterial3D.new()
-	material.albedo_color = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
-	material.roughness = 0.8
-	body.material_override = material
+	if body != null and body.visible:
+		var material := StandardMaterial3D.new()
+		material.albedo_color = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
+		material.roughness = 0.8
+		body.material_override = material
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite3D
+	if billboard != null and _use_billboard:
+		billboard.modulate = (
+			PLAYER_BILLBOARD_TINT if team == Enums.Team.PLAYER else AI_BILLBOARD_TINT
+		)
 
 func _exit_tree() -> void:
 	if _population_registered and match_state != null and def != null:
