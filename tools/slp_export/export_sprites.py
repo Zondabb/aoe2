@@ -25,6 +25,11 @@ EXAMPLE_CONFIG = TOOLS_DIR / "config.example.json"
 # Classic AoE unit SLPs author 5 facing directions; mirror (flip X) for the other 3.
 PRIORITY: List[Dict[str, Any]] = [
     {"key": "villager_walk", "category": "units", "id": 1484, "directions": 5, "note": "Male villager moving"},
+    {"key": "villager_idle", "category": "units", "id": 1479, "directions": 5, "note": "Male villager standing"},
+    {"key": "villager_gather_food", "category": "units", "id": 2589, "directions": 5, "note": "Male villager kneeling picking berries"},
+    {"key": "villager_chop", "category": "units", "id": 1535, "directions": 5, "note": "Male villager woodcutter chopping"},
+    {"key": "villager_mine", "category": "units", "id": 1560, "directions": 5, "note": "Male villager miner mining"},
+    {"key": "villager_build", "category": "units", "id": 1496, "directions": 5, "note": "Male villager builder kneeling"},
     {"key": "militia_walk", "category": "units", "id": 997, "directions": 5, "note": "Militia / swordsman tier moving"},
     {"key": "swordsman_walk", "category": "units", "id": 604, "directions": 5, "note": "ROR swordsman moving"},
     {"key": "archer_walk", "category": "units", "id": 12, "directions": 5, "note": "Archer moving"},

@@ -85,7 +85,12 @@ func run() -> Array[String]:
 			failures.append("villager should bind an AnimatedSprite2D when sheet exists")
 		elif body != null and body.visible:
 			failures.append("placeholder body should hide when 2D sprite is bound")
-		elif billboard.sprite_frames == null or not billboard.sprite_frames.has_animation(&"dir_0"):
+		elif billboard.sprite_frames == null:
+			failures.append("villager sprite should have SpriteFrames when sheet exists")
+		elif not (
+			billboard.sprite_frames.has_animation(&"walk_dir_0")
+			or billboard.sprite_frames.has_animation(&"dir_0")
+		):
 			failures.append("villager sprite should have direction walk animations")
 		elif unit.get_node_or_null("GroundShadow") == null:
 			failures.append("villager should have a ground shadow under the sprite")

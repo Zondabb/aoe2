@@ -36,6 +36,7 @@ var _attack_cooldown_remaining := 0.0
 var _gather_state := ""
 var _population_registered := false
 var _use_billboard := false
+var _villager_actions := false
 var _facing_dir := 0
 var _facing_flip := false
 var _anim_frame := 0.0
@@ -72,6 +73,8 @@ func _physics_process(delta: float) -> void:
 		_process_build(delta)
 	elif order == Enums.OrderType.ATTACK:
 		_process_attack(delta)
+	else:
+		_update_idle_animation(delta)
 
 func _process_move(delta: float) -> void:
 	var offset := _move_target - sim_pos
@@ -80,7 +83,7 @@ func _process_move(delta: float) -> void:
 		sim_pos = _move_target
 		_sync_visual()
 		order = Enums.OrderType.NONE
-		_apply_billboard_frame(false)
+		_update_idle_animation(0.0)
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
@@ -156,6 +159,7 @@ func _process_attack(delta: float) -> void:
 	if _distance_to(_attack_target) > def.range:
 		_move_toward(_attack_target.get("sim_pos"), delta)
 		return
+	_face_toward(_attack_target.get("sim_pos"), delta, _villager_actions)
 	if _attack_cooldown_remaining > 0.0:
 		return
 	CombatSystemScript.apply_hit(def, _attack_target)
@@ -193,6 +197,7 @@ func _process_build(delta: float) -> void:
 	if _distance_to(_build_target) > build_range:
 		_move_toward(_build_target.get("sim_pos"), delta)
 		return
+	_face_toward(_build_target.get("sim_pos"), delta, true)
 	_build_target.call("add_build_progress", delta)
 	if bool(_build_target.get("is_complete")):
 		_build_target = null
@@ -205,6 +210,7 @@ func _process_gather(delta: float) -> void:
 				_finish_or_drop_off()
 			elif _distance_to(_gather_target) <= GATHER_RANGE:
 				_gather_state = "gathering"
+				_face_toward(_gather_target.get("sim_pos"), delta, true)
 			else:
 				_move_toward(_gather_target.get("sim_pos"), delta)
 		"gathering":
@@ -221,6 +227,7 @@ func _gather(delta: float) -> void:
 	if _distance_to(_gather_target) > GATHER_RANGE:
 		_gather_state = "to_resource"
 		return
+	_face_toward(_gather_target.get("sim_pos"), delta, true)
 	var remaining_capacity := carry_capacity - carry_amount
 	if remaining_capacity <= 0.0:
 		_begin_drop_off()
@@ -279,7 +286,10 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var offset := target - sim_pos
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
-		_apply_billboard_frame(false)
+		if _villager_actions:
+			_update_idle_animation(0.0)
+		else:
+			_apply_billboard_frame(false)
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
@@ -300,24 +310,35 @@ func _setup_presentation() -> void:
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	_use_billboard = false
 	if billboard != null and def != null:
-		var base := SpriteCatalogScript.unit_sheet_base(def.id)
-		if SpriteCatalogScript.sheet_paths_exist(base):
-			var meta := SpriteCatalogScript.load_meta(base)
-			var texture := SpriteCatalogScript.load_texture(base)
-			if not meta.is_empty() and texture != null:
-				billboard.sprite_frames = SpriteCatalogScript.build_unit_sprite_frames(
-					meta, texture
-				)
-				var hotspot := SpriteCatalogScript.average_hotspot(meta)
-				var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
-				SpriteCatalogScript.configure_sprite_2d(
-					billboard, SpriteCatalogScript.UNIT_PIXEL_SCALE_2D, offset
-				)
-				billboard.visible = true
-				_use_billboard = true
-				_apply_team_color()
-				_apply_billboard_frame(false)
-				SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
+		var sprite_frames: SpriteFrames = null
+		var meta := {}
+		_villager_actions = false
+		if def.id == &"villager":
+			sprite_frames = SpriteCatalogScript.build_villager_sprite_frames()
+			meta = SpriteCatalogScript.villager_walk_meta()
+			_villager_actions = (
+				sprite_frames != null
+				and sprite_frames.has_animation(&"walk_dir_0")
+			)
+		if not _villager_actions:
+			var base := SpriteCatalogScript.unit_sheet_base(def.id)
+			if SpriteCatalogScript.sheet_paths_exist(base):
+				meta = SpriteCatalogScript.load_meta(base)
+				var texture := SpriteCatalogScript.load_texture(base)
+				if not meta.is_empty() and texture != null:
+					sprite_frames = SpriteCatalogScript.build_unit_sprite_frames(meta, texture)
+		if sprite_frames != null and not meta.is_empty():
+			billboard.sprite_frames = sprite_frames
+			var hotspot := SpriteCatalogScript.average_hotspot(meta)
+			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
+			SpriteCatalogScript.configure_sprite_2d(
+				billboard, SpriteCatalogScript.UNIT_PIXEL_SCALE_2D, offset
+			)
+			billboard.visible = true
+			_use_billboard = true
+			_apply_team_color()
+			_update_idle_animation(0.0)
+			SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
 	if body != null:
 		body.visible = not _use_billboard
 		if not _use_billboard:
@@ -327,30 +348,114 @@ func _setup_presentation() -> void:
 	if not _use_billboard:
 		SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
 
-func _update_billboard_facing(velocity: Vector2, delta: float, moving: bool) -> void:
+func _update_billboard_facing(velocity: Vector2, delta: float, animate: bool) -> void:
+	_update_billboard_facing_from_vector(velocity, delta, animate)
+
+
+func _update_billboard_facing_from_vector(dir: Vector2, delta: float, animate: bool) -> void:
 	if not _use_billboard:
 		return
-	var facing: Dictionary = SpriteCatalogScript.quantize_xz_facing(velocity)
+	var facing: Dictionary = SpriteCatalogScript.quantize_xz_facing(dir)
 	_facing_dir = int(facing["dir"])
 	_facing_flip = bool(facing["flip"])
-	if moving:
+	if animate:
 		_anim_frame = fmod(_anim_frame + ANIM_FPS * delta, 1024.0)
-	_apply_billboard_frame(moving)
+	_apply_billboard_frame(animate)
 
-func _apply_billboard_frame(moving: bool) -> void:
+
+func _face_toward(target: Vector2, delta: float, animate: bool) -> void:
+	_update_billboard_facing_from_vector(target - sim_pos, delta, animate)
+
+
+func _update_idle_animation(delta: float) -> void:
+	if not _use_billboard:
+		return
+	if _villager_actions:
+		if delta > 0.0:
+			_anim_frame = fmod(_anim_frame + ANIM_FPS * delta, 1024.0)
+		_apply_billboard_frame(true)
+	else:
+		_apply_billboard_frame(false)
+
+
+func _resolve_visual_action() -> StringName:
+	match order:
+		Enums.OrderType.NONE:
+			return &"idle"
+		Enums.OrderType.MOVE:
+			return &"walk"
+		Enums.OrderType.GATHER:
+			if _gather_state == "gathering":
+				var resource_type := carry_type
+				if resource_type == -1 and is_instance_valid(_gather_target):
+					resource_type = int(_gather_target.get("resource_type"))
+				match resource_type:
+					Enums.ResourceType.FOOD:
+						return &"gather_food"
+					Enums.ResourceType.WOOD:
+						return &"chop"
+					Enums.ResourceType.GOLD:
+						return &"mine"
+					_:
+						return &"gather_food"
+			return &"walk"
+		Enums.OrderType.BUILD:
+			if _is_in_build_range():
+				return &"build"
+			return &"walk"
+		Enums.OrderType.ATTACK:
+			return &"idle"
+		_:
+			return &"idle"
+
+
+func _is_in_build_range() -> bool:
+	if not is_instance_valid(_build_target):
+		return false
+	var build_range := 1.0
+	var building_def := _build_target.get("def") as BuildingDef
+	if building_def != null:
+		build_range += maxf(
+			building_def.footprint.x, building_def.footprint.y
+		) * 0.5
+	return _distance_to(_build_target) <= build_range
+
+
+func _pick_villager_animation(action: StringName) -> StringName:
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
+	if billboard == null or billboard.sprite_frames == null:
+		return &"walk_dir_0"
+	var anim := StringName("%s_dir_%d" % [action, _facing_dir])
+	if billboard.sprite_frames.has_animation(anim):
+		return anim
+	for fallback: StringName in [&"walk", &"idle"]:
+		var fallback_anim := StringName("%s_dir_%d" % [fallback, _facing_dir])
+		if billboard.sprite_frames.has_animation(fallback_anim):
+			return fallback_anim
+	if billboard.sprite_frames.has_animation(&"walk_dir_0"):
+		return &"walk_dir_0"
+	return &"dir_0"
+
+
+func _apply_billboard_frame(animate: bool, forced_action: StringName = &"") -> void:
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard == null or billboard.sprite_frames == null:
 		return
-	var anim := StringName("dir_%d" % _facing_dir)
-	if not billboard.sprite_frames.has_animation(anim):
-		return
+	var anim: StringName
+	if _villager_actions:
+		var action := forced_action if not forced_action.is_empty() else _resolve_visual_action()
+		anim = _pick_villager_animation(action)
+	else:
+		anim = StringName("dir_%d" % _facing_dir)
+		if not billboard.sprite_frames.has_animation(anim):
+			return
 	billboard.flip_h = _facing_flip
 	if billboard.animation != anim:
 		billboard.animation = anim
 	var frame_count := billboard.sprite_frames.get_frame_count(anim)
 	if frame_count <= 0:
 		return
-	billboard.frame = (int(_anim_frame) % frame_count) if moving else 0
+	billboard.frame = (int(_anim_frame) % frame_count) if animate else 0
 
 func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as CanvasItem

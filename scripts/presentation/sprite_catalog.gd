@@ -11,6 +11,16 @@ const UNIT_SHEETS := {
 	&"teutonic_knight": "res://assets/sprites/units/teutonic_knight_walk",
 }
 
+## Villager work animations — each value is a sheet base path (without extension).
+const VILLAGER_ACTION_SHEETS := {
+	&"walk": "res://assets/sprites/units/villager_walk",
+	&"idle": "res://assets/sprites/units/villager_idle",
+	&"gather_food": "res://assets/sprites/units/villager_gather_food",
+	&"chop": "res://assets/sprites/units/villager_chop",
+	&"mine": "res://assets/sprites/units/villager_mine",
+	&"build": "res://assets/sprites/units/villager_build",
+}
+
 const BUILDING_SHEETS := {
 	&"town_center": {
 		&"chinese": "res://assets/sprites/buildings/tc_asian_feudal_top",
@@ -157,16 +167,46 @@ static func offset_for_hotspot(meta: Dictionary, hotspot: Vector2) -> Vector2:
 
 static func build_unit_sprite_frames(meta: Dictionary, texture: Texture2D) -> SpriteFrames:
 	var frames := SpriteFrames.new()
+	if frames.has_animation(&"default"):
+		frames.remove_animation(&"default")
+	_add_directional_animations(frames, "", meta, texture)
+	return frames
+
+
+static func build_villager_sprite_frames() -> SpriteFrames:
+	var frames := SpriteFrames.new()
+	if frames.has_animation(&"default"):
+		frames.remove_animation(&"default")
+	for action: StringName in VILLAGER_ACTION_SHEETS:
+		var base := String(VILLAGER_ACTION_SHEETS[action])
+		if not sheet_paths_exist(base):
+			continue
+		var meta := load_meta(base)
+		var texture := load_texture(base)
+		if meta.is_empty() or texture == null:
+			continue
+		_add_directional_animations(frames, String(action), meta, texture)
+	return frames
+
+
+static func villager_walk_meta() -> Dictionary:
+	var base := String(VILLAGER_ACTION_SHEETS.get(&"walk", ""))
+	if base.is_empty() or not ResourceLoader.exists(base + ".json"):
+		return {}
+	return load_meta(base)
+
+
+static func _add_directional_animations(
+	frames: SpriteFrames, prefix: String, meta: Dictionary, texture: Texture2D
+) -> void:
 	var frame_w := int(meta.get("frame_w", 1))
 	var frame_h := int(meta.get("frame_h", 1))
 	var cols := int(meta.get("cols", 1))
 	var directions := maxi(1, int(meta.get("directions", 1)))
 	var frames_per_dir := maxi(1, int(meta.get("frames_per_direction", 1)))
 	var frame_count := int(meta.get("frame_count", frames_per_dir * directions))
-	if frames.has_animation(&"default"):
-		frames.remove_animation(&"default")
 	for direction in directions:
-		var anim_name := StringName("dir_%d" % direction)
+		var anim_name := _direction_animation_name(prefix, direction)
 		frames.add_animation(anim_name)
 		frames.set_animation_speed(anim_name, 12.0)
 		frames.set_animation_loop(anim_name, true)
@@ -175,7 +215,12 @@ static func build_unit_sprite_frames(meta: Dictionary, texture: Texture2D) -> Sp
 			if index >= frame_count:
 				break
 			frames.add_frame(anim_name, _atlas_frame(texture, cols, frame_w, frame_h, index))
-	return frames
+
+
+static func _direction_animation_name(prefix: String, direction: int) -> StringName:
+	if prefix.is_empty():
+		return StringName("dir_%d" % direction)
+	return StringName("%s_dir_%d" % [prefix, direction])
 
 
 static func first_atlas_texture(meta: Dictionary, texture: Texture2D) -> AtlasTexture:

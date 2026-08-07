@@ -48,6 +48,25 @@ func run() -> Array[String]:
 				failures.append("configure_sprite_2d should apply pixel_scale")
 			probe.free()
 
+		var villager_frames := SpriteCatalogScript.build_villager_sprite_frames()
+		if villager_frames.has_animation(&"walk_dir_0"):
+			if villager_frames.get_frame_count(&"walk_dir_0") <= 0:
+				failures.append("villager combined frames should include walk_dir_0")
+			if (
+				SpriteCatalogScript.sheet_paths_exist(
+					String(SpriteCatalogScript.VILLAGER_ACTION_SHEETS.get(&"idle", ""))
+				)
+				and not villager_frames.has_animation(&"idle_dir_0")
+			):
+				failures.append("villager idle sheet exported but idle_dir_0 missing")
+			if (
+				SpriteCatalogScript.sheet_paths_exist(
+					String(SpriteCatalogScript.VILLAGER_ACTION_SHEETS.get(&"chop", ""))
+				)
+				and not villager_frames.has_animation(&"chop_dir_0")
+			):
+				failures.append("villager chop sheet exported but chop_dir_0 missing")
+
 	if not ResourceLoader.exists("res://assets/terrain/grass.png"):
 		failures.append("terrain grass texture should exist")
 	return failures

@@ -75,6 +75,11 @@ Classic AoE unit SLPs store **5 authored facings** (frame counts like 50/60/75 d
 | Key | SLP ID | Notes |
 |-----|--------|-------|
 | villager_walk | 1484 | Male villager moving |
+| villager_idle | 1479 | Male villager standing |
+| villager_gather_food | 2589 | Male villager kneeling picking berries |
+| villager_chop | 1535 | Male villager woodcutter chopping |
+| villager_mine | 1560 | Male villager miner mining |
+| villager_build | 1496 | Male villager builder kneeling |
 | militia_walk | 997 | Basic melee stand-in |
 | swordsman_walk | 604 | ROR swordsman moving |
 | archer_walk | 12 | Archer moving |
