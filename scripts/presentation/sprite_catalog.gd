@@ -384,6 +384,8 @@ static func configure_sprite_2d(
 		animated.scale = Vector2(pixel_scale, pixel_scale)
 		animated.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		animated.position = Vector2.ZERO
+		if animated.is_playing():
+			animated.stop()
 	elif sprite is Sprite2D:
 		var static_sprite := sprite as Sprite2D
 		static_sprite.centered = true

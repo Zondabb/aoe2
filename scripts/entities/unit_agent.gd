@@ -7,7 +7,7 @@ const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
 const PLAYER_BILLBOARD_TINT := Color(0.65, 0.82, 1.0, 1.0)
 const AI_BILLBOARD_TINT := Color(1.0, 0.62, 0.58, 1.0)
-const ANIM_FPS := 12.0
+const ANIM_FPS := 18.0
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
@@ -93,8 +93,9 @@ func _process_move(delta: float) -> void:
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	# Face intended move direction (not post-collision slide / zero step).
-	_update_billboard_facing(offset, delta, true)
+	# Face intended move direction; only walk when collision actually moved us.
+	var moved := _position_changed(from_pos)
+	_update_billboard_facing_from_vector(offset, delta, moved, moved)
 
 func command_move(target: Vector2) -> void:
 	_move_target = target
@@ -324,7 +325,8 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	_update_billboard_facing(offset, delta, true)
+	var moved := _position_changed(from_pos)
+	_update_billboard_facing_from_vector(offset, delta, moved, moved)
 
 func set_selected(selected: bool) -> void:
 	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
@@ -377,10 +379,12 @@ func _setup_presentation() -> void:
 		SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
 
 func _update_billboard_facing(velocity: Vector2, delta: float, animate: bool) -> void:
-	_update_billboard_facing_from_vector(velocity, delta, animate)
+	_update_billboard_facing_from_vector(velocity, delta, animate, animate)
 
 
-func _update_billboard_facing_from_vector(dir: Vector2, delta: float, animate: bool) -> void:
+func _update_billboard_facing_from_vector(
+	dir: Vector2, delta: float, animate: bool, actually_moving: bool = true
+) -> void:
 	if not _use_billboard:
 		return
 	var facing: Dictionary = SpriteCatalogScript.quantize_xz_facing(dir)
@@ -388,7 +392,11 @@ func _update_billboard_facing_from_vector(dir: Vector2, delta: float, animate: b
 	_facing_flip = bool(facing["flip"])
 	if animate:
 		_anim_frame = fmod(_anim_frame + ANIM_FPS * delta, 1024.0)
-	_apply_billboard_frame(animate)
+	_apply_billboard_frame(animate, &"", actually_moving)
+
+
+func _position_changed(from_pos: Vector2) -> bool:
+	return sim_pos.distance_squared_to(from_pos) > 0.000001
 
 
 func _face_toward(target: Vector2, delta: float, animate: bool) -> void:
@@ -401,7 +409,7 @@ func _update_idle_animation(delta: float) -> void:
 	if _villager_actions:
 		if delta > 0.0:
 			_anim_frame = fmod(_anim_frame + ANIM_FPS * delta, 1024.0)
-		_apply_billboard_frame(true)
+		_apply_billboard_frame(true, &"", false)
 	else:
 		_apply_billboard_frame(false)
 
@@ -456,22 +464,30 @@ func _pick_villager_animation(action: StringName) -> StringName:
 	var anim := StringName("%s_dir_%d" % [action, _facing_dir])
 	if billboard.sprite_frames.has_animation(anim):
 		return anim
-	for fallback: StringName in [&"walk", &"idle"]:
-		var fallback_anim := StringName("%s_dir_%d" % [fallback, _facing_dir])
-		if billboard.sprite_frames.has_animation(fallback_anim):
-			return fallback_anim
+	var action_dir0 := StringName("%s_dir_0" % action)
+	if not String(action).is_empty() and billboard.sprite_frames.has_animation(action_dir0):
+		return action_dir0
+	if action == &"idle":
+		for direction in 5:
+			var idle_anim := StringName("idle_dir_%d" % direction)
+			if billboard.sprite_frames.has_animation(idle_anim):
+				return idle_anim
 	if billboard.sprite_frames.has_animation(&"walk_dir_0"):
 		return &"walk_dir_0"
 	return &"dir_0"
 
 
-func _apply_billboard_frame(animate: bool, forced_action: StringName = &"") -> void:
+func _apply_billboard_frame(
+	animate: bool, forced_action: StringName = &"", actually_moving: bool = true
+) -> void:
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard == null or billboard.sprite_frames == null:
 		return
 	var anim: StringName
 	if _villager_actions:
 		var action := forced_action if not forced_action.is_empty() else _resolve_visual_action()
+		if not actually_moving and action == &"walk":
+			action = &"idle"
 		anim = _pick_villager_animation(action)
 	else:
 		anim = StringName("dir_%d" % _facing_dir)
