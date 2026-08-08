@@ -288,8 +288,8 @@ func _distance_to(target: Node2D) -> float:
 func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2) -> void:
 	var units: Array = []
 	var buildings: Array = []
-	var tree := get_tree()
-	if tree != null:
+	if is_inside_tree():
+		var tree := get_tree()
 		units = tree.get_nodes_in_group("units")
 		buildings = tree.get_nodes_in_group("buildings")
 	sim_pos = CollisionResolverScript.resolve_move(self, from_pos, desired_pos, units, buildings)
