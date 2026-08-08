@@ -1,9 +1,9 @@
 {
   "key": "villager_idle",
   "slp_id": 1479,
-  "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\1479.slp",
-  "palette": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
-  "note": "",
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\1479.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Male villager standing",
   "cols": 9,
   "rows": 9,
   "frame_w": 25,

@@ -41,6 +41,7 @@ var _villager_actions := false
 var _facing_dir := 0
 var _facing_flip := false
 var _anim_frame := 0.0
+var _sprite_metas: Dictionary = {}
 
 func _ready() -> void:
 	add_to_group("units")
@@ -338,11 +339,11 @@ func _setup_presentation() -> void:
 	_use_billboard = false
 	if billboard != null and def != null:
 		var sprite_frames: SpriteFrames = null
-		var meta := {}
+		_sprite_metas = {}
 		_villager_actions = false
 		if def.id == &"villager":
 			sprite_frames = SpriteCatalogScript.build_villager_sprite_frames()
-			meta = SpriteCatalogScript.villager_walk_meta()
+			_sprite_metas = SpriteCatalogScript.load_villager_metas_by_action()
 			_villager_actions = (
 				sprite_frames != null
 				and sprite_frames.has_animation(&"walk_dir_0")
@@ -350,16 +351,15 @@ func _setup_presentation() -> void:
 		if not _villager_actions:
 			var base := SpriteCatalogScript.unit_sheet_base(def.id)
 			if SpriteCatalogScript.sheet_paths_exist(base):
-				meta = SpriteCatalogScript.load_meta(base)
+				var meta := SpriteCatalogScript.load_meta(base)
 				var texture := SpriteCatalogScript.load_texture(base)
 				if not meta.is_empty() and texture != null:
 					sprite_frames = SpriteCatalogScript.build_unit_sprite_frames(meta, texture)
-		if sprite_frames != null and not meta.is_empty():
+					_sprite_metas = {&"": meta}
+		if sprite_frames != null and not _sprite_metas.is_empty():
 			billboard.sprite_frames = sprite_frames
-			var hotspot := SpriteCatalogScript.average_hotspot(meta)
-			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
 			SpriteCatalogScript.configure_sprite_2d(
-				billboard, SpriteCatalogScript.UNIT_PIXEL_SCALE_2D, offset
+				billboard, SpriteCatalogScript.UNIT_PIXEL_SCALE_2D, Vector2.ZERO
 			)
 			billboard.visible = true
 			_use_billboard = true
@@ -482,7 +482,26 @@ func _apply_billboard_frame(animate: bool, forced_action: StringName = &"") -> v
 	var frame_count := billboard.sprite_frames.get_frame_count(anim)
 	if frame_count <= 0:
 		return
-	billboard.frame = (int(_anim_frame) % frame_count) if animate else 0
+	var frame_idx := (int(_anim_frame) % frame_count) if animate else 0
+	billboard.frame = frame_idx
+	_apply_billboard_hotspot(billboard, anim, frame_idx)
+
+
+func _apply_billboard_hotspot(
+	billboard: AnimatedSprite2D, anim: StringName, frame_idx: int
+) -> void:
+	var parsed: Dictionary = SpriteCatalogScript.parse_directional_animation(anim)
+	var action: StringName = parsed["action"]
+	var direction: int = int(parsed["direction"])
+	var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}))
+	if meta.is_empty():
+		return
+	var offset := SpriteCatalogScript.offset_for_frame_2d(
+		meta, direction, frame_idx, _facing_flip
+	)
+	if not billboard.offset.is_equal_approx(offset):
+		billboard.offset = offset
+
 
 func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as CanvasItem

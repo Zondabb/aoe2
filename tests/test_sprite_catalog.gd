@@ -31,15 +31,23 @@ func run() -> Array[String]:
 			var frames := SpriteCatalogScript.build_unit_sprite_frames(meta, texture)
 			if not frames.has_animation(&"dir_0") or frames.get_frame_count(&"dir_0") <= 0:
 				failures.append("villager SpriteFrames should include dir_0 walk frames")
-			var hotspot := SpriteCatalogScript.average_hotspot(meta)
-			var offset_2d := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
+			var frame_offset := SpriteCatalogScript.offset_for_frame_2d(meta, 0, 0, false)
 			# Feet near bottom → offset.y negative so Sprite2D lifts the art above the origin.
-			if offset_2d.y >= 0.0:
+			if frame_offset.y >= 0.0:
 				failures.append(
-					"2D hotspot offset.y should be negative so sprites stand above ground"
+					"2D per-frame hotspot offset.y should be negative so sprites stand above ground"
 				)
+			var flipped := SpriteCatalogScript.offset_for_frame_2d(meta, 0, 0, true)
+			if not flipped.x.is_equal_approx(-frame_offset.x):
+				failures.append("flipped hotspot should mirror offset.x around cell center")
+			var parsed := SpriteCatalogScript.parse_directional_animation(&"walk_dir_2")
+			if String(parsed["action"]) != "walk" or int(parsed["direction"]) != 2:
+				failures.append("parse_directional_animation should split action and direction")
+			var parsed_dir := SpriteCatalogScript.parse_directional_animation(&"dir_3")
+			if int(parsed_dir["direction"]) != 3:
+				failures.append("parse_directional_animation should parse bare dir_N animations")
 			var probe := AnimatedSprite2D.new()
-			SpriteCatalogScript.configure_sprite_2d(probe, 2.2, offset_2d)
+			SpriteCatalogScript.configure_sprite_2d(probe, 2.2, frame_offset)
 			if not probe.centered:
 				failures.append("2D sprites should be centered")
 			if probe.texture_filter != CanvasItem.TEXTURE_FILTER_NEAREST:

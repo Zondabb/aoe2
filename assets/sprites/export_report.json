@@ -6,6 +6,31 @@
       "frame_count": 75
     },
     {
+      "key": "villager_idle",
+      "slp_id": 1479,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_gather_food",
+      "slp_id": 2589,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_chop",
+      "slp_id": 1535,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_mine",
+      "slp_id": 1560,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_build",
+      "slp_id": 1496,
+      "frame_count": 75
+    },
+    {
       "key": "militia_walk",
       "slp_id": 997,
       "frame_count": 60
@@ -94,6 +119,41 @@
       "id": 1484,
       "directions": 5,
       "note": "Male villager moving"
+    },
+    {
+      "key": "villager_idle",
+      "category": "units",
+      "id": 1479,
+      "directions": 5,
+      "note": "Male villager standing"
+    },
+    {
+      "key": "villager_gather_food",
+      "category": "units",
+      "id": 2589,
+      "directions": 5,
+      "note": "Male villager kneeling picking berries"
+    },
+    {
+      "key": "villager_chop",
+      "category": "units",
+      "id": 1535,
+      "directions": 5,
+      "note": "Male villager woodcutter chopping"
+    },
+    {
+      "key": "villager_mine",
+      "category": "units",
+      "id": 1560,
+      "directions": 5,
+      "note": "Male villager miner mining"
+    },
+    {
+      "key": "villager_build",
+      "category": "units",
+      "id": 1496,
+      "directions": 5,
+      "note": "Male villager builder kneeling"
     },
     {
       "key": "militia_walk",

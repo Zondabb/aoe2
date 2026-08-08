@@ -156,6 +156,67 @@ static func average_hotspot(meta: Dictionary) -> Vector2:
 	return sum / float(count)
 
 
+static func load_villager_metas_by_action() -> Dictionary:
+	var result := {}
+	for action: StringName in VILLAGER_ACTION_SHEETS:
+		var base := String(VILLAGER_ACTION_SHEETS[action])
+		if not sheet_paths_exist(base):
+			continue
+		var meta := load_meta(base)
+		if not meta.is_empty():
+			result[action] = meta
+	return result
+
+
+static func parse_directional_animation(anim: StringName) -> Dictionary:
+	var name := String(anim)
+	const MARKER := "_dir_"
+	var marker_index := name.rfind(MARKER)
+	if marker_index >= 0:
+		var action_name := name.substr(0, marker_index)
+		return {
+			"action": StringName(action_name) if not action_name.is_empty() else &"",
+			"direction": int(name.substr(marker_index + MARKER.length())),
+		}
+	if name.begins_with("dir_"):
+		return {"action": &"", "direction": int(name.substr(4))}
+	return {"action": &"", "direction": 0}
+
+
+static func sheet_index_for_frame(meta: Dictionary, direction: int, frame_in_anim: int) -> int:
+	var frames_per_dir := maxi(1, int(meta.get("frames_per_direction", 1)))
+	return direction * frames_per_dir + frame_in_anim
+
+
+static func hotspot_at_index(meta: Dictionary, sheet_index: int) -> Vector2:
+	var hotspots: Variant = meta.get("hotspots", [])
+	if typeof(hotspots) == TYPE_ARRAY:
+		var entries := hotspots as Array
+		if sheet_index >= 0 and sheet_index < entries.size():
+			var entry: Variant = entries[sheet_index]
+			if typeof(entry) == TYPE_DICTIONARY:
+				return Vector2(
+					float((entry as Dictionary).get("x", 0)),
+					float((entry as Dictionary).get("y", 0))
+				)
+	var frame_w := float(meta.get("frame_w", 1))
+	var frame_h := float(meta.get("frame_h", 1))
+	return Vector2(frame_w * 0.5, frame_h)
+
+
+static func hotspot_for_frame(meta: Dictionary, direction: int, frame_in_anim: int, flip_h: bool) -> Vector2:
+	var hotspot := hotspot_at_index(meta, sheet_index_for_frame(meta, direction, frame_in_anim))
+	if flip_h:
+		hotspot.x = float(meta.get("frame_w", 1)) - hotspot.x
+	return hotspot
+
+
+static func offset_for_frame_2d(
+	meta: Dictionary, direction: int, frame_in_anim: int, flip_h: bool = false
+) -> Vector2:
+	return offset_for_hotspot_2d(meta, hotspot_for_frame(meta, direction, frame_in_anim, flip_h))
+
+
 static func offset_for_hotspot(meta: Dictionary, hotspot: Vector2) -> Vector2:
 	## Keep the cell hotspot at the node origin (feet / ground peg).
 	## Sprite3D offset Y is up when billboarded; atlas hotspot Y grows downward,
