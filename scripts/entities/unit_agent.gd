@@ -93,7 +93,8 @@ func _process_move(delta: float) -> void:
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	_update_billboard_facing(sim_pos - from_pos, delta, true)
+	# Face intended move direction (not post-collision slide / zero step).
+	_update_billboard_facing(offset, delta, true)
 
 func command_move(target: Vector2) -> void:
 	_move_target = target
@@ -323,7 +324,7 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	_update_billboard_facing(sim_pos - from_pos, delta, true)
+	_update_billboard_facing(offset, delta, true)
 
 func set_selected(selected: bool) -> void:
 	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem

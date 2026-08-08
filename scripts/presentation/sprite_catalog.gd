@@ -62,6 +62,8 @@ const RESOURCE_PIXEL_SCALE_2D := 2.0
 
 ## Authored sheet rows: 0=S, 1=SW, 2=W, 3=NW, 4=N. Mirrored facings use flip_h.
 ## Accepts Vector2 logical (x,z) or Vector3 (x,_,z).
+## Facings follow 2:1 iso *screen* directions (S = toward camera / down),
+## not raw world +Z — world_to_screen uses right=(x-z), down=(x+z).
 static func quantize_xz_facing(velocity: Variant) -> Dictionary:
 	var vx := 0.0
 	var vz := 0.0
@@ -73,10 +75,13 @@ static func quantize_xz_facing(velocity: Variant) -> Dictionary:
 		var v3 := velocity as Vector3
 		vx = v3.x
 		vz = v3.z
-	if vx * vx + vz * vz < 0.000001:
+	# Screen-space delta for classic 2:1 iso (scale cancels in atan2).
+	var sx := vx - vz
+	var sy := vx + vz
+	if sx * sx + sy * sy < 0.000001:
 		return {"dir": 0, "flip": false}
-	# 0 = +Z (South), increasing toward +X (East).
-	var angle := atan2(vx, vz)
+	# 0 = screen-down (toward camera = S), increasing toward screen-right (E).
+	var angle := atan2(sx, sy)
 	var sector := posmod(int(round(angle / (PI / 4.0))), 8)
 	match sector:
 		0:

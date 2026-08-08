@@ -4,18 +4,22 @@ const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
-	var south: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(0, 1))
+	# Screen-down / toward camera = logical (+X,+Z) on 2:1 iso.
+	var south: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(1, 1))
 	if int(south["dir"]) != 0 or bool(south["flip"]):
-		failures.append("south facing should use authored dir 0 without flip")
-	var east: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(1, 0))
+		failures.append("screen-south facing should use authored dir 0 without flip")
+	var east: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(1, -1))
 	if int(east["dir"]) != 2 or not bool(east["flip"]):
-		failures.append("east facing should flip authored west (dir 2)")
-	var west: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(-1, 0))
+		failures.append("screen-east facing should flip authored west (dir 2)")
+	var west: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(-1, 1))
 	if int(west["dir"]) != 2 or bool(west["flip"]):
-		failures.append("west facing should use authored dir 2 without flip")
-	var north: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(0, -1))
+		failures.append("screen-west facing should use authored dir 2 without flip")
+	var north: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(-1, -1))
 	if int(north["dir"]) != 4 or bool(north["flip"]):
-		failures.append("north facing should use authored dir 4 without flip")
+		failures.append("screen-north facing should use authored dir 4 without flip")
+	var plus_z: Dictionary = SpriteCatalogScript.quantize_xz_facing(Vector2(0, 1))
+	if int(plus_z["dir"]) != 1 or bool(plus_z["flip"]):
+		failures.append("logical +Z should face screen SW (authored dir 1)")
 
 	var villager_base := SpriteCatalogScript.unit_sheet_base(&"villager")
 	if not SpriteCatalogScript.sheet_paths_exist(villager_base):
@@ -38,7 +42,7 @@ func run() -> Array[String]:
 					"2D per-frame hotspot offset.y should be negative so sprites stand above ground"
 				)
 			var flipped := SpriteCatalogScript.offset_for_frame_2d(meta, 0, 0, true)
-			if not flipped.x.is_equal_approx(-frame_offset.x):
+			if not is_equal_approx(flipped.x, -frame_offset.x):
 				failures.append("flipped hotspot should mirror offset.x around cell center")
 			var parsed := SpriteCatalogScript.parse_directional_animation(&"walk_dir_2")
 			if String(parsed["action"]) != "walk" or int(parsed["direction"]) != 2:
