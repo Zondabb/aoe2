@@ -31,15 +31,23 @@ func _make_building(pos: Vector2, footprint: Vector2 = Vector2(2, 2)) -> Object:
 	return b
 
 func _test_building_push_out(failures: Array[String]) -> void:
-	var unit := _make_unit(Vector2(0, 0))
-	var building := _make_building(Vector2(0, 0), Vector2(2, 2))
-	# Desired center overlaps house AABB expanded by radius.
-	var resolved: Vector2 = CollisionResolverScript.resolve_move(
-		unit, Vector2(-2, 0), Vector2(0, 0), [], [building]
-	)
+	var unit := _make_unit(Vector2.ZERO, 0.35)
+	var building := _make_building(Vector2.ZERO, Vector2(2, 2))
 	var half := Vector2(1, 1) + Vector2(0.35, 0.35)
+	# from_pos already inside expanded AABB; slide cannot escape, push-out must run.
+	var from_pos := Vector2(-1.0, 0.0)
+	var desired := Vector2(-0.5, 0.0)
+	var resolved: Vector2 = CollisionResolverScript.resolve_move(
+		unit, from_pos, desired, [], [building]
+	)
 	if absf(resolved.x) < half.x and absf(resolved.y) < half.y:
-		failures.append("unit should be pushed outside building expanded AABB, got %s" % resolved)
+		failures.append(
+			"push-out must leave expanded AABB when starting inside, got %s" % resolved
+		)
+	if absf(resolved.x) < half.x - 0.001:
+		failures.append(
+			"push-out should exit on nearest X face at ±%.2f, got %s" % [half.x, resolved]
+		)
 
 func _test_unit_soft_separate(failures: Array[String]) -> void:
 	var self_unit := _make_unit(Vector2(0, 0), 0.35)
