@@ -283,7 +283,21 @@ func _resource_available(resource: Node2D) -> bool:
 	return is_instance_valid(resource) and float(resource.get("amount")) > 0.0
 
 func _distance_to(target: Node2D) -> float:
-	return sim_pos.distance_to(target.get("sim_pos"))
+	var target_pos: Vector2 = target.get("sim_pos")
+	var building_def := target.get("def") as BuildingDef
+	if building_def != null:
+		var half := building_def.footprint * 0.5
+		if half.x > 0.0 and half.y > 0.0:
+			return _distance_to_aabb(sim_pos, target_pos, half)
+	return sim_pos.distance_to(target_pos)
+
+func _distance_to_aabb(point: Vector2, center: Vector2, half: Vector2) -> float:
+	var delta := point - center
+	var nearest := center + Vector2(
+		clampf(delta.x, -half.x, half.x),
+		clampf(delta.y, -half.y, half.y)
+	)
+	return point.distance_to(nearest)
 
 func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2) -> void:
 	var units: Array = []
