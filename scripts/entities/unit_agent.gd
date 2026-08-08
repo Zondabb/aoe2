@@ -12,6 +12,7 @@ const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
@@ -80,16 +81,18 @@ func _process_move(delta: float) -> void:
 	var offset := _move_target - sim_pos
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
-		sim_pos = _move_target
+		var from_pos := sim_pos
+		_apply_resolved_position(from_pos, _move_target)
 		_sync_visual()
 		order = Enums.OrderType.NONE
 		_update_idle_animation(0.0)
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
-	sim_pos += velocity
+	var from_pos := sim_pos
+	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	_update_billboard_facing(velocity, delta, true)
+	_update_billboard_facing(sim_pos - from_pos, delta, true)
 
 func command_move(target: Vector2) -> void:
 	_move_target = target
@@ -282,6 +285,15 @@ func _resource_available(resource: Node2D) -> bool:
 func _distance_to(target: Node2D) -> float:
 	return sim_pos.distance_to(target.get("sim_pos"))
 
+func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2) -> void:
+	var units: Array = []
+	var buildings: Array = []
+	var tree := get_tree()
+	if tree != null:
+		units = tree.get_nodes_in_group("units")
+		buildings = tree.get_nodes_in_group("buildings")
+	sim_pos = CollisionResolverScript.resolve_move(self, from_pos, desired_pos, units, buildings)
+
 func _move_toward(target: Vector2, delta: float) -> void:
 	var offset := target - sim_pos
 	var distance := offset.length()
@@ -293,9 +305,10 @@ func _move_toward(target: Vector2, delta: float) -> void:
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
-	sim_pos += velocity
+	var from_pos := sim_pos
+	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	_update_billboard_facing(velocity, delta, true)
+	_update_billboard_facing(sim_pos - from_pos, delta, true)
 
 func set_selected(selected: bool) -> void:
 	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
