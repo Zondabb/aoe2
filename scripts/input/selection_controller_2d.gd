@@ -84,10 +84,10 @@ func _finish_selection(screen_position: Vector2, additive: bool) -> void:
 func _select_click(screen_position: Vector2, additive: bool) -> void:
 	var canvas_pos := _viewport_to_canvas(screen_position)
 	var closest: Node2D
-	var closest_distance := CLICK_RADIUS
+	var closest_distance := INF
 	for entity in _player_selectables():
-		var distance := entity.global_position.distance_to(canvas_pos)
-		if distance <= closest_distance:
+		var distance := _pick_distance(entity, canvas_pos)
+		if distance < closest_distance:
 			closest = entity
 			closest_distance = distance
 	if not additive:
@@ -100,8 +100,7 @@ func _select_box(box: Rect2, additive: bool) -> void:
 	if not additive:
 		_clear_selection(false)
 	for unit in _player_units():
-		var screen_pos := get_viewport().get_canvas_transform() * unit.global_position
-		if box.has_point(screen_pos):
+		if _entity_intersects_screen_box(unit, box):
 			_add_selection(unit, false)
 	_emit_selection_changed()
 
@@ -184,7 +183,7 @@ func _issue_attack(target: Node2D) -> void:
 func _enemy_at_screen(screen_position: Vector2) -> Node2D:
 	var canvas_pos := _viewport_to_canvas(screen_position)
 	var closest: Node2D
-	var closest_distance := CLICK_RADIUS
+	var closest_distance := INF
 	var candidates: Array[Node] = []
 	candidates.assign(get_tree().get_nodes_in_group("units"))
 	candidates.append_array(get_tree().get_nodes_in_group("buildings"))
@@ -197,8 +196,8 @@ func _enemy_at_screen(screen_position: Vector2) -> Node2D:
 			or enemy.is_queued_for_deletion()
 		):
 			continue
-		var distance := enemy.global_position.distance_to(canvas_pos)
-		if distance <= closest_distance:
+		var distance := _pick_distance(enemy, canvas_pos)
+		if distance < closest_distance:
 			closest = enemy
 			closest_distance = distance
 	return closest
@@ -220,7 +219,7 @@ func _resource_at_screen(screen_position: Vector2) -> Node2D:
 func _unfinished_building_at_screen(screen_position: Vector2) -> Node2D:
 	var canvas_pos := _viewport_to_canvas(screen_position)
 	var closest: Node2D
-	var closest_distance := CLICK_RADIUS
+	var closest_distance := INF
 	for node in get_tree().get_nodes_in_group("buildings"):
 		var building := node as Node2D
 		if (
@@ -229,8 +228,8 @@ func _unfinished_building_at_screen(screen_position: Vector2) -> Node2D:
 			or bool(building.get("is_complete"))
 		):
 			continue
-		var distance := building.global_position.distance_to(canvas_pos)
-		if distance <= closest_distance:
+		var distance := _pick_distance(building, canvas_pos)
+		if distance < closest_distance:
 			closest = building
 			closest_distance = distance
 	return closest
@@ -290,3 +289,87 @@ func _viewport_to_canvas(screen_position: Vector2) -> Vector2:
 
 func _canvas_to_logical(screen_position: Vector2) -> Vector2:
 	return IsoMathScript.screen_to_world(_viewport_to_canvas(screen_position))
+
+## Distance for ranking hits. INF = miss.
+## Units/buildings use the full sprite body rect (origin is feet via hotspot).
+func _pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
+	if _uses_visual_pick(entity):
+		var rect := _visual_rect_canvas(entity)
+		if rect.size.x > 0.0 and rect.size.y > 0.0:
+			if rect.has_point(canvas_pos):
+				return canvas_pos.distance_to(rect.get_center())
+			return INF
+	var distance := entity.global_position.distance_to(canvas_pos)
+	if distance <= CLICK_RADIUS:
+		return distance
+	return INF
+
+func _entity_intersects_screen_box(entity: Node2D, screen_box: Rect2) -> bool:
+	if _uses_visual_pick(entity):
+		var canvas_rect := _visual_rect_canvas(entity)
+		if canvas_rect.size.x > 0.0 and canvas_rect.size.y > 0.0:
+			var screen_rect := _transform_rect(
+				get_viewport().get_canvas_transform(), canvas_rect
+			)
+			return screen_box.intersects(screen_rect)
+	var screen_pos := get_viewport().get_canvas_transform() * entity.global_position
+	return screen_box.has_point(screen_pos)
+
+func _uses_visual_pick(entity: Node2D) -> bool:
+	return (
+		entity != null
+		and (entity.is_in_group("units") or entity.is_in_group("buildings"))
+	)
+
+func _visual_rect_canvas(entity: Node2D) -> Rect2:
+	var sprite := _entity_visual_sprite(entity)
+	if sprite == null:
+		return Rect2()
+	var local_rect := _sprite_local_rect(sprite)
+	if local_rect.size.x <= 0.0 or local_rect.size.y <= 0.0:
+		return Rect2()
+	return _transform_rect(sprite.global_transform, local_rect)
+
+func _sprite_local_rect(sprite: Node2D) -> Rect2:
+	if sprite is Sprite2D:
+		return (sprite as Sprite2D).get_rect()
+	if sprite is AnimatedSprite2D:
+		var animated := sprite as AnimatedSprite2D
+		var frames := animated.sprite_frames
+		if frames == null:
+			return Rect2()
+		var anim := animated.animation
+		if anim == &"" or not frames.has_animation(anim):
+			var names := frames.get_animation_names()
+			if names.is_empty():
+				return Rect2()
+			anim = names[0]
+		var frame_count := frames.get_frame_count(anim)
+		if frame_count <= 0:
+			return Rect2()
+		var frame_idx := clampi(animated.frame, 0, frame_count - 1)
+		var texture := frames.get_frame_texture(anim, frame_idx)
+		if texture == null:
+			return Rect2()
+		var size := texture.get_size()
+		# Matches configure_sprite_2d: centered=true + offset.
+		return Rect2(animated.offset - size * 0.5, size)
+	return Rect2()
+
+func _entity_visual_sprite(entity: Node2D) -> Node2D:
+	var billboard := entity.get_node_or_null("Billboard") as Node2D
+	if billboard != null and billboard.visible:
+		return billboard
+	var body := entity.get_node_or_null("Body") as Node2D
+	if body != null and body.visible:
+		return body
+	return billboard if billboard != null else body
+
+func _transform_rect(xf: Transform2D, rect: Rect2) -> Rect2:
+	var p0 := xf * rect.position
+	var p1 := xf * (rect.position + Vector2(rect.size.x, 0.0))
+	var p2 := xf * (rect.position + Vector2(0.0, rect.size.y))
+	var p3 := xf * (rect.position + rect.size)
+	var min_v := p0.min(p1).min(p2).min(p3)
+	var max_v := p0.max(p1).max(p2).max(p3)
+	return Rect2(min_v, max_v - min_v)

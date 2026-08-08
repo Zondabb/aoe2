@@ -95,6 +95,21 @@ func run() -> Array[String]:
 		elif unit.get_node_or_null("GroundShadow") == null:
 			failures.append("villager should have a ground shadow under the sprite")
 
+		if selection != null and billboard != null and bool(unit.get("_use_billboard")):
+			var feet: Vector2 = unit.global_position
+			var body_point: Vector2 = feet + Vector2(0.0, -36.0)
+			var feet_hit: float = selection.call("_pick_distance", unit, feet)
+			var body_hit: float = selection.call("_pick_distance", unit, body_point)
+			var miss_hit: float = selection.call(
+				"_pick_distance", unit, feet + Vector2(200.0, -200.0)
+			)
+			if not is_finite(feet_hit):
+				failures.append("unit pick should hit near the feet origin")
+			if not is_finite(body_hit):
+				failures.append("unit pick should hit the sprite body above the feet")
+			if is_finite(miss_hit):
+				failures.append("unit pick should miss far outside the sprite")
+
 		if unit.get_node("SelectionRing").visible:
 			failures.append("selection ring should start hidden")
 		selection.call("_add_selection", unit)
@@ -161,6 +176,23 @@ func run() -> Array[String]:
 			failures.append("bootstrap should configure the town center for training")
 		else:
 			town_center.call("_ready")
+			var tc_billboard := town_center.get_node_or_null("Billboard") as Sprite2D
+			if selection != null and tc_billboard != null and tc_billboard.visible:
+				var tc_feet: Vector2 = town_center.global_position
+				var tc_body: Vector2 = tc_feet + Vector2(0.0, -48.0)
+				var tc_feet_hit: float = selection.call("_pick_distance", town_center, tc_feet)
+				var tc_body_hit: float = selection.call(
+					"_pick_distance", town_center, tc_body
+				)
+				var tc_miss: float = selection.call(
+					"_pick_distance", town_center, tc_feet + Vector2(260.0, -260.0)
+				)
+				if not is_finite(tc_feet_hit):
+					failures.append("building pick should hit near the footprint origin")
+				if not is_finite(tc_body_hit):
+					failures.append("building pick should hit the sprite body above the base")
+				if is_finite(tc_miss):
+					failures.append("building pick should miss far outside the sprite")
 			selection.call("_issue_gather", food_bush)
 			if unit.get("order") != Enums.OrderType.GATHER:
 				failures.append("resource command should issue a gather order")
