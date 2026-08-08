@@ -12,6 +12,7 @@ func _initialize() -> void:
 	failures.append_array(load("res://tests/test_buildings.gd").new().run())
 	failures.append_array(load("res://tests/test_ai_controller.gd").new().run())
 	failures.append_array(load("res://tests/test_sprite_catalog.gd").new().run())
+	failures.append_array(load("res://tests/test_collision_resolver.gd").new().run())
 	if failures.is_empty():
 		print("ALL TESTS PASSED")
 		quit(0)
