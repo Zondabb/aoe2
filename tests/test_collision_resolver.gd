@@ -1,7 +1,6 @@
 extends RefCounted
 
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
-const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
 
 class _TestBody extends RefCounted:
 	var def: Resource

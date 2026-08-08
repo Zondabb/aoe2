@@ -4,6 +4,7 @@ const RESOURCE_NODE_SCRIPT := preload("res://scripts/entities/resource_node.gd")
 const BUILDING_AGENT_SCRIPT := preload("res://scripts/entities/building_agent.gd")
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const VILLAGER_DEF := preload("res://data/units/villager.tres")
+const TOWN_CENTER_DEF: BuildingDef = preload("res://data/buildings/town_center.tres")
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
@@ -33,6 +34,8 @@ func _test_gather_and_drop_off(failures: Array[String]) -> void:
 	state.setup_defaults()
 	var initial_food := state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD)
 
+	# Layout keeps resource outside TC hard-block (4x4 footprint + radius),
+	# while drop-off still requires approaching the blocked building edge.
 	var resource := RESOURCE_NODE_SCRIPT.new()
 	resource.resource_type = Enums.ResourceType.FOOD
 	resource.amount = 100.0
@@ -41,9 +44,10 @@ func _test_gather_and_drop_off(failures: Array[String]) -> void:
 	root.add_child(resource)
 
 	var town_center := BUILDING_AGENT_SCRIPT.new()
+	town_center.def = TOWN_CENTER_DEF
 	town_center.team = Enums.Team.PLAYER
 	town_center.accepts_all_resources = true
-	town_center.sim_pos = Vector2(3.0, 0.0)
+	town_center.sim_pos = Vector2(6.0, 0.0)
 	root.add_child(town_center)
 
 	var villager := UNIT_VIEW.instantiate()
@@ -87,13 +91,14 @@ func _test_gather_switch_drops_off_first(failures: Array[String]) -> void:
 	wood.resource_type = Enums.ResourceType.WOOD
 	wood.amount = 100.0
 	wood.gather_rate = 10.0
-	wood.sim_pos = Vector2(5.0, 0.0)
+	wood.sim_pos = Vector2(10.0, 0.0)
 	root.add_child(wood)
 
 	var town_center := BUILDING_AGENT_SCRIPT.new()
+	town_center.def = TOWN_CENTER_DEF
 	town_center.team = Enums.Team.PLAYER
 	town_center.accepts_all_resources = true
-	town_center.sim_pos = Vector2(3.0, 0.0)
+	town_center.sim_pos = Vector2(6.0, 0.0)
 	root.add_child(town_center)
 
 	var villager := UNIT_VIEW.instantiate()
