@@ -198,7 +198,7 @@ func run() -> Array[String]:
 				failures.append("resource command should issue a gather order")
 			selection.call("_clear_selection")
 			selection.call("_add_selection", town_center)
-			if hud.get_node("TrainPanel").get_child_count() != 1:
+			if hud.get_node("%CommandGrid").get_child_count() != 1:
 				failures.append("selecting the town center should show its train button")
 			if bool(build_system.call(
 				"begin_placement",

@@ -7,15 +7,21 @@ const ICONS_UNITS_BASE := "res://assets/sprites/ui/icons_units"
 const ICONS_BUILDINGS_BASE := "res://assets/sprites/ui/icons_buildings"
 const ICONS_COMMANDS_BASE := "res://assets/sprites/ui/icons_commands"
 
-## Provisional frame indices — adjust after inspecting exported sheets in-editor.
+## Frame indices verified against exported SLP sheets (50705 / 50721 / 50730).
 const FRAME_STOP := 0
-const FRAME_BUILD_HOUSE := 0
-const FRAME_BUILD_BARRACKS := 1
-const FRAME_BUILD_ARCHERY := 2
-const FRAME_BUILD_STABLE := 3
-const FRAME_BUILD_MILL := 4
-const FRAME_BUILD_LUMBER := 5
-const FRAME_BUILD_MINING := 6
+const FRAME_BUILD_HOUSE := 34
+const FRAME_BUILD_BARRACKS := 2
+const FRAME_BUILD_ARCHERY := 0
+const FRAME_BUILD_STABLE := 24
+const FRAME_BUILD_MILL := 20
+const FRAME_BUILD_LUMBER := 41
+const FRAME_BUILD_MINING := 39
+
+const FRAME_UNIT_VILLAGER := 15
+const FRAME_UNIT_ARCHER := 17
+const FRAME_UNIT_SWORDSMAN := 12
+const FRAME_UNIT_CHU_KO_NU := 44
+const FRAME_UNIT_TEUTONIC_KNIGHT := 8
 
 static func load_meta(base: String) -> Dictionary:
 	var path := "%s.json" % base
@@ -48,3 +54,18 @@ static func atlas_frame(base: String, frame_index: int) -> Texture2D:
 
 static func panel_texture() -> Texture2D:
 	return load_texture(PANEL_GAME_BASE)
+
+static func unit_icon_frame(unit_id: StringName) -> int:
+	match unit_id:
+		&"villager":
+			return FRAME_UNIT_VILLAGER
+		&"archer":
+			return FRAME_UNIT_ARCHER
+		&"swordsman":
+			return FRAME_UNIT_SWORDSMAN
+		&"chu_ko_nu":
+			return FRAME_UNIT_CHU_KO_NU
+		&"teutonic_knight":
+			return FRAME_UNIT_TEUTONIC_KNIGHT
+		_:
+			return 0

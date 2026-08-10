@@ -14,8 +14,8 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="AoE2 RTS Demo"
-config/description="Micro RTS demo: Chinese vs Teutons"
+config/name="AoE2 RTS"
+config/description="RTS: Chinese vs Teutons"
 run/main_scene="res://scenes/civ_select.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"

@@ -48,6 +48,7 @@ theme_override_font_sizes/font_size = 20
 text = "人口 0 / 0"
 
 [node name="BuildPanelBg" type="ColorRect" parent="."]
+visible = false
 layout_mode = 0
 offset_left = 8.0
 offset_top = 60.0
@@ -57,6 +58,7 @@ mouse_filter = 2
 color = Color(0.05, 0.07, 0.09, 0.62)
 
 [node name="BuildPanel" type="HBoxContainer" parent="."]
+visible = false
 layout_mode = 0
 offset_left = 16.0
 offset_top = 68.0
@@ -109,6 +111,7 @@ text = "采矿营"
 
 [node name="TrainPanel" type="VBoxContainer" parent="."]
 unique_name_in_owner = true
+visible = false
 layout_mode = 0
 offset_left = 16.0
 offset_top = 124.0
@@ -116,6 +119,108 @@ offset_right = 240.0
 offset_bottom = 320.0
 theme_override_constants/separation = 6
 mouse_filter = 1
+
+[node name="CommandPanel" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -150.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 0
+
+[node name="PanelBg" type="TextureRect" parent="CommandPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="PanelFallback" type="ColorRect" parent="CommandPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.04, 0.05, 0.07, 0.92)
+
+[node name="Content" type="HBoxContainer" parent="CommandPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 8.0
+offset_right = -12.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 16
+
+[node name="InfoColumn" type="VBoxContainer" parent="CommandPanel/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Portrait" type="TextureRect" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 64)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="NameLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.93, 0.82, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 18
+text = ""
+
+[node name="HpBar" type="ProgressBar" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 18)
+layout_mode = 2
+max_value = 100.0
+show_percentage = false
+
+[node name="HpLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.86, 0.92, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = ""
+
+[node name="CountLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.93, 0.82, 1)
+theme_override_font_sizes/font_size = 16
+text = ""
+
+[node name="CenterReserve" type="Control" parent="CommandPanel/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CommandGrid" type="GridContainer" parent="CommandPanel/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+columns = 5
 
 [node name="ResultPanel" type="Control" parent="."]
 unique_name_in_owner = true

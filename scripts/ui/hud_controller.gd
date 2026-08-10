@@ -8,11 +8,12 @@ const STABLE: BuildingDef = preload("res://data/buildings/stable.tres")
 const MILL: BuildingDef = preload("res://data/buildings/mill.tres")
 const LUMBER_CAMP: BuildingDef = preload("res://data/buildings/lumber_camp.tres")
 const MINING_CAMP: BuildingDef = preload("res://data/buildings/mining_camp.tres")
+const UiCatalogScript := preload("res://scripts/presentation/ui_catalog.gd")
 
 var match_state: MatchState
 var civ: CivDef
 var build_system: Node
-var selection: Control
+var selection: Node
 var _selected_building: Node2D
 
 @onready var _resources_label := %ResourcesLabel as Label
@@ -22,12 +23,20 @@ var _selected_building: Node2D
 @onready var _result_label := %ResultLabel as Label
 @onready var _return_button := %ReturnButton as Button
 @onready var _stable_button := %StableButton as Button
+@onready var _command_panel := %CommandPanel as Control
+@onready var _panel_bg := %PanelBg as TextureRect
+@onready var _portrait := %Portrait as TextureRect
+@onready var _name_label := %NameLabel as Label
+@onready var _hp_bar := %HpBar as ProgressBar
+@onready var _hp_label := %HpLabel as Label
+@onready var _count_label := %CountLabel as Label
+@onready var _command_grid := %CommandGrid as GridContainer
 
 func setup(
 	state: MatchState,
 	player_civ: CivDef,
 	system: Node,
-	selection_controller: Control
+	selection_controller: Node
 ) -> void:
 	match_state = state
 	civ = player_civ
@@ -42,25 +51,37 @@ func setup(
 	_stable_button = get_node_or_null("%StableButton") as Button
 	if _stable_button == null:
 		_stable_button = find_child("StableButton", true, false) as Button
+	_command_panel = get_node_or_null("%CommandPanel") as Control
+	_panel_bg = get_node_or_null("%PanelBg") as TextureRect
+	_portrait = get_node_or_null("%Portrait") as TextureRect
+	_name_label = get_node_or_null("%NameLabel") as Label
+	_hp_bar = get_node_or_null("%HpBar") as ProgressBar
+	_hp_label = get_node_or_null("%HpLabel") as Label
+	_count_label = get_node_or_null("%CountLabel") as Label
+	_command_grid = get_node_or_null("%CommandGrid") as GridContainer
+	_setup_command_panel_skin()
 	if not selection.is_connected("selection_changed", _on_selection_changed):
 		selection.connect("selection_changed", _on_selection_changed)
 	if not match_state.winner_decided.is_connected(_on_winner_decided):
 		match_state.winner_decided.connect(_on_winner_decided)
 	if _return_button != null and not _return_button.pressed.is_connected(_return_to_civ_select):
 		_return_button.pressed.connect(_return_to_civ_select)
-	_connect_build_button(%HouseButton, HOUSE)
-	_connect_build_button(%BarracksButton, BARRACKS)
-	_connect_build_button(%ArcheryButton, ARCHERY_RANGE)
-	_connect_build_button(%MillButton, MILL)
-	_connect_build_button(%LumberButton, LUMBER_CAMP)
-	_connect_build_button(%MiningButton, MINING_CAMP)
 	if _stable_button != null:
-		_connect_build_button(_stable_button, STABLE)
 		_stable_button.visible = _civ_allows_stable()
 	_on_selection_changed([])
 	_refresh()
 	if match_state.winner != -1:
 		_on_winner_decided(match_state.winner)
+
+func _setup_command_panel_skin() -> void:
+	if _panel_bg == null:
+		return
+	var panel_tex: Texture2D = UiCatalogScript.panel_texture()
+	if panel_tex != null:
+		_panel_bg.texture = panel_tex
+		_panel_bg.visible = true
+	else:
+		_panel_bg.visible = false
 
 func _process(_delta: float) -> void:
 	_ensure_selected_building_valid()
@@ -70,11 +91,6 @@ func _request_build(building_def: BuildingDef) -> void:
 	if build_system != null:
 		build_system.call("begin_placement", building_def)
 
-func _connect_build_button(button: Button, building_def: BuildingDef) -> void:
-	var callback := _request_build.bind(building_def)
-	if not button.pressed.is_connected(callback):
-		button.pressed.connect(callback)
-
 func _civ_allows_stable() -> bool:
 	return civ != null and Enums.BuildingType.STABLE in civ.allowed_buildings
 
@@ -82,40 +98,256 @@ func _on_selection_changed(_selected: Array) -> void:
 	_disconnect_selected_building()
 	_selected_building = selection.call("get_selected_building") as Node2D
 	if _selected_building != null:
-		_selected_building.connect("train_queue_changed", _rebuild_train_buttons)
+		_selected_building.connect("train_queue_changed", _on_train_queue_changed)
 		if not _selected_building.is_connected("tree_exited", _on_selected_building_exited):
 			_selected_building.connect("tree_exited", _on_selected_building_exited)
-	_rebuild_train_buttons()
+	_refresh_info_panel()
+	_rebuild_command_grid()
 
 func _disconnect_selected_building() -> void:
 	if _selected_building == null or not is_instance_valid(_selected_building):
 		return
-	if _selected_building.is_connected("train_queue_changed", _rebuild_train_buttons):
-		_selected_building.disconnect("train_queue_changed", _rebuild_train_buttons)
+	if _selected_building.is_connected("train_queue_changed", _on_train_queue_changed):
+		_selected_building.disconnect("train_queue_changed", _on_train_queue_changed)
 	if _selected_building.is_connected("tree_exited", _on_selected_building_exited):
 		_selected_building.disconnect("tree_exited", _on_selected_building_exited)
 
 func _on_selected_building_exited() -> void:
 	_selected_building = null
-	_rebuild_train_buttons()
+	_refresh_info_panel()
+	_rebuild_command_grid()
 
 func _ensure_selected_building_valid() -> void:
 	if _selected_building != null and not is_instance_valid(_selected_building):
 		_selected_building = null
-		_rebuild_train_buttons()
+		_refresh_info_panel()
+		_rebuild_command_grid()
 
-func _rebuild_train_buttons() -> void:
-	for child in _train_panel.get_children():
-		child.queue_free()
-	if _selected_building == null or not is_instance_valid(_selected_building):
+func _refresh_info_panel() -> void:
+	if _name_label == null:
 		return
-	for unit_def in _selected_building.call("get_trainable_units"):
-		var button := Button.new()
-		button.text = "训练 %s" % unit_def.display_name
-		button.set_meta("unit_def", unit_def)
-		button.disabled = not _can_enqueue(unit_def)
-		button.pressed.connect(_enqueue_train.bind(unit_def))
-		_train_panel.add_child(button)
+	var units: Array = selection.call("get_selected_units") if selection != null else []
+	var building: Node2D = (
+		selection.call("get_selected_building") as Node2D if selection != null else null
+	)
+	var total_count := units.size() + (1 if building != null else 0)
+	if total_count == 0:
+		_clear_info_panel()
+		return
+	var focus := _pick_info_entity(units, building)
+	if focus == null:
+		_clear_info_panel()
+		return
+	var max_hp := _entity_max_hp(focus)
+	var current_hp := float(focus.get("hp"))
+	_name_label.text = _entity_display_name(focus)
+	_hp_bar.max_value = maxf(max_hp, 1.0)
+	_hp_bar.value = clampf(current_hp, 0.0, _hp_bar.max_value)
+	_hp_label.text = "%d / %d" % [int(round(current_hp)), int(round(max_hp))]
+	if _count_label != null:
+		_count_label.text = "×%d" % total_count if total_count > 1 else ""
+	if _portrait != null:
+		_portrait.texture = _entity_portrait(focus)
+
+func _clear_info_panel() -> void:
+	if _name_label != null:
+		_name_label.text = ""
+	if _hp_bar != null:
+		_hp_bar.value = 0.0
+	if _hp_label != null:
+		_hp_label.text = ""
+	if _count_label != null:
+		_count_label.text = ""
+	if _portrait != null:
+		_portrait.texture = null
+
+func _pick_info_entity(units: Array, building: Node2D) -> Node2D:
+	if not units.is_empty():
+		return units[0] as Node2D
+	return building
+
+func _entity_display_name(entity: Node2D) -> String:
+	var unit_def := entity.get("def") as UnitDef
+	if unit_def != null:
+		return unit_def.display_name
+	var building_def := entity.get("def") as BuildingDef
+	if building_def != null:
+		return _building_display_name(building_def)
+	return ""
+
+func _building_display_name(building_def: BuildingDef) -> String:
+	match building_def.id:
+		&"town_center":
+			return "城镇中心"
+		&"house":
+			return "房屋"
+		&"barracks":
+			return "兵营"
+		&"archery_range":
+			return "靶场"
+		&"stable":
+			return "马厩"
+		&"mill":
+			return "磨坊"
+		&"lumber_camp":
+			return "伐木场"
+		&"mining_camp":
+			return "采矿营"
+		_:
+			return String(building_def.id)
+
+func _entity_max_hp(entity: Node2D) -> float:
+	var unit_def := entity.get("def") as UnitDef
+	if unit_def != null:
+		return float(unit_def.max_hp)
+	var building_def := entity.get("def") as BuildingDef
+	if building_def != null:
+		var entity_civ := entity.get("civ") as CivDef
+		var hp_multiplier := entity_civ.building_hp_mul if entity_civ != null else 1.0
+		return float(building_def.max_hp) * hp_multiplier
+	return 0.0
+
+func _entity_portrait(entity: Node2D) -> Texture2D:
+	var unit_def := entity.get("def") as UnitDef
+	if unit_def != null:
+		return UiCatalogScript.atlas_frame(
+			UiCatalogScript.ICONS_UNITS_BASE,
+			UiCatalogScript.unit_icon_frame(unit_def.id)
+		)
+	var building_def := entity.get("def") as BuildingDef
+	if building_def != null:
+		var frame := _building_icon_frame(building_def)
+		return UiCatalogScript.atlas_frame(UiCatalogScript.ICONS_BUILDINGS_BASE, frame)
+	return null
+
+func _building_icon_frame(building_def: BuildingDef) -> int:
+	match building_def.id:
+		&"house":
+			return UiCatalogScript.FRAME_BUILD_HOUSE
+		&"barracks":
+			return UiCatalogScript.FRAME_BUILD_BARRACKS
+		&"archery_range":
+			return UiCatalogScript.FRAME_BUILD_ARCHERY
+		&"stable":
+			return UiCatalogScript.FRAME_BUILD_STABLE
+		&"mill":
+			return UiCatalogScript.FRAME_BUILD_MILL
+		&"lumber_camp":
+			return UiCatalogScript.FRAME_BUILD_LUMBER
+		&"mining_camp":
+			return UiCatalogScript.FRAME_BUILD_MINING
+		_:
+			return 0
+
+func _on_train_queue_changed() -> void:
+	# Defer so we never free the TextureButton still handling `pressed`.
+	call_deferred("_rebuild_command_grid")
+
+func _rebuild_command_grid() -> void:
+	if _command_grid == null:
+		_command_grid = get_node_or_null("%CommandGrid") as GridContainer
+	if _command_grid == null:
+		return
+	for child in _command_grid.get_children():
+		_command_grid.remove_child(child)
+		child.free()
+	if selection == null:
+		return
+	var units: Array = selection.call("get_selected_units")
+	var has_player_villager := false
+	var has_player_units := false
+	for unit in units:
+		if unit.get("team") != Enums.Team.PLAYER:
+			continue
+		has_player_units = true
+		var unit_def := unit.get("def") as UnitDef
+		if unit_def != null and unit_def.id == &"villager":
+			has_player_villager = true
+	if has_player_villager:
+		_add_build_commands()
+	if (
+		_selected_building != null
+		and is_instance_valid(_selected_building)
+		and bool(_selected_building.get("is_complete"))
+	):
+		for unit_def in _selected_building.call("get_trainable_units"):
+			_add_command_button(
+				"训练 %s" % unit_def.display_name,
+				UiCatalogScript.ICONS_UNITS_BASE,
+				UiCatalogScript.unit_icon_frame(unit_def.id),
+				_enqueue_train.bind(unit_def),
+				not _can_enqueue(unit_def),
+				"unit_def",
+				unit_def
+			)
+	if has_player_units:
+		_add_command_button(
+			"停止",
+			UiCatalogScript.ICONS_COMMANDS_BASE,
+			UiCatalogScript.FRAME_STOP,
+			_stop_selected_units,
+			false
+		)
+
+func _add_build_commands() -> void:
+	var build_entries: Array[Dictionary] = [
+		{"def": HOUSE, "label": "房屋", "frame": UiCatalogScript.FRAME_BUILD_HOUSE},
+		{"def": BARRACKS, "label": "兵营", "frame": UiCatalogScript.FRAME_BUILD_BARRACKS},
+		{"def": ARCHERY_RANGE, "label": "靶场", "frame": UiCatalogScript.FRAME_BUILD_ARCHERY},
+		{"def": MILL, "label": "磨坊", "frame": UiCatalogScript.FRAME_BUILD_MILL},
+		{"def": LUMBER_CAMP, "label": "伐木场", "frame": UiCatalogScript.FRAME_BUILD_LUMBER},
+		{"def": MINING_CAMP, "label": "采矿营", "frame": UiCatalogScript.FRAME_BUILD_MINING},
+	]
+	if _civ_allows_stable():
+		build_entries.insert(
+			3,
+			{"def": STABLE, "label": "马厩", "frame": UiCatalogScript.FRAME_BUILD_STABLE}
+		)
+	for entry in build_entries:
+		var building_def: BuildingDef = entry["def"]
+		_add_command_button(
+			entry["label"],
+			UiCatalogScript.ICONS_BUILDINGS_BASE,
+			int(entry["frame"]),
+			_request_build.bind(building_def),
+			not _can_build(building_def),
+			"building_def",
+			building_def
+		)
+
+func _add_command_button(
+	label: String,
+	icon_base: String,
+	frame_index: int,
+	callback: Callable,
+	disabled: bool = false,
+	meta_key: String = "",
+	meta_value: Variant = null
+) -> void:
+	var button: BaseButton
+	var icon: Texture2D = UiCatalogScript.atlas_frame(icon_base, frame_index)
+	if icon != null:
+		var texture_button := TextureButton.new()
+		texture_button.texture_normal = icon
+		texture_button.custom_minimum_size = Vector2(48, 48)
+		texture_button.tooltip_text = label
+		texture_button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+		button = texture_button
+	else:
+		var text_button := Button.new()
+		text_button.text = label
+		button = text_button
+	button.disabled = disabled
+	if meta_key != "":
+		button.set_meta(meta_key, meta_value)
+	if not button.pressed.is_connected(callback):
+		button.pressed.connect(callback)
+	_command_grid.add_child(button)
+
+func _stop_selected_units() -> void:
+	for unit in selection.call("get_selected_units"):
+		if unit.get("team") == Enums.Team.PLAYER and unit.has_method("command_stop"):
+			unit.call("command_stop")
 
 func _enqueue_train(unit_def: UnitDef) -> void:
 	if _selected_building != null and is_instance_valid(_selected_building):
@@ -132,6 +364,23 @@ func _can_enqueue(unit_def: UnitDef) -> bool:
 		and match_state.can_train(Enums.Team.PLAYER, unit_def)
 	)
 
+func _refresh_command_grid_states() -> void:
+	if _command_grid == null:
+		return
+	for child in _command_grid.get_children():
+		var button := child as BaseButton
+		if button == null:
+			continue
+		if button.has_meta("building_def"):
+			var building_def: Variant = button.get_meta("building_def")
+			if building_def is BuildingDef:
+				button.disabled = not _can_build(building_def)
+			continue
+		if button.has_meta("unit_def"):
+			var unit_def: Variant = button.get_meta("unit_def")
+			if unit_def is UnitDef:
+				button.disabled = not _can_enqueue(unit_def)
+
 func _refresh() -> void:
 	if match_state == null or match_state.resources.is_empty():
 		return
@@ -144,23 +393,12 @@ func _refresh() -> void:
 		match_state.population[Enums.Team.PLAYER],
 		match_state.population_cap[Enums.Team.PLAYER],
 	]
-	if _resources_label.text != resources_text:
+	if _resources_label != null and _resources_label.text != resources_text:
 		_resources_label.text = resources_text
-	if _population_label.text != population_text:
+	if _population_label != null and _population_label.text != population_text:
 		_population_label.text = population_text
-	%HouseButton.disabled = not _can_build(HOUSE)
-	%BarracksButton.disabled = not _can_build(BARRACKS)
-	%ArcheryButton.disabled = not _can_build(ARCHERY_RANGE)
-	%MillButton.disabled = not _can_build(MILL)
-	%LumberButton.disabled = not _can_build(LUMBER_CAMP)
-	%MiningButton.disabled = not _can_build(MINING_CAMP)
-	if _stable_button != null:
-		_stable_button.visible = _civ_allows_stable()
-		_stable_button.disabled = not _can_build(STABLE)
-	for child in _train_panel.get_children():
-		var button := child as Button
-		if button != null and button.get_meta("unit_def", null) is UnitDef:
-			button.disabled = not _can_enqueue(button.get_meta("unit_def") as UnitDef)
+	_refresh_info_panel()
+	_refresh_command_grid_states()
 
 func _can_build(building_def: BuildingDef) -> bool:
 	if selection == null or match_state == null or match_state.winner != -1:
@@ -193,7 +431,6 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 	)
 	if ai_controller != null and ai_controller.has_method("stop"):
 		ai_controller.call("stop")
-	# MatchState.frozen is the primary stop; also disable entity physics for both teams.
 	var entities := match_root.get_node_or_null("Entities") if match_root != null else null
 	if entities != null:
 		for entity in entities.get_children():
