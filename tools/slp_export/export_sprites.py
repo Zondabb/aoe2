@@ -48,6 +48,13 @@ PRIORITY: List[Dict[str, Any]] = [
     {"key": "berry_bush", "category": "resources", "id": 2560, "directions": 1, "note": "Berry bush / food"},
 ]
 
+UI_PRIORITY: List[Dict[str, Any]] = [
+    {"key": "panel_game", "category": "ui", "id": 51141, "directions": 1, "note": "Large game panel strip"},
+    {"key": "icons_units", "category": "ui", "id": 50730, "directions": 1, "note": "Unit icons"},
+    {"key": "icons_buildings", "category": "ui", "id": 50705, "directions": 1, "note": "Building icons"},
+    {"key": "icons_commands", "category": "ui", "id": 50721, "directions": 1, "note": "Command icons"},
+]
+
 
 def load_config(path: Optional[Path]) -> Dict[str, Any]:
     cfg_path = path or (DEFAULT_CONFIG if DEFAULT_CONFIG.is_file() else EXAMPLE_CONFIG)
@@ -223,11 +230,45 @@ def export_priority(resources: Path, out_dir: Path, player: int = 1) -> Dict[str
     return report
 
 
+def export_ui(resources: Path, out_dir: Path, player: int = 1) -> Dict[str, Any]:
+    results = []
+    missing = []
+    for item in UI_PRIORITY:
+        try:
+            meta = export_one(
+                resources=resources,
+                out_dir=out_dir,
+                file_id=item["id"],
+                key=item["key"],
+                category=item["category"],
+                directions=item.get("directions", 1),
+                palette_name=item.get("palette", "interface"),
+                player=player,
+                note=item.get("note", ""),
+            )
+            results.append(meta)
+            print(f"OK  {item['key']} id={item['id']} frames={meta['frame_count']}")
+        except Exception as exc:  # noqa: BLE001
+            missing.append({"key": item["key"], "id": item["id"], "error": str(exc)})
+            print(f"MISS {item['key']} id={item['id']}: {exc}", file=sys.stderr)
+
+    report = {
+        "exported": [{"key": r["key"], "slp_id": r["slp_id"], "frame_count": r["frame_count"]} for r in results],
+        "missing": missing,
+        "discovered_ids": UI_PRIORITY,
+    }
+    report_path = out_dir / "ui_export_report.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Wrote {report_path} ({len(results)} ok, {len(missing)} missing)")
+    return report
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Export AoE2 HD SLP sprites to PNG")
     parser.add_argument("--config", type=Path, default=None, help="config.json path")
     parser.add_argument("--smoke", action="store_true", help="export one smoke SLP only")
     parser.add_argument("--priority", action="store_true", help="export priority demo list")
+    parser.add_argument("--ui", action="store_true", help="export UI panel/icon SLPs")
     parser.add_argument("--all-default", action="store_true", help="smoke + priority (default if no mode flag)")
     parser.add_argument("--id", type=int, default=None, help="export a single SLP id")
     parser.add_argument("--key", type=str, default=None, help="output key name for --id")
@@ -260,6 +301,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         print(json.dumps(meta, indent=2))
         return 0
+
+    if args.ui:
+        report = export_ui(resources, args.out, player=player)
+        return 0 if report["exported"] else 1
 
     run_smoke = args.smoke or args.all_default or (not args.priority and not args.smoke)
     run_priority = args.priority or args.all_default or (not args.priority and not args.smoke)

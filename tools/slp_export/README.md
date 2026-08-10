@@ -51,6 +51,9 @@ python export_sprites.py --smoke
 # Priority demo list -> assets/sprites/{units,buildings,resources}/
 python export_sprites.py --priority
 
+# UI panel + icon sheets -> assets/sprites/ui/
+python export_sprites.py --ui
+
 # Default: smoke + priority
 python export_sprites.py
 
@@ -62,7 +65,19 @@ Outputs:
 
 - `{key}.png` — packed sheet
 - `{key}.json` — `{cols, rows, frame_w, frame_h, directions, hotspots, ...}`
-- `export_report.json` — success / missing summary
+- `export_report.json` — success / missing summary (priority export)
+- `ui_export_report.json` — success / missing summary (UI export)
+
+### UI sheets (`--ui`)
+
+| Key | SLP ID | Notes |
+|-----|--------|-------|
+| panel_game | 51141 | Large game panel strip |
+| icons_units | 50730 | Unit icons |
+| icons_buildings | 50705 | Building icons |
+| icons_commands | 50721 | Command icons |
+
+Outputs land in `assets/sprites/ui/` with `directions: 1`.
 
 ### Unit directions + flip
 

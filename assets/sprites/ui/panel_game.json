@@ -1,0 +1,20 @@
+{
+  "key": "panel_game",
+  "slp_id": 51141,
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\51141.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Large game panel strip",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 1280,
+  "frame_h": 1024,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "hotspots": [
+    {
+      "x": 0,
+      "y": 0
+    }
+  ]
+}

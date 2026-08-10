@@ -1,0 +1,55 @@
+{
+  "exported": [
+    {
+      "key": "panel_game",
+      "slp_id": 51141,
+      "frame_count": 1
+    },
+    {
+      "key": "icons_units",
+      "slp_id": 50730,
+      "frame_count": 134
+    },
+    {
+      "key": "icons_buildings",
+      "slp_id": 50705,
+      "frame_count": 52
+    },
+    {
+      "key": "icons_commands",
+      "slp_id": 50721,
+      "frame_count": 70
+    }
+  ],
+  "missing": [],
+  "discovered_ids": [
+    {
+      "key": "panel_game",
+      "category": "ui",
+      "id": 51141,
+      "directions": 1,
+      "note": "Large game panel strip"
+    },
+    {
+      "key": "icons_units",
+      "category": "ui",
+      "id": 50730,
+      "directions": 1,
+      "note": "Unit icons"
+    },
+    {
+      "key": "icons_buildings",
+      "category": "ui",
+      "id": 50705,
+      "directions": 1,
+      "note": "Building icons"
+    },
+    {
+      "key": "icons_commands",
+      "category": "ui",
+      "id": 50721,
+      "directions": 1,
+      "note": "Command icons"
+    }
+  ]
+}
