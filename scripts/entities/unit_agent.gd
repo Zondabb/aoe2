@@ -1,4 +1,4 @@
-class_name UnitAgent
+﻿class_name UnitAgent
 extends Node2D
 
 const ARRIVAL_DISTANCE := 0.15
@@ -105,6 +105,16 @@ func command_move(target: Vector2) -> void:
 	_attack_target = null
 	_gather_state = ""
 	order = Enums.OrderType.MOVE
+
+func command_stop() -> void:
+	_move_target = Vector2.ZERO
+	_gather_target = null
+	_drop_off_target = null
+	_build_target = null
+	_attack_target = null
+	_gather_state = ""
+	order = Enums.OrderType.NONE
+	_update_idle_animation(0.0)
 
 func command_gather(resource: Node2D) -> void:
 	if resource == null or float(resource.get("amount")) <= 0.0:
