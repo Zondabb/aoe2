@@ -7,6 +7,8 @@ const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const DRAG_THRESHOLD := 6.0
 const CLICK_RADIUS := 28.0
 const MOVE_MARKER_DURATION := 1.35
+## Group-move slot spacing (logical xz); keep > 2 * default unit radius.
+const FORMATION_SPACING := 0.9
 
 @export var camera_path: NodePath
 
@@ -105,15 +107,32 @@ func _select_box(box: Rect2, additive: bool) -> void:
 	_emit_selection_changed()
 
 func _issue_move(target: Vector2) -> void:
-	var issued := false
+	var movers: Array[Node2D] = []
 	for unit in _selected.duplicate():
 		if not is_instance_valid(unit):
 			_selected.erase(unit)
-		elif unit.get("team") == Enums.Team.PLAYER and unit.has_method("command_move"):
-			unit.call("command_move", target)
-			issued = true
-	if issued:
-		_show_move_marker(target)
+			continue
+		if unit.get("team") == Enums.Team.PLAYER and unit.has_method("command_move"):
+			movers.append(unit)
+	if movers.is_empty():
+		return
+	for index in movers.size():
+		var slot := formation_offset(index, movers.size(), FORMATION_SPACING)
+		movers[index].call("command_move", target + slot)
+	_show_move_marker(target)
+
+
+## Square packing around the click point so group moves don't share one cell.
+static func formation_offset(index: int, count: int, spacing: float = FORMATION_SPACING) -> Vector2:
+	if count <= 1:
+		return Vector2.ZERO
+	var cols := maxi(1, int(ceil(sqrt(float(count)))))
+	var rows := maxi(1, int(ceil(float(count) / float(cols))))
+	var row := int(index / cols)
+	var col := index % cols
+	var ox := (float(col) - float(cols - 1) * 0.5) * spacing
+	var oy := (float(row) - float(rows - 1) * 0.5) * spacing
+	return Vector2(ox, oy)
 
 func _show_move_marker(logical_target: Vector2) -> void:
 	_ensure_move_marker()

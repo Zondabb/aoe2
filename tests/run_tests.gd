@@ -1,4 +1,4 @@
-﻿# tests/run_tests.gd
+# tests/run_tests.gd
 extends SceneTree
 
 func _initialize() -> void:
@@ -13,6 +13,7 @@ func _initialize() -> void:
 	failures.append_array(load("res://tests/test_ai_controller.gd").new().run())
 	failures.append_array(load("res://tests/test_sprite_catalog.gd").new().run())
 	failures.append_array(load("res://tests/test_collision_resolver.gd").new().run())
+	failures.append_array(load("res://tests/test_locomotion.gd").new().run())
 	failures.append_array(load("res://tests/test_command_panel.gd").new().run())
 	if failures.is_empty():
 		print("ALL TESTS PASSED")

@@ -1,7 +1,12 @@
-﻿class_name UnitAgent
+class_name UnitAgent
 extends Node2D
 
 const ARRIVAL_DISTANCE := 0.15
+## Near goal with no forward progress → treat as arrived (stops cluster skate).
+const STUCK_ARRIVE_DISTANCE := 1.05
+const STUCK_FRAMES_TO_STOP := 10
+## Soft-sep / wall-slide only counts as walking with enough forward progress.
+const MIN_WALK_PROGRESS := 0.012
 const GATHER_RANGE := 1.2
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
@@ -42,6 +47,7 @@ var _facing_dir := 0
 var _facing_flip := false
 var _anim_frame := 0.0
 var _sprite_metas: Dictionary = {}
+var _no_progress_frames := 0
 
 func _ready() -> void:
 	add_to_group("units")
@@ -82,20 +88,32 @@ func _process_move(delta: float) -> void:
 	var offset := _move_target - sim_pos
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
-		var from_pos := sim_pos
-		_apply_resolved_position(from_pos, _move_target)
-		_sync_visual()
-		order = Enums.OrderType.NONE
-		_update_idle_animation(0.0)
+		_finish_move()
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	# Face intended move direction; only walk when collision actually moved us.
-	var moved := _position_changed(from_pos)
-	_update_billboard_facing_from_vector(offset, delta, moved, moved)
+	var progress := forward_progress(from_pos, sim_pos, velocity)
+	var walking := is_walk_progress(progress, step)
+	if walking:
+		_no_progress_frames = 0
+	else:
+		_no_progress_frames += 1
+		# Crowding / hard block near the click: stop instead of skating in place.
+		if (
+			distance <= STUCK_ARRIVE_DISTANCE
+			and _no_progress_frames >= STUCK_FRAMES_TO_STOP
+		):
+			_finish_move()
+			return
+	_update_billboard_facing_from_vector(offset, delta, walking, walking)
+
+func _finish_move() -> void:
+	_no_progress_frames = 0
+	order = Enums.OrderType.NONE
+	_update_idle_animation(0.0)
 
 func command_move(target: Vector2) -> void:
 	_move_target = target
@@ -104,6 +122,7 @@ func command_move(target: Vector2) -> void:
 	_build_target = null
 	_attack_target = null
 	_gather_state = ""
+	_no_progress_frames = 0
 	order = Enums.OrderType.MOVE
 
 func command_stop() -> void:
@@ -113,6 +132,7 @@ func command_stop() -> void:
 	_build_target = null
 	_attack_target = null
 	_gather_state = ""
+	_no_progress_frames = 0
 	order = Enums.OrderType.NONE
 	_update_idle_animation(0.0)
 
@@ -335,8 +355,9 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
-	var moved := _position_changed(from_pos)
-	_update_billboard_facing_from_vector(offset, delta, moved, moved)
+	var progress := forward_progress(from_pos, sim_pos, velocity)
+	var walking := is_walk_progress(progress, step)
+	_update_billboard_facing_from_vector(offset, delta, walking, walking)
 
 func set_selected(selected: bool) -> void:
 	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
@@ -405,8 +426,17 @@ func _update_billboard_facing_from_vector(
 	_apply_billboard_frame(animate, &"", actually_moving)
 
 
-func _position_changed(from_pos: Vector2) -> bool:
-	return sim_pos.distance_squared_to(from_pos) > 0.000001
+## How far `to_pos` advanced along `intended` from `from_pos` (world units).
+static func forward_progress(from_pos: Vector2, to_pos: Vector2, intended: Vector2) -> float:
+	var actual := to_pos - from_pos
+	var intended_len_sq := intended.length_squared()
+	if intended_len_sq < 0.000001:
+		return 0.0
+	return actual.dot(intended / sqrt(intended_len_sq))
+
+
+static func is_walk_progress(progress: float, intended_step_len: float) -> bool:
+	return progress >= maxf(MIN_WALK_PROGRESS, intended_step_len * 0.35)
 
 
 func _face_toward(target: Vector2, delta: float, animate: bool) -> void:
