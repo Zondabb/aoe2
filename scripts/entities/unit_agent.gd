@@ -13,6 +13,11 @@ const AI_COLOR := Color(0.88, 0.18, 0.14)
 const PLAYER_BILLBOARD_TINT := Color(0.65, 0.82, 1.0, 1.0)
 const AI_BILLBOARD_TINT := Color(1.0, 0.62, 0.58, 1.0)
 const ANIM_FPS := 18.0
+const ATTACK_HIT_FRACTION := 0.45
+const RANGED_RELEASE_FRACTION := 0.35
+const FALLBACK_ATTACK_DURATION := 0.45
+const FALLBACK_DIE_DURATION := 0.8
+const PROJECTILE_SCENE := preload("res://scenes/entities/projectile_view.tscn")
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
@@ -48,6 +53,11 @@ var _facing_flip := false
 var _anim_frame := 0.0
 var _sprite_metas: Dictionary = {}
 var _no_progress_frames := 0
+var _combat_action := &""
+var _combat_anim_time := 0.0
+var _attack_hit_applied := false
+var _projectile_spawned := false
+var _max_hp := 0.0
 
 func _ready() -> void:
 	add_to_group("units")
@@ -55,6 +65,7 @@ func _ready() -> void:
 		sim_pos = position
 	_sync_visual()
 	hp = float(def.max_hp) if def != null else 0.0
+	_max_hp = hp
 	melee_armor = float(def.melee_armor) if def != null else 0.0
 	pierce_armor = float(def.pierce_armor) if def != null else 0.0
 	if def != null and civ != null and not def.is_ranged:
@@ -81,6 +92,8 @@ func _physics_process(delta: float) -> void:
 		_process_build(delta)
 	elif order == Enums.OrderType.ATTACK:
 		_process_attack(delta)
+	elif _combat_action == &"die":
+		_process_die(delta)
 	else:
 		_update_idle_animation(delta)
 
@@ -187,29 +200,129 @@ func command_attack(target: Node) -> void:
 	order = Enums.OrderType.ATTACK
 
 func _process_attack(delta: float) -> void:
+	if _combat_action == &"die":
+		_process_die(delta)
+		return
 	if not _attack_target_available():
+		_cancel_combat_action()
 		_attack_target = null
 		order = Enums.OrderType.NONE
 		return
 	_attack_cooldown_remaining = maxf(0.0, _attack_cooldown_remaining - delta)
 	if _distance_to(_attack_target) > def.range:
+		_cancel_combat_action()
 		_move_toward(_attack_target.get("sim_pos"), delta)
 		return
-	_face_toward(_attack_target.get("sim_pos"), delta, _villager_actions)
-	if _attack_cooldown_remaining > 0.0:
+	if _combat_action == &"attack":
+		_process_attack_animation(delta)
 		return
-	CombatSystemScript.apply_hit(def, _attack_target)
+	_face_toward(_attack_target.get("sim_pos"), delta, false)
+	if _attack_cooldown_remaining > 0.0:
+		_update_idle_animation(delta)
+		return
+	_begin_attack()
+	_process_attack_animation(delta)
+
+func _begin_attack() -> void:
+	_combat_action = &"attack"
+	_combat_anim_time = 0.0
+	_attack_hit_applied = false
+	_projectile_spawned = false
 	_attack_cooldown_remaining = def.attack_cooldown
+	_anim_frame = 0.0
+
+func _cancel_combat_action() -> void:
+	_combat_action = &""
+	_combat_anim_time = 0.0
+	_attack_hit_applied = false
+	_projectile_spawned = false
+
+func _process_attack_animation(delta: float) -> void:
 	if not _attack_target_available():
+		_cancel_combat_action()
 		_attack_target = null
 		order = Enums.OrderType.NONE
+		return
+	_face_toward(_attack_target.get("sim_pos"), delta, false)
+	var duration := _combat_anim_duration(&"attack")
+	_combat_anim_time += delta
+	_apply_billboard_frame(true, &"attack", false)
+	if def.is_ranged and not _projectile_spawned:
+		if _combat_anim_time >= duration * RANGED_RELEASE_FRACTION:
+			_spawn_projectile()
+			_projectile_spawned = true
+	elif not _attack_hit_applied:
+		if _combat_anim_time >= duration * ATTACK_HIT_FRACTION:
+			if _attack_target_available():
+				CombatSystemScript.apply_hit(def, _attack_target)
+			_attack_hit_applied = true
+	if _combat_anim_time >= duration:
+		_cancel_combat_action()
+		if not _attack_target_available():
+			_attack_target = null
+			order = Enums.OrderType.NONE
+
+func _spawn_projectile() -> void:
+	if not _attack_target_available():
+		return
+	var parent := get_parent()
+	if parent == null:
+		return
+	var projectile := PROJECTILE_SCENE.instantiate() as Node2D
+	if projectile == null:
+		return
+	parent.add_child(projectile)
+	projectile.call(
+		"setup",
+		sim_pos,
+		_attack_target,
+		def,
+		team
+	)
+
+func _process_die(delta: float) -> void:
+	var duration := _combat_anim_duration(&"die")
+	_combat_anim_time += delta
+	_apply_billboard_frame(true, &"die", false)
+	if _combat_anim_time >= duration:
+		queue_free()
+
+func _begin_die() -> void:
+	order = Enums.OrderType.NONE
+	_attack_target = null
+	_gather_target = null
+	_drop_off_target = null
+	_build_target = null
+	_gather_state = ""
+	_cancel_combat_action()
+	_combat_action = &"die"
+	_combat_anim_time = 0.0
+	_anim_frame = 0.0
+	if _combat_anim_duration(&"die") <= 0.01:
+		queue_free()
+
+func _combat_anim_duration(action: StringName) -> float:
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
+	if billboard == null or billboard.sprite_frames == null or def == null:
+		return FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION
+	var anim := _combat_animation_name(action)
+	if not billboard.sprite_frames.has_animation(anim):
+		return FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION
+	var frame_count := billboard.sprite_frames.get_frame_count(anim)
+	return maxf(float(frame_count) / ANIM_FPS, 0.1)
+
+func _combat_animation_name(action: StringName) -> StringName:
+	if _villager_actions:
+		return _pick_villager_animation(action)
+	return StringName("%s_dir_%d" % [action, _facing_dir])
 
 func take_damage(amount: float) -> void:
-	if amount <= 0.0 or hp <= 0.0:
+	if amount <= 0.0 or hp <= 0.0 or _combat_action == &"die":
 		return
 	hp = maxf(0.0, hp - amount)
+	_refresh_world_hp_bar()
 	if hp <= 0.0:
-		queue_free()
+		_begin_die()
 
 func _attack_target_available() -> bool:
 	return (
@@ -390,6 +503,11 @@ func _setup_presentation() -> void:
 				if not meta.is_empty() and texture != null:
 					sprite_frames = SpriteCatalogScript.build_unit_sprite_frames(meta, texture)
 					_sprite_metas = {&"": meta}
+					var combat_metas := SpriteCatalogScript.append_unit_combat_frames(
+						sprite_frames, def.id
+					)
+					for action: StringName in combat_metas:
+						_sprite_metas[action] = combat_metas[action]
 		if sprite_frames != null and not _sprite_metas.is_empty():
 			billboard.sprite_frames = sprite_frames
 			SpriteCatalogScript.configure_sprite_2d(
@@ -408,6 +526,21 @@ func _setup_presentation() -> void:
 		billboard.visible = false
 	if not _use_billboard:
 		SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
+	_refresh_world_hp_bar()
+
+func _refresh_world_hp_bar() -> void:
+	var root := get_node_or_null("WorldHpBar") as Control
+	if root == null:
+		return
+	var show_bar := hp > 0.0 and hp < _max_hp
+	root.visible = show_bar
+	if not show_bar:
+		return
+	var fill := root.get_node_or_null("Fill") as ColorRect
+	if fill == null:
+		return
+	var ratio := clampf(hp / maxf(_max_hp, 1.0), 0.0, 1.0)
+	fill.size.x = 28.0 * ratio
 
 func _update_billboard_facing(velocity: Vector2, delta: float, animate: bool) -> void:
 	_update_billboard_facing_from_vector(velocity, delta, animate, animate)
@@ -480,7 +613,7 @@ func _resolve_visual_action() -> StringName:
 				return &"build"
 			return &"walk"
 		Enums.OrderType.ATTACK:
-			return &"idle"
+			return &"attack"
 		_:
 			return &"idle"
 
@@ -501,11 +634,14 @@ func _pick_villager_animation(action: StringName) -> StringName:
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard == null or billboard.sprite_frames == null:
 		return &"walk_dir_0"
-	var anim := StringName("%s_dir_%d" % [action, _facing_dir])
+	var resolved := action
+	if action == &"attack" and not billboard.sprite_frames.has_animation(&"attack_dir_0"):
+		resolved = &"chop"
+	var anim := StringName("%s_dir_%d" % [resolved, _facing_dir])
 	if billboard.sprite_frames.has_animation(anim):
 		return anim
-	var action_dir0 := StringName("%s_dir_0" % action)
-	if not String(action).is_empty() and billboard.sprite_frames.has_animation(action_dir0):
+	var action_dir0 := StringName("%s_dir_0" % resolved)
+	if not String(resolved).is_empty() and billboard.sprite_frames.has_animation(action_dir0):
 		return action_dir0
 	if action == &"idle":
 		for direction in 5:
@@ -524,13 +660,22 @@ func _apply_billboard_frame(
 	if billboard == null or billboard.sprite_frames == null:
 		return
 	var anim: StringName
+	var action := forced_action
+	if action.is_empty() and not _combat_action.is_empty():
+		action = _combat_action
 	if _villager_actions:
-		var action := forced_action if not forced_action.is_empty() else _resolve_visual_action()
+		if action.is_empty():
+			action = _resolve_visual_action()
 		if not actually_moving and action == &"walk":
 			action = &"idle"
 		anim = _pick_villager_animation(action)
 	else:
-		anim = StringName("dir_%d" % _facing_dir)
+		if action.is_empty():
+			anim = StringName("dir_%d" % _facing_dir)
+		else:
+			anim = StringName("%s_dir_%d" % [action, _facing_dir])
+			if not billboard.sprite_frames.has_animation(anim):
+				anim = StringName("dir_%d" % _facing_dir)
 		if not billboard.sprite_frames.has_animation(anim):
 			return
 	billboard.flip_h = _facing_flip
@@ -539,7 +684,12 @@ func _apply_billboard_frame(
 	var frame_count := billboard.sprite_frames.get_frame_count(anim)
 	if frame_count <= 0:
 		return
-	var frame_idx := (int(_anim_frame) % frame_count) if animate else 0
+	var one_shot := action in [&"attack", &"die"]
+	var frame_idx := 0
+	if one_shot:
+		frame_idx = mini(int(_combat_anim_time * ANIM_FPS), frame_count - 1)
+	elif animate:
+		frame_idx = int(_anim_frame) % frame_count
 	billboard.frame = frame_idx
 	_apply_billboard_hotspot(billboard, anim, frame_idx)
 

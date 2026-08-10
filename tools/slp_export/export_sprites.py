@@ -48,6 +48,19 @@ PRIORITY: List[Dict[str, Any]] = [
     {"key": "berry_bush", "category": "resources", "id": 2560, "directions": 1, "note": "Berry bush / food"},
 ]
 
+COMBAT_PRIORITY: List[Dict[str, Any]] = [
+    {"key": "archer_attack", "category": "units", "id": 2, "directions": 5, "note": "Archer firing"},
+    {"key": "archer_die", "category": "units", "id": 5, "directions": 5, "note": "Archer dying"},
+    {"key": "swordsman_attack", "category": "units", "id": 594, "directions": 5, "note": "ROR swordsman fighting"},
+    {"key": "swordsman_die", "category": "units", "id": 597, "directions": 5, "note": "ROR swordsman dying"},
+    {"key": "chu_ko_nu_attack", "category": "units", "id": 215, "directions": 5, "note": "Chu-Ko-Nu attacking"},
+    {"key": "chu_ko_nu_die", "category": "units", "id": 218, "directions": 5, "note": "Chu-Ko-Nu dying"},
+    {"key": "teutonic_knight_attack", "category": "units", "id": 1188, "directions": 5, "note": "Teutonic knight fighting"},
+    {"key": "teutonic_knight_die", "category": "units", "id": 1191, "directions": 5, "note": "Teutonic knight dying"},
+    {"key": "villager_die", "category": "units", "id": 3683, "directions": 5, "note": "Male villager dying"},
+    {"key": "arrow", "category": "units", "id": 3799, "directions": 1, "note": "Arrow projectile"},
+]
+
 UI_PRIORITY: List[Dict[str, Any]] = [
     {"key": "panel_game", "category": "ui", "id": 51141, "directions": 1, "note": "Large game panel strip"},
     {"key": "icons_units", "category": "ui", "id": 50730, "directions": 1, "note": "Unit icons"},
@@ -230,6 +243,39 @@ def export_priority(resources: Path, out_dir: Path, player: int = 1) -> Dict[str
     return report
 
 
+def export_combat(resources: Path, out_dir: Path, player: int = 1) -> Dict[str, Any]:
+    results = []
+    missing = []
+    for item in COMBAT_PRIORITY:
+        try:
+            meta = export_one(
+                resources=resources,
+                out_dir=out_dir,
+                file_id=item["id"],
+                key=item["key"],
+                category=item["category"],
+                directions=item.get("directions", 1),
+                palette_name=item.get("palette", "interface"),
+                player=player,
+                note=item.get("note", ""),
+            )
+            results.append(meta)
+            print(f"OK  {item['key']} id={item['id']} frames={meta['frame_count']}")
+        except Exception as exc:  # noqa: BLE001
+            missing.append({"key": item["key"], "id": item["id"], "error": str(exc)})
+            print(f"MISS {item['key']} id={item['id']}: {exc}", file=sys.stderr)
+
+    report = {
+        "exported": [{"key": r["key"], "slp_id": r["slp_id"], "frame_count": r["frame_count"]} for r in results],
+        "missing": missing,
+        "discovered_ids": COMBAT_PRIORITY,
+    }
+    report_path = out_dir / "combat_export_report.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Wrote {report_path} ({len(results)} ok, {len(missing)} missing)")
+    return report
+
+
 def export_ui(resources: Path, out_dir: Path, player: int = 1) -> Dict[str, Any]:
     results = []
     missing = []
@@ -269,6 +315,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--smoke", action="store_true", help="export one smoke SLP only")
     parser.add_argument("--priority", action="store_true", help="export priority demo list")
     parser.add_argument("--ui", action="store_true", help="export UI panel/icon SLPs")
+    parser.add_argument("--combat", action="store_true", help="export combat animation SLPs")
     parser.add_argument("--all-default", action="store_true", help="smoke + priority (default if no mode flag)")
     parser.add_argument("--id", type=int, default=None, help="export a single SLP id")
     parser.add_argument("--key", type=str, default=None, help="output key name for --id")
@@ -304,6 +351,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.ui:
         report = export_ui(resources, args.out, player=player)
+        return 0 if report["exported"] else 1
+
+    if args.combat:
+        report = export_combat(resources, args.out, player=player)
         return 0 if report["exported"] else 1
 
     run_smoke = args.smoke or args.all_default or (not args.priority and not args.smoke)

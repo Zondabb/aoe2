@@ -31,7 +31,7 @@ func _test_attack_order_chases_and_hits(failures: Array[String]) -> void:
 		failures.append("melee attacker should chase an out-of-range target")
 	attacker.sim_pos = Vector2(3.5, 0.0)
 	IsoMathScript.sync_node(attacker, attacker.sim_pos)
-	attacker._physics_process(0.1)
+	_advance_combat(attacker, 1.0)
 	if target.hp != initial_hp - 7:
 		failures.append("melee attack should apply target melee armor")
 	root.free()
@@ -53,15 +53,16 @@ func _test_attack_cooldown_and_unit_death(failures: Array[String]) -> void:
 	var attacker := _spawn_unit(root, ARCHER, Enums.Team.PLAYER, Vector2.ZERO)
 	var target := _spawn_unit(root, SWORDSMAN, Enums.Team.AI, Vector2(1.0, 0.0))
 	attacker.command_attack(target)
-	attacker._physics_process(0.1)
+	_advance_combat(attacker, 0.8)
 	var hp_after_first_hit: float = target.hp
-	attacker._physics_process(ARCHER.attack_cooldown * 0.5)
+	_advance_combat(attacker, ARCHER.attack_cooldown * 0.4)
 	if target.hp != hp_after_first_hit:
 		failures.append("attacker should wait for its cooldown before hitting again")
-	attacker._physics_process(ARCHER.attack_cooldown * 0.5)
+	_advance_combat(attacker, ARCHER.attack_cooldown + 1.0)
 	if target.hp >= hp_after_first_hit:
 		failures.append("attacker should hit again when its cooldown elapses")
 	target.call("take_damage", 999.0)
+	_advance_combat(target, 2.0)
 	if not target.is_queued_for_deletion():
 		failures.append("unit should queue itself for removal at zero HP")
 	root.free()
@@ -112,6 +113,21 @@ func _test_town_center_death_sets_winner(failures: Array[String]) -> void:
 	if state.get("winner") != Enums.Team.AI:
 		failures.append("destroying the player town center should make AI the winner")
 	root.free()
+
+func _advance_combat(entity: Node, duration: float, step: float = 0.05) -> void:
+	var root := entity.get_parent()
+	if root == null:
+		return
+	var elapsed := 0.0
+	while elapsed < duration:
+		_physics_process_recursive(root, step)
+		elapsed += step
+
+func _physics_process_recursive(node: Node, delta: float) -> void:
+	if node.has_method("_physics_process"):
+		node._physics_process(delta)
+	for child in node.get_children():
+		_physics_process_recursive(child, delta)
 
 func _make_root() -> Node2D:
 	var root := Node2D.new()

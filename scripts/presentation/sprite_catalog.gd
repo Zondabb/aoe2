@@ -19,7 +19,34 @@ const VILLAGER_ACTION_SHEETS := {
 	&"chop": "res://assets/sprites/units/villager_chop",
 	&"mine": "res://assets/sprites/units/villager_mine",
 	&"build": "res://assets/sprites/units/villager_build",
+	&"die": "res://assets/sprites/units/villager_die",
 }
+
+## Combat sheets keyed by unit id → action → sheet base path.
+const UNIT_COMBAT_SHEETS := {
+	&"swordsman": {
+		&"attack": "res://assets/sprites/units/swordsman_attack",
+		&"die": "res://assets/sprites/units/swordsman_die",
+	},
+	&"archer": {
+		&"attack": "res://assets/sprites/units/archer_attack",
+		&"die": "res://assets/sprites/units/archer_die",
+	},
+	&"chu_ko_nu": {
+		&"attack": "res://assets/sprites/units/chu_ko_nu_attack",
+		&"die": "res://assets/sprites/units/chu_ko_nu_die",
+	},
+	&"teutonic_knight": {
+		&"attack": "res://assets/sprites/units/teutonic_knight_attack",
+		&"die": "res://assets/sprites/units/teutonic_knight_die",
+	},
+	&"villager": {
+		&"attack": "res://assets/sprites/units/villager_chop",
+		&"die": "res://assets/sprites/units/villager_die",
+	},
+}
+
+const PROJECTILE_SHEET := "res://assets/sprites/units/arrow"
 
 const BUILDING_SHEETS := {
 	&"town_center": {
@@ -104,6 +131,17 @@ static func quantize_xz_facing(velocity: Variant) -> Dictionary:
 
 static func unit_sheet_base(unit_id: StringName) -> String:
 	return String(UNIT_SHEETS.get(unit_id, ""))
+
+
+static func projectile_sheet_base() -> String:
+	return PROJECTILE_SHEET
+
+
+static func combat_sheet_base(unit_id: StringName, action: StringName) -> String:
+	if not UNIT_COMBAT_SHEETS.has(unit_id):
+		return ""
+	var by_action: Dictionary = UNIT_COMBAT_SHEETS[unit_id]
+	return String(by_action.get(action, ""))
 
 
 static func building_sheet_base(building_id: StringName, civ_id: StringName) -> String:
@@ -235,8 +273,29 @@ static func build_unit_sprite_frames(meta: Dictionary, texture: Texture2D) -> Sp
 	var frames := SpriteFrames.new()
 	if frames.has_animation(&"default"):
 		frames.remove_animation(&"default")
-	_add_directional_animations(frames, "", meta, texture)
+	_add_directional_animations(frames, "", meta, texture, true)
 	return frames
+
+
+static func append_unit_combat_frames(
+	frames: SpriteFrames, unit_id: StringName
+) -> Dictionary:
+	var metas := {}
+	if not UNIT_COMBAT_SHEETS.has(unit_id):
+		return metas
+	var by_action: Dictionary = UNIT_COMBAT_SHEETS[unit_id]
+	for action: StringName in by_action:
+		var base := String(by_action[action])
+		if not sheet_paths_exist(base):
+			continue
+		var meta := load_meta(base)
+		var texture := load_texture(base)
+		if meta.is_empty() or texture == null:
+			continue
+		var loop := action != &"die" and action != &"attack"
+		_add_directional_animations(frames, String(action), meta, texture, loop)
+		metas[action] = meta
+	return metas
 
 
 static func build_villager_sprite_frames() -> SpriteFrames:
@@ -251,7 +310,8 @@ static func build_villager_sprite_frames() -> SpriteFrames:
 		var texture := load_texture(base)
 		if meta.is_empty() or texture == null:
 			continue
-		_add_directional_animations(frames, String(action), meta, texture)
+		var loop := action != &"die"
+		_add_directional_animations(frames, String(action), meta, texture, loop)
 	return frames
 
 
@@ -263,7 +323,11 @@ static func villager_walk_meta() -> Dictionary:
 
 
 static func _add_directional_animations(
-	frames: SpriteFrames, prefix: String, meta: Dictionary, texture: Texture2D
+	frames: SpriteFrames,
+	prefix: String,
+	meta: Dictionary,
+	texture: Texture2D,
+	loop: bool = true
 ) -> void:
 	var frame_w := int(meta.get("frame_w", 1))
 	var frame_h := int(meta.get("frame_h", 1))
@@ -275,7 +339,7 @@ static func _add_directional_animations(
 		var anim_name := _direction_animation_name(prefix, direction)
 		frames.add_animation(anim_name)
 		frames.set_animation_speed(anim_name, 12.0)
-		frames.set_animation_loop(anim_name, true)
+		frames.set_animation_loop(anim_name, loop)
 		for step in frames_per_dir:
 			var index := direction * frames_per_dir + step
 			if index >= frame_count:

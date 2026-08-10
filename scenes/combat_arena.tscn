@@ -1,0 +1,168 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/input/rts_camera_2d.gd" id="1_camera"]
+[ext_resource type="Script" path="res://scripts/match/combat_arena_bootstrap.gd" id="2_bootstrap"]
+[ext_resource type="Script" path="res://scripts/input/selection_controller_2d.gd" id="3_selection"]
+[ext_resource type="Script" path="res://scripts/systems/build_system.gd" id="4_build"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="5_hud"]
+[ext_resource type="Script" path="res://scripts/systems/ai_controller.gd" id="6_ai"]
+[ext_resource type="Script" path="res://scripts/ui/arena_setup_panel.gd" id="7_setup"]
+
+[node name="Match" type="Node2D"]
+
+[node name="Map" type="Node2D" parent="."]
+
+[node name="Ground" type="Node2D" parent="Map"]
+z_index = -100
+
+[node name="Entities" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="MoveMarker" type="Polygon2D" parent="."]
+visible = false
+z_index = 50
+color = Color(0.95, 0.9, 0.2, 0.85)
+polygon = PackedVector2Array(12, 0, 8.5, 3.3, 0, 6, -8.5, 3.3, -12, 0, -8.5, -3.3, 0, -6, 8.5, -3.3)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(0, -880)
+current = true
+script = ExtResource("1_camera")
+
+[node name="BuildSystem" type="Node" parent="."]
+script = ExtResource("4_build")
+
+[node name="AiController" type="Node" parent="."]
+script = ExtResource("6_ai")
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="SelectionController" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_selection")
+camera_path = NodePath("../../Camera2D")
+
+[node name="HUD" parent="UILayer" instance=ExtResource("5_hud")]
+
+[node name="ArenaSetupPanel" type="Control" parent="UILayer"]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("7_setup")
+
+[node name="Dim" type="ColorRect" parent="UILayer/ArenaSetupPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0.02, 0.04, 0.08, 0.72)
+
+[node name="Panel" type="PanelContainer" parent="UILayer/ArenaSetupPanel"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -220.0
+offset_right = 260.0
+offset_bottom = 220.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="UILayer/ArenaSetupPanel/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "战斗测试场"
+horizontal_alignment = 1
+
+[node name="CivRow" type="HBoxContainer" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="PlayerCivLabel" type="Label" parent="UILayer/ArenaSetupPanel/Panel/VBox/CivRow"]
+layout_mode = 2
+text = "玩家文明"
+
+[node name="PlayerCivOption" type="OptionButton" parent="UILayer/ArenaSetupPanel/Panel/VBox/CivRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AiCivLabel" type="Label" parent="UILayer/ArenaSetupPanel/Panel/VBox/CivRow"]
+layout_mode = 2
+text = "对手文明"
+
+[node name="AiCivOption" type="OptionButton" parent="UILayer/ArenaSetupPanel/Panel/VBox/CivRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AutoAttackCheck" type="CheckBox" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "对手自动攻击（AI 单位寻敌）"
+
+[node name="UnitsLabel" type="Label" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
+layout_mode = 2
+text = "双方各生成相同兵种数量："
+
+[node name="CountGrid" type="GridContainer" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 6
+columns = 2
+
+[node name="Buttons" type="HBoxContainer" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="PresetButton" type="Button" parent="UILayer/ArenaSetupPanel/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "各2个"
+
+[node name="StartButton" type="Button" parent="UILayer/ArenaSetupPanel/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "开始对战"
+
+[node name="BackButton" type="Button" parent="UILayer/ArenaSetupPanel/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "返回"
+
+[node name="ReconfigureButton" type="Button" parent="UILayer"]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 108.0
+offset_bottom = 44.0
+visible = false
+text = "重新配置"
+
+[node name="Bootstrap" type="Node" parent="."]
+script = ExtResource("2_bootstrap")
+
+[connection signal="pressed" from="UILayer/ArenaSetupPanel/Panel/VBox/Buttons/PresetButton" to="UILayer/ArenaSetupPanel" method="_on_preset_pressed"]
+[connection signal="pressed" from="UILayer/ArenaSetupPanel/Panel/VBox/Buttons/StartButton" to="UILayer/ArenaSetupPanel" method="_on_start_pressed"]
+[connection signal="pressed" from="UILayer/ArenaSetupPanel/Panel/VBox/Buttons/BackButton" to="UILayer/ArenaSetupPanel" method="_on_back_pressed"]
+[connection signal="pressed" from="UILayer/ReconfigureButton" to="UILayer/ArenaSetupPanel" method="_on_reconfigure_pressed"]

@@ -1,0 +1,127 @@
+{
+  "exported": [
+    {
+      "key": "archer_attack",
+      "slp_id": 2,
+      "frame_count": 50
+    },
+    {
+      "key": "archer_die",
+      "slp_id": 5,
+      "frame_count": 50
+    },
+    {
+      "key": "swordsman_attack",
+      "slp_id": 594,
+      "frame_count": 75
+    },
+    {
+      "key": "swordsman_die",
+      "slp_id": 597,
+      "frame_count": 50
+    },
+    {
+      "key": "chu_ko_nu_attack",
+      "slp_id": 215,
+      "frame_count": 50
+    },
+    {
+      "key": "chu_ko_nu_die",
+      "slp_id": 218,
+      "frame_count": 50
+    },
+    {
+      "key": "teutonic_knight_attack",
+      "slp_id": 1188,
+      "frame_count": 75
+    },
+    {
+      "key": "teutonic_knight_die",
+      "slp_id": 1191,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_die",
+      "slp_id": 3683,
+      "frame_count": 75
+    },
+    {
+      "key": "arrow",
+      "slp_id": 3799,
+      "frame_count": 176
+    }
+  ],
+  "missing": [],
+  "discovered_ids": [
+    {
+      "key": "archer_attack",
+      "category": "units",
+      "id": 2,
+      "directions": 5,
+      "note": "Archer firing"
+    },
+    {
+      "key": "archer_die",
+      "category": "units",
+      "id": 5,
+      "directions": 5,
+      "note": "Archer dying"
+    },
+    {
+      "key": "swordsman_attack",
+      "category": "units",
+      "id": 594,
+      "directions": 5,
+      "note": "ROR swordsman fighting"
+    },
+    {
+      "key": "swordsman_die",
+      "category": "units",
+      "id": 597,
+      "directions": 5,
+      "note": "ROR swordsman dying"
+    },
+    {
+      "key": "chu_ko_nu_attack",
+      "category": "units",
+      "id": 215,
+      "directions": 5,
+      "note": "Chu-Ko-Nu attacking"
+    },
+    {
+      "key": "chu_ko_nu_die",
+      "category": "units",
+      "id": 218,
+      "directions": 5,
+      "note": "Chu-Ko-Nu dying"
+    },
+    {
+      "key": "teutonic_knight_attack",
+      "category": "units",
+      "id": 1188,
+      "directions": 5,
+      "note": "Teutonic knight fighting"
+    },
+    {
+      "key": "teutonic_knight_die",
+      "category": "units",
+      "id": 1191,
+      "directions": 5,
+      "note": "Teutonic knight dying"
+    },
+    {
+      "key": "villager_die",
+      "category": "units",
+      "id": 3683,
+      "directions": 5,
+      "note": "Male villager dying"
+    },
+    {
+      "key": "arrow",
+      "category": "units",
+      "id": 3799,
+      "directions": 1,
+      "note": "Arrow projectile"
+    }
+  ]
+}

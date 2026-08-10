@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/entities/projectile_agent.gd" id="1_projectile"]
+
+[node name="ProjectileAgent" type="Node2D"]
+y_sort_enabled = true
+script = ExtResource("1_projectile")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture_filter = 0

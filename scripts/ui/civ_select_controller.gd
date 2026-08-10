@@ -9,6 +9,9 @@ func _on_chinese_pressed() -> void:
 func _on_teutons_pressed() -> void:
 	_choose_civ(&"teutons")
 
+func _on_arena_pressed() -> void:
+	get_tree().change_scene_to_file("res://scenes/combat_arena.tscn")
+
 func _choose_civ(civ_id: StringName) -> void:
 	GameSession.player_civ_id = civ_id
 	GameSession.ai_civ_id = &"teutons" if civ_id == &"chinese" else &"chinese"
