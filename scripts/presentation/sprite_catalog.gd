@@ -354,12 +354,16 @@ static func _direction_animation_name(prefix: String, direction: int) -> StringN
 
 
 static func first_atlas_texture(meta: Dictionary, texture: Texture2D) -> AtlasTexture:
+	return atlas_frame_at(meta, texture, 0)
+
+
+static func atlas_frame_at(meta: Dictionary, texture: Texture2D, index: int) -> AtlasTexture:
 	return _atlas_frame(
 		texture,
 		int(meta.get("cols", 1)),
 		int(meta.get("frame_w", 1)),
 		int(meta.get("frame_h", 1)),
-		0
+		maxi(0, index)
 	)
 
 

@@ -46,6 +46,10 @@ PRIORITY: List[Dict[str, Any]] = [
     {"key": "tree_oak", "category": "resources", "id": 1251, "directions": 1, "palette": "pal_2", "note": "Oak tree (pal_2)"},
     {"key": "gold_mine", "category": "resources", "id": 4479, "directions": 1, "note": "Gold mine"},
     {"key": "berry_bush", "category": "resources", "id": 2560, "directions": 1, "note": "Berry bush / food"},
+    {"key": "water_shallow", "category": "terrain", "id": 1885, "directions": 1, "note": "Water shallows tiles"},
+    {"key": "cliff_main", "category": "terrain", "id": 226, "directions": 1, "note": "Cliffs"},
+    {"key": "cliff_section", "category": "terrain", "id": 229, "directions": 1, "note": "Cliff section"},
+    {"key": "cliff_section_b", "category": "terrain", "id": 230, "directions": 1, "note": "Cliff section B"},
 ]
 
 COMBAT_PRIORITY: List[Dict[str, Any]] = [

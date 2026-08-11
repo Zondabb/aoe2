@@ -19,23 +19,42 @@ static func resolve_move(
 	from_pos: Vector2,
 	desired_pos: Vector2,
 	units: Array,
-	buildings: Array
+	buildings: Array,
+	path_blockers: Array = []
 ) -> Vector2:
 	var radius := unit_radius(unit)
-	var pos := _slide_against_buildings(from_pos, desired_pos, radius, buildings)
+	var solids: Array = []
+	solids.append_array(buildings)
+	solids.append_array(path_blockers)
+	var pos := _slide_against_buildings(from_pos, desired_pos, radius, solids)
 	for _i in BUILDING_ITERATIONS:
-		pos = _push_out_buildings(pos, radius, buildings)
+		pos = _push_out_buildings(pos, radius, solids)
 	pos = _soft_separate_units(unit, pos, radius, units)
 	for _i in BUILDING_ITERATIONS:
-		pos = _push_out_buildings(pos, radius, buildings)
+		pos = _push_out_buildings(pos, radius, solids)
 	return pos
 
+static func _blocker_half(blocker: Object, radius: float) -> Vector2:
+	if blocker == null:
+		return Vector2.ZERO
+	var half_variant: Variant = blocker.get("block_half")
+	if half_variant is Vector2:
+		var half := half_variant as Vector2
+		if half.x > 0.0 and half.y > 0.0:
+			return half + Vector2(radius, radius)
+	var building_def := blocker.get("def") as BuildingDef
+	if building_def != null:
+		return building_def.footprint * 0.5 + Vector2(radius, radius)
+	var size_variant: Variant = blocker.get("block_size")
+	if size_variant is Vector2:
+		return (size_variant as Vector2) * 0.5 + Vector2(radius, radius)
+	return Vector2.ZERO
+
 static func _hits_building(pos: Vector2, radius: float, building: Object) -> bool:
-	var building_def := building.get("def") as BuildingDef
-	if building_def == null:
+	var half := _blocker_half(building, radius)
+	if half.x <= 0.0 or half.y <= 0.0:
 		return false
 	var center: Vector2 = building.get("sim_pos")
-	var half := building_def.footprint * 0.5 + Vector2(radius, radius)
 	var delta := pos - center
 	return absf(delta.x) < half.x and absf(delta.y) < half.y
 
@@ -54,11 +73,10 @@ static func _push_out_buildings(pos: Vector2, radius: float, buildings: Array) -
 		var building := value as Object
 		if building == null or not is_instance_valid(building):
 			continue
-		var building_def := building.get("def") as BuildingDef
-		if building_def == null:
+		var half := _blocker_half(building, radius)
+		if half.x <= 0.0 or half.y <= 0.0:
 			continue
 		var center: Vector2 = building.get("sim_pos")
-		var half := building_def.footprint * 0.5 + Vector2(radius, radius)
 		var delta := result - center
 		if absf(delta.x) >= half.x or absf(delta.y) >= half.y:
 			continue

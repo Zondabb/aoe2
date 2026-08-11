@@ -111,6 +111,10 @@ Classic AoE unit SLPs store **5 authored facings** (frame counts like 50/60/75 d
 | tree_oak | 1251 | Uses `pal_2.pal` |
 | gold_mine | 4479 | |
 | berry_bush | 2560 | Food source |
+| water_shallow | 1885 | Water shallows tiles |
+| cliff_main | 226 | Cliffs |
+| cliff_section | 229 | Cliff section |
+| cliff_section_b | 230 | Cliff section B |
 
 IDs sourced from the openage AoC SLP list and verified present under
 `_common/drs/graphics/`.
