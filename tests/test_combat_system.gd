@@ -5,7 +5,9 @@ const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const SWORDSMAN: UnitDef = preload("res://data/units/swordsman.tres")
 const ARCHER: UnitDef = preload("res://data/units/archer.tres")
 const TOWN_CENTER: BuildingDef = preload("res://data/buildings/town_center.tres")
+const BARRACKS: BuildingDef = preload("res://data/buildings/barracks.tres")
 const TEUTONS: CivDef = preload("res://data/civs/teutons.tres")
+const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const SelectionController2DScript := preload("res://scripts/input/selection_controller_2d.gd")
 
@@ -16,6 +18,9 @@ func run() -> Array[String]:
 	_test_attack_cooldown_and_unit_death(failures)
 	_test_civ_combat_bonuses(failures)
 	_test_town_center_death_sets_winner(failures)
+	_test_building_armor_applies(failures)
+	_test_idle_unit_retaliates(failures)
+	_test_busy_unit_does_not_retaliate(failures)
 	return failures
 
 func _test_attack_order_chases_and_hits(failures: Array[String]) -> void:
@@ -112,6 +117,57 @@ func _test_town_center_death_sets_winner(failures: Array[String]) -> void:
 		failures.append("destroyed building should emit its destroyed signal once")
 	if state.get("winner") != Enums.Team.AI:
 		failures.append("destroying the player town center should make AI the winner")
+	root.free()
+
+func _test_building_armor_applies(failures: Array[String]) -> void:
+	var root := _make_root()
+	var barracks := BUILDING_VIEW.instantiate() as Node2D
+	barracks.set("team", Enums.Team.AI)
+	barracks.set("def", BARRACKS)
+	barracks.set("sim_pos", Vector2(2.0, 0.0))
+	root.add_child(barracks)
+	barracks.call("_ready")
+	if barracks.get("melee_armor") != BARRACKS.melee_armor:
+		failures.append("buildings should load melee armor from BuildingDef")
+	if barracks.get("pierce_armor") != BARRACKS.pierce_armor:
+		failures.append("buildings should load pierce armor from BuildingDef")
+	var initial_hp: float = barracks.get("hp")
+	var dealt := CombatSystemScript.apply_hit(ARCHER, barracks)
+	# Archer atk 5 − pierce 4 = 1
+	if not is_equal_approx(dealt, 1.0):
+		failures.append("ranged hits on barracks should use pierce armor (got %s)" % dealt)
+	if not is_equal_approx(float(barracks.get("hp")), initial_hp - 1.0):
+		failures.append("building HP should drop by armored pierce damage")
+	var after_pierce: float = barracks.get("hp")
+	dealt = CombatSystemScript.apply_hit(SWORDSMAN, barracks)
+	# Swordsman atk 8 − melee 2 = 6
+	if not is_equal_approx(dealt, 6.0):
+		failures.append("melee hits on barracks should use melee armor (got %s)" % dealt)
+	if not is_equal_approx(float(barracks.get("hp")), after_pierce - 6.0):
+		failures.append("building HP should drop by armored melee damage")
+	root.free()
+
+func _test_idle_unit_retaliates(failures: Array[String]) -> void:
+	var root := _make_root()
+	var attacker := _spawn_unit(root, SWORDSMAN, Enums.Team.PLAYER, Vector2.ZERO)
+	var idle := _spawn_unit(root, SWORDSMAN, Enums.Team.AI, Vector2(1.0, 0.0))
+	CombatSystemScript.apply_hit(SWORDSMAN, idle, {"attacker": attacker})
+	if idle.order != Enums.OrderType.ATTACK:
+		failures.append("idle unit should retaliate when damaged by an attacker")
+	if idle._attack_target != attacker:
+		failures.append("retaliation should target the damaging attacker")
+	root.free()
+
+func _test_busy_unit_does_not_retaliate(failures: Array[String]) -> void:
+	var root := _make_root()
+	var attacker := _spawn_unit(root, SWORDSMAN, Enums.Team.PLAYER, Vector2.ZERO)
+	var mover := _spawn_unit(root, SWORDSMAN, Enums.Team.AI, Vector2(1.0, 0.0))
+	mover.command_move(Vector2(8.0, 0.0))
+	if mover.order != Enums.OrderType.MOVE:
+		failures.append("setup: unit should be moving before retaliation check")
+	CombatSystemScript.apply_hit(SWORDSMAN, mover, {"attacker": attacker})
+	if mover.order != Enums.OrderType.MOVE:
+		failures.append("moving unit should not switch to attack on damage")
 	root.free()
 
 func _advance_combat(entity: Node, duration: float, step: float = 0.05) -> void:

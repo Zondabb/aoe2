@@ -21,6 +21,7 @@ const RANGED_RELEASE_FRACTION := 0.35
 const FALLBACK_ATTACK_DURATION := 0.45
 const FALLBACK_DIE_DURATION := 0.8
 const PROJECTILE_SCENE := preload("res://scenes/entities/projectile_view.tscn")
+const ProjectileAgentScript := preload("res://scripts/entities/projectile_agent.gd")
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
@@ -295,14 +296,15 @@ func _process_attack_animation(delta: float) -> void:
 	var duration := _combat_anim_duration(&"attack")
 	_combat_anim_time += delta
 	_apply_billboard_frame(true, &"attack", false)
-	if def.is_ranged and not _projectile_spawned:
-		if _combat_anim_time >= duration * RANGED_RELEASE_FRACTION:
+	if def.is_ranged:
+		# Ranged damage is resolved only by the projectile impact splash.
+		if not _projectile_spawned and _combat_anim_time >= duration * RANGED_RELEASE_FRACTION:
 			_spawn_projectile()
 			_projectile_spawned = true
 	elif not _attack_hit_applied:
 		if _combat_anim_time >= duration * ATTACK_HIT_FRACTION:
 			if _attack_target_available():
-				CombatSystemScript.apply_hit(def, _attack_target)
+				CombatSystemScript.apply_hit(def, _attack_target, {"attacker": self})
 			_attack_hit_applied = true
 	if _combat_anim_time >= duration:
 		_cancel_combat_action()
@@ -320,13 +322,8 @@ func _spawn_projectile() -> void:
 	if projectile == null:
 		return
 	parent.add_child(projectile)
-	projectile.call(
-		"setup",
-		sim_pos,
-		_attack_target,
-		def,
-		team
-	)
+	var aim := ProjectileAgentScript.aim_point_for_target(sim_pos, _attack_target)
+	projectile.call("setup", sim_pos, aim, def, team, self)
 
 func _process_die(delta: float) -> void:
 	var duration := _combat_anim_duration(&"die")
@@ -364,13 +361,25 @@ func _combat_animation_name(action: StringName) -> StringName:
 		return _pick_villager_animation(action)
 	return StringName("%s_dir_%d" % [action, _facing_dir])
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, source: Node = null) -> void:
 	if amount <= 0.0 or hp <= 0.0 or _combat_action == &"die":
 		return
 	hp = maxf(0.0, hp - amount)
 	_refresh_world_hp_bar()
 	if hp <= 0.0:
 		_begin_die()
+		return
+	_try_retaliate(source)
+
+func _try_retaliate(source: Node) -> void:
+	# Idle-only aggro: do not interrupt move / gather / build / active attack.
+	if order != Enums.OrderType.NONE:
+		return
+	if source == null or not is_instance_valid(source):
+		return
+	if source == self:
+		return
+	command_attack(source)
 
 func _attack_target_available() -> bool:
 	return (

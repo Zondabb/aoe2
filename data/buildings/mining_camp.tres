@@ -6,6 +6,8 @@
 script = ExtResource("1")
 id = &"mining_camp"
 max_hp = 600
+melee_armor = 0
+pierce_armor = 2
 footprint = Vector2(2, 2)
 cost_food = 0
 cost_wood = 100

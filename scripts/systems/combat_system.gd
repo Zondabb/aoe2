@@ -1,7 +1,8 @@
 class_name CombatSystem
 extends RefCounted
 
-static func apply_hit(attacker_def: UnitDef, target: Node) -> float:
+## Applies armor-reduced damage. Optional context["attacker"] enables idle retaliation.
+static func apply_hit(attacker_def: UnitDef, target: Node, context: Dictionary = {}) -> float:
 	if (
 		attacker_def == null
 		or not is_instance_valid(target)
@@ -14,5 +15,9 @@ static func apply_hit(attacker_def: UnitDef, target: Node) -> float:
 		float(target.get("pierce_armor"))
 	)
 	var damage := CombatMath.apply_armor(float(attacker_def.attack), armor)
-	target.call("take_damage", damage)
+	var source: Variant = context.get("attacker", null)
+	if source != null:
+		target.call("take_damage", damage, source)
+	else:
+		target.call("take_damage", damage)
 	return damage

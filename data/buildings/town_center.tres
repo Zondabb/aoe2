@@ -8,6 +8,8 @@
 script = ExtResource("1")
 id = &"town_center"
 max_hp = 2400
+melee_armor = 3
+pierce_armor = 5
 footprint = Vector2(4, 4)
 cost_food = 0
 cost_wood = 0

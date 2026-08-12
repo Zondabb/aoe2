@@ -8,6 +8,8 @@
 script = ExtResource("1")
 id = &"archery_range"
 max_hp = 1200
+melee_armor = 2
+pierce_armor = 4
 footprint = Vector2(3, 3)
 cost_food = 0
 cost_wood = 175

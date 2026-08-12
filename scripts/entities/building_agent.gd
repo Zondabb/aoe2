@@ -40,6 +40,8 @@ func _ready() -> void:
 		_register_groups()
 	if def != null:
 		accepted_resource_type = def.drop_off
+		melee_armor = float(def.melee_armor)
+		pierce_armor = float(def.pierce_armor)
 		_configure_visuals()
 		_sync_block_half()
 		if _construction_started and def.build_time > 0.0:
@@ -84,7 +86,7 @@ func add_build_progress(amount: float) -> void:
 		hp = _max_hp()
 		_complete_construction()
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, _source: Node = null) -> void:
 	if is_placement_ghost or amount <= 0.0 or hp <= 0.0:
 		return
 	hp = maxf(0.0, hp - amount)
