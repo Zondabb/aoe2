@@ -188,7 +188,9 @@ func _spawn_army(
 
 func _focus_camera_on_battlefield() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D
-	if camera != null and camera.has_method("focus_on"):
+	if camera != null and camera.has_method("configure_for_map"):
+		camera.call("configure_for_map", GROUND_MIN, GROUND_MAX, Vector2.ZERO)
+	elif camera != null and camera.has_method("focus_on"):
 		camera.call("focus_on", Vector2.ZERO)
 
 func _setup_ground() -> void:

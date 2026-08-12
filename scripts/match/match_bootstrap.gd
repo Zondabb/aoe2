@@ -10,6 +10,7 @@ const TOWN_CENTER_DEF := preload("res://data/buildings/town_center.tres")
 const CHINESE_CIV := preload("res://data/civs/chinese.tres")
 const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
+const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const GROUND_MIN := -60
 const GROUND_MAX := 60
@@ -26,14 +27,31 @@ func _ready() -> void:
 	ai_civ = _opposite_civ(player_civ)
 	GameSession.ai_civ_id = ai_civ.id
 	_setup_ground()
+	_setup_nav()
 	_spawn_entities()
+	call_deferred("_finish_nav_setup")
 	_focus_camera_on_player_base()
 	_setup_building_controls()
 	_setup_ai_controller()
 
+func _setup_nav() -> void:
+	var holder := NavServiceHolderScript.new()
+	holder.name = "NavService"
+	holder.setup(GROUND_MIN, GROUND_MAX, 1.0)
+	var match_root := get_parent()
+	if match_root != null:
+		match_root.add_child(holder)
+
+func _finish_nav_setup() -> void:
+	var holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	if holder != null:
+		holder.rebuild_from_scene()
+
 func _focus_camera_on_player_base() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D
-	if camera != null and camera.has_method("focus_on"):
+	if camera != null and camera.has_method("configure_for_map"):
+		camera.call("configure_for_map", GROUND_MIN, GROUND_MAX, Vector2(-40.0, -40.0))
+	elif camera != null and camera.has_method("focus_on"):
 		camera.call("focus_on", Vector2(-40.0, -40.0))
 
 func _setup_ground() -> void:

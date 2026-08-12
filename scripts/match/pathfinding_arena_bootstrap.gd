@@ -8,6 +8,7 @@ const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const PathBlockerScript := preload("res://scripts/entities/path_blocker.gd")
+const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
 const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
@@ -27,6 +28,7 @@ const CLIFF_B_SHEET := "res://assets/sprites/terrain/cliff_section_b"
 const GOLD_SHEET := "res://assets/sprites/resources/gold_mine"
 
 var match_state := MatchState.new()
+var nav_holder: NavServiceHolderScript
 var nav: NavGridServiceScript
 var player_civ: CivDef = CHINESE_CIV
 
@@ -41,53 +43,17 @@ func _ready() -> void:
 	call_deferred("_finish_setup")
 
 func _finish_setup() -> void:
-	_rebuild_nav()
+	if nav_holder != null:
+		nav_holder.rebuild_from_scene()
 	_setup_debug_overlay()
 	_focus_camera()
 
-func _process(_delta: float) -> void:
-	# Flush budgeted path requests for many simultaneous movers.
-	if nav == null:
-		return
-	var results: Dictionary = nav.flush_pending_paths()
-	if results.is_empty():
-		return
-	var entities := get_node_or_null("../Entities") as Node2D
-	if entities == null:
-		return
-	for child in entities.get_children():
-		if not child.is_in_group("units"):
-			continue
-		var uid := child.get_instance_id()
-		if not results.has(uid):
-			continue
-		if child.has_method("apply_nav_path"):
-			child.call("apply_nav_path", results[uid])
-
 func _setup_nav() -> void:
-	nav = NavGridServiceScript.new()
-	nav.setup(GROUND_MIN, GROUND_MAX, 1.0)
-	nav.set_frame_budget(16)
-	# Expose via a tiny holder node in the "nav_service" group.
-	var holder := Node.new()
-	holder.name = "NavService"
-	holder.set_meta("nav", nav)
-	holder.add_to_group("nav_service")
-	get_parent().call_deferred("add_child", holder)
-
-func _rebuild_nav() -> void:
-	if nav == null:
-		return
-	var blockers: Array = []
-	var tree := get_tree()
-	if tree != null:
-		blockers.append_array(tree.get_nodes_in_group("path_blockers"))
-		blockers.append_array(tree.get_nodes_in_group("buildings"))
-	nav.rebuild_from_blockers(blockers)
-	var overlay := get_node_or_null("../NavDebugOverlay") as Node
-	if overlay != null and overlay.has_method("queue_redraw"):
-		overlay.set("nav", nav)
-		overlay.call("queue_redraw")
+	nav_holder = NavServiceHolderScript.new()
+	nav_holder.name = "NavService"
+	nav_holder.setup(GROUND_MIN, GROUND_MAX, 1.0)
+	nav = nav_holder.nav
+	get_parent().call_deferred("add_child", nav_holder)
 
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()
@@ -209,10 +175,12 @@ func _spawn_units() -> void:
 		unit.set("match_state", match_state)
 		var row := int(index / cols)
 		var col := index % cols
-		unit.set("sim_pos", Vector2(-22.0 + float(col) * 1.4, -18.0 + float(row) * 1.4))
+		unit.set("sim_pos", Vector2(-22.0 + float(col) * 1.6, -18.0 + float(row) * 1.6))
 		entities.add_child(unit)
 
 func _focus_camera() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D
-	if camera != null and camera.has_method("focus_on"):
+	if camera != null and camera.has_method("configure_for_map"):
+		camera.call("configure_for_map", GROUND_MIN, GROUND_MAX, Vector2(-8.0, -4.0))
+	elif camera != null and camera.has_method("focus_on"):
 		camera.call("focus_on", Vector2(-8.0, -4.0))

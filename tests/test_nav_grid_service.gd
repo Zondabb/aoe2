@@ -7,6 +7,11 @@ class FakeBlocker extends Object:
 	var block_half := Vector2.ONE
 	var block_size := Vector2(2, 2)
 
+class BuildingStub extends Object:
+	var is_complete := false
+	var is_placement_ghost := false
+	var def: Object = null
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var nav := NavGridServiceScript.new()
@@ -23,6 +28,12 @@ func run() -> Array[String]:
 	wall.block_size = Vector2(2, 8)
 	wall.block_half = Vector2(1, 4)
 	nav.rebuild_from_blockers([wall])
+
+	var trapped := nav.find_path(Vector2(0, 0), Vector2(6, 0))
+	if trapped.is_empty():
+		failures.append("path from inside a wall should still escape to a goal")
+	elif trapped[0].distance_to(Vector2(0, 0)) < 0.05:
+		failures.append("path from inside a wall should start at a nearby walkable point")
 
 	if not nav.is_world_solid(Vector2(0, 0)):
 		failures.append("wall center cell should be solid")
@@ -60,5 +71,33 @@ func run() -> Array[String]:
 	var one: Dictionary = nav.flush_pending_paths()
 	if not one.has(3) or (one[3] as PackedVector2Array).is_empty():
 		failures.append("budgeted queue should resolve paths on clear grid")
+
+	var incomplete := BuildingStub.new()
+	if NavGridServiceScript._building_blocks_nav(incomplete):
+		failures.append("incomplete building should not block nav")
+	var complete := BuildingStub.new()
+	complete.is_complete = true
+	complete.def = Object.new()
+	if not NavGridServiceScript._building_blocks_nav(complete):
+		failures.append("complete building should block nav")
+
+	nav.rebuild_from_blockers([])
+	var first: PackedVector2Array = nav.find_path(Vector2(-4, 0), Vector2(4, 0), 0.35)
+	var second: PackedVector2Array = nav.find_path(Vector2(-4, 0), Vector2(4, 0), 0.35)
+	if first.is_empty() or second.is_empty():
+		failures.append("cached path lookup should return a route")
+	elif first.size() != second.size():
+		failures.append("cached path lookup should match the first result")
+
+	var pillar := FakeBlocker.new()
+	pillar.sim_pos = Vector2(0.5, 0.5)
+	pillar.block_half = Vector2(0.1, 0.1)
+	nav.rebuild_from_blockers([pillar])
+	nav.find_path(Vector2(-5, 0), Vector2(5, 0), 0.35)
+	var small_cells := nav.get_solid_cells().size()
+	nav.find_path(Vector2(-5, 0), Vector2(5, 0), 0.70)
+	var large_cells := nav.get_solid_cells().size()
+	if large_cells <= small_cells:
+		failures.append("larger unit radius should inflate the nav grid more")
 
 	return failures

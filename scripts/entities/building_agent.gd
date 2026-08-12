@@ -30,6 +30,7 @@ var _population_cap_registered := false
 var _reserved_population := 0
 var _ghost_visual_valid: Variant = null
 var _use_billboard := false
+var block_half := Vector2.ONE
 
 func _ready() -> void:
 	if sim_pos == Vector2.ZERO:
@@ -40,6 +41,7 @@ func _ready() -> void:
 	if def != null:
 		accepted_resource_type = def.drop_off
 		_configure_visuals()
+		_sync_block_half()
 		if _construction_started and def.build_time > 0.0:
 			is_complete = false
 			hp = maxf(1.0, _max_hp() * build_progress / def.build_time)
@@ -246,6 +248,14 @@ func _configure_visuals() -> void:
 	SpriteCatalogScript.ensure_ground_shadow_2d(self, shadow_radius)
 	if not _use_billboard:
 		_apply_team_color()
+
+func _sync_block_half() -> void:
+	if def == null:
+		block_half = Vector2.ONE
+		return
+	var civ_id: StringName = civ.id if civ != null else &""
+	var footprint := SpriteCatalogScript.pathfinding_footprint_for_building(def, civ_id)
+	block_half = footprint * 0.5
 
 func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as CanvasItem

@@ -1,0 +1,62 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/input/rts_camera_2d.gd" id="1_camera"]
+[ext_resource type="Script" path="res://scripts/match/pathfinding_test_bootstrap.gd" id="2_bootstrap"]
+[ext_resource type="Script" path="res://scripts/match/pathfinding_test_controller.gd" id="3_controller"]
+[ext_resource type="Script" path="res://scripts/match/pathfinding_debug_overlay.gd" id="4_debug"]
+
+[node name="PathfindingTest" type="Node2D"]
+
+[node name="Map" type="Node2D" parent="."]
+
+[node name="Ground" type="Node2D" parent="Map"]
+z_index = -100
+
+[node name="Entities" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="PathDebug" type="Node2D" parent="."]
+script = ExtResource("4_debug")
+
+[node name="MoveMarker" type="Polygon2D" parent="."]
+visible = false
+z_index = 50
+color = Color(0.95, 0.9, 0.2, 0.85)
+polygon = PackedVector2Array(12, 0, 8.5, 3.3, 0, 6, -8.5, 3.3, -12, 0, -8.5, -3.3, 0, -6, 8.5, -3.3)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(0, -440)
+current = true
+script = ExtResource("1_camera")
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="TestController" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_controller")
+camera_path = NodePath("../../Camera2D")
+debug_overlay_path = NodePath("../../PathDebug")
+
+[node name="HelpPanel" type="PanelContainer" parent="UILayer"]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 420.0
+offset_bottom = 168.0
+
+[node name="HelpLabel" type="Label" parent="UILayer/HelpPanel"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "寻路测试场
+左键：选村民  |  右键：移动 / 点资源采集
+G：切换障碍 footprint 显示  |  R：重置村民位置
+红框=树/矿  蓝框=建筑  绿框=可通行浆果  黄线=当前路径"
+
+[node name="Bootstrap" type="Node" parent="."]
+script = ExtResource("2_bootstrap")

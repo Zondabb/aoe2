@@ -86,6 +86,10 @@ const ISO_SPRITE_YAW_RADIANS := deg_to_rad(ISO_CAMERA_YAW_DEGREES + 180.0)
 const UNIT_PIXEL_SCALE_2D := 2.2
 const BUILDING_PIXEL_SCALE_2D := 2.0
 const RESOURCE_PIXEL_SCALE_2D := 2.0
+## Shrink sprite-derived nav footprints (resources, water, cliffs). Tune in [0.5, 1.0].
+const PATHFINDING_FOOTPRINT_SCALE := 0.72
+## Buildings use logical def.footprint; optional slight padding over max side.
+const BUILDING_PATHFINDING_PADDING := 1.0
 
 ## Authored sheet rows: 0=S, 1=SW, 2=W, 3=NW, 4=N. Mirrored facings use flip_h.
 ## Accepts Vector2 logical (x,z) or Vector3 (x,_,z).
@@ -433,6 +437,44 @@ static func ensure_ground_shadow(parent: Node3D, radius: float) -> void:
 	shadow.position = Vector3(0.0, 0.012, 0.0)
 	shadow.scale = Vector3(1.15, 1.0, 0.7)
 	shadow.visible = true
+
+
+static func pathfinding_footprint_from_meta(
+	meta: Dictionary, pixel_scale: float = RESOURCE_PIXEL_SCALE_2D
+) -> Vector2:
+	var frame_w := float(meta.get("frame_w", 1))
+	var frame_h := float(meta.get("frame_h", 1))
+	var side_px := maxf(frame_w, frame_h) * pixel_scale
+	var side_sim := side_px / IsoMath.SCALE_X * PATHFINDING_FOOTPRINT_SCALE
+	return Vector2(side_sim, side_sim)
+
+
+static func building_pixel_scale(def: BuildingDef, meta: Dictionary) -> float:
+	var frame_w := float(meta.get("frame_w", 1))
+	var target_width := maxf(def.footprint.x, def.footprint.y) * IsoMath.SCALE_X * 1.15
+	if frame_w <= 0.0:
+		return BUILDING_PIXEL_SCALE_2D
+	return clampf(target_width / frame_w, 1.2, 3.0)
+
+
+static func pathfinding_footprint_for_building(
+	def: BuildingDef, civ_id: StringName = &""
+) -> Vector2:
+	if def == null:
+		return Vector2(2.0, 2.0)
+	var side := maxf(def.footprint.x, def.footprint.y) * BUILDING_PATHFINDING_PADDING
+	return Vector2(side, side)
+
+
+static func pathfinding_footprint_for_sheet(
+	sheet_base: String, pixel_scale: float = RESOURCE_PIXEL_SCALE_2D
+) -> Vector2:
+	if not sheet_paths_exist(sheet_base):
+		return Vector2(2.0, 2.0)
+	var meta := load_meta(sheet_base)
+	if meta.is_empty():
+		return Vector2(2.0, 2.0)
+	return pathfinding_footprint_from_meta(meta, pixel_scale)
 
 
 static func offset_for_hotspot_2d(meta: Dictionary, hotspot: Vector2) -> Vector2:

@@ -5,6 +5,7 @@ extends Node2D
 
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
+const MovementDebugDrawScript := preload("res://scripts/presentation/movement_debug_draw.gd")
 
 const BLOCK_FILL := Color(0.95, 0.15, 0.12, 0.35)
 const BLOCK_EDGE := Color(1.0, 0.35, 0.2, 0.85)
@@ -24,7 +25,7 @@ func _ready() -> void:
 	z_index = 80
 	set_process(false)
 	_hint_label = Label.new()
-	_hint_label.text = "G: toggle blocks + paths | RMB: move | box-select units"
+	_hint_label.text = "G: blocks/paths/arrows | cyan=intended red=actual | yellow ring=stuck"
 	_hint_label.position = Vector2(12, 10)
 	_hint_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.85, 0.9))
 	_hint_label.add_theme_font_size_override("font_size", 14)
@@ -57,6 +58,14 @@ func _draw() -> void:
 	if nav != null:
 		_draw_block_cells()
 	_draw_unit_paths()
+	_draw_move_arrows()
+
+
+func _draw_move_arrows() -> void:
+	if not is_inside_tree():
+		return
+	MovementDebugDrawScript.draw_unit_arrows(self, get_tree().get_nodes_in_group("units"))
+
 
 func _draw_block_cells() -> void:
 	var cells: Array[Vector2i] = nav.get_solid_cells()

@@ -8,7 +8,7 @@ const DRAG_THRESHOLD := 6.0
 const CLICK_RADIUS := 28.0
 const MOVE_MARKER_DURATION := 1.35
 ## Group-move slot spacing (logical xz); keep > 2 * default unit radius.
-const FORMATION_SPACING := 0.9
+const FORMATION_SPACING := 1.3
 
 @export var camera_path: NodePath
 

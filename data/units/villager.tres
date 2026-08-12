@@ -19,4 +19,4 @@ cost_gold = 0
 train_time = 25.0
 population = 1
 is_ranged = false
-collision_radius = 1
+collision_radius = 0.35

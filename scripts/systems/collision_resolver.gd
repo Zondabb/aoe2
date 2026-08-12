@@ -1,10 +1,15 @@
 class_name CollisionResolver
 extends RefCounted
 
+const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
+
 const DEFAULT_RADIUS := 0.35
-const UNIT_SOFT_FACTOR := 0.5
+const UNIT_SOFT_FACTOR := 1.0
+const UNIT_SOFT_ITERATIONS := 5
 const UNIT_QUERY_RANGE := 3.0
 const BUILDING_ITERATIONS := 3
+const ALLY_FORWARD_BLEND := 0.6
 
 static func unit_radius(unit: Object) -> float:
 	if unit == null:
@@ -29,9 +34,26 @@ static func resolve_move(
 	var pos := _slide_against_buildings(from_pos, desired_pos, radius, solids)
 	for _i in BUILDING_ITERATIONS:
 		pos = _push_out_buildings(pos, radius, solids)
-	pos = _soft_separate_units(unit, pos, radius, units)
+	for _i in UNIT_SOFT_ITERATIONS:
+		pos = _soft_separate_units(unit, pos, radius, units)
+	pos = _nudge_forward_through_allies(
+		from_pos, desired_pos, pos, unit, radius, units, solids
+	)
 	for _i in BUILDING_ITERATIONS:
 		pos = _push_out_buildings(pos, radius, solids)
+	return pos
+
+
+static func depack_unit(unit: Object, units: Array, max_passes: int = 6) -> Vector2:
+	if unit == null:
+		return Vector2.ZERO
+	var radius := unit_radius(unit)
+	var pos: Vector2 = unit.get("sim_pos")
+	for _pass in max_passes:
+		var next := _soft_separate_units(unit, pos, radius, units)
+		if next.distance_squared_to(pos) < 0.000004:
+			break
+		pos = next
 	return pos
 
 static func _blocker_half(blocker: Object, radius: float) -> Vector2:
@@ -44,10 +66,20 @@ static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 			return half + Vector2(radius, radius)
 	var building_def := blocker.get("def") as BuildingDef
 	if building_def != null:
-		return building_def.footprint * 0.5 + Vector2(radius, radius)
+		var civ := blocker.get("civ") as CivDef
+		var civ_id: StringName = civ.id if civ != null else &""
+		return (
+			SpriteCatalogScript.pathfinding_footprint_for_building(building_def, civ_id) * 0.5
+			+ Vector2(radius, radius)
+		)
 	var size_variant: Variant = blocker.get("block_size")
 	if size_variant is Vector2:
 		return (size_variant as Vector2) * 0.5 + Vector2(radius, radius)
+	if blocker.get("resource_type") != null and float(blocker.get("amount")) > 0.0:
+		var resource_type: int = int(blocker.get("resource_type"))
+		var footprint := ResourceNodeScript.pathfinding_footprint(resource_type)
+		if footprint.length_squared() > 0.0:
+			return footprint * 0.5 + Vector2(radius, radius)
 	return Vector2.ZERO
 
 static func _hits_building(pos: Vector2, radius: float, building: Object) -> bool:
@@ -112,6 +144,60 @@ static func _slide_against_buildings(
 		return slide_y
 	return from_pos
 
+
+static func _unit_blocks_hard(unit: Object, other: Object) -> bool:
+	if other.get("team") != unit.get("team"):
+		return true
+	return int(other.get("order")) == Enums.OrderType.NONE
+
+
+static func _unit_hard_overlaps(
+	pos: Vector2, radius: float, unit: Object, units: Array
+) -> bool:
+	for value in units:
+		var other := value as Object
+		if other == null or other == unit or not is_instance_valid(other):
+			continue
+		if not _unit_blocks_hard(unit, other):
+			continue
+		var other_pos: Vector2 = other.get("sim_pos")
+		var min_dist := radius + unit_radius(other)
+		if pos.distance_squared_to(other_pos) < min_dist * min_dist - 0.0001:
+			return true
+	return false
+
+
+static func _nudge_forward_through_allies(
+	from_pos: Vector2,
+	desired_pos: Vector2,
+	pos: Vector2,
+	unit: Object,
+	radius: float,
+	units: Array,
+	solids: Array
+) -> Vector2:
+	var forward := desired_pos - from_pos
+	if forward.length_squared() < 0.0001:
+		return pos
+	var forward_dir := forward.normalized()
+	var wanted := forward.length()
+	var achieved := (pos - from_pos).dot(forward_dir)
+	if achieved >= wanted * 0.3:
+		return pos
+	if _hits_any_building(desired_pos, radius, solids):
+		return pos
+	var step := maxf(achieved, wanted * ALLY_FORWARD_BLEND)
+	var candidate := from_pos + forward_dir * step
+	if _hits_any_building(candidate, radius, solids):
+		return pos
+	if _unit_hard_overlaps(candidate, radius, unit, units):
+		return pos
+	return candidate
+
+
+static func _unit_overlaps(pos: Vector2, radius: float, unit: Object, units: Array) -> bool:
+	return _unit_hard_overlaps(pos, radius, unit, units)
+
 static func _soft_separate_units(
 	unit: Object,
 	pos: Vector2,
@@ -133,7 +219,7 @@ static func _soft_separate_units(
 		if dist >= min_dist:
 			continue
 		if dist <= 0.0001:
-			offset = Vector2(1, 0)
+			offset = Vector2.from_angle(float(unit.get_instance_id() % 628) / 100.0)
 			dist = 1.0
 		var overlap := min_dist - dist
 		result += offset.normalized() * (overlap * UNIT_SOFT_FACTOR)

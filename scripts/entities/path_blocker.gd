@@ -9,6 +9,7 @@ const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 @export var sim_pos := Vector2.ZERO
 @export var block_size := Vector2(2.0, 2.0)
+@export var auto_block_size := true
 @export var sheet_base := ""
 @export var frame_index := 0
 @export var kind := &"block"
@@ -17,11 +18,29 @@ var block_half := Vector2.ONE
 
 func _ready() -> void:
 	add_to_group("path_blockers")
-	block_half = block_size * 0.5
 	if sim_pos == Vector2.ZERO:
 		sim_pos = IsoMathScript.screen_to_world(position)
 	IsoMathScript.sync_node(self, sim_pos)
+	if auto_block_size:
+		_sync_block_size_from_sprite()
+	block_half = block_size * 0.5
 	_setup_visual()
+
+func _pixel_scale_for_sheet() -> float:
+	match kind:
+		&"water":
+			return 2.4
+		&"cliff":
+			return 1.6
+		_:
+			return SpriteCatalogScript.RESOURCE_PIXEL_SCALE_2D
+
+func _sync_block_size_from_sprite() -> void:
+	if sheet_base.is_empty():
+		return
+	block_size = SpriteCatalogScript.pathfinding_footprint_for_sheet(
+		sheet_base, _pixel_scale_for_sheet()
+	)
 
 func _setup_visual() -> void:
 	var billboard := get_node_or_null("Billboard") as Sprite2D
@@ -36,16 +55,14 @@ func _setup_visual() -> void:
 			billboard.texture = SpriteCatalogScript.atlas_frame_at(meta, texture, frame_index)
 			var hotspot := SpriteCatalogScript.average_hotspot(meta)
 			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
-			var pixel_scale := SpriteCatalogScript.RESOURCE_PIXEL_SCALE_2D
-			if kind == &"water":
-				pixel_scale = 2.4
-			elif kind == &"cliff":
-				pixel_scale = 1.6
-			SpriteCatalogScript.configure_sprite_2d(billboard, pixel_scale, offset)
+			SpriteCatalogScript.configure_sprite_2d(
+				billboard, _pixel_scale_for_sheet(), offset
+			)
 			billboard.visible = true
-			SpriteCatalogScript.ensure_ground_shadow_2d(self, maxf(block_size.x, block_size.y) * 6.0)
+			SpriteCatalogScript.ensure_ground_shadow_2d(
+				self, maxf(block_size.x, block_size.y) * 6.0
+			)
 			return
-	# Fallback diamond footprint tint.
 	billboard.visible = false
 	var marker := get_node_or_null("Fallback") as Polygon2D
 	if marker == null:
