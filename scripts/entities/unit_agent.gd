@@ -18,8 +18,14 @@ const AI_BILLBOARD_TINT := Color(1.0, 0.62, 0.58, 1.0)
 const ANIM_FPS := 18.0
 const ATTACK_HIT_FRACTION := 0.45
 const RANGED_RELEASE_FRACTION := 0.35
+const ATTACK_CHASE_SLACK := 0.25
+const MELEE_ATTACK_SLOTS := 12
+const ATTACK_STUCK_FRAMES := 6
 const FALLBACK_ATTACK_DURATION := 0.45
 const FALLBACK_DIE_DURATION := 0.8
+const WORLD_HP_BAR_WIDTH := 28.0
+const WORLD_HP_BAR_HEIGHT := 6.0
+const WORLD_HP_BAR_GAP := 4.0
 const PROJECTILE_SCENE := preload("res://scenes/entities/projectile_view.tscn")
 const ProjectileAgentScript := preload("res://scripts/entities/projectile_agent.gd")
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
@@ -133,7 +139,7 @@ func _process_move(delta: float) -> void:
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
-	_apply_resolved_position(from_pos, from_pos + velocity)
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	var progress := forward_progress(from_pos, sim_pos, velocity)
@@ -258,9 +264,10 @@ func _process_attack(delta: float) -> void:
 		order = Enums.OrderType.NONE
 		return
 	_attack_cooldown_remaining = maxf(0.0, _attack_cooldown_remaining - delta)
-	if _distance_to(_attack_target) > def.range:
-		_cancel_combat_action()
-		_move_toward(_attack_target.get("sim_pos"), delta)
+	if _needs_attack_chase(_attack_target):
+		if _combat_action == &"attack":
+			_cancel_combat_action()
+		_move_toward(_attack_approach_point(_attack_target), delta)
 		return
 	if _combat_action == &"attack":
 		_process_attack_animation(delta)
@@ -502,7 +509,84 @@ func _distance_to_aabb(point: Vector2, center: Vector2, half: Vector2) -> float:
 	)
 	return point.distance_to(nearest)
 
-func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2) -> void:
+
+func _target_collision_radius(target: Node2D) -> float:
+	if target == null:
+		return CollisionResolverScript.DEFAULT_RADIUS
+	if target.get("def") is UnitDef:
+		return CollisionResolverScript.unit_radius(target)
+	var building_def := target.get("def") as BuildingDef
+	if building_def != null:
+		return maxf(building_def.footprint.x, building_def.footprint.y) * 0.5
+	return CollisionResolverScript.DEFAULT_RADIUS
+
+
+## Melee: center distance <= weapon reach + both radii. Ranged: center distance <= attack_range.
+func _effective_attack_range(target: Node2D) -> float:
+	if def.is_ranged:
+		return def.attack_range
+	var building_def := target.get("def") as BuildingDef
+	if building_def != null:
+		return def.attack_range + CollisionResolverScript.unit_radius(self)
+	return (
+		def.attack_range
+		+ CollisionResolverScript.unit_radius(self)
+		+ _target_collision_radius(target)
+	)
+
+
+func _preferred_attack_range(target: Node2D) -> float:
+	if def.is_ranged:
+		return def.resolved_preferred_attack_range()
+	return _effective_attack_range(target) * 0.92
+
+
+func _in_attack_range(target: Node2D) -> bool:
+	return _distance_to(target) <= _effective_attack_range(target)
+
+
+func _needs_attack_chase(target: Node2D) -> bool:
+	return _distance_to(target) > _effective_attack_range(target) + ATTACK_CHASE_SLACK
+
+
+func _attack_approach_point(target: Node2D) -> Vector2:
+	var target_pos: Vector2 = target.get("sim_pos")
+	var offset := sim_pos - target_pos
+	var dist := offset.length()
+	if dist < 0.001:
+		offset = Vector2.RIGHT
+		dist = 1.0
+	var approach_dir := offset / dist
+	if def.is_ranged:
+		var standoff := _preferred_attack_range(target)
+		if dist > _effective_attack_range(target):
+			standoff = minf(standoff, dist)
+		else:
+			return sim_pos
+		return target_pos + approach_dir * standoff
+	if target.get("def") is BuildingDef:
+		var building_standoff := _effective_attack_range(target) * 0.95
+		return target_pos + approach_dir * building_standoff
+	# Melee: ring slots so units squeeze around the target instead of one stack point.
+	var ring_r := _effective_attack_range(target) * 0.98
+	var slot := get_instance_id() % MELEE_ATTACK_SLOTS
+	var slot_dir := Vector2.from_angle(TAU * float(slot) / float(MELEE_ATTACK_SLOTS))
+	var blended := (approach_dir * 1.6 + slot_dir).normalized()
+	return target_pos + blended * ring_r
+
+
+func _move_resolve_context() -> Dictionary:
+	var ctx := {"ignore_units": [], "chase_combat": false}
+	if order != Enums.OrderType.ATTACK or not _attack_target_available():
+		return ctx
+	ctx["ignore_units"] = [_attack_target]
+	ctx["chase_combat"] = not def.is_ranged
+	return ctx
+
+
+func _apply_resolved_position(
+	from_pos: Vector2, desired_pos: Vector2, move_context: Dictionary = {}
+) -> void:
 	var units: Array = []
 	var buildings: Array = []
 	var path_blockers: Array = []
@@ -514,14 +598,23 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2) -> void:
 		for node in tree.get_nodes_in_group("resource_nodes"):
 			if node.get("amount") != null and float(node.get("amount")) > 0.0:
 				path_blockers.append(node)
+	var ignore_units: Array = move_context.get("ignore_units", [])
+	var chase_combat: bool = bool(move_context.get("chase_combat", false))
 	sim_pos = CollisionResolverScript.resolve_move(
-		self, from_pos, desired_pos, units, buildings, path_blockers
+		self,
+		from_pos,
+		desired_pos,
+		units,
+		buildings,
+		path_blockers,
+		ignore_units,
+		chase_combat
 	)
 
 func _move_toward(target: Vector2, delta: float) -> void:
+	_move_target = target
 	if _nav_goal.distance_to(target) > 0.75 or (_path.is_empty() and not _path_pending):
 		_request_nav_path(target)
-		_move_target = target
 		_nav_goal = target
 	if _path_pending or _path.is_empty():
 		_refresh_move_debug(_steer_velocity_toward(delta), sim_pos)
@@ -539,11 +632,21 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
-	_apply_resolved_position(from_pos, from_pos + velocity)
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	var progress := forward_progress(from_pos, sim_pos, velocity)
 	var walking := is_walk_progress(progress, step)
+	if walking:
+		_no_progress_frames = 0
+	else:
+		_no_progress_frames += 1
+		if _no_progress_frames == 3:
+			_depack_from_allies()
+		if _no_progress_frames >= ATTACK_STUCK_FRAMES:
+			if _try_recover_from_stuck():
+				return
+			_no_progress_frames = 0
 	_update_billboard_facing_from_vector(offset, delta, walking, walking)
 
 
@@ -596,10 +699,14 @@ func refresh_nav_path_if_moving() -> void:
 			if _move_target != Vector2.ZERO:
 				_stuck_repath_attempts = 0
 				_request_nav_path(_move_target)
-		Enums.OrderType.GATHER, Enums.OrderType.BUILD, Enums.OrderType.ATTACK:
+		Enums.OrderType.GATHER, Enums.OrderType.BUILD:
 			_path = PackedVector2Array()
 			_path_index = 0
 			_stuck_repath_attempts = 0
+		Enums.OrderType.ATTACK:
+			if _move_target != Vector2.ZERO:
+				_stuck_repath_attempts = 0
+				_request_nav_path(_move_target)
 
 
 func _try_recover_from_stuck() -> bool:
@@ -636,7 +743,12 @@ func _depack_from_allies() -> void:
 	if not is_inside_tree():
 		return
 	var units: Array = get_tree().get_nodes_in_group("units")
-	var packed: Vector2 = CollisionResolverScript.depack_unit(self, units)
+	var ignore: Array = []
+	if _attack_target_available():
+		ignore = [_attack_target]
+	var packed: Vector2 = CollisionResolverScript.depack_unit(
+		self, units, 4, ignore, true, _move_resolve_context().get("chase_combat", false)
+	)
 	if packed.distance_to(sim_pos) > 0.01:
 		sim_pos = packed
 		_sync_visual()
@@ -762,18 +874,56 @@ func _setup_presentation() -> void:
 	_refresh_world_hp_bar()
 
 func _refresh_world_hp_bar() -> void:
-	var root := get_node_or_null("WorldHpBar") as Control
+	var root := get_node_or_null("WorldHpBar") as Node2D
 	if root == null:
 		return
 	var show_bar := hp > 0.0 and hp < _max_hp
 	root.visible = show_bar
+	_position_world_hp_bar()
 	if not show_bar:
 		return
 	var fill := root.get_node_or_null("Fill") as ColorRect
 	if fill == null:
 		return
 	var ratio := clampf(hp / maxf(_max_hp, 1.0), 0.0, 1.0)
-	fill.size.x = 28.0 * ratio
+	fill.size.x = WORLD_HP_BAR_WIDTH * ratio
+
+
+func _position_world_hp_bar() -> void:
+	var root := get_node_or_null("WorldHpBar") as Node2D
+	if root == null:
+		return
+	var top_y := _sprite_top_local_y()
+	root.position = Vector2(
+		-WORLD_HP_BAR_WIDTH * 0.5,
+		top_y - WORLD_HP_BAR_GAP - WORLD_HP_BAR_HEIGHT
+	)
+
+
+func _sprite_top_local_y() -> float:
+	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
+	if (
+		_use_billboard
+		and billboard != null
+		and billboard.visible
+		and billboard.sprite_frames != null
+	):
+		var anim := billboard.animation
+		if billboard.sprite_frames.has_animation(anim):
+			var frame_idx := billboard.frame
+			var parsed: Dictionary = SpriteCatalogScript.parse_directional_animation(anim)
+			var action: StringName = parsed["action"]
+			var direction: int = int(parsed["direction"])
+			var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}))
+			if not meta.is_empty():
+				var frame_h := float(meta.get("frame_h", 1))
+				var scale_y := billboard.scale.y
+				# Centered billboard: texture top sits above the feet origin.
+				return billboard.position.y + (billboard.offset.y - frame_h * 0.5) * scale_y
+	var body := get_node_or_null("Body") as Sprite2D
+	if body != null and body.visible and body.texture != null:
+		return body.position.y - body.texture.get_height() * body.scale.y * 0.5
+	return -40.0
 
 func _update_billboard_facing(velocity: Vector2, delta: float, animate: bool) -> void:
 	_update_billboard_facing_from_vector(velocity, delta, animate, animate)
@@ -908,7 +1058,10 @@ func _apply_billboard_frame(
 		else:
 			anim = StringName("%s_dir_%d" % [action, _facing_dir])
 			if not billboard.sprite_frames.has_animation(anim):
-				anim = StringName("dir_%d" % _facing_dir)
+				if action == &"attack":
+					anim = StringName("walk_dir_%d" % _facing_dir)
+				if not billboard.sprite_frames.has_animation(anim):
+					anim = StringName("dir_%d" % _facing_dir)
 		if not billboard.sprite_frames.has_animation(anim):
 			return
 	billboard.flip_h = _facing_flip
@@ -925,6 +1078,8 @@ func _apply_billboard_frame(
 		frame_idx = int(_anim_frame) % frame_count
 	billboard.frame = frame_idx
 	_apply_billboard_hotspot(billboard, anim, frame_idx)
+	if hp > 0.0 and hp < _max_hp:
+		_position_world_hp_bar()
 
 
 func _apply_billboard_hotspot(

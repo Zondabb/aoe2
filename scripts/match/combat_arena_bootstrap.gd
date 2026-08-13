@@ -14,6 +14,7 @@ const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const SelectionController2DScript := preload("res://scripts/input/selection_controller_2d.gd")
 const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
 const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
+const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const GROUND_MIN := -40
 const GROUND_MAX := 40
 const GROUND_STEP := 8
@@ -41,6 +42,9 @@ func _ready() -> void:
 		match_state.setup_defaults()
 	_raise_population_caps()
 	_setup_ground()
+	CollisionResolverScript.set_map_bounds(
+		Vector2(GROUND_MIN, GROUND_MIN), Vector2(GROUND_MAX, GROUND_MAX)
+	)
 	var setup_panel := get_node_or_null("../UILayer/ArenaSetupPanel") as Control
 	if setup_panel != null and setup_panel.has_signal("battle_requested"):
 		setup_panel.connect("battle_requested", _on_battle_requested)

@@ -16,6 +16,7 @@ const TEUTONIC_KNIGHT_DEF := preload("res://data/units/teutonic_knight.tres")
 const BARRACKS_DEF := preload("res://data/buildings/barracks.tres")
 const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
 const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
+const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 const GROUND_MIN := -36
@@ -35,6 +36,9 @@ func _ready() -> void:
 	GameSession.player_civ_id = player_civ.id
 	GameSession.ai_civ_id = ai_civ.id
 	_setup_ground()
+	CollisionResolverScript.set_map_bounds(
+		Vector2(GROUND_MIN, GROUND_MIN), Vector2(GROUND_MAX, GROUND_MAX)
+	)
 	_auto_combat = AutoCombatDirectorScript.new()
 	_spawn_scenarios()
 	_setup_auto_combat()

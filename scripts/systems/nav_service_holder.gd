@@ -4,6 +4,7 @@ extends Node
 ## Owns NavGridService, flushes path queues, rebuilds on map changes.
 
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
+const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const DEFAULT_FRAME_BUDGET := 4
 
 var nav: NavGridServiceScript
@@ -17,6 +18,7 @@ func setup(
 	nav = NavGridServiceScript.new()
 	nav.setup(map_min, map_max, cell_size)
 	nav.set_frame_budget(frame_budget)
+	CollisionResolverScript.set_map_bounds(Vector2(map_min, map_min), Vector2(map_max, map_max))
 	set_meta("nav", nav)
 	add_to_group("nav_service")
 

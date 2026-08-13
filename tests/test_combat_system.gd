@@ -21,6 +21,7 @@ func run() -> Array[String]:
 	_test_building_armor_applies(failures)
 	_test_idle_unit_retaliates(failures)
 	_test_busy_unit_does_not_retaliate(failures)
+	_test_ranged_attack_range_from_def(failures)
 	return failures
 
 func _test_attack_order_chases_and_hits(failures: Array[String]) -> void:
@@ -168,6 +169,24 @@ func _test_busy_unit_does_not_retaliate(failures: Array[String]) -> void:
 	CombatSystemScript.apply_hit(SWORDSMAN, mover, {"attacker": attacker})
 	if mover.order != Enums.OrderType.MOVE:
 		failures.append("moving unit should not switch to attack on damage")
+	root.free()
+
+func _test_ranged_attack_range_from_def(failures: Array[String]) -> void:
+	if ARCHER.attack_range != 9.0:
+		failures.append("archer attack_range should be configurable in UnitDef")
+	if ARCHER.preferred_attack_range != 8.0:
+		failures.append("archer preferred_attack_range should be configurable in UnitDef")
+	var root := _make_root()
+	var archer := _spawn_unit(root, ARCHER, Enums.Team.PLAYER, Vector2.ZERO)
+	var target := _spawn_unit(root, SWORDSMAN, Enums.Team.AI, Vector2(1.0, 0.0))
+	if archer.call("_effective_attack_range", target) != ARCHER.attack_range:
+		failures.append("ranged effective range should come from UnitDef.attack_range")
+	if archer.call("_needs_attack_chase", target):
+		failures.append("archer in attack range should not flee when enemy is close")
+	var far_target := _spawn_unit(root, SWORDSMAN, Enums.Team.AI, Vector2(20.0, 0.0))
+	var far_approach: Vector2 = archer.call("_attack_approach_point", far_target)
+	if far_approach.distance_to(far_target.sim_pos) > ARCHER.attack_range:
+		failures.append("ranged chase point should stay within attack_range")
 	root.free()
 
 func _advance_combat(entity: Node, duration: float, step: float = 0.05) -> void:
