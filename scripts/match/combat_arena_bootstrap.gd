@@ -13,6 +13,7 @@ const TEUTONIC_KNIGHT_DEF := preload("res://data/units/teutonic_knight.tres")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const SelectionController2DScript := preload("res://scripts/input/selection_controller_2d.gd")
 const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
+const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
 const GROUND_MIN := -40
 const GROUND_MAX := 40
 const GROUND_STEP := 8
@@ -33,8 +34,7 @@ var player_civ: CivDef
 var ai_civ: CivDef
 var _arena_config: ArenaConfigScript
 var _ai_controller: Node
-var _ai_auto_attack_enabled := false
-var _ai_attack_timer := 0.0
+var _auto_combat: AutoCombatDirectorScript
 
 func _ready() -> void:
 	if match_state.resources.is_empty():
@@ -53,52 +53,13 @@ func _default_config() -> ArenaConfigScript:
 	config.ai_civ_id = (
 		&"teutons" if config.player_civ_id == &"chinese" else &"chinese"
 	)
+	config.ai_auto_attack = true
 	return config
 
 func _process(delta: float) -> void:
-	if not _ai_auto_attack_enabled or match_state.frozen:
+	if _auto_combat == null:
 		return
-	_ai_attack_timer += delta
-	if _ai_attack_timer < 0.75:
-		return
-	_ai_attack_timer = 0.0
-	_tick_ai_auto_attack()
-
-func _tick_ai_auto_attack() -> void:
-	var entities := get_node_or_null("../Entities") as Node2D
-	if entities == null:
-		return
-	var player_units: Array[Node2D] = []
-	var ai_units: Array[Node2D] = []
-	for child in entities.get_children():
-		var unit := child as Node2D
-		if unit == null or not unit.is_in_group("units"):
-			continue
-		if float(unit.get("hp")) <= 0.0:
-			continue
-		if unit.get("team") == Enums.Team.PLAYER:
-			player_units.append(unit)
-		elif unit.get("team") == Enums.Team.AI:
-			ai_units.append(unit)
-	if player_units.is_empty():
-		return
-	for ai_unit in ai_units:
-		var target := _nearest_unit(ai_unit, player_units)
-		if target != null and ai_unit.has_method("command_attack"):
-			ai_unit.call("command_attack", target)
-
-func _nearest_unit(from_unit: Node2D, candidates: Array[Node2D]) -> Node2D:
-	var best: Node2D = null
-	var best_dist := INF
-	var from_pos: Vector2 = from_unit.get("sim_pos")
-	for candidate in candidates:
-		if not is_instance_valid(candidate):
-			continue
-		var dist := from_pos.distance_squared_to(candidate.get("sim_pos"))
-		if dist < best_dist:
-			best_dist = dist
-			best = candidate
-	return best
+	_auto_combat.tick(delta)
 
 func _on_battle_requested(config: ArenaConfigScript) -> void:
 	_show_reconfigure_button(true)
@@ -123,16 +84,15 @@ func _start_battle(config: ArenaConfigScript) -> void:
 	_spawn_army(Enums.Team.AI, ai_civ, AI_ORIGIN, -1.0)
 	_focus_camera_on_battlefield()
 	_setup_player_controls()
-	_setup_ai_auto_attack(_arena_config.ai_auto_attack)
+	_setup_auto_combat(_arena_config)
 
 func reopen_setup() -> void:
 	_show_reconfigure_button(false)
-	_ai_auto_attack_enabled = false
+	if _auto_combat != null:
+		_auto_combat.set_enabled(false)
 	if _ai_controller != null and _ai_controller.has_method("stop"):
 		_ai_controller.call("stop")
 	_clear_entities()
-	if _ai_controller != null and _ai_controller.has_method("stop"):
-		_ai_controller.call("stop")
 	var setup_panel := get_node_or_null("../UILayer/ArenaSetupPanel") as Control
 	if setup_panel != null:
 		setup_panel.visible = true
@@ -235,9 +195,14 @@ func _setup_player_controls() -> void:
 		build_system.call("setup", camera, entities, selection, match_state, player_civ)
 	hud.call("setup", match_state, player_civ, build_system, selection)
 
-func _setup_ai_auto_attack(enabled: bool) -> void:
-	_ai_auto_attack_enabled = enabled
-	_ai_attack_timer = 0.0
+func _setup_auto_combat(config: ArenaConfigScript) -> void:
+	if _auto_combat == null:
+		_auto_combat = AutoCombatDirectorScript.new()
+	var entities := get_node_or_null("../Entities") as Node2D
+	_auto_combat.setup(entities, match_state)
+	_auto_combat.apply_arena_config(config)
+	_auto_combat.set_enabled(true)
+	_auto_combat.reset_timer()
 	var match_root := get_parent()
 	if match_root == null:
 		return

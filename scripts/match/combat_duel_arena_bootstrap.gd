@@ -1,7 +1,7 @@
 extends Node
 
 ## F6 combat playground: fixed lanes for melee clash, projectile kite/miss,
-## and building siege. R resets. AI auto-attacks player units.
+## and building siege. R resets. AutoCombatDirector handles team auto-attack.
 
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
@@ -14,17 +14,18 @@ const ARCHER_DEF := preload("res://data/units/archer.tres")
 const CHU_KO_NU_DEF := preload("res://data/units/chu_ko_nu.tres")
 const TEUTONIC_KNIGHT_DEF := preload("res://data/units/teutonic_knight.tres")
 const BARRACKS_DEF := preload("res://data/buildings/barracks.tres")
+const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
+const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 const GROUND_MIN := -36
 const GROUND_MAX := 36
 const GROUND_STEP := 8
-const AI_ATTACK_INTERVAL := 0.75
 
 var match_state := MatchState.new()
 var player_civ: CivDef = CHINESE_CIV
 var ai_civ: CivDef = TEUTONS_CIV
-var _ai_attack_timer := 0.0
+var _auto_combat: AutoCombatDirectorScript
 
 func _ready() -> void:
 	if match_state.resources.is_empty():
@@ -34,19 +35,16 @@ func _ready() -> void:
 	GameSession.player_civ_id = player_civ.id
 	GameSession.ai_civ_id = ai_civ.id
 	_setup_ground()
+	_auto_combat = AutoCombatDirectorScript.new()
 	_spawn_scenarios()
+	_setup_auto_combat()
 	_focus_camera()
 	_setup_hud()
 	_setup_hint()
 
 func _process(delta: float) -> void:
-	if match_state.frozen:
-		return
-	_ai_attack_timer += delta
-	if _ai_attack_timer < AI_ATTACK_INTERVAL:
-		return
-	_ai_attack_timer = 0.0
-	_tick_ai_auto_attack()
+	if _auto_combat != null:
+		_auto_combat.tick(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -63,7 +61,7 @@ func _spawn_scenarios() -> void:
 	_spawn_line(
 		Enums.Team.AI, SWORDSMAN_DEF, Vector2(10.0, -12.0), Vector2(0.0, 1.4), 4, "MeleeA"
 	)
-	# Lane B — ranged / kite (center): archers vs knights that can walk off aim points
+	# Lane B — ranged / kite (center)
 	_spawn_line(
 		Enums.Team.PLAYER, ARCHER_DEF, Vector2(-12.0, 0.0), Vector2(0.0, 1.5), 3, "ArcherP"
 	)
@@ -72,7 +70,7 @@ func _spawn_scenarios() -> void:
 		Enums.Team.AI, TEUTONIC_KNIGHT_DEF, Vector2(10.0, 0.0), Vector2(0.0, 1.6), 3, "KnightA"
 	)
 	_spawn_unit(Enums.Team.AI, SWORDSMAN_DEF, Vector2(8.0, 5.0), "KiteBaitA")
-	# Lane C — siege (north): mix vs barracks
+	# Lane C — siege (north)
 	_spawn_line(
 		Enums.Team.PLAYER, SWORDSMAN_DEF, Vector2(-10.0, 12.0), Vector2(0.0, 1.3), 3, "SiegeMeleeP"
 	)
@@ -84,41 +82,20 @@ func _spawn_scenarios() -> void:
 		Enums.Team.AI, SWORDSMAN_DEF, Vector2(8.0, 10.0), Vector2(1.4, 0.0), 2, "SiegeGuardA"
 	)
 
-func _tick_ai_auto_attack() -> void:
+func _setup_auto_combat() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D
-	if entities == null:
-		return
-	var player_units: Array[Node2D] = []
-	var ai_units: Array[Node2D] = []
-	for child in entities.get_children():
-		var unit := child as Node2D
-		if unit == null or not unit.is_in_group("units"):
-			continue
-		if float(unit.get("hp")) <= 0.0:
-			continue
-		if unit.get("team") == Enums.Team.PLAYER:
-			player_units.append(unit)
-		elif unit.get("team") == Enums.Team.AI:
-			ai_units.append(unit)
-	if player_units.is_empty():
-		return
-	for ai_unit in ai_units:
-		var target := _nearest_unit(ai_unit, player_units)
-		if target != null and ai_unit.has_method("command_attack"):
-			ai_unit.call("command_attack", target)
-
-func _nearest_unit(from_unit: Node2D, candidates: Array[Node2D]) -> Node2D:
-	var best: Node2D = null
-	var best_dist := INF
-	var from_pos: Vector2 = from_unit.get("sim_pos")
-	for candidate in candidates:
-		if not is_instance_valid(candidate):
-			continue
-		var dist := from_pos.distance_squared_to(candidate.get("sim_pos"))
-		if dist < best_dist:
-			best_dist = dist
-			best = candidate
-	return best
+	if _auto_combat == null:
+		_auto_combat = AutoCombatDirectorScript.new()
+	var config := ArenaConfigScript.new()
+	config.ai_auto_attack = true
+	config.player_auto_attack = false
+	config.aggro_radius = 40.0
+	config.include_buildings = true
+	config.tick_interval = 0.5
+	_auto_combat.setup(entities, match_state)
+	_auto_combat.apply_arena_config(config)
+	_auto_combat.set_enabled(true)
+	_auto_combat.reset_timer()
 
 func _clear_entities() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D
@@ -216,6 +193,6 @@ func _setup_hint() -> void:
 	if label == null:
 		return
 	label.text = (
-		"对战测试场  |  南：近战  中：远程落点/kite  北：攻建筑  |  "
-		+ "左键框选  右键攻击/移动  |  R 重置  |  AI 自动寻敌"
+		"对战测试场  |  南：近战  中：远程/kite  北：攻建筑  |  "
+		+ "左键框选  右键攻击/移动  |  R 重置  |  AI 自动寻敌(40格)"
 	)

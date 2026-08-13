@@ -16,6 +16,7 @@ const UNIT_ROWS := [
 @onready var _player_civ_option := %PlayerCivOption as OptionButton
 @onready var _ai_civ_option := %AiCivOption as OptionButton
 @onready var _auto_attack_check := %AutoAttackCheck as CheckBox
+@onready var _player_auto_attack_check := %PlayerAutoAttackCheck as CheckBox
 @onready var _count_grid := %CountGrid as GridContainer
 
 var _spinboxes: Dictionary = {}
@@ -56,6 +57,7 @@ func restore_from_config(config: ArenaConfigScript) -> void:
 	_select_civ(_player_civ_option, config.player_civ_id)
 	_select_civ(_ai_civ_option, config.ai_civ_id)
 	_auto_attack_check.button_pressed = config.ai_auto_attack
+	_player_auto_attack_check.button_pressed = config.player_auto_attack
 	for unit_id: StringName in _spinboxes:
 		(_spinboxes[unit_id] as SpinBox).value = int(config.unit_counts.get(unit_id, 0))
 
@@ -70,6 +72,7 @@ func _build_config() -> ArenaConfigScript:
 	config.player_civ_id = _player_civ_option.get_item_metadata(_player_civ_option.selected)
 	config.ai_civ_id = _ai_civ_option.get_item_metadata(_ai_civ_option.selected)
 	config.ai_auto_attack = _auto_attack_check.button_pressed
+	config.player_auto_attack = _player_auto_attack_check.button_pressed
 	config.unit_counts.clear()
 	for unit_id: StringName in _spinboxes:
 		config.unit_counts[unit_id] = int((_spinboxes[unit_id] as SpinBox).value)

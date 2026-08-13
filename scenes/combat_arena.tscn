@@ -121,7 +121,12 @@ size_flags_horizontal = 3
 [node name="AutoAttackCheck" type="CheckBox" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "对手自动攻击（AI 单位寻敌）"
+text = "对手自动攻击（AI 寻敌 40 格）"
+
+[node name="PlayerAutoAttackCheck" type="CheckBox" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "玩家自动攻击（寻敌 40 格）"
 
 [node name="UnitsLabel" type="Label" parent="UILayer/ArenaSetupPanel/Panel/VBox"]
 layout_mode = 2

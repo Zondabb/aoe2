@@ -3,7 +3,11 @@ extends Resource
 
 @export var player_civ_id: StringName = &"chinese"
 @export var ai_civ_id: StringName = &"teutons"
+@export var player_auto_attack := false
 @export var ai_auto_attack := false
+@export var aggro_radius := 40.0
+@export var include_buildings := true
+@export var tick_interval := 0.5
 @export var unit_counts: Dictionary = {
 	&"villager": 2,
 	&"swordsman": 2,
