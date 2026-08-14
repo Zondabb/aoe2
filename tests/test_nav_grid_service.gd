@@ -73,8 +73,9 @@ func run() -> Array[String]:
 		failures.append("budgeted queue should resolve paths on clear grid")
 
 	var incomplete := BuildingStub.new()
-	if NavGridServiceScript._building_blocks_nav(incomplete):
-		failures.append("incomplete building should not block nav")
+	incomplete.def = Object.new()
+	if not NavGridServiceScript._building_blocks_nav(incomplete):
+		failures.append("incomplete building should block nav to match collision")
 	var complete := BuildingStub.new()
 	complete.is_complete = true
 	complete.def = Object.new()

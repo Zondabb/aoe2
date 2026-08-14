@@ -60,9 +60,10 @@ func setup(
 	_count_label = get_node_or_null("%CountLabel") as Label
 	_command_grid = get_node_or_null("%CommandGrid") as GridContainer
 	_setup_command_panel_skin()
-	if not selection.is_connected("selection_changed", _on_selection_changed):
-		selection.connect("selection_changed", _on_selection_changed)
-	if not match_state.winner_decided.is_connected(_on_winner_decided):
+	if selection != null:
+		if not selection.is_connected("selection_changed", _on_selection_changed):
+			selection.connect("selection_changed", _on_selection_changed)
+	if match_state != null and not match_state.winner_decided.is_connected(_on_winner_decided):
 		match_state.winner_decided.connect(_on_winner_decided)
 	if _return_button != null and not _return_button.pressed.is_connected(_return_to_civ_select):
 		_return_button.pressed.connect(_return_to_civ_select)
@@ -96,7 +97,10 @@ func _civ_allows_stable() -> bool:
 
 func _on_selection_changed(_selected: Array) -> void:
 	_disconnect_selected_building()
-	_selected_building = selection.call("get_selected_building") as Node2D
+	if selection == null:
+		_selected_building = null
+	else:
+		_selected_building = selection.call("get_selected_building") as Node2D
 	if _selected_building != null:
 		_selected_building.connect("train_queue_changed", _on_train_queue_changed)
 		if not _selected_building.is_connected("tree_exited", _on_selected_building_exited):
@@ -345,6 +349,8 @@ func _add_command_button(
 	_command_grid.add_child(button)
 
 func _stop_selected_units() -> void:
+	if selection == null:
+		return
 	for unit in selection.call("get_selected_units"):
 		if unit.get("team") == Enums.Team.PLAYER and unit.has_method("command_stop"):
 			unit.call("command_stop")

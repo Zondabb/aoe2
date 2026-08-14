@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="CivAiProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/civ_ai_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+civ_id = &"default"
+villager_target = 8
+high_food_stockpile = 400
+military_attack_count = 6
+attack_time_seconds = 180.0
+food_ratio = 0.5
+wood_ratio = 0.3
+gold_ratio = 0.2
+retarget_radius = 8.0
+rally_radius = 6.0
+build_order = Array[StringName]([&"house", &"barracks", &"archery_range"])
+army_composition = {
+&"swordsman": 4,
+&"archer": 2
+}
+unique_unit_priority = true
+opening_seconds = 120.0
+defend_radius = 20.0

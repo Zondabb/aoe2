@@ -288,8 +288,7 @@ static func _building_blocks_nav(building: Object) -> bool:
 		return false
 	if building.get("is_placement_ghost") == true:
 		return false
-	if building.get("is_complete") == false:
-		return false
+	# 地基与完工建筑均挡路，与 CollisionResolver 一致
 	return building.get("def") != null
 
 

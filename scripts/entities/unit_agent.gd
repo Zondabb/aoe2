@@ -408,7 +408,7 @@ func _process_build(delta: float) -> void:
 			building_def.footprint.x, building_def.footprint.y
 		) * 0.5
 	if _distance_to(_build_target) > build_range:
-		_move_toward(_build_target.get("sim_pos"), delta)
+		_move_toward(_build_approach_point(_build_target), delta)
 		return
 	_face_toward(_build_target.get("sim_pos"), delta, true)
 	_build_target.call("add_build_progress", delta)
@@ -425,7 +425,7 @@ func _process_gather(delta: float) -> void:
 				_gather_state = "gathering"
 				_face_toward(_gather_target.get("sim_pos"), delta, true)
 			else:
-				_move_toward(_gather_target.get("sim_pos"), delta)
+				_move_toward(_gather_approach_point(_gather_target), delta)
 		"gathering":
 			_gather(delta)
 		"to_drop_off":
@@ -491,6 +491,31 @@ func _finish_or_drop_off() -> void:
 
 func _resource_available(resource: Node2D) -> bool:
 	return is_instance_valid(resource) and float(resource.get("amount")) > 0.0
+
+
+func _gather_approach_point(resource: Node2D) -> Vector2:
+	if resource != null and resource.has_method("approach_point"):
+		return resource.call("approach_point", sim_pos, _pathfinding_radius())
+	if resource != null:
+		return resource.get("sim_pos")
+	return sim_pos
+
+
+func _build_approach_point(building: Node2D) -> Vector2:
+	if building == null:
+		return sim_pos
+	var building_def := building.get("def") as BuildingDef
+	var center: Vector2 = building.get("sim_pos")
+	if building_def == null:
+		return center
+	var half := building_def.footprint * 0.5
+	var to_unit := sim_pos - center
+	if to_unit.length_squared() <= 0.0001:
+		to_unit = Vector2(1.0, 0.0)
+	else:
+		to_unit = to_unit.normalized()
+	var stand_radius := maxf(half.x, half.y) + _pathfinding_radius() + 0.2
+	return center + to_unit * stand_radius
 
 func _distance_to(target: Node2D) -> float:
 	var target_pos: Vector2 = target.get("sim_pos")
@@ -616,8 +641,11 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	if _nav_goal.distance_to(target) > 0.75 or (_path.is_empty() and not _path_pending):
 		_request_nav_path(target)
 		_nav_goal = target
-	if _path_pending or _path.is_empty():
+	if _path_pending:
 		_refresh_move_debug(_steer_velocity_toward(delta), sim_pos)
+		return
+	if _path.is_empty():
+		_direct_step_toward(target, delta)
 		return
 	var steer_target := _current_steer_target()
 	var offset := steer_target - sim_pos
@@ -635,6 +663,30 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
+	_track_move_progress(from_pos, velocity, step, delta, offset)
+
+
+func _direct_step_toward(target: Vector2, delta: float) -> void:
+	var offset := target - sim_pos
+	var distance := offset.length()
+	if distance <= ARRIVAL_DISTANCE:
+		if _villager_actions:
+			_update_idle_animation(0.0)
+		else:
+			_apply_billboard_frame(false)
+		return
+	var step := minf(def.move_speed * delta, distance)
+	var velocity := offset.normalized() * step
+	var from_pos := sim_pos
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
+	_sync_visual()
+	_refresh_move_debug(velocity, from_pos)
+	_track_move_progress(from_pos, velocity, step, delta, offset)
+
+
+func _track_move_progress(
+	from_pos: Vector2, velocity: Vector2, step: float, delta: float, face_vector: Vector2
+) -> void:
 	var progress := forward_progress(from_pos, sim_pos, velocity)
 	var walking := is_walk_progress(progress, step)
 	if walking:
@@ -647,7 +699,7 @@ func _move_toward(target: Vector2, delta: float) -> void:
 			if _try_recover_from_stuck():
 				return
 			_no_progress_frames = 0
-	_update_billboard_facing_from_vector(offset, delta, walking, walking)
+	_update_billboard_facing_from_vector(face_vector, delta, walking, walking)
 
 
 func _get_nav_service() -> Object:
@@ -686,7 +738,11 @@ func apply_nav_path(path: PackedVector2Array) -> void:
 	_path_pending = false
 	_path_retry_cooldown = 0.0
 	if path.is_empty():
-		_path = PackedVector2Array()
+		# A* 失败时仍向目标直线移动（靠 CollisionResolver 修正）
+		if _move_target != Vector2.ZERO:
+			_path = PackedVector2Array([_move_target])
+		else:
+			_path = PackedVector2Array()
 		_path_index = 0
 		return
 	_path = path

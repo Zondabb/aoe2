@@ -2,6 +2,7 @@ class_name BuildingAgent
 extends Node2D
 
 signal construction_completed(building: BuildingAgent)
+signal construction_started(building: BuildingAgent)
 signal train_queue_changed
 signal destroyed(building: BuildingAgent)
 
@@ -76,6 +77,8 @@ func start_construction() -> void:
 	is_complete = false
 	build_progress = 0.0
 	hp = 1
+	_sync_block_half()
+	construction_started.emit(self)
 
 func add_build_progress(amount: float) -> void:
 	if is_complete or def == null or amount <= 0.0:

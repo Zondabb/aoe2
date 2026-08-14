@@ -5,7 +5,7 @@ extends Node
 
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
-const DEFAULT_FRAME_BUDGET := 4
+const DEFAULT_FRAME_BUDGET := 12
 
 var nav: NavGridServiceScript
 
@@ -35,13 +35,15 @@ func _connect_existing_buildings() -> void:
 		_try_connect_building(node)
 
 func _try_connect_building(node: Node) -> void:
-	if not node.has_signal("construction_completed"):
-		return
-	if node.is_connected("construction_completed", _on_construction_completed):
-		return
-	node.connect("construction_completed", _on_construction_completed)
+	if node.has_signal("construction_started"):
+		if not node.is_connected("construction_started", _on_construction_changed):
+			node.connect("construction_started", _on_construction_changed)
+	if node.has_signal("construction_completed"):
+		if not node.is_connected("construction_completed", _on_construction_changed):
+			node.connect("construction_completed", _on_construction_changed)
 
-func _on_construction_completed(_building: Node) -> void:
+
+func _on_construction_changed(_building: Node) -> void:
 	rebuild_from_scene()
 
 func rebuild_from_scene() -> void:
