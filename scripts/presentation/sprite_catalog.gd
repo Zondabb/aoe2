@@ -520,6 +520,52 @@ static func ensure_ground_shadow_2d(parent: Node2D, radius_px: float) -> void:
 	shadow.visible = true
 
 
+## AoE2-style selection footprint: thin white isometric ellipse under the unit.
+## `radius_sim` is UnitDef.footprint_radius (also used for soft collision).
+static func configure_unit_selection_ring(
+	parent: Node2D,
+	radius_sim: float = 0.42,
+	color: Color = Color(1.0, 1.0, 1.0, 0.92)
+) -> void:
+	if parent == null:
+		return
+	var radius := maxf(radius_sim, 0.2)
+	var existing := parent.get_node_or_null("SelectionRing")
+	var was_visible := false
+	var line: Line2D
+	if existing is Line2D:
+		line = existing as Line2D
+		was_visible = line.visible
+	else:
+		if existing != null:
+			was_visible = (existing as CanvasItem).visible
+			existing.free()
+		line = Line2D.new()
+		line.name = "SelectionRing"
+		line.z_index = -1
+		parent.add_child(line)
+		# Keep ring under billboard / body but above ground shadow.
+		var shadow := parent.get_node_or_null("GroundShadow")
+		if shadow != null:
+			parent.move_child(line, shadow.get_index() + 1)
+		else:
+			parent.move_child(line, 0)
+	var rx := radius * IsoMath.SCALE_X
+	var ry := radius * IsoMath.SCALE_Y
+	var points := _ellipse_points(rx, ry, 36)
+	# Close the loop for Line2D.
+	if points.size() > 0:
+		points.append(points[0])
+	line.points = points
+	line.width = 1.75
+	line.default_color = color
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	line.antialiased = true
+	line.visible = was_visible
+
+
 static func _ellipse_points(radius_x: float, radius_y: float, segments: int) -> PackedVector2Array:
 	var points := PackedVector2Array()
 	var count := maxi(segments, 8)

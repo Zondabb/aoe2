@@ -48,6 +48,12 @@ func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:
 		var order: Enums.OrderType = villager.get("order")
 		if order == Enums.OrderType.BUILD:
 			continue
+		# Let drop-off finish; interrupting mid-deposit causes idle loops.
+		if (
+			order == Enums.OrderType.GATHER
+			and String(villager.get("_gather_state")) == "to_drop_off"
+		):
+			continue
 		if order == Enums.OrderType.NONE:
 			result.append(villager)
 			continue
@@ -68,13 +74,9 @@ func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:
 func _assign_opening_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> void:
 	var base_pos := ctx.blackboard.own_tc_pos
 	for villager in villagers:
-		var resource := AiEntityQueriesScript.nearest_resource_near_base(
-			villager, ctx.blackboard.resource_nodes, Enums.ResourceType.FOOD, base_pos, BASE_RESOURCE_RADIUS
+		var resource := _pick_gather_target(
+			ctx, villager, Enums.ResourceType.FOOD, base_pos
 		)
-		if resource == null:
-			resource = AiEntityQueriesScript.nearest_any_resource_near_base(
-				villager, ctx.blackboard.resource_nodes, base_pos, BASE_RESOURCE_RADIUS
-			)
 		if resource == null:
 			continue
 		villager.call("command_gather", resource)
@@ -90,13 +92,7 @@ func _assign_balanced_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> 
 	for villager in villagers:
 		var total := assigned + 1
 		var target_type := _underfilled_resource_type(counts, total, ratios)
-		var resource := AiEntityQueriesScript.nearest_resource_near_base(
-			villager, ctx.blackboard.resource_nodes, target_type, base_pos, BASE_RESOURCE_RADIUS
-		)
-		if resource == null:
-			resource = AiEntityQueriesScript.nearest_any_resource_near_base(
-				villager, ctx.blackboard.resource_nodes, base_pos, BASE_RESOURCE_RADIUS
-			)
+		var resource := _pick_gather_target(ctx, villager, target_type, base_pos)
 		if resource == null:
 			continue
 		villager.call("command_gather", resource)
@@ -105,6 +101,36 @@ func _assign_balanced_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> 
 			counts[resource_type] = int(counts[resource_type]) + 1
 		assigned += 1
 		ctx.log_decision("ECON", "村民采集 %s" % _resource_name(resource_type))
+
+
+func _pick_gather_target(
+	ctx: AiRunContext,
+	villager: Node2D,
+	preferred_type: Enums.ResourceType,
+	base_pos: Vector2
+) -> Node2D:
+	var resource := AiEntityQueriesScript.nearest_resource_near_base(
+		villager, ctx.blackboard.resource_nodes, preferred_type, base_pos, BASE_RESOURCE_RADIUS
+	)
+	if resource != null:
+		return resource
+	# Preferred type depleted — walk wood → gold → food for any remaining stock.
+	var fallback_order: Array[Enums.ResourceType] = [
+		Enums.ResourceType.WOOD,
+		Enums.ResourceType.GOLD,
+		Enums.ResourceType.FOOD,
+	]
+	for resource_type in fallback_order:
+		if resource_type == preferred_type:
+			continue
+		resource = AiEntityQueriesScript.nearest_resource_near_base(
+			villager, ctx.blackboard.resource_nodes, resource_type, base_pos, BASE_RESOURCE_RADIUS
+		)
+		if resource != null:
+			return resource
+	return AiEntityQueriesScript.nearest_any_resource_near_base(
+		villager, ctx.blackboard.resource_nodes, base_pos, BASE_RESOURCE_RADIUS
+	)
 
 
 func _count_active_gatherers(ctx: AiRunContext) -> Dictionary:

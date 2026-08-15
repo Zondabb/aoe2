@@ -28,14 +28,15 @@ static func for_civ(civ: CivDef) -> CivAiProfile:
 
 
 func ratios_for_phase(phase: int) -> Dictionary:
+	# Must match AiDirector.Phase: ECO=0, BOOM=1, ATTACK=2, DEFEND=3
 	match phase:
-		0, 1:  # OPENING, ECO
+		0:  # ECO
 			return {
 				Enums.ResourceType.FOOD: 0.6,
 				Enums.ResourceType.WOOD: 0.3,
 				Enums.ResourceType.GOLD: 0.1,
 			}
-		2:  # BOOM
+		1:  # BOOM
 			return {
 				Enums.ResourceType.FOOD: 0.4,
 				Enums.ResourceType.WOOD: 0.35,

@@ -2,11 +2,12 @@
 class_name AiController
 extends AiDirector
 
-## Legacy wrapper: Phase.ECO / MILITARY / ATTACK for existing tests and match bootstrap.
+## Legacy wrapper: ECO / MILITARY / ATTACK for existing tests and match bootstrap.
+## Named LegacyPhase because AiDirector already defines Phase.
 
-enum Phase { ECO, MILITARY, ATTACK }
+enum LegacyPhase { ECO, MILITARY, ATTACK }
 
-var _legacy_phase: Phase = Phase.ECO
+var _legacy_phase: LegacyPhase = LegacyPhase.ECO
 
 ## Legacy alias: hostile scans use player_team as the enemy side.
 var player_team: Enums.Team:
@@ -16,7 +17,7 @@ var player_team: Enums.Team:
 		enemy_team = value
 
 
-var phase: Phase:
+var phase: LegacyPhase:
 	get:
 		return _legacy_phase
 	set(value):
@@ -34,7 +35,7 @@ func setup(
 	shared_log: AiDecisionLog = null
 ) -> void:
 	super.setup(state, entities_root, civ, ai_side, enemy_side, label, shared_log)
-	_legacy_phase = Phase.ECO
+	_legacy_phase = LegacyPhase.ECO
 
 
 func evaluate() -> void:
@@ -42,24 +43,24 @@ func evaluate() -> void:
 	_legacy_phase = _to_legacy_phase(director_phase)
 
 
-func _from_legacy_phase(value: Phase) -> AiDirector.Phase:
+func _from_legacy_phase(value: LegacyPhase) -> AiDirector.Phase:
 	match value:
-		Phase.ECO:
+		LegacyPhase.ECO:
 			return AiDirector.Phase.ECO
-		Phase.MILITARY:
+		LegacyPhase.MILITARY:
 			return AiDirector.Phase.BOOM
 		_:
 			return AiDirector.Phase.ATTACK
 
 
-func _to_legacy_phase(value: AiDirector.Phase) -> Phase:
+func _to_legacy_phase(value: AiDirector.Phase) -> LegacyPhase:
 	match value:
 		AiDirector.Phase.ECO:
-			return Phase.ECO
+			return LegacyPhase.ECO
 		AiDirector.Phase.BOOM:
-			return Phase.MILITARY
+			return LegacyPhase.MILITARY
 		_:
-			return Phase.ATTACK
+			return LegacyPhase.ATTACK
 
 
 func _nearest_hostile_in_radius(unit: Node2D, radius: float) -> Node2D:

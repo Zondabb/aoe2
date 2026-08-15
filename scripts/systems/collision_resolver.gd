@@ -41,8 +41,8 @@ static func unit_radius(unit: Object) -> float:
 	if unit == null:
 		return DEFAULT_RADIUS
 	var unit_def := unit.get("def") as UnitDef
-	if unit_def != null and unit_def.collision_radius > 0.0:
-		return unit_def.collision_radius
+	if unit_def != null:
+		return unit_def.resolved_footprint_radius()
 	return DEFAULT_RADIUS
 
 

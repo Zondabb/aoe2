@@ -21,7 +21,7 @@ func run() -> Array[String]:
 func _make_unit(pos: Vector2, radius: float = 0.35) -> Object:
 	var u := _TestBody.new()
 	var def := UnitDef.new()
-	def.collision_radius = radius
+	def.footprint_radius = radius
 	u.def = def
 	u.sim_pos = pos
 	return u

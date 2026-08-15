@@ -421,7 +421,7 @@ func _process_gather(delta: float) -> void:
 		"to_resource":
 			if not _resource_available(_gather_target):
 				_finish_or_drop_off()
-			elif _distance_to(_gather_target) <= GATHER_RANGE:
+			elif _gather_reach_distance(_gather_target) <= GATHER_RANGE:
 				_gather_state = "gathering"
 				_face_toward(_gather_target.get("sim_pos"), delta, true)
 			else:
@@ -437,7 +437,7 @@ func _gather(delta: float) -> void:
 	if not _resource_available(_gather_target):
 		_finish_or_drop_off()
 		return
-	if _distance_to(_gather_target) > GATHER_RANGE:
+	if _gather_reach_distance(_gather_target) > GATHER_RANGE:
 		_gather_state = "to_resource"
 		return
 	_face_toward(_gather_target.get("sim_pos"), delta, true)
@@ -499,6 +499,16 @@ func _gather_approach_point(resource: Node2D) -> Vector2:
 	if resource != null:
 		return resource.get("sim_pos")
 	return sim_pos
+
+
+## Distance used for gather-in-range checks. Large resource footprints (gold/trees)
+## place villagers at the edge; comparing to the resource center would never enter range.
+func _gather_reach_distance(resource: Node2D) -> float:
+	if resource == null:
+		return INF
+	if resource.has_method("approach_point"):
+		return sim_pos.distance_to(_gather_approach_point(resource))
+	return sim_pos.distance_to(resource.get("sim_pos"))
 
 
 func _build_approach_point(building: Node2D) -> Vector2:
@@ -927,7 +937,14 @@ func _setup_presentation() -> void:
 		billboard.visible = false
 	if not _use_billboard:
 		SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
+	_configure_selection_ring()
 	_refresh_world_hp_bar()
+
+func _configure_selection_ring() -> void:
+	var radius := 0.42
+	if def != null:
+		radius = def.resolved_footprint_radius()
+	SpriteCatalogScript.configure_unit_selection_ring(self, radius)
 
 func _refresh_world_hp_bar() -> void:
 	var root := get_node_or_null("WorldHpBar") as Node2D

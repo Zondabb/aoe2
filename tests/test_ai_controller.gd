@@ -15,6 +15,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_bootstrap_wires_ai(failures)
 	_test_eco_assigns_gather_and_trains(failures)
+	_test_ai_reassigns_after_food_depleted(failures)
 	_test_military_builds_and_attack_phase(failures)
 	_test_accelerated_match_progression(failures)
 	_test_ai_stops_on_winner(failures)
@@ -38,7 +39,7 @@ func _test_bootstrap_wires_ai(failures: Array[String]) -> void:
 		failures.append("bootstrap should configure the AI controller")
 	elif ai.get("ai_civ") == null or ai.get("ai_civ").id != &"teutons":
 		failures.append("AI controller should use the AI civilization")
-	elif ai.get("phase") != AI_CONTROLLER.Phase.ECO:
+	elif ai.get("phase") != AI_CONTROLLER.LegacyPhase.ECO:
 		failures.append("AI should start in ECO phase")
 	tree.root.remove_child(scene_root)
 	scene_root.free()
@@ -91,15 +92,84 @@ func _test_eco_assigns_gather_and_trains(failures: Array[String]) -> void:
 		failures.append("ECO AI should assign idle villagers to gather")
 	if (town_center.get("train_queue") as Array).is_empty():
 		failures.append("ECO AI should enqueue a villager at the town center")
-	if ai.phase != AI_CONTROLLER.Phase.ECO:
+	if ai.phase != AI_CONTROLLER.LegacyPhase.ECO:
 		failures.append("AI should remain in ECO before villager target is met")
 
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.FOOD, 300)
 	ai.evaluate()
-	if ai.phase != AI_CONTROLLER.Phase.MILITARY:
+	if ai.phase != AI_CONTROLLER.LegacyPhase.MILITARY:
 		failures.append("high food stockpile should advance AI into MILITARY")
 
 	root.free()
+
+
+func _test_ai_reassigns_after_food_depleted(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node2D.new()
+	tree.root.add_child(root)
+	var entities := Node2D.new()
+	entities.name = "Entities"
+	root.add_child(entities)
+	var state := MatchState.new()
+	state.setup_defaults()
+	state.register_pop(Enums.Team.AI, 0, 20)
+
+	var town_center := BUILDING_VIEW.instantiate() as Node2D
+	town_center.set("team", Enums.Team.AI)
+	town_center.set("def", TOWN_CENTER)
+	town_center.set("civ", TEUTONS)
+	town_center.set("match_state", state)
+	town_center.set("accepts_all_resources", true)
+	town_center.set("sim_pos", Vector2(40.0, 40.0))
+	entities.add_child(town_center)
+
+	var villagers: Array[Node2D] = []
+	for index in 3:
+		var villager := UNIT_VIEW.instantiate() as Node2D
+		villager.set("team", Enums.Team.AI)
+		villager.set("def", VILLAGER)
+		villager.set("civ", TEUTONS)
+		villager.set("match_state", state)
+		villager.set("sim_pos", Vector2(42.0 + index, 40.0))
+		entities.add_child(villager)
+		villager.call("_ready")
+		villagers.append(villager)
+
+	var food := _add_resource(entities, Enums.ResourceType.FOOD, Vector2(49.0, 42.0))
+	_add_resource(entities, Enums.ResourceType.WOOD, Vector2(47.0, 34.0))
+	_add_resource(entities, Enums.ResourceType.GOLD, Vector2(45.0, 49.0))
+
+	var ai := AI_CONTROLLER.new()
+	root.add_child(ai)
+	ai.setup(state, entities, TEUTONS)
+	ai.evaluate()
+	food.amount = 0.0
+	for villager in villagers:
+		villager.set("order", Enums.OrderType.NONE)
+		villager.set("_gather_state", "")
+		villager.set("_last_resource", food)
+	ai.evaluate()
+
+	var wood_or_gold := 0
+	for villager in villagers:
+		if villager.get("order") != Enums.OrderType.GATHER:
+			continue
+		var resource: Node2D = villager.get("_last_resource")
+		if resource == null:
+			continue
+		var resource_type: int = int(resource.get("resource_type"))
+		if (
+			resource_type == Enums.ResourceType.WOOD
+			or resource_type == Enums.ResourceType.GOLD
+		):
+			wood_or_gold += 1
+	if wood_or_gold != 3:
+		failures.append(
+			"after food depletes, AI should reassign idle villagers to wood or gold (got %d)"
+			% wood_or_gold
+		)
+	root.free()
+
 
 func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
@@ -146,7 +216,7 @@ func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 	root.add_child(ai)
 	ai.setup(state, entities, TEUTONS)
 	ai.evaluate()
-	if ai.phase != AI_CONTROLLER.Phase.MILITARY:
+	if ai.phase != AI_CONTROLLER.LegacyPhase.MILITARY:
 		failures.append("eight villagers should put AI into MILITARY")
 
 	var foundations := 0
@@ -171,7 +241,7 @@ func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 		entities.add_child(soldier)
 
 	ai.evaluate()
-	if ai.phase != AI_CONTROLLER.Phase.ATTACK:
+	if ai.phase != AI_CONTROLLER.LegacyPhase.ATTACK:
 		failures.append("six military units should put AI into ATTACK")
 
 	var attacking := 0
@@ -187,14 +257,14 @@ func _test_military_builds_and_attack_phase(failures: Array[String]) -> void:
 		failures.append("ATTACK AI should send military units at the player TC")
 
 	ai.match_time = 0.0
-	ai.phase = AI_CONTROLLER.Phase.MILITARY
+	ai.phase = AI_CONTROLLER.LegacyPhase.MILITARY
 	for node in entities.get_children().duplicate():
 		var unit_def := node.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"swordsman":
 			node.free()
 	ai.match_time = 180.0
 	ai.evaluate()
-	if ai.phase != AI_CONTROLLER.Phase.ATTACK:
+	if ai.phase != AI_CONTROLLER.LegacyPhase.ATTACK:
 		failures.append("match time >= 180s should force ATTACK phase")
 
 	root.free()
@@ -245,7 +315,7 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 			and building_def.id in [&"barracks", &"archery_range", &"stable"]
 		):
 			complete_military_buildings += 1
-	if ai.get("phase") != AI_CONTROLLER.Phase.ATTACK:
+	if ai.get("phase") != AI_CONTROLLER.LegacyPhase.ATTACK:
 		failures.append("accelerated match should reach ATTACK phase")
 	if complete_military_buildings < 2:
 		failures.append("accelerated AI should complete barracks and archery")
@@ -320,10 +390,11 @@ func _add_resource(
 	parent: Node2D,
 	resource_type: Enums.ResourceType,
 	spawn_position: Vector2
-) -> void:
+) -> Node2D:
 	var resource := ResourceNodeScript.new()
 	resource.resource_type = resource_type
 	resource.amount = 200.0
 	resource.gather_rate = 4.0
 	resource.sim_pos = spawn_position
 	parent.add_child(resource)
+	return resource

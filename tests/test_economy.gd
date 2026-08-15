@@ -11,6 +11,7 @@ func run() -> Array[String]:
 	_test_resource_extraction(failures)
 	_test_gather_and_drop_off(failures)
 	_test_gather_switch_drops_off_first(failures)
+	_test_large_footprint_resource_is_gatherable(failures)
 	return failures
 
 func _test_resource_extraction(failures: Array[String]) -> void:
@@ -130,4 +131,53 @@ func _test_gather_switch_drops_off_first(failures: Array[String]) -> void:
 	):
 		failures.append("after drop-off, villager should start gathering the new node")
 
+	root.free()
+
+
+func _test_large_footprint_resource_is_gatherable(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node2D.new()
+	tree.root.add_child(root)
+
+	var state := MatchState.new()
+	state.setup_defaults()
+	var initial_gold := state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.GOLD)
+
+	var gold := RESOURCE_NODE_SCRIPT.new()
+	gold.resource_type = Enums.ResourceType.GOLD
+	gold.amount = 40.0
+	gold.gather_rate = 8.0
+	gold.sim_pos = Vector2(3.0, 0.0)
+	root.add_child(gold)
+	gold._ready()
+
+	var town_center := BUILDING_AGENT_SCRIPT.new()
+	town_center.def = TOWN_CENTER_DEF
+	town_center.team = Enums.Team.PLAYER
+	town_center.match_state = state
+	town_center.accepts_all_resources = true
+	town_center.sim_pos = Vector2(-4.0, 0.0)
+	root.add_child(town_center)
+	town_center._ready()
+
+	var villager := UNIT_VIEW.instantiate()
+	villager.def = VILLAGER_DEF
+	villager.team = Enums.Team.PLAYER
+	villager.match_state = state
+	villager.sim_pos = Vector2.ZERO
+	root.add_child(villager)
+	villager._ready()
+	villager.command_gather(gold)
+
+	for _step in 80:
+		villager._physics_process(0.1)
+
+	var mined: bool = (
+		state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.GOLD) > initial_gold
+		or villager.carry_amount > 0.0
+	)
+	if not mined:
+		failures.append(
+			"villager should gather gold while standing at the approach edge (not resource center)"
+		)
 	root.free()

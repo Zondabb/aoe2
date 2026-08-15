@@ -14,7 +14,8 @@ extends Resource
 @export var melee_armor: int
 @export var pierce_armor: int
 @export var move_speed: float
-@export var collision_radius: float = 0.42
+## Logical circle radius (sim tiles): soft collision + selection ring under feet.
+@export var footprint_radius: float = 0.42
 @export var cost_food: int
 @export var cost_wood: int
 @export var cost_gold: int
@@ -29,3 +30,9 @@ func resolved_preferred_attack_range() -> float:
 	if is_ranged:
 		return attack_range * 0.85
 	return attack_range
+
+
+func resolved_footprint_radius() -> float:
+	if footprint_radius > 0.0:
+		return footprint_radius
+	return 0.42

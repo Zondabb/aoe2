@@ -20,3 +20,4 @@ cost_gold = 50
 train_time = 30.0
 population = 1
 is_ranged = true
+footprint_radius = 1.30

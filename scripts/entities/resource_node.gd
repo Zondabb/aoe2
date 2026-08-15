@@ -24,16 +24,12 @@ static func resource_blocks_pathfinding(type: Enums.ResourceType) -> bool:
 static func pathfinding_footprint(type: Enums.ResourceType) -> Vector2:
 	if not resource_blocks_pathfinding(type):
 		return Vector2.ZERO
-	var base := SpriteCatalogScript.resource_sheet_base(type)
-	if SpriteCatalogScript.sheet_paths_exist(base):
-		var meta := SpriteCatalogScript.load_meta(base)
-		if not meta.is_empty():
-			return SpriteCatalogScript.pathfinding_footprint_from_meta(meta)
+	# Use fixed playable sizes. Art-derived AABBs (esp. gold) are huge and break gather reach.
 	match type:
 		Enums.ResourceType.WOOD:
 			return Vector2(1.2, 1.2)
 		Enums.ResourceType.GOLD:
-			return Vector2(8.0, 8.0)
+			return Vector2(2.0, 2.0)
 		_:
 			return Vector2.ZERO
 
