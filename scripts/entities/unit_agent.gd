@@ -139,7 +139,7 @@ func _process_move(delta: float) -> void:
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
-	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
+	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	var progress := forward_progress(from_pos, sim_pos, velocity)
@@ -148,8 +148,6 @@ func _process_move(delta: float) -> void:
 		_no_progress_frames = 0
 	else:
 		_no_progress_frames += 1
-		if _no_progress_frames == 4:
-			_depack_from_allies()
 		var goal_dist := sim_pos.distance_to(_move_target)
 		if _no_progress_frames >= STUCK_FRAMES_TO_STOP:
 			if goal_dist <= CROWD_ARRIVE_DISTANCE:
@@ -182,7 +180,6 @@ func command_move(target: Vector2) -> void:
 	_gather_state = ""
 	_no_progress_frames = 0
 	_stuck_repath_attempts = 0
-	_depack_from_allies()
 	_resolve_start_position()
 	_request_nav_path(target)
 	order = Enums.OrderType.MOVE
@@ -610,40 +607,22 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 	return target_pos + blended * ring_r
 
 
-func _move_resolve_context() -> Dictionary:
-	var ctx := {"ignore_units": [], "chase_combat": false}
-	if order != Enums.OrderType.ATTACK or not _attack_target_available():
-		return ctx
-	ctx["ignore_units"] = [_attack_target]
-	ctx["chase_combat"] = not def.is_ranged
-	return ctx
-
-
-func _apply_resolved_position(
-	from_pos: Vector2, desired_pos: Vector2, move_context: Dictionary = {}
-) -> void:
-	var units: Array = []
+func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2) -> void:
 	var buildings: Array = []
 	var path_blockers: Array = []
 	if is_inside_tree():
 		var tree := get_tree()
-		units = tree.get_nodes_in_group("units")
 		buildings = tree.get_nodes_in_group("buildings")
 		path_blockers = tree.get_nodes_in_group("path_blockers")
 		for node in tree.get_nodes_in_group("resource_nodes"):
 			if node.get("amount") != null and float(node.get("amount")) > 0.0:
 				path_blockers.append(node)
-	var ignore_units: Array = move_context.get("ignore_units", [])
-	var chase_combat: bool = bool(move_context.get("chase_combat", false))
 	sim_pos = CollisionResolverScript.resolve_move(
 		self,
 		from_pos,
 		desired_pos,
-		units,
 		buildings,
-		path_blockers,
-		ignore_units,
-		chase_combat
+		path_blockers
 	)
 
 func _move_toward(target: Vector2, delta: float) -> void:
@@ -670,7 +649,7 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
-	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
+	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	_track_move_progress(from_pos, velocity, step, delta, offset)
@@ -688,7 +667,7 @@ func _direct_step_toward(target: Vector2, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
-	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
+	_apply_resolved_position(from_pos, from_pos + velocity)
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	_track_move_progress(from_pos, velocity, step, delta, offset)
@@ -703,8 +682,6 @@ func _track_move_progress(
 		_no_progress_frames = 0
 	else:
 		_no_progress_frames += 1
-		if _no_progress_frames == 3:
-			_depack_from_allies()
 		if _no_progress_frames >= ATTACK_STUCK_FRAMES:
 			if _try_recover_from_stuck():
 				return
@@ -779,7 +756,6 @@ func _try_recover_from_stuck() -> bool:
 	if _move_target == Vector2.ZERO:
 		return false
 	_no_progress_frames = 0
-	_depack_from_allies()
 	if _path_index + 1 < _path.size():
 		_path_index += 1
 		return true
@@ -804,20 +780,6 @@ func _resolve_start_position() -> void:
 		sim_pos = safe
 		_sync_visual()
 
-
-func _depack_from_allies() -> void:
-	if not is_inside_tree():
-		return
-	var units: Array = get_tree().get_nodes_in_group("units")
-	var ignore: Array = []
-	if _attack_target_available():
-		ignore = [_attack_target]
-	var packed: Vector2 = CollisionResolverScript.depack_unit(
-		self, units, 4, ignore, true, _move_resolve_context().get("chase_combat", false)
-	)
-	if packed.distance_to(sim_pos) > 0.01:
-		sim_pos = packed
-		_sync_visual()
 
 
 ## Remaining waypoints in logical xz for debug draw (empty when idle / no path).
