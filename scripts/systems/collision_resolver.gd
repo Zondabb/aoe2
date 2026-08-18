@@ -5,7 +5,6 @@ const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 
 const DEFAULT_RADIUS := 0.42
-const BUILDING_ITERATIONS := 3
 
 static var _map_bounds_enabled := false
 static var _map_min := Vector2.ZERO
@@ -51,11 +50,10 @@ static func resolve_move(
 	var solids: Array = []
 	solids.append_array(buildings)
 	solids.append_array(path_blockers)
+	# Do not snap/push out of overlaps. Only reject newly entering a solid.
 	var pos := desired_pos
-	if _hits_any_building(pos, radius, solids):
+	if _hits_any_building(desired_pos, radius, solids) and not _hits_any_building(from_pos, radius, solids):
 		pos = from_pos
-	for _i in BUILDING_ITERATIONS:
-		pos = _push_out_buildings(pos, radius, solids)
 	return clamp_to_map(pos, radius)
 
 static func _blocker_half(blocker: Object, radius: float) -> Vector2:
@@ -100,26 +98,3 @@ static func _hits_any_building(pos: Vector2, radius: float, buildings: Array) ->
 		if _hits_building(pos, radius, building):
 			return true
 	return false
-
-static func _push_out_buildings(pos: Vector2, radius: float, buildings: Array) -> Vector2:
-	var result := pos
-	for value in buildings:
-		var building := value as Object
-		if building == null or not is_instance_valid(building):
-			continue
-		var half := _blocker_half(building, radius)
-		if half.x <= 0.0 or half.y <= 0.0:
-			continue
-		var center: Vector2 = building.get("sim_pos")
-		var delta := result - center
-		if absf(delta.x) >= half.x or absf(delta.y) >= half.y:
-			continue
-		var pen_x := half.x - absf(delta.x)
-		var pen_y := half.y - absf(delta.y)
-		if pen_x < pen_y:
-			var sx := 1.0 if delta.x >= 0.0 else -1.0
-			result.x = center.x + sx * half.x
-		else:
-			var sy := 1.0 if delta.y >= 0.0 else -1.0
-			result.y = center.y + sy * half.y
-	return result

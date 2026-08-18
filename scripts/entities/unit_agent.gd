@@ -180,7 +180,6 @@ func command_move(target: Vector2) -> void:
 	_gather_state = ""
 	_no_progress_frames = 0
 	_stuck_repath_attempts = 0
-	_resolve_start_position()
 	_request_nav_path(target)
 	order = Enums.OrderType.MOVE
 
@@ -762,27 +761,10 @@ func _try_recover_from_stuck() -> bool:
 	if _stuck_repath_attempts >= MAX_STUCK_REPATH_ATTEMPTS:
 		return false
 	_stuck_repath_attempts += 1
-	_resolve_start_position()
 	_request_nav_path(_move_target)
 	return true
 
 
-func _resolve_start_position() -> void:
-	var nav := _get_nav_service()
-	if nav == null or not nav.has_method("nearest_walkable_world"):
-		return
-	var radius := _pathfinding_radius()
-	if nav.has_method("is_world_walkable_with_radius"):
-		if nav.call("is_world_walkable_with_radius", sim_pos, radius):
-			return
-	var safe: Vector2 = nav.call("nearest_walkable_world", sim_pos, radius)
-	if safe.distance_to(sim_pos) > 0.01:
-		sim_pos = safe
-		_sync_visual()
-
-
-
-## Remaining waypoints in logical xz for debug draw (empty when idle / no path).
 func get_nav_path_debug() -> PackedVector2Array:
 	if order != Enums.OrderType.MOVE and order != Enums.OrderType.GATHER and order != Enums.OrderType.BUILD and order != Enums.OrderType.ATTACK:
 		return PackedVector2Array()
