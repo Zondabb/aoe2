@@ -74,19 +74,19 @@ func extract(delta: float) -> float:
 	if is_zero_approx(amount):
 		amount = 0.0
 		visible = false
-		_release_nav_grid_if_depleted()
+		_release_nav_if_depleted()
 	return extracted
 
-func _release_nav_grid_if_depleted() -> void:
+func _release_nav_if_depleted() -> void:
 	if amount > 0.0:
 		return
 	if not resource_blocks_pathfinding(resource_type):
 		return
 	if not is_inside_tree():
 		return
-	var grid := get_tree().get_first_node_in_group("nav_grid")
-	if grid != null and grid.has_method("mark_resource"):
-		grid.call("mark_resource", self, false)
+	var holder := get_tree().get_first_node_in_group("nav_service")
+	if holder != null and holder.has_method("rebuild_from_scene"):
+		holder.call("rebuild_from_scene")
 
 func _setup_presentation() -> void:
 	var existing_billboard := get_node_or_null("Billboard") as Sprite2D
