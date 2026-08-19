@@ -118,11 +118,17 @@ func _physics_process(delta: float) -> void:
 func _process_move(delta: float) -> void:
 	var from_pos := sim_pos
 	if _path_pending:
-		_refresh_move_debug(_steer_velocity_toward(delta), from_pos)
+		var steer := _steer_velocity_toward(delta)
+		if steer.length_squared() > 0.0001:
+			_update_move_facing(steer, delta, false)
+		_refresh_move_debug(steer, from_pos)
 		return
 	if _path.is_empty():
 		if _path_retry_cooldown > 0.0:
 			_path_retry_cooldown = maxf(0.0, _path_retry_cooldown - delta)
+			var wait_dir := _move_target - sim_pos
+			if wait_dir.length_squared() > 0.0001:
+				_update_move_facing(wait_dir, delta, false)
 			_refresh_move_debug(Vector2.ZERO, from_pos)
 			return
 		_path_retry_cooldown = PATH_RETRY_COOLDOWN
@@ -139,7 +145,7 @@ func _process_move(delta: float) -> void:
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
-	_apply_resolved_position(from_pos, from_pos + velocity)
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	var progress := forward_progress(from_pos, sim_pos, velocity)
@@ -148,17 +154,11 @@ func _process_move(delta: float) -> void:
 		_no_progress_frames = 0
 	else:
 		_no_progress_frames += 1
-		var goal_dist := sim_pos.distance_to(_move_target)
 		if _no_progress_frames >= STUCK_FRAMES_TO_STOP:
-			if goal_dist <= CROWD_ARRIVE_DISTANCE:
-				if _try_recover_from_stuck():
-					return
-				_finish_move()
-				return
 			if _try_recover_from_stuck():
 				return
 			_no_progress_frames = 0
-	_update_billboard_facing_from_vector(offset, delta, walking, walking)
+	_update_move_facing(offset, delta, walking)
 
 func _finish_move() -> void:
 	_no_progress_frames = 0
@@ -606,22 +606,34 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 	return target_pos + blended * ring_r
 
 
-func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2) -> void:
+func _move_resolve_context() -> Dictionary:
+	var ctx := {"ignore_units": []}
+	if order == Enums.OrderType.ATTACK and _attack_target_available():
+		ctx["ignore_units"] = [_attack_target]
+	return ctx
+
+
+func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, move_context: Dictionary = {}) -> void:
+	var units: Array = []
 	var buildings: Array = []
 	var path_blockers: Array = []
 	if is_inside_tree():
 		var tree := get_tree()
+		units = tree.get_nodes_in_group("units")
 		buildings = tree.get_nodes_in_group("buildings")
 		path_blockers = tree.get_nodes_in_group("path_blockers")
 		for node in tree.get_nodes_in_group("resource_nodes"):
 			if node.get("amount") != null and float(node.get("amount")) > 0.0:
 				path_blockers.append(node)
+	var ignore_units: Array = move_context.get("ignore_units", [])
 	sim_pos = CollisionResolverScript.resolve_move(
 		self,
 		from_pos,
 		desired_pos,
+		units,
 		buildings,
-		path_blockers
+		path_blockers,
+		ignore_units
 	)
 
 func _move_toward(target: Vector2, delta: float) -> void:
@@ -630,7 +642,10 @@ func _move_toward(target: Vector2, delta: float) -> void:
 		_request_nav_path(target)
 		_nav_goal = target
 	if _path_pending:
-		_refresh_move_debug(_steer_velocity_toward(delta), sim_pos)
+		var steer := _steer_velocity_toward(delta)
+		if steer.length_squared() > 0.0001:
+			_update_move_facing(steer, delta, false)
+		_refresh_move_debug(steer, sim_pos)
 		return
 	if _path.is_empty():
 		_direct_step_toward(target, delta)
@@ -648,7 +663,7 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
-	_apply_resolved_position(from_pos, from_pos + velocity)
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	_track_move_progress(from_pos, velocity, step, delta, offset)
@@ -666,7 +681,7 @@ func _direct_step_toward(target: Vector2, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
-	_apply_resolved_position(from_pos, from_pos + velocity)
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	_track_move_progress(from_pos, velocity, step, delta, offset)
@@ -685,7 +700,12 @@ func _track_move_progress(
 			if _try_recover_from_stuck():
 				return
 			_no_progress_frames = 0
-	_update_billboard_facing_from_vector(face_vector, delta, walking, walking)
+	_update_move_facing(face_vector, delta, walking)
+
+
+func _update_move_facing(face_vector: Vector2, delta: float, moved: bool) -> void:
+	# Face travel direction even while waiting for clearance; walk anim only when moved.
+	_update_billboard_facing_from_vector(face_vector, delta, moved, moved)
 
 
 func _get_nav_service() -> Object:

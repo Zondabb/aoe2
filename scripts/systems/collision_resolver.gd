@@ -5,6 +5,7 @@ const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 
 const DEFAULT_RADIUS := 0.42
+const UNIT_SEPARATION_EXTRA := 0.0
 
 static var _map_bounds_enabled := false
 static var _map_min := Vector2.ZERO
@@ -39,22 +40,65 @@ static func unit_radius(unit: Object) -> float:
 	return DEFAULT_RADIUS
 
 
+static func min_unit_separation(radius: float, other_radius: float) -> float:
+	return radius + other_radius + UNIT_SEPARATION_EXTRA
+
+
+static func _is_ignored_unit(other: Object, ignore_units: Array) -> bool:
+	for item in ignore_units:
+		if item == other:
+			return true
+	return false
+
+
 static func resolve_move(
 	unit: Object,
 	from_pos: Vector2,
 	desired_pos: Vector2,
+	units: Array,
 	buildings: Array,
-	path_blockers: Array = []
+	path_blockers: Array = [],
+	ignore_units: Array = []
 ) -> Vector2:
 	var radius := unit_radius(unit)
 	var solids: Array = []
 	solids.append_array(buildings)
 	solids.append_array(path_blockers)
-	# Do not snap/push out of overlaps. Only reject newly entering a solid.
 	var pos := desired_pos
 	if _hits_any_building(desired_pos, radius, solids) and not _hits_any_building(from_pos, radius, solids):
 		pos = from_pos
+	if pos != from_pos and _blocks_unit_move(
+		from_pos, pos, radius, unit, units, ignore_units
+	):
+		pos = from_pos
 	return clamp_to_map(pos, radius)
+
+static func _blocks_unit_move(
+	from_pos: Vector2,
+	desired_pos: Vector2,
+	radius: float,
+	unit: Object,
+	units: Array,
+	ignore_units: Array
+) -> bool:
+	for value in units:
+		var other := value as Object
+		if other == null or other == unit or not is_instance_valid(other):
+			continue
+		if _is_ignored_unit(other, ignore_units):
+			continue
+		var other_pos: Vector2 = other.get("sim_pos")
+		var min_dist := min_unit_separation(radius, unit_radius(other))
+		var from_dist := from_pos.distance_to(other_pos)
+		var desired_dist := desired_pos.distance_to(other_pos)
+		if from_dist < min_dist - 0.0001:
+			# Already too close: only reject moves that get nearer.
+			if desired_dist < from_dist - 0.0001:
+				return true
+		elif desired_dist < min_dist - 0.0001:
+			# Outside bubble: reject entering the separation zone.
+			return true
+	return false
 
 static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 	if blocker == null:

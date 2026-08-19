@@ -11,6 +11,11 @@ class _TestBody extends RefCounted:
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_building_blocks_movement(failures)
+	_test_unit_separation_blocks_movement(failures)
+	_test_unit_can_move_when_clear(failures)
+	_test_unit_can_move_away_from_overlap(failures)
+	_test_overlapping_improving_move_allowed(failures)
+	_test_can_approach_until_separation_zone(failures)
 	_test_map_bounds_clamp(failures)
 	return failures
 
@@ -36,16 +41,84 @@ func _test_building_blocks_movement(failures: Array[String]) -> void:
 	var from_pos := Vector2(-2.0, 0.0)
 	var desired := Vector2(-1.0, 0.8)
 	var resolved: Vector2 = CollisionResolverScript.resolve_move(
-		unit, from_pos, desired, [building]
+		unit, from_pos, desired, [], [building]
 	)
 	if resolved.distance_to(from_pos) > 0.001:
 		failures.append("movement into building should stop at from_pos, got %s" % resolved)
+
+func _test_unit_separation_blocks_movement(failures: Array[String]) -> void:
+	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
+	var blocker := _make_unit(Vector2(0.55, 0.0), 0.42)
+	var from_pos := Vector2(0.0, 0.0)
+	var desired := Vector2(0.25, 0.0)
+	var resolved: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired, [mover, blocker], []
+	)
+	if resolved.distance_to(from_pos) > 0.001:
+		failures.append(
+			"step into unit separation should stop at from_pos, got %s" % resolved
+		)
+
+func _test_unit_can_move_when_clear(failures: Array[String]) -> void:
+	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
+	var from_pos := Vector2(0.0, 0.0)
+	var desired := Vector2(0.25, 0.0)
+	var resolved: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired, [mover], []
+	)
+	if resolved.distance_to(desired) > 0.001:
+		failures.append("open step should reach desired position, got %s" % resolved)
+
+func _test_unit_can_move_away_from_overlap(failures: Array[String]) -> void:
+	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
+	var blocker := _make_unit(Vector2(0.55, 0.0), 0.42)
+	var from_pos := Vector2(0.0, 0.0)
+	var desired := Vector2(-0.5, 0.0)
+	var resolved: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired, [mover, blocker], []
+	)
+	if resolved.distance_to(desired) > 0.001:
+		failures.append("step away from overlap should be allowed, got %s" % resolved)
+
+func _test_overlapping_improving_move_allowed(failures: Array[String]) -> void:
+	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
+	var blocker := _make_unit(Vector2(0.55, 0.0), 0.42)
+	var from_pos := Vector2(0.0, 0.0)
+	# Lateral/diagonal step that increases distance while still inside the bubble.
+	var desired := Vector2(0.0, 0.25)
+	var resolved: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired, [mover, blocker], []
+	)
+	if resolved.distance_to(desired) > 0.001:
+		failures.append(
+			"overlapping unit should slide when move increases separation, got %s" % resolved
+		)
+
+func _test_can_approach_until_separation_zone(failures: Array[String]) -> void:
+	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
+	var blocker := _make_unit(Vector2(2.0, 0.0), 0.42)
+	var min_dist := CollisionResolverScript.min_unit_separation(0.42, 0.42)
+	var from_pos := Vector2(0.0, 0.0)
+	var desired_outside := Vector2(min_dist * 0.4, 0.0)
+	var resolved_outside: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired_outside, [mover, blocker], []
+	)
+	if resolved_outside.distance_to(desired_outside) > 0.001:
+		failures.append("units far apart should be able to approach, got %s" % resolved_outside)
+	var desired_inside := Vector2(2.0 - min_dist + 0.05, 0.0)
+	var resolved_inside: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired_inside, [mover, blocker], []
+	)
+	if resolved_inside.distance_to(from_pos) > 0.001:
+		failures.append(
+			"approach into separation zone should stop at from_pos, got %s" % resolved_inside
+		)
 
 func _test_map_bounds_clamp(failures: Array[String]) -> void:
 	CollisionResolverScript.set_map_bounds(Vector2(-10.0, -10.0), Vector2(10.0, 10.0))
 	var unit := _make_unit(Vector2(9.8, 0.0), 0.35)
 	var resolved: Vector2 = CollisionResolverScript.resolve_move(
-		unit, unit.sim_pos, Vector2(12.0, 0.0), []
+		unit, unit.sim_pos, Vector2(12.0, 0.0), [], []
 	)
 	if resolved.x > 10.0 - 0.35 + 0.001:
 		failures.append("units should not move past map max bound, got %s" % resolved)
