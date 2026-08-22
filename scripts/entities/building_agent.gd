@@ -275,8 +275,10 @@ func _register_groups() -> void:
 	add_to_group("buildings")
 	if accepts_all_resources or (def != null and def.has_drop_off):
 		add_to_group("drop_off_buildings")
+	_vision_register()
 
 func _exit_tree() -> void:
+	_vision_unregister()
 	if _reserved_population != 0 and match_state != null:
 		match_state.reserve_pop(team, -_reserved_population)
 		_reserved_population = 0
@@ -288,3 +290,27 @@ func _exit_tree() -> void:
 	):
 		match_state.register_pop(team, 0, -def.population_provided)
 		_population_cap_registered = false
+
+
+func _get_vision_service() -> Object:
+	if not is_inside_tree():
+		return null
+	var holders := get_tree().get_nodes_in_group("vision_service")
+	if holders.is_empty():
+		return null
+	var holder := holders[0]
+	if holder.has_meta("vision"):
+		return holder.get_meta("vision")
+	return null
+
+
+func _vision_register() -> void:
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("register"):
+		vision.call("register", self)
+
+
+func _vision_unregister() -> void:
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("unregister"):
+		vision.call("unregister", self)

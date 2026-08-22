@@ -10,13 +10,16 @@ class _TestBody extends RefCounted:
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
+	CollisionResolverScript.reset_unit_block_angle_degrees()
 	_test_building_blocks_movement(failures)
-	_test_unit_separation_blocks_movement(failures)
+	_test_unit_forward_cone_blocks(failures)
 	_test_unit_can_move_when_clear(failures)
-	_test_unit_can_move_away_from_overlap(failures)
-	_test_overlapping_improving_move_allowed(failures)
+	_test_unit_can_move_away(failures)
+	_test_unit_sideways_slide_allowed(failures)
 	_test_can_approach_until_separation_zone(failures)
+	_test_block_angle_is_configurable(failures)
 	_test_map_bounds_clamp(failures)
+	CollisionResolverScript.reset_unit_block_angle_degrees()
 	return failures
 
 func _make_unit(pos: Vector2, radius: float = 0.35) -> Object:
@@ -46,17 +49,18 @@ func _test_building_blocks_movement(failures: Array[String]) -> void:
 	if resolved.distance_to(from_pos) > 0.001:
 		failures.append("movement into building should stop at from_pos, got %s" % resolved)
 
-func _test_unit_separation_blocks_movement(failures: Array[String]) -> void:
+func _test_unit_forward_cone_blocks(failures: Array[String]) -> void:
 	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
 	var blocker := _make_unit(Vector2(0.55, 0.0), 0.42)
 	var from_pos := Vector2(0.0, 0.0)
+	# Straight toward blocker: angle 0° < 45° → blocked.
 	var desired := Vector2(0.25, 0.0)
 	var resolved: Vector2 = CollisionResolverScript.resolve_move(
 		mover, from_pos, desired, [mover, blocker], []
 	)
 	if resolved.distance_to(from_pos) > 0.001:
 		failures.append(
-			"step into unit separation should stop at from_pos, got %s" % resolved
+			"step into forward block cone should stop at from_pos, got %s" % resolved
 		)
 
 func _test_unit_can_move_when_clear(failures: Array[String]) -> void:
@@ -69,10 +73,11 @@ func _test_unit_can_move_when_clear(failures: Array[String]) -> void:
 	if resolved.distance_to(desired) > 0.001:
 		failures.append("open step should reach desired position, got %s" % resolved)
 
-func _test_unit_can_move_away_from_overlap(failures: Array[String]) -> void:
+func _test_unit_can_move_away(failures: Array[String]) -> void:
 	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
 	var blocker := _make_unit(Vector2(0.55, 0.0), 0.42)
 	var from_pos := Vector2(0.0, 0.0)
+	# Away: angle 180° > 45° → allowed.
 	var desired := Vector2(-0.5, 0.0)
 	var resolved: Vector2 = CollisionResolverScript.resolve_move(
 		mover, from_pos, desired, [mover, blocker], []
@@ -80,18 +85,18 @@ func _test_unit_can_move_away_from_overlap(failures: Array[String]) -> void:
 	if resolved.distance_to(desired) > 0.001:
 		failures.append("step away from overlap should be allowed, got %s" % resolved)
 
-func _test_overlapping_improving_move_allowed(failures: Array[String]) -> void:
+func _test_unit_sideways_slide_allowed(failures: Array[String]) -> void:
 	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
 	var blocker := _make_unit(Vector2(0.55, 0.0), 0.42)
 	var from_pos := Vector2(0.0, 0.0)
-	# Lateral/diagonal step that increases distance while still inside the bubble.
+	# Pure lateral: angle 90° > 45° → allowed even while overlapping.
 	var desired := Vector2(0.0, 0.25)
 	var resolved: Vector2 = CollisionResolverScript.resolve_move(
 		mover, from_pos, desired, [mover, blocker], []
 	)
 	if resolved.distance_to(desired) > 0.001:
 		failures.append(
-			"overlapping unit should slide when move increases separation, got %s" % resolved
+			"sideways step outside block cone should be allowed, got %s" % resolved
 		)
 
 func _test_can_approach_until_separation_zone(failures: Array[String]) -> void:
@@ -105,14 +110,35 @@ func _test_can_approach_until_separation_zone(failures: Array[String]) -> void:
 	)
 	if resolved_outside.distance_to(desired_outside) > 0.001:
 		failures.append("units far apart should be able to approach, got %s" % resolved_outside)
+	# Entering bubble while aimed at blocker (angle 0°) → blocked.
 	var desired_inside := Vector2(2.0 - min_dist + 0.05, 0.0)
 	var resolved_inside: Vector2 = CollisionResolverScript.resolve_move(
 		mover, from_pos, desired_inside, [mover, blocker], []
 	)
 	if resolved_inside.distance_to(from_pos) > 0.001:
 		failures.append(
-			"approach into separation zone should stop at from_pos, got %s" % resolved_inside
+			"approach into separation zone in forward cone should stop, got %s" % resolved_inside
 		)
+
+func _test_block_angle_is_configurable(failures: Array[String]) -> void:
+	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
+	var blocker := _make_unit(Vector2(0.55, 0.0), 0.42)
+	var from_pos := Vector2(0.0, 0.0)
+	# 60° from +X toward blocker on +X: angle ≈ 60°.
+	var desired := Vector2(0.15, 0.15 * sqrt(3.0))
+	CollisionResolverScript.set_unit_block_angle_degrees(45.0)
+	var allowed: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired, [mover, blocker], []
+	)
+	if allowed.distance_to(desired) > 0.001:
+		failures.append("60° step should pass with 45° cone, got %s" % allowed)
+	CollisionResolverScript.set_unit_block_angle_degrees(70.0)
+	var blocked: Vector2 = CollisionResolverScript.resolve_move(
+		mover, from_pos, desired, [mover, blocker], []
+	)
+	if blocked.distance_to(from_pos) > 0.001:
+		failures.append("60° step should block with 70° cone, got %s" % blocked)
+	CollisionResolverScript.reset_unit_block_angle_degrees()
 
 func _test_map_bounds_clamp(failures: Array[String]) -> void:
 	CollisionResolverScript.set_map_bounds(Vector2(-10.0, -10.0), Vector2(10.0, 10.0))

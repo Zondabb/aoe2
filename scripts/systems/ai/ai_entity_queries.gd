@@ -102,6 +102,9 @@ static func nearest_hostile_in_radius(
 	enemy_team: Enums.Team,
 	radius: float
 ) -> Node2D:
+	var vision := _vision_service_from(unit)
+	if vision != null and vision.has_method("nearest_hostile"):
+		return vision.call("nearest_hostile", unit, enemy_team, radius) as Node2D
 	var nearest: Node2D
 	var nearest_distance := INF
 	var radius_squared := radius * radius
@@ -121,6 +124,18 @@ static func nearest_hostile_in_radius(
 			nearest = node as Node2D
 			nearest_distance = distance
 	return nearest
+
+
+static func _vision_service_from(unit: Node) -> Object:
+	if unit == null or not unit.is_inside_tree():
+		return null
+	var holders := unit.get_tree().get_nodes_in_group("vision_service")
+	if holders.is_empty():
+		return null
+	var holder := holders[0]
+	if holder.has_meta("vision"):
+		return holder.get_meta("vision")
+	return null
 
 
 static func find_town_center(buildings: Array[Node2D]) -> Node2D:

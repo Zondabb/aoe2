@@ -15,6 +15,7 @@ const SelectionController2DScript := preload("res://scripts/input/selection_cont
 const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
 const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const GROUND_MIN := -40
 const GROUND_MAX := 40
 const GROUND_STEP := 8
@@ -42,6 +43,7 @@ func _ready() -> void:
 		match_state.setup_defaults()
 	_raise_population_caps()
 	_setup_ground()
+	_setup_vision()
 	CollisionResolverScript.set_map_bounds(
 		Vector2(GROUND_MIN, GROUND_MIN), Vector2(GROUND_MAX, GROUND_MAX)
 	)
@@ -86,6 +88,7 @@ func _start_battle(config: ArenaConfigScript) -> void:
 	_clear_entities()
 	_spawn_army(Enums.Team.PLAYER, player_civ, PLAYER_ORIGIN, 1.0)
 	_spawn_army(Enums.Team.AI, ai_civ, AI_ORIGIN, -1.0)
+	_rebuild_vision()
 	_focus_camera_on_battlefield()
 	_setup_player_controls()
 	_setup_auto_combat(_arena_config)
@@ -106,6 +109,25 @@ func reopen_setup() -> void:
 func _raise_population_caps() -> void:
 	for team in Enums.Team.values():
 		match_state.population_cap[team] = 200
+
+func _setup_vision() -> void:
+	if not is_inside_tree():
+		return
+	if get_tree().get_first_node_in_group("vision_service") != null:
+		return
+	var holder := VisionServiceHolderScript.new()
+	holder.name = "VisionService"
+	holder.setup(2.0)
+	var match_root := get_parent()
+	if match_root != null:
+		match_root.add_child(holder)
+
+func _rebuild_vision() -> void:
+	if not is_inside_tree():
+		return
+	var holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	if holder != null:
+		holder.rebuild_from_scene()
 
 func _clear_entities() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D

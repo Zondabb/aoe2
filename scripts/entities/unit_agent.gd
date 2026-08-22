@@ -37,6 +37,8 @@ const CollisionResolverScript := preload("res://scripts/systems/collision_resolv
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
 @export var civ: CivDef
+## >= 0 overrides UnitDef.vision_radius for this instance.
+@export var vision_radius_override: float = -1.0
 
 var hp := 0.0
 var melee_armor := 0.0
@@ -91,11 +93,25 @@ func _ready() -> void:
 	register_population()
 	_setup_presentation()
 	set_selected(false)
+	_vision_register()
+
 
 func register_population() -> void:
 	if match_state != null and def != null and not _population_registered:
 		match_state.register_pop(team, def.population, 0)
 		_population_registered = true
+
+
+func resolved_vision_radius() -> float:
+	if vision_radius_override >= 0.0:
+		return vision_radius_override
+	if def != null:
+		return def.resolved_vision_radius()
+	return 8.0
+
+
+func set_vision_radius(radius: float) -> void:
+	vision_radius_override = maxf(0.0, radius)
 
 func _physics_process(delta: float) -> void:
 	if def == null:
@@ -635,6 +651,7 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, move_cont
 		path_blockers,
 		ignore_units
 	)
+	_vision_sync_position()
 
 func _move_toward(target: Vector2, delta: float) -> void:
 	_move_target = target
@@ -1146,6 +1163,37 @@ func _apply_team_color() -> void:
 		)
 
 func _exit_tree() -> void:
+	_vision_unregister()
 	if _population_registered and match_state != null and def != null:
 		match_state.register_pop(team, -def.population, 0)
 		_population_registered = false
+
+
+func _get_vision_service() -> Object:
+	if not is_inside_tree():
+		return null
+	var holders := get_tree().get_nodes_in_group("vision_service")
+	if holders.is_empty():
+		return null
+	var holder := holders[0]
+	if holder.has_meta("vision"):
+		return holder.get_meta("vision")
+	return null
+
+
+func _vision_register() -> void:
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("register"):
+		vision.call("register", self)
+
+
+func _vision_unregister() -> void:
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("unregister"):
+		vision.call("unregister", self)
+
+
+func _vision_sync_position() -> void:
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("sync_position"):
+		vision.call("sync_position", self)

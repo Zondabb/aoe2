@@ -21,3 +21,4 @@ train_time = 30.0
 population = 1
 is_ranged = true
 footprint_radius = 1.30
+vision_radius = 10.0

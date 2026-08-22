@@ -1,7 +1,7 @@
 extends Node
 
 ## Standalone pathfinding playground: dozens of units, square blockers
-## (buildings / ore / water / cliff), G toggles footprint overlay.
+## (buildings / ore / water / cliff), G toggles footprint/path/vision overlay.
 
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
@@ -9,6 +9,7 @@ const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const PathBlockerScript := preload("res://scripts/entities/path_blocker.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
+const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
 const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
@@ -17,11 +18,14 @@ const SWORDSMAN_DEF := preload("res://data/units/swordsman.tres")
 const ARCHER_DEF := preload("res://data/units/archer.tres")
 const HOUSE_DEF := preload("res://data/buildings/house.tres")
 const CHINESE_CIV := preload("res://data/civs/chinese.tres")
+const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
 
 const GROUND_MIN := -36
 const GROUND_MAX := 36
 const GROUND_STEP := 8
 const UNIT_COUNT := 24
+## Per-unit configurable vision radii used in this arena (sim tiles).
+const ARENA_VISION_RADII := [4.0, 6.0, 8.0, 10.0, 12.0]
 const WATER_SHEET := "res://assets/sprites/terrain/water_shallow"
 const CLIFF_SHEET := "res://assets/sprites/terrain/cliff_section"
 const CLIFF_B_SHEET := "res://assets/sprites/terrain/cliff_section_b"
@@ -29,15 +33,19 @@ const GOLD_SHEET := "res://assets/sprites/resources/gold_mine"
 
 var match_state := MatchState.new()
 var nav_holder: NavServiceHolderScript
+var vision_holder: VisionServiceHolderScript
 var nav: NavGridServiceScript
 var player_civ: CivDef = CHINESE_CIV
+var ai_civ: CivDef = TEUTONS_CIV
 
 func _ready() -> void:
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	match_state.register_pop(Enums.Team.PLAYER, 0, 80)
+	match_state.register_pop(Enums.Team.AI, 0, 80)
 	_setup_ground()
 	_setup_nav()
+	_setup_vision()
 	_spawn_blockers()
 	_spawn_units()
 	call_deferred("_finish_setup")
@@ -45,6 +53,8 @@ func _ready() -> void:
 func _finish_setup() -> void:
 	if nav_holder != null:
 		nav_holder.rebuild_from_scene()
+	if vision_holder != null:
+		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
 	_focus_camera()
 
@@ -55,11 +65,19 @@ func _setup_nav() -> void:
 	nav = nav_holder.nav
 	get_parent().call_deferred("add_child", nav_holder)
 
+func _setup_vision() -> void:
+	vision_holder = VisionServiceHolderScript.new()
+	vision_holder.name = "VisionService"
+	vision_holder.setup(2.0)
+	get_parent().call_deferred("add_child", vision_holder)
+
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()
 	var overlay := NavDebugOverlayScript.new()
 	overlay.name = "NavDebugOverlay"
 	overlay.nav = nav
+	if vision_holder != null:
+		overlay.vision = vision_holder.vision
 	match_root.call_deferred("add_child", overlay)
 
 func _setup_ground() -> void:
@@ -165,17 +183,25 @@ func _spawn_units() -> void:
 	if entities == null:
 		return
 	var defs := [VILLAGER_DEF, SWORDSMAN_DEF, ARCHER_DEF]
+	var half := UNIT_COUNT / 2
 	var cols := 6
 	for index in UNIT_COUNT:
 		var unit := UNIT_VIEW.instantiate() as Node2D
 		unit.name = "Unit%d" % (index + 1)
-		unit.set("team", Enums.Team.PLAYER)
+		var is_ai := index >= half
+		unit.set("team", Enums.Team.AI if is_ai else Enums.Team.PLAYER)
 		unit.set("def", defs[index % defs.size()])
-		unit.set("civ", player_civ)
+		unit.set("civ", ai_civ if is_ai else player_civ)
 		unit.set("match_state", match_state)
-		var row := int(index / cols)
-		var col := index % cols
-		unit.set("sim_pos", Vector2(-22.0 + float(col) * 1.6, -18.0 + float(row) * 1.6))
+		var vision_r: float = ARENA_VISION_RADII[index % ARENA_VISION_RADII.size()]
+		unit.set("vision_radius_override", vision_r)
+		var local_index := index if not is_ai else index - half
+		var row := int(local_index / cols)
+		var col := local_index % cols
+		if is_ai:
+			unit.set("sim_pos", Vector2(12.0 + float(col) * 1.6, -18.0 + float(row) * 1.6))
+		else:
+			unit.set("sim_pos", Vector2(-22.0 + float(col) * 1.6, -18.0 + float(row) * 1.6))
 		entities.add_child(unit)
 
 func _focus_camera() -> void:

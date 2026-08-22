@@ -11,6 +11,7 @@ const CHINESE_CIV := preload("res://data/civs/chinese.tres")
 const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
+const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const AiDirectorScript := preload("res://scripts/systems/ai/ai_director.gd")
 const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
@@ -28,8 +29,10 @@ func _ready() -> void:
 		match_state.setup_defaults()
 	_setup_ground()
 	_setup_nav()
+	_setup_vision()
 	_spawn_entities()
 	call_deferred("_finish_nav_setup")
+	call_deferred("_finish_vision_setup")
 	_focus_camera()
 	_setup_ais()
 	_setup_debug_panel()
@@ -45,11 +48,26 @@ func _setup_nav() -> void:
 		match_root.add_child(holder)
 
 
+func _setup_vision() -> void:
+	var holder := VisionServiceHolderScript.new()
+	holder.name = "VisionService"
+	holder.setup(2.0)
+	var match_root := get_parent()
+	if match_root != null:
+		match_root.add_child(holder)
+
+
 func _finish_nav_setup() -> void:
 	var holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
 	if holder != null:
 		holder.rebuild_from_scene()
 	_kick_ais()
+
+
+func _finish_vision_setup() -> void:
+	var holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	if holder != null:
+		holder.rebuild_from_scene()
 
 
 func _kick_ais() -> void:

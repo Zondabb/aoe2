@@ -21,6 +21,7 @@ func _initialize() -> void:
 	failures.append_array(load("res://tests/test_collision_resolver.gd").new().run())
 	failures.append_array(load("res://tests/test_locomotion.gd").new().run())
 	failures.append_array(load("res://tests/test_nav_grid_service.gd").new().run())
+	failures.append_array(load("res://tests/test_vision_service.gd").new().run())
 	failures.append_array(load("res://tests/test_auto_combat_director.gd").new().run())
 	failures.append_array(load("res://tests/test_command_panel.gd").new().run())
 	if failures.is_empty():

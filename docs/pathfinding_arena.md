@@ -1,6 +1,6 @@
 # Pathfinding Arena
 
-Standalone scene to exercise grid A* with dozens of units.
+Standalone scene to exercise grid A* with dozens of units, plus vision rings.
 
 ## Run
 
@@ -20,9 +20,17 @@ Or:
 |-------|--------|
 | LMB drag | Box-select units |
 | RMB | Move selected units (formation + A* paths) |
-| **G** | Toggle solid-cell footprint overlay **and unit path lines** |
+| **G** | Toggle solid cells, paths, **vision rings**, sight links; **prints vision query time** to console |
 | WASD / edge | Pan camera |
 | Wheel | Zoom |
+
+## Vision
+
+- Each unit has configurable vision via `UnitDef.vision_radius` or per-instance `vision_radius_override`
+- Arena assigns radii cycling through **4 / 6 / 8 / 10 / 12** sim tiles
+- Left group = Player, right group = AI (so cross-team sightings show up)
+- **G** draws isometric vision ellipses and yellow lines to entities currently in range
+- Console prints total µs/ms for scanning all units, plus a few per-unit samples
 
 ## What is blocked
 
@@ -33,4 +41,4 @@ Square logical footprints baked into `NavGridService`:
 - Water shallows (AoE2 SLP 1885)
 - Cliff sections (AoE2 SLP 229 / 230)
 
-Units soft-separate; they are **not** baked into the nav grid. Path requests are budgeted (~16 / frame) so many simultaneous movers stay smooth.
+Units are **not** baked into the nav grid. Vision uses `VisionService` / `SpatialHash` (cell size 2).

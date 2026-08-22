@@ -100,41 +100,67 @@ func _should_keep_current_target(unit: Object, current: Variant) -> bool:
 
 
 func pick_target_for_unit(unit: Object) -> Node:
-	var hostiles := _hostiles_for_unit(unit)
+	var hostiles := _hostiles_in_aggro(unit)
 	if hostiles.is_empty():
 		return null
 	var unit_pos: Vector2 = unit.get("sim_pos")
-	var aggro_sq := aggro_radius * aggro_radius
-	var in_range: Array[Node] = []
-	for hostile in hostiles:
-		var hostile_pos: Vector2 = hostile.get("sim_pos")
-		if unit_pos.distance_squared_to(hostile_pos) <= aggro_sq:
-			in_range.append(hostile)
-	if in_range.is_empty():
-		return null
 	if prefer_units_over_buildings:
 		var units_only: Array[Node] = []
-		for hostile in in_range:
+		for hostile in hostiles:
 			if hostile.get("def") is UnitDef:
 				units_only.append(hostile)
 		if not units_only.is_empty():
 			return _nearest_from(unit_pos, units_only)
 		if include_buildings:
 			var buildings_only: Array[Node] = []
-			for hostile in in_range:
+			for hostile in hostiles:
 				if hostile.get("def") is BuildingDef:
 					buildings_only.append(hostile)
 			if not buildings_only.is_empty():
 				return _nearest_from(unit_pos, buildings_only)
 		return null
-	return _nearest_from(unit_pos, in_range)
+	return _nearest_from(unit_pos, hostiles)
+
+
+func _hostiles_in_aggro(unit: Object) -> Array[Node]:
+	var result: Array[Node] = []
+	var enemy_team: Enums.Team = (
+		Enums.Team.AI if unit.get("team") == Enums.Team.PLAYER else Enums.Team.PLAYER
+	)
+	var vision := _vision_service()
+	if vision != null and vision.has_method("hostiles_in_radius"):
+		for hostile in vision.call("hostiles_in_radius", unit, enemy_team, aggro_radius):
+			var node := hostile as Node
+			if node == null:
+				continue
+			if node.get("def") is BuildingDef and not include_buildings:
+				continue
+			result.append(node)
+		return result
+	for hostile in _hostiles_for_unit(unit):
+		var unit_pos: Vector2 = unit.get("sim_pos")
+		var hostile_pos: Vector2 = hostile.get("sim_pos")
+		if unit_pos.distance_squared_to(hostile_pos) <= aggro_radius * aggro_radius:
+			result.append(hostile)
+	return result
+
+
+func _vision_service() -> Object:
+	if _entities == null or not _entities.is_inside_tree():
+		return null
+	var holders := _entities.get_tree().get_nodes_in_group("vision_service")
+	if holders.is_empty():
+		return null
+	var holder := holders[0]
+	if holder.has_meta("vision"):
+		return holder.get_meta("vision")
+	return null
 
 
 func _hostiles_for_unit(unit: Object) -> Array[Node]:
 	var result: Array[Node] = []
 	if _entities == null:
 		return result
-	var team: Enums.Team = unit.get("team")
 	for child in _entities.get_children():
 		var node := child as Node
 		if node == null or not is_instance_valid(node):

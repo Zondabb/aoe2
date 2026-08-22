@@ -17,6 +17,7 @@ const BARRACKS_DEF := preload("res://data/buildings/barracks.tres")
 const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
 const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 const GROUND_MIN := -36
@@ -36,6 +37,7 @@ func _ready() -> void:
 	GameSession.player_civ_id = player_civ.id
 	GameSession.ai_civ_id = ai_civ.id
 	_setup_ground()
+	_setup_vision()
 	CollisionResolverScript.set_map_bounds(
 		Vector2(GROUND_MIN, GROUND_MIN), Vector2(GROUND_MAX, GROUND_MAX)
 	)
@@ -85,6 +87,7 @@ func _spawn_scenarios() -> void:
 	_spawn_line(
 		Enums.Team.AI, SWORDSMAN_DEF, Vector2(8.0, 10.0), Vector2(1.4, 0.0), 2, "SiegeGuardA"
 	)
+	_rebuild_vision()
 
 func _setup_auto_combat() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D
@@ -107,6 +110,27 @@ func _clear_entities() -> void:
 		return
 	for child in entities.get_children():
 		child.free()
+
+
+func _setup_vision() -> void:
+	if not is_inside_tree():
+		return
+	if get_tree().get_first_node_in_group("vision_service") != null:
+		return
+	var holder := VisionServiceHolderScript.new()
+	holder.name = "VisionService"
+	holder.setup(2.0)
+	var match_root := get_parent()
+	if match_root != null:
+		match_root.add_child(holder)
+
+
+func _rebuild_vision() -> void:
+	if not is_inside_tree():
+		return
+	var holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	if holder != null:
+		holder.rebuild_from_scene()
 
 func _spawn_line(
 	team: Enums.Team,

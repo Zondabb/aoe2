@@ -11,6 +11,7 @@ const CHINESE_CIV := preload("res://data/civs/chinese.tres")
 const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
+const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const GROUND_MIN := -60
 const GROUND_MAX := 60
@@ -28,8 +29,10 @@ func _ready() -> void:
 	GameSession.ai_civ_id = ai_civ.id
 	_setup_ground()
 	_setup_nav()
+	_setup_vision()
 	_spawn_entities()
 	call_deferred("_finish_nav_setup")
+	call_deferred("_finish_vision_setup")
 	_focus_camera_on_player_base()
 	_setup_building_controls()
 	_setup_ai_controller()
@@ -42,8 +45,21 @@ func _setup_nav() -> void:
 	if match_root != null:
 		match_root.add_child(holder)
 
+func _setup_vision() -> void:
+	var holder := VisionServiceHolderScript.new()
+	holder.name = "VisionService"
+	holder.setup(2.0)
+	var match_root := get_parent()
+	if match_root != null:
+		match_root.add_child(holder)
+
 func _finish_nav_setup() -> void:
 	var holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	if holder != null:
+		holder.rebuild_from_scene()
+
+func _finish_vision_setup() -> void:
+	var holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
 	if holder != null:
 		holder.rebuild_from_scene()
 

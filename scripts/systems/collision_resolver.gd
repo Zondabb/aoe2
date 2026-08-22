@@ -6,10 +6,14 @@ const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 
 const DEFAULT_RADIUS := 0.42
 const UNIT_SEPARATION_EXTRA := 0.0
+## Half-angle of the forward cone toward another unit (degrees).
+## Move is blocked when angle(move, to_other) < this value; sideways/away is allowed.
+const DEFAULT_UNIT_BLOCK_ANGLE_DEGREES := 45.0
 
 static var _map_bounds_enabled := false
 static var _map_min := Vector2.ZERO
 static var _map_max := Vector2.ZERO
+static var unit_block_angle_degrees := DEFAULT_UNIT_BLOCK_ANGLE_DEGREES
 
 
 static func set_map_bounds(world_min: Vector2, world_max: Vector2) -> void:
@@ -20,6 +24,14 @@ static func set_map_bounds(world_min: Vector2, world_max: Vector2) -> void:
 
 static func clear_map_bounds() -> void:
 	_map_bounds_enabled = false
+
+
+static func set_unit_block_angle_degrees(degrees: float) -> void:
+	unit_block_angle_degrees = clampf(degrees, 0.0, 180.0)
+
+
+static func reset_unit_block_angle_degrees() -> void:
+	unit_block_angle_degrees = DEFAULT_UNIT_BLOCK_ANGLE_DEGREES
 
 
 static func clamp_to_map(pos: Vector2, radius: float) -> Vector2:
@@ -81,6 +93,11 @@ static func _blocks_unit_move(
 	units: Array,
 	ignore_units: Array
 ) -> bool:
+	var move := desired_pos - from_pos
+	if move.length_squared() < 0.0000001:
+		return false
+	var move_dir := move.normalized()
+	var block_cos := cos(deg_to_rad(unit_block_angle_degrees))
 	for value in units:
 		var other := value as Object
 		if other == null or other == unit or not is_instance_valid(other):
@@ -91,12 +108,16 @@ static func _blocks_unit_move(
 		var min_dist := min_unit_separation(radius, unit_radius(other))
 		var from_dist := from_pos.distance_to(other_pos)
 		var desired_dist := desired_pos.distance_to(other_pos)
-		if from_dist < min_dist - 0.0001:
-			# Already too close: only reject moves that get nearer.
-			if desired_dist < from_dist - 0.0001:
-				return true
-		elif desired_dist < min_dist - 0.0001:
-			# Outside bubble: reject entering the separation zone.
+		# Only interact when already overlapping or about to enter the bubble.
+		if from_dist >= min_dist - 0.0001 and desired_dist >= min_dist - 0.0001:
+			continue
+		var to_other := other_pos - from_pos
+		if to_other.length_squared() < 0.0000001:
+			# Coincident centers: no facing cone; allow unstacking.
+			continue
+		# Block when moving into the forward cone toward the other unit.
+		# angle < threshold  <=>  dot(move_dir, to_other_dir) > cos(threshold)
+		if move_dir.dot(to_other.normalized()) > block_cos + 0.0001:
 			return true
 	return false
 
