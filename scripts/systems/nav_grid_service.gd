@@ -3,6 +3,7 @@ extends RefCounted
 
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 
 ## Grid A* over logical xz (sim_pos). Buildings, ores, and terrain cells are
 ## square solid blockers. Units are NOT baked into the grid (soft-sep remains).
@@ -165,6 +166,37 @@ func find_path(
 	var simplified := _simplify_path(points)
 	_store_cached_path(cache_key, simplified)
 	return _adapt_cached_path(simplified, safe_from, to, safe_to, radius)
+
+
+## One-shot path with other units temporarily marked solid (local grid sync, then revert).
+func find_path_avoiding_units(
+	from: Vector2,
+	to: Vector2,
+	unit_radius: float,
+	units: Array
+) -> PackedVector2Array:
+	if units.is_empty():
+		return find_path(from, to, unit_radius)
+	var radius := _quantize_radius(unit_radius)
+	_query_radius = radius
+	_ensure_active_radius(radius)
+	var changed: Array[Dictionary] = []
+	for value in units:
+		var unit := value as Object
+		if unit == null or not is_instance_valid(unit):
+			continue
+		var center_variant: Variant = unit.get("sim_pos")
+		if not (center_variant is Vector2):
+			continue
+		var half := _unit_footprint_half(unit)
+		_mark_aabb_temp_solid(center_variant as Vector2, Vector2(half, half), changed)
+	if changed.is_empty():
+		return find_path(from, to, unit_radius)
+	_sync_changed_cells_to_grid(changed)
+	var path := _find_path_uncached(from, to, radius)
+	_revert_temp_solid_marks(changed)
+	_sync_changed_cells_to_grid(changed)
+	return path
 
 
 func is_world_walkable_with_radius(
@@ -401,6 +433,63 @@ func _sync_grid_from_solid() -> void:
 		for x in _width:
 			var cell := Vector2i(_origin_cell.x + x, _origin_cell.y + y)
 			_grid.set_point_solid(cell, _solid[y * _width + x] != 0)
+
+
+func _find_path_uncached(
+	from: Vector2, to: Vector2, radius: float
+) -> PackedVector2Array:
+	var safe_from := nearest_walkable_world(from, radius)
+	var safe_to := nearest_walkable_world(to, radius)
+	var start := world_to_cell(safe_from)
+	var goal := world_to_cell(safe_to)
+	if start == Vector2i(-99999, -99999) or goal == Vector2i(-99999, -99999):
+		return PackedVector2Array()
+	var id_path: Array = _grid.get_id_path(start, goal)
+	if id_path.is_empty():
+		return PackedVector2Array()
+	var points := PackedVector2Array()
+	for cell_variant in id_path:
+		var cell: Vector2i = cell_variant
+		points.append(cell_to_world_center(cell))
+	if points.is_empty():
+		return points
+	var simplified := _simplify_path(points)
+	return _adapt_cached_path(simplified, safe_from, to, safe_to, radius)
+
+
+func _unit_footprint_half(unit: Object) -> float:
+	return CollisionResolverScript.unit_radius(unit)
+
+
+func _mark_aabb_temp_solid(
+	center: Vector2, half: Vector2, changed: Array[Dictionary]
+) -> void:
+	var min_cell := world_to_cell(center - half)
+	var max_cell := world_to_cell(center + half - Vector2(0.001, 0.001))
+	for cy in range(min_cell.y, max_cell.y + 1):
+		for cx in range(min_cell.x, max_cell.x + 1):
+			var cell := Vector2i(cx, cy)
+			var idx := _index_of(cell)
+			if idx < 0 or _solid[idx] != 0:
+				continue
+			_solid[idx] = 1
+			changed.append({"cell": cell, "idx": idx})
+	if not changed.is_empty():
+		_solid_cells_dirty = true
+
+
+func _revert_temp_solid_marks(changed: Array[Dictionary]) -> void:
+	for entry in changed:
+		var idx: int = int(entry["idx"])
+		_solid[idx] = 0
+	_solid_cells_dirty = true
+
+
+func _sync_changed_cells_to_grid(changed: Array[Dictionary]) -> void:
+	for entry in changed:
+		var cell: Vector2i = entry["cell"]
+		var idx: int = int(entry["idx"])
+		_grid.set_point_solid(cell, _solid[idx] != 0)
 
 
 func _index_of(cell: Vector2i) -> int:

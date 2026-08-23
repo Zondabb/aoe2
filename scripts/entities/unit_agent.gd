@@ -7,6 +7,9 @@ const STUCK_ARRIVE_DISTANCE := 1.05
 const STUCK_FRAMES_TO_STOP := 10
 const CROWD_ARRIVE_DISTANCE := 1.85
 const MAX_STUCK_REPATH_ATTEMPTS := 2
+## Crowd repath: query radius and forward cone for temporary unit obstacles.
+const STUCK_CROWD_QUERY_RADIUS := 6.0
+const STUCK_CROWD_BLOCK_ANGLE_DEG := 60.0
 const PATH_RETRY_COOLDOWN := 0.3
 ## Soft-sep / wall-slide only counts as walking with enough forward progress.
 const MIN_WALK_PROGRESS := 0.012
@@ -798,8 +801,75 @@ func _try_recover_from_stuck() -> bool:
 	if _stuck_repath_attempts >= MAX_STUCK_REPATH_ATTEMPTS:
 		return false
 	_stuck_repath_attempts += 1
-	_request_nav_path(_move_target)
+	if _stuck_repath_attempts >= MAX_STUCK_REPATH_ATTEMPTS:
+		_request_nav_path_avoiding_crowd(_move_target)
+	else:
+		_request_nav_path(_move_target)
 	return true
+
+
+func _request_nav_path_avoiding_crowd(target: Vector2) -> void:
+	_path = PackedVector2Array()
+	_path_index = 0
+	_path_pending = false
+	var nav := _get_nav_service()
+	if nav == null:
+		_path = PackedVector2Array([target])
+		return
+	var radius := _pathfinding_radius()
+	var blockers := _crowd_blockers_for_stuck_repath(target)
+	if nav.has_method("find_path_avoiding_units"):
+		_path = nav.call(
+			"find_path_avoiding_units", sim_pos, target, radius, blockers
+		) as PackedVector2Array
+	elif nav.has_method("find_path"):
+		_path = nav.call("find_path", sim_pos, target, radius) as PackedVector2Array
+	else:
+		_path = PackedVector2Array([target])
+	apply_nav_path(_path)
+
+
+func _crowd_blockers_for_stuck_repath(target: Vector2) -> Array:
+	var blockers: Array = []
+	var move_dir := target - sim_pos
+	if move_dir.length_squared() < 0.0001:
+		move_dir = _current_steer_target() - sim_pos
+	if move_dir.length_squared() < 0.0001:
+		return blockers
+	move_dir = move_dir.normalized()
+	var cone_cos := cos(deg_to_rad(STUCK_CROWD_BLOCK_ANGLE_DEG))
+	var query_r := minf(resolved_vision_radius(), STUCK_CROWD_QUERY_RADIUS)
+	var candidates: Array = []
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("others_in_radius"):
+		candidates = vision.call("others_in_radius", self, query_r)
+	elif is_inside_tree():
+		for node in get_tree().get_nodes_in_group("units"):
+			if node == self:
+				continue
+			if float(node.get("hp")) <= 0.0:
+				continue
+			var dist: float = sim_pos.distance_to(node.get("sim_pos"))
+			if dist <= query_r:
+				candidates.append(node)
+	for other in candidates:
+		var unit := other as Object
+		if unit == null or unit == self or not is_instance_valid(unit):
+			continue
+		if float(unit.get("hp")) <= 0.0:
+			continue
+		var other_pos: Vector2 = unit.get("sim_pos")
+		var to_other := other_pos - sim_pos
+		var dist := to_other.length()
+		if dist < 0.001:
+			continue
+		var to_dir := to_other / dist
+		if to_dir.dot(move_dir) < cone_cos:
+			continue
+		if to_other.dot(move_dir) < 0.15:
+			continue
+		blockers.append(unit)
+	return blockers
 
 
 func get_nav_path_debug() -> PackedVector2Array:

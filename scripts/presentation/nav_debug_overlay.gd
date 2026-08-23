@@ -1,7 +1,7 @@
 class_name NavDebugOverlay
 extends Node2D
 
-## Press G to toggle solid-cell footprints, unit paths, vision rings, and query timing.
+## Layered debug draw for pathfinding arenas. Toggle via PathfindingDebugPanel or hotkeys.
 
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
@@ -10,6 +10,7 @@ const MovementDebugDrawScript := preload("res://scripts/presentation/movement_de
 
 const BLOCK_FILL := Color(0.95, 0.15, 0.12, 0.35)
 const BLOCK_EDGE := Color(1.0, 0.35, 0.2, 0.85)
+const GRID_LINE := Color(0.55, 0.62, 0.55, 0.35)
 const VISION_FILL_PLAYER := Color(0.25, 0.75, 1.0, 0.10)
 const VISION_EDGE_PLAYER := Color(0.35, 0.85, 1.0, 0.75)
 const VISION_FILL_AI := Color(1.0, 0.35, 0.25, 0.10)
@@ -27,19 +28,25 @@ const TIMING_INTERVAL_SEC := 1.0
 
 var nav: NavGridServiceScript
 var vision: VisionServiceScript
-var visible_overlay := false
+
+var show_nav_grid := false
+var show_solid_cells := false
+var show_paths := false
+var show_vision := false
+var show_move_arrows := false
+var print_vision_timing := false
+
 var _hint_label: Label
 var _timing_accum := 0.0
 var _last_timing_text := ""
 
+
 func _ready() -> void:
 	z_index = 80
+	add_to_group("nav_debug_overlay")
 	set_process(false)
 	_hint_label = Label.new()
-	_hint_label.text = (
-		"G: blocks/paths/vision | cyan/red rings=vision | yellow links=seen | "
-		+ "console prints vision query time"
-	)
+	_hint_label.text = _hint_text()
 	_hint_label.position = Vector2(12, 10)
 	_hint_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.85, 0.9))
 	_hint_label.add_theme_font_size_override("font_size", 14)
@@ -53,41 +60,127 @@ func _ready() -> void:
 		get_parent().call_deferred("add_child", layer)
 		layer.call_deferred("add_child", _hint_label)
 
-func _process(delta: float) -> void:
-	if not visible_overlay:
-		return
+
+func refresh_debug_state() -> void:
+	var active := _any_draw() or print_vision_timing
+	set_process(active)
+	if not active:
+		_timing_accum = 0.0
 	queue_redraw()
+	_refresh_hint()
+	if print_vision_timing:
+		_run_and_print_vision_timing()
+
+
+func _process(delta: float) -> void:
+	if _any_draw():
+		queue_redraw()
+	if not print_vision_timing:
+		return
 	_timing_accum += delta
 	if _timing_accum >= TIMING_INTERVAL_SEC:
 		_timing_accum = 0.0
 		_run_and_print_vision_timing()
 
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
-		if key.keycode == KEY_G:
-			visible_overlay = not visible_overlay
-			set_process(visible_overlay)
-			_timing_accum = 0.0
-			queue_redraw()
-			if visible_overlay:
-				_run_and_print_vision_timing()
-			get_viewport().set_input_as_handled()
+		match key.keycode:
+			KEY_G:
+				_toggle_all_layers()
+				get_viewport().set_input_as_handled()
+			KEY_B:
+				show_solid_cells = not show_solid_cells
+				refresh_debug_state()
+				get_viewport().set_input_as_handled()
+			KEY_V:
+				show_vision = not show_vision
+				refresh_debug_state()
+				get_viewport().set_input_as_handled()
+			KEY_P:
+				show_paths = not show_paths
+				refresh_debug_state()
+				get_viewport().set_input_as_handled()
+			KEY_A:
+				show_move_arrows = not show_move_arrows
+				refresh_debug_state()
+				get_viewport().set_input_as_handled()
+			KEY_T:
+				print_vision_timing = not print_vision_timing
+				refresh_debug_state()
+				get_viewport().set_input_as_handled()
+			KEY_N:
+				show_nav_grid = not show_nav_grid
+				refresh_debug_state()
+				get_viewport().set_input_as_handled()
+
+
+func _toggle_all_layers() -> void:
+	var enable := not _all_layers_on()
+	show_nav_grid = enable
+	show_solid_cells = enable
+	show_paths = enable
+	show_vision = enable
+	show_move_arrows = enable
+	print_vision_timing = enable
+	refresh_debug_state()
+	_sync_panel_checks()
+
+
+func _all_layers_on() -> bool:
+	return (
+		show_nav_grid
+		and show_solid_cells
+		and show_paths
+		and show_vision
+		and show_move_arrows
+		and print_vision_timing
+	)
+
+
+func _sync_panel_checks() -> void:
+	var panel := get_tree().get_first_node_in_group("pathfinding_debug_panel")
+	if panel != null and panel.has_method("_sync_from_overlay"):
+		panel.call("_sync_from_overlay")
+
+
+func _any_draw() -> bool:
+	return show_nav_grid or show_solid_cells or show_paths or show_vision or show_move_arrows
+
 
 func _draw() -> void:
-	if not visible_overlay:
+	if not _any_draw():
 		return
-	if nav != null:
+	if show_nav_grid and nav != null:
+		_draw_nav_grid_lines()
+	if show_solid_cells and nav != null:
 		_draw_block_cells()
-	_draw_unit_paths()
-	_draw_vision_ranges()
-	_draw_move_arrows()
+	if show_paths:
+		_draw_unit_paths()
+	if show_vision:
+		_draw_vision_ranges()
+	if show_move_arrows:
+		_draw_move_arrows()
 
 
 func _draw_move_arrows() -> void:
 	if not is_inside_tree():
 		return
 	MovementDebugDrawScript.draw_unit_arrows(self, get_tree().get_nodes_in_group("units"))
+
+
+func _draw_nav_grid_lines() -> void:
+	var min_i := nav.map_min
+	var max_i := nav.map_max
+	for x in range(min_i, max_i + 1):
+		var a := IsoMathScript.world_to_screen(Vector2(float(x), float(min_i)))
+		var b := IsoMathScript.world_to_screen(Vector2(float(x), float(max_i)))
+		draw_line(a, b, GRID_LINE, 1.0)
+	for y in range(min_i, max_i + 1):
+		var a := IsoMathScript.world_to_screen(Vector2(float(min_i), float(y)))
+		var b := IsoMathScript.world_to_screen(Vector2(float(max_i), float(y)))
+		draw_line(a, b, GRID_LINE, 1.0)
 
 
 func _draw_block_cells() -> void:
@@ -107,6 +200,7 @@ func _draw_block_cells() -> void:
 			BLOCK_EDGE,
 			1.5
 		)
+
 
 func _draw_unit_paths() -> void:
 	if not is_inside_tree():
@@ -203,7 +297,6 @@ func _run_and_print_vision_timing() -> void:
 		% [observers, total_seen, elapsed_usec, elapsed_ms, avg_usec]
 	)
 	print("[vision] ", _last_timing_text)
-	# Also print a few per-unit samples for configurable radii.
 	var samples := 0
 	for value in units:
 		if samples >= 5:
@@ -225,13 +318,17 @@ func _run_and_print_vision_timing() -> void:
 	_refresh_hint()
 
 
+func _hint_text() -> String:
+	return (
+		"Debug panel → grid / solids / paths / vision / arrows / timing | "
+		+ "hotkeys G all, N grid, B solids, P paths, V vision, A arrows, T timing"
+	)
+
+
 func _refresh_hint() -> void:
 	if _hint_label == null:
 		return
-	var base := (
-		"G: blocks/paths/vision | cyan/red rings=vision | yellow links=seen"
-	)
-	if _last_timing_text.is_empty():
-		_hint_label.text = base
-	else:
-		_hint_label.text = "%s\n%s" % [base, _last_timing_text]
+	var lines := [_hint_text()]
+	if print_vision_timing and not _last_timing_text.is_empty():
+		lines.append(_last_timing_text)
+	_hint_label.text = "\n".join(lines)

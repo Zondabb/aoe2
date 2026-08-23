@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/input/rts_camera_2d.gd" id="1_camera"]
 [ext_resource type="Script" path="res://scripts/match/pathfinding_arena_bootstrap.gd" id="2_bootstrap"]
 [ext_resource type="Script" path="res://scripts/input/selection_controller_2d.gd" id="3_selection"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4_hud"]
+[ext_resource type="Script" path="res://scripts/ui/pathfinding_debug_panel.gd" id="5_debug_panel"]
 
 [node name="Match" type="Node2D"]
 
@@ -44,3 +45,57 @@ script = ExtResource("3_selection")
 camera_path = NodePath("../../Camera2D")
 
 [node name="HUD" parent="UILayer" instance=ExtResource("4_hud")]
+
+[node name="PathfindingDebugPanel" type="PanelContainer" parent="UILayer"]
+offset_left = 12.0
+offset_top = 72.0
+offset_right = 248.0
+offset_bottom = 248.0
+script = ExtResource("5_debug_panel")
+overlay_path = NodePath("../../NavDebugOverlay")
+
+[node name="Margin" type="MarginContainer" parent="UILayer/PathfindingDebugPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 6
+
+[node name="VBox" type="VBoxContainer" parent="UILayer/PathfindingDebugPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Title" type="Label" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Debug overlays"
+
+[node name="GridCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+text = "Nav grid (N)"
+
+[node name="SolidsCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+text = "Solid cells (B)"
+
+[node name="PathsCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+text = "Unit paths (P)"
+
+[node name="VisionCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+text = "Vision range (V)"
+
+[node name="ArrowsCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+text = "Move arrows (A)"
+
+[node name="TimingCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+text = "Vision timing log (T)"
+
+[node name="Hint" type="Label" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.78, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "G toggles all layers"

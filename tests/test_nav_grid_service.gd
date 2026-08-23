@@ -12,6 +12,16 @@ class BuildingStub extends Object:
 	var is_placement_ghost := false
 	var def: Object = null
 
+
+class FakeUnit extends Object:
+	var sim_pos := Vector2.ZERO
+	var def: UnitDef
+	var hp := 40.0
+
+	func take_damage(_amount: float, _source: Node = null) -> void:
+		pass
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var nav := NavGridServiceScript.new()
@@ -100,5 +110,27 @@ func run() -> Array[String]:
 	var large_cells := nav.get_solid_cells().size()
 	if large_cells <= small_cells:
 		failures.append("larger unit radius should inflate the nav grid more")
+
+	nav.rebuild_from_blockers([])
+	var blocker_unit := FakeUnit.new()
+	blocker_unit.sim_pos = Vector2(0.0, 0.0)
+	blocker_unit.def = UnitDef.new()
+	blocker_unit.def.footprint_radius = 0.55
+	var direct: PackedVector2Array = nav.find_path(Vector2(-5.0, 0.0), Vector2(5.0, 0.0), 0.35)
+	if direct.is_empty():
+		failures.append("open path should exist before unit temp block")
+	var avoid: PackedVector2Array = nav.find_path_avoiding_units(
+		Vector2(-5.0, 0.0), Vector2(5.0, 0.0), 0.35, [blocker_unit]
+	)
+	if avoid.is_empty():
+		failures.append("path avoiding unit should still reach goal")
+	for point in avoid:
+		if point.distance_to(Vector2.ZERO) < 0.35:
+			failures.append("path avoiding unit should not cross the blocker center")
+			break
+	# Grid should be restored after temp marks.
+	var after: PackedVector2Array = nav.find_path(Vector2(-5.0, 0.0), Vector2(5.0, 0.0), 0.35)
+	if after.is_empty():
+		failures.append("grid should be walkable again after temp unit marks revert")
 
 	return failures

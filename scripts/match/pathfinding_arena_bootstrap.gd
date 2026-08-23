@@ -79,6 +79,10 @@ func _setup_debug_overlay() -> void:
 	if vision_holder != null:
 		overlay.vision = vision_holder.vision
 	match_root.call_deferred("add_child", overlay)
+	# Panel in UILayer binds after overlay exists.
+	var panel := get_node_or_null("../UILayer/PathfindingDebugPanel")
+	if panel != null:
+		panel.call_deferred("_bind_overlay")
 
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D
