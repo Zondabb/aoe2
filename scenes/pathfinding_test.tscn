@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/input/rts_camera_2d.gd" id="1_camera"]
 [ext_resource type="Script" path="res://scripts/match/pathfinding_test_bootstrap.gd" id="2_bootstrap"]
 [ext_resource type="Script" path="res://scripts/match/pathfinding_test_controller.gd" id="3_controller"]
 [ext_resource type="Script" path="res://scripts/match/pathfinding_debug_overlay.gd" id="4_debug"]
+[ext_resource type="PackedScene" path="res://scenes/ui/game_panel_frame.tscn" id="5_panel"]
 
 [node name="PathfindingTest" type="Node2D"]
 
@@ -31,6 +32,14 @@ script = ExtResource("1_camera")
 
 [node name="UILayer" type="CanvasLayer" parent="."]
 layer = 10
+
+[node name="GamePanelFrame" parent="UILayer" instance=ExtResource("5_panel")]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
 
 [node name="TestController" type="Control" parent="UILayer"]
 layout_mode = 3

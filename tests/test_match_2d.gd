@@ -236,7 +236,7 @@ func run() -> Array[String]:
 				selection.call("_issue_build", ghost)
 				if unit.get("order") != Enums.OrderType.BUILD:
 					failures.append("right-clicking a foundation should resume construction")
-	if hud != null and hud.get_node_or_null("TopBar/ResourcesLabel") == null:
+	if hud != null and hud.get_node_or_null("%ResourcesLabel") == null:
 		failures.append("HUD should display resource counters")
 	if hud != null:
 		var state := scene_root.get_node("Bootstrap").get("match_state") as MatchState

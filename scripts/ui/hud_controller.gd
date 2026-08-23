@@ -17,14 +17,23 @@ var selection: Node
 var _selected_building: Node2D
 
 @onready var _resources_label := %ResourcesLabel as Label
-@onready var _population_label := %PopulationLabel as Label
+@onready var _wood_digits := %WoodDigits as Aoe2DigitRow
+@onready var _food_digits := %FoodDigits as Aoe2DigitRow
+@onready var _gold_digits := %GoldDigits as Aoe2DigitRow
+@onready var _stone_digits := %StoneDigits as Aoe2DigitRow
+@onready var _pop_digits := %PopDigits as Aoe2DigitRow
+var _shown_wood := -1
+var _shown_food := -1
+var _shown_gold := -1
+var _shown_pop_used := -1
+var _shown_pop_cap := -1
+
 @onready var _train_panel := %TrainPanel as VBoxContainer
 @onready var _result_panel := %ResultPanel as Control
 @onready var _result_label := %ResultLabel as Label
 @onready var _return_button := %ReturnButton as Button
 @onready var _stable_button := %StableButton as Button
 @onready var _command_panel := %CommandPanel as Control
-@onready var _panel_bg := %PanelBg as TextureRect
 @onready var _portrait := %Portrait as TextureRect
 @onready var _name_label := %NameLabel as Label
 @onready var _hp_bar := %HpBar as ProgressBar
@@ -42,8 +51,12 @@ func setup(
 	civ = player_civ
 	build_system = system
 	selection = selection_controller
-	_resources_label = get_node_or_null("TopBar/ResourcesLabel") as Label
-	_population_label = get_node_or_null("TopBar/PopulationLabel") as Label
+	_resources_label = get_node_or_null("%ResourcesLabel") as Label
+	_wood_digits = get_node_or_null("%WoodDigits") as Aoe2DigitRow
+	_food_digits = get_node_or_null("%FoodDigits") as Aoe2DigitRow
+	_gold_digits = get_node_or_null("%GoldDigits") as Aoe2DigitRow
+	_stone_digits = get_node_or_null("%StoneDigits") as Aoe2DigitRow
+	_pop_digits = get_node_or_null("%PopDigits") as Aoe2DigitRow
 	_train_panel = get_node_or_null("TrainPanel") as VBoxContainer
 	_result_panel = get_node_or_null("ResultPanel") as Control
 	_result_label = find_child("ResultLabel", true, false) as Label
@@ -52,14 +65,17 @@ func setup(
 	if _stable_button == null:
 		_stable_button = find_child("StableButton", true, false) as Button
 	_command_panel = get_node_or_null("%CommandPanel") as Control
-	_panel_bg = get_node_or_null("%PanelBg") as TextureRect
 	_portrait = get_node_or_null("%Portrait") as TextureRect
 	_name_label = get_node_or_null("%NameLabel") as Label
 	_hp_bar = get_node_or_null("%HpBar") as ProgressBar
 	_hp_label = get_node_or_null("%HpLabel") as Label
 	_count_label = get_node_or_null("%CountLabel") as Label
 	_command_grid = get_node_or_null("%CommandGrid") as GridContainer
-	_setup_command_panel_skin()
+	_sync_hud_layout()
+	resized.connect(_on_hud_layout_dirty)
+	var vp := get_viewport()
+	if vp != null and not vp.size_changed.is_connected(_on_hud_layout_dirty):
+		vp.size_changed.connect(_on_hud_layout_dirty)
 	if selection != null:
 		if not selection.is_connected("selection_changed", _on_selection_changed):
 			selection.connect("selection_changed", _on_selection_changed)
@@ -74,15 +90,49 @@ func setup(
 	if match_state.winner != -1:
 		_on_winner_decided(match_state.winner)
 
-func _setup_command_panel_skin() -> void:
-	if _panel_bg == null:
+func _on_hud_layout_dirty() -> void:
+	call_deferred("_sync_hud_layout")
+
+func _sync_hud_layout() -> void:
+	_sync_top_bar_layout()
+	_sync_command_panel_layout()
+
+func _sync_top_bar_layout() -> void:
+	var top_bar := get_node_or_null("%ResourceTopBar") as Control
+	if top_bar == null:
 		return
-	var panel_tex: Texture2D = UiCatalogScript.panel_texture()
-	if panel_tex != null:
-		_panel_bg.texture = panel_tex
-		_panel_bg.visible = true
-	else:
-		_panel_bg.visible = false
+	var scale := UiCatalogScript.panel_scale_for_width(size.x)
+	var band_h := UiCatalogScript.panel_scaled_top_band(size.x)
+	top_bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	top_bar.offset_top = 0.0
+	top_bar.offset_bottom = band_h
+	var slots: Array = UiCatalogScript.panel_resource_slots()
+	var digit_rows: Array[Aoe2DigitRow] = [
+		_wood_digits,
+		_food_digits,
+		_gold_digits,
+		_stone_digits,
+		_pop_digits,
+	]
+	for i in range(mini(digit_rows.size(), slots.size())):
+		var row := digit_rows[i]
+		if row == null:
+			continue
+		var slot: Dictionary = slots[i]
+		var slot_w := float(slot.get("width", 40.0))
+		var slot_top := float(slot.get("top", 8.0))
+		row.position = Vector2(float(slot["left"]) * scale, slot_top * scale)
+		row.size = Vector2(slot_w * scale, band_h - slot_top * scale)
+		row.set_font_size(maxi(12, int(round(14.0 * scale))))
+
+func _sync_command_panel_layout() -> void:
+	if _command_panel == null:
+		return
+	var frame := get_node_or_null("GamePanelFrame") as GamePanelFrame
+	var band := frame.bottom_band_height if frame != null else 150.0
+	if band <= 0.0:
+		band = UiCatalogScript.panel_scaled_bottom_band(size.x)
+	_command_panel.offset_top = -band
 
 func _process(_delta: float) -> void:
 	_ensure_selected_building_valid()
@@ -390,19 +440,29 @@ func _refresh_command_grid_states() -> void:
 func _refresh() -> void:
 	if match_state == null or match_state.resources.is_empty():
 		return
-	var resources_text := "食物 %d   木材 %d   黄金 %d" % [
-		match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD),
-		match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.WOOD),
-		match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.GOLD),
-	]
-	var population_text := "人口 %d / %d" % [
-		match_state.population[Enums.Team.PLAYER],
-		match_state.population_cap[Enums.Team.PLAYER],
-	]
+	var food := match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD)
+	var wood := match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.WOOD)
+	var gold := match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.GOLD)
+	var pop_used := int(match_state.population[Enums.Team.PLAYER])
+	var pop_cap := int(match_state.population_cap[Enums.Team.PLAYER])
+	if _wood_digits != null and wood != _shown_wood:
+		_shown_wood = wood
+		_wood_digits.set_number(wood)
+	if _food_digits != null and food != _shown_food:
+		_shown_food = food
+		_food_digits.set_number(food)
+	if _gold_digits != null and gold != _shown_gold:
+		_shown_gold = gold
+		_gold_digits.set_number(gold)
+	if _stone_digits != null:
+		_stone_digits.set_number(0)
+	if _pop_digits != null and (pop_used != _shown_pop_used or pop_cap != _shown_pop_cap):
+		_shown_pop_used = pop_used
+		_shown_pop_cap = pop_cap
+		_pop_digits.set_population(pop_used, pop_cap)
+	var resources_text := "食物 %d   木材 %d   黄金 %d" % [food, wood, gold]
 	if _resources_label != null and _resources_label.text != resources_text:
 		_resources_label.text = resources_text
-	if _population_label != null and _population_label.text != population_text:
-		_population_label.text = population_text
 	_refresh_info_panel()
 	_refresh_command_grid_states()
 
