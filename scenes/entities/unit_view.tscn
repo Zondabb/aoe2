@@ -37,10 +37,3 @@ offset_right = 28.0
 offset_bottom = 6.0
 mouse_filter = 2
 color = Color(0.15, 0.85, 0.2, 1)
-
-[node name="SelectionRing" type="Line2D" parent="."]
-visible = false
-z_index = -1
-width = 1.75
-default_color = Color(1, 1, 1, 0.92)
-antialiased = true

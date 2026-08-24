@@ -10,6 +10,8 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_resource_extraction(failures)
 	_test_gather_and_drop_off(failures)
+	_test_drop_off_from_far_side_of_building(failures)
+	_test_drop_off_at_nav_stop_distance(failures)
 	_test_gather_switch_drops_off_first(failures)
 	_test_large_footprint_resource_is_gatherable(failures)
 	return failures
@@ -68,6 +70,88 @@ func _test_gather_and_drop_off(failures: Array[String]) -> void:
 		failures.append("villager carry amount should never exceed capacity")
 	if villager.order != Enums.OrderType.GATHER:
 		failures.append("villager should return to gathering while the node has resources")
+
+	root.free()
+
+func _test_drop_off_from_far_side_of_building(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node2D.new()
+	tree.root.add_child(root)
+
+	var state := MatchState.new()
+	state.setup_defaults()
+	var initial_food := state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD)
+
+	var town_center := BUILDING_AGENT_SCRIPT.new()
+	town_center.def = TOWN_CENTER_DEF
+	town_center.team = Enums.Team.PLAYER
+	town_center.accepts_all_resources = true
+	town_center.sim_pos = Vector2.ZERO
+	root.add_child(town_center)
+	town_center._ready()
+
+	var villager := UNIT_VIEW.instantiate()
+	villager.def = VILLAGER_DEF
+	villager.team = Enums.Team.PLAYER
+	villager.match_state = state
+	# South of TC: center approach stays > GATHER_RANGE from footprint edge.
+	villager.sim_pos = Vector2(0.0, -5.0)
+	villager.carry_type = Enums.ResourceType.FOOD
+	villager.carry_amount = 8.0
+	villager.order = Enums.OrderType.GATHER
+	root.add_child(villager)
+	villager._ready()
+	villager.set("_gather_state", "to_drop_off")
+	villager.set("_drop_off_target", town_center)
+
+	for _step in 40:
+		villager._physics_process(0.25)
+
+	if state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD) <= initial_food:
+		failures.append("drop-off should use building approach point, not walk into center")
+	if villager.carry_amount > 0.0:
+		failures.append("drop-off approach should clear carried resources")
+
+	root.free()
+
+func _test_drop_off_at_nav_stop_distance(failures: Array[String]) -> void:
+	# Nav often stops ~2 tiles from TC center; edge distance ~2.0 > old GATHER_RANGE 1.2.
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node2D.new()
+	tree.root.add_child(root)
+
+	var state := MatchState.new()
+	state.setup_defaults()
+	var initial_food := state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD)
+
+	var town_center := BUILDING_AGENT_SCRIPT.new()
+	town_center.def = TOWN_CENTER_DEF
+	town_center.team = Enums.Team.PLAYER
+	town_center.accepts_all_resources = true
+	town_center.sim_pos = Vector2.ZERO
+	root.add_child(town_center)
+	town_center._ready()
+
+	var villager := UNIT_VIEW.instantiate()
+	villager.def = VILLAGER_DEF
+	villager.team = Enums.Team.PLAYER
+	villager.match_state = state
+	villager.sim_pos = Vector2(0.0, -4.0)
+	villager.carry_type = Enums.ResourceType.FOOD
+	villager.carry_amount = 6.0
+	villager.order = Enums.OrderType.GATHER
+	root.add_child(villager)
+	villager._ready()
+	villager.set("_gather_state", "to_drop_off")
+	villager.set("_drop_off_target", town_center)
+
+	for _step in 20:
+		villager._physics_process(0.25)
+
+	if state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD) <= initial_food:
+		failures.append("drop-off should succeed at building interaction range (not GATHER_RANGE)")
+	if villager.carry_amount > 0.0:
+		failures.append("nav-stop distance drop-off should clear carry")
 
 	root.free()
 

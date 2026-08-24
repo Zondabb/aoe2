@@ -21,9 +21,3 @@ texture = SubResource("PlaceholderTexture2D_body")
 
 [node name="Billboard" type="Sprite2D" parent="."]
 texture_filter = 0
-
-[node name="SelectionRing" type="Polygon2D" parent="."]
-visible = false
-z_index = -1
-color = Color(0.25, 0.9, 1, 0.55)
-polygon = PackedVector2Array(30, 0, 21.2, 8.25, 0, 15, -21.2, 8.25, -30, 0, -21.2, -8.25, 0, -15, 21.2, -8.25)

@@ -33,6 +33,17 @@ static func pathfinding_footprint(type: Enums.ResourceType) -> Vector2:
 		_:
 			return Vector2.ZERO
 
+static func selection_footprint(type: Enums.ResourceType) -> Vector2:
+	match type:
+		Enums.ResourceType.WOOD:
+			return Vector2(1.2, 1.2)
+		Enums.ResourceType.GOLD:
+			return Vector2(2.0, 2.0)
+		Enums.ResourceType.FOOD:
+			return Vector2(0.8, 0.8)
+		_:
+			return Vector2.ZERO
+
 static func edge_distance(from: Vector2, center: Vector2, type: Enums.ResourceType) -> float:
 	var footprint := pathfinding_footprint(type)
 	if footprint.length_squared() <= 0.0:
@@ -65,6 +76,7 @@ func _ready() -> void:
 	IsoMathScript.sync_node(self, sim_pos)
 	block_half = pathfinding_footprint(resource_type) * 0.5
 	_setup_presentation()
+	set_selected(false)
 
 func extract(delta: float) -> float:
 	if delta <= 0.0 or amount <= 0.0 or gather_rate <= 0.0:
@@ -87,6 +99,13 @@ func _release_nav_if_depleted() -> void:
 	var holder := get_tree().get_first_node_in_group("nav_service")
 	if holder != null and holder.has_method("rebuild_from_scene"):
 		holder.call("rebuild_from_scene")
+
+func set_selected(selected: bool) -> void:
+	_configure_selection_footprint()
+	var ring := get_node_or_null("SelectionRing") as CanvasItem
+	if ring != null:
+		ring.visible = selected
+
 
 func _setup_presentation() -> void:
 	var existing_billboard := get_node_or_null("Billboard") as Sprite2D
@@ -112,8 +131,20 @@ func _setup_presentation() -> void:
 			SpriteCatalogScript.ensure_ground_shadow_2d(self, 16.0)
 			if existing_marker != null:
 				existing_marker.visible = false
+			_configure_selection_footprint()
 			return
 	if existing_billboard != null:
 		existing_billboard.visible = false
 	if existing_marker != null:
 		existing_marker.visible = true
+	_configure_selection_footprint()
+
+
+func _configure_selection_footprint() -> void:
+	var footprint := selection_footprint(resource_type)
+	if footprint.length_squared() <= 0.0:
+		return
+	var ring := get_node_or_null("SelectionRing")
+	if ring is Line2D:
+		return
+	SpriteCatalogScript.configure_selection_footprint(self, footprint * 0.5)

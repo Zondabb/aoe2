@@ -23,3 +23,23 @@ static func sync_node(node: Node2D, world: Vector2) -> void:
 	if node == null:
 		return
 	node.position = world_to_screen(world)
+
+
+## Sim-space offset from footprint center → local screen offset (node at footprint center).
+static func footprint_offset_screen(delta_sim: Vector2) -> Vector2:
+	return Vector2(
+		(delta_sim.x - delta_sim.y) * SCALE_X,
+		(delta_sim.x + delta_sim.y) * SCALE_Y
+	)
+
+
+## Closed diamond matching a logical axis-aligned footprint (half extents in sim tiles).
+static func footprint_polygon_screen(half: Vector2) -> PackedVector2Array:
+	if half.x <= 0.0 or half.y <= 0.0:
+		return PackedVector2Array()
+	return PackedVector2Array([
+		footprint_offset_screen(Vector2(-half.x, -half.y)),
+		footprint_offset_screen(Vector2(half.x, -half.y)),
+		footprint_offset_screen(Vector2(half.x, half.y)),
+		footprint_offset_screen(Vector2(-half.x, half.y)),
+	])

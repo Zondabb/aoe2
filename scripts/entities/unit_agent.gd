@@ -14,6 +14,9 @@ const PATH_RETRY_COOLDOWN := 0.3
 ## Soft-sep / wall-slide only counts as walking with enough forward progress.
 const MIN_WALK_PROGRESS := 0.012
 const GATHER_RANGE := 1.2
+## Set true to print drop-off diagnostics (search console for "[drop-off]").
+const DEBUG_DROP_OFF := true
+const DEBUG_DROP_OFF_INTERVAL := 0.5
 const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
 const PLAYER_BILLBOARD_TINT := Color(0.65, 0.82, 1.0, 1.0)
@@ -79,6 +82,7 @@ var _path_pending := false
 var _nav_goal := Vector2.ZERO
 var _stuck_repath_attempts := 0
 var _path_retry_cooldown := 0.0
+var _drop_off_debug_timer := 0.0
 var _debug_steer_velocity := Vector2.ZERO
 var _debug_actual_delta := Vector2.ZERO
 
@@ -416,13 +420,7 @@ func _process_build(delta: float) -> void:
 		_build_target = null
 		order = Enums.OrderType.NONE
 		return
-	var build_range := 1.0
-	var building_def := _build_target.get("def") as BuildingDef
-	if building_def != null:
-		build_range += maxf(
-			building_def.footprint.x, building_def.footprint.y
-		) * 0.5
-	if _distance_to(_build_target) > build_range:
+	if _distance_to(_build_target) > _building_interaction_range(_build_target):
 		_move_toward(_build_approach_point(_build_target), delta)
 		return
 	_face_toward(_build_target.get("sim_pos"), delta, true)
@@ -474,17 +472,48 @@ func _begin_drop_off() -> void:
 		return
 	_drop_off_target = GatherSystemScript.nearest_drop_off(self, carry_type)
 	if _drop_off_target == null:
+		_drop_off_log("no drop-off building found", {"carry_type": carry_type})
 		order = Enums.OrderType.NONE
 		return
 	_gather_state = "to_drop_off"
+	_drop_off_log(
+		"begin",
+		{
+			"target": _drop_off_target.name,
+			"tc_pos": _drop_off_target.get("sim_pos"),
+			"carry": carry_amount,
+		}
+	)
 
 func _process_drop_off(delta: float) -> void:
+	if DEBUG_DROP_OFF:
+		_drop_off_debug_timer = maxf(0.0, _drop_off_debug_timer - delta)
 	if not is_instance_valid(_drop_off_target):
+		_drop_off_log("target invalid, re-querying")
 		_begin_drop_off()
 		return
-	if _distance_to(_drop_off_target) > GATHER_RANGE:
-		_move_toward(_drop_off_target.get("sim_pos"), delta)
+	var approach := _build_approach_point(_drop_off_target)
+	var interact_range := _building_interaction_range(_drop_off_target)
+	var edge_dist := _distance_to(_drop_off_target)
+	if edge_dist > interact_range:
+		_drop_off_log_throttled(
+			"approaching",
+			{
+				"edge_dist": edge_dist,
+				"need": interact_range,
+				"approach": approach,
+				"path_len": _path.size(),
+				"path_idx": _path_index,
+				"pending": _path_pending,
+				"stuck_frames": _no_progress_frames,
+			}
+		)
+		_move_toward(approach, delta)
 		return
+	_drop_off_log(
+		"deposit",
+		{"edge_dist": edge_dist, "amount": carry_amount, "type": carry_type}
+	)
 	if match_state != null:
 		match_state.add_resource(team, carry_type, int(round(carry_amount)))
 	carry_amount = 0.0
@@ -541,6 +570,24 @@ func _build_approach_point(building: Node2D) -> Vector2:
 		to_unit = to_unit.normalized()
 	var stand_radius := maxf(half.x, half.y) + _pathfinding_radius() + 0.2
 	return center + to_unit * stand_radius
+
+## Same reach band as construction: nav often stops short of the approach point.
+func _building_interaction_range(building: Node2D) -> float:
+	var building_def := building.get("def") as BuildingDef if building != null else null
+	if building_def == null:
+		return GATHER_RANGE
+	return 1.0 + maxf(building_def.footprint.x, building_def.footprint.y) * 0.5
+
+func _drop_off_log(message: String, details: Dictionary = {}) -> void:
+	if not DEBUG_DROP_OFF:
+		return
+	print("[drop-off] %s %s sim_pos=%s" % [name, message, sim_pos], details)
+
+func _drop_off_log_throttled(message: String, details: Dictionary = {}) -> void:
+	if not DEBUG_DROP_OFF or _drop_off_debug_timer > 0.0:
+		return
+	_drop_off_debug_timer = DEBUG_DROP_OFF_INTERVAL
+	_drop_off_log(message, details)
 
 func _distance_to(target: Node2D) -> float:
 	var target_pos: Vector2 = target.get("sim_pos")
@@ -674,11 +721,15 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var offset := steer_target - sim_pos
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
-		if not _advance_path_waypoint():
-			if _villager_actions:
-				_update_idle_animation(0.0)
-			else:
-				_apply_billboard_frame(false)
+		if _advance_path_waypoint():
+			return
+		if sim_pos.distance_to(_move_target) > ARRIVAL_DISTANCE:
+			_direct_step_toward(_move_target, delta)
+			return
+		if _villager_actions:
+			_update_idle_animation(0.0)
+		else:
+			_apply_billboard_frame(false)
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
@@ -935,6 +986,7 @@ func _advance_path_waypoint() -> bool:
 	return false
 
 func set_selected(selected: bool) -> void:
+	_ensure_selection_circle()
 	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
 	if selection_ring != null:
 		selection_ring.visible = selected
@@ -995,7 +1047,14 @@ func _configure_selection_ring() -> void:
 	var radius := 0.42
 	if def != null:
 		radius = def.resolved_footprint_radius()
-	SpriteCatalogScript.configure_unit_selection_ring(self, radius)
+	SpriteCatalogScript.configure_selection_circle(self, radius)
+
+
+func _ensure_selection_circle() -> void:
+	var ring := get_node_or_null("SelectionRing")
+	if ring is Line2D:
+		return
+	_configure_selection_ring()
 
 func _refresh_world_hp_bar() -> void:
 	var root := get_node_or_null("WorldHpBar") as Node2D

@@ -147,9 +147,19 @@ func get_trainable_units() -> Array[UnitDef]:
 	return result
 
 func set_selected(selected: bool) -> void:
+	_ensure_selection_footprint()
 	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
 	if selection_ring != null:
 		selection_ring.visible = selected
+
+
+func _ensure_selection_footprint() -> void:
+	if def == null:
+		return
+	var ring := get_node_or_null("SelectionRing")
+	if ring is Line2D:
+		return
+	SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
 
 func set_ghost_visual(valid: bool) -> void:
 	if _ghost_visual_valid == valid:
@@ -243,10 +253,8 @@ func _configure_visuals() -> void:
 		)
 	if billboard != null and not _use_billboard:
 		billboard.visible = false
-	var ring := get_node_or_null("SelectionRing") as Polygon2D
-	if ring != null and def != null:
-		var radius := maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.45
-		ring.polygon = SpriteCatalogScript._ellipse_points(radius, radius * 0.5, 28)
+	if def != null:
+		SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
 	var shadow_radius := 18.0
 	if def != null:
 		shadow_radius = maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.4

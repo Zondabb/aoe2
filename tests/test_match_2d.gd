@@ -197,7 +197,17 @@ func run() -> Array[String]:
 			if unit.get("order") != Enums.OrderType.GATHER:
 				failures.append("resource command should issue a gather order")
 			selection.call("_clear_selection")
+			selection.call("_add_selection", food_bush)
+			var bush_ring := food_bush.get_node_or_null("SelectionRing") as CanvasItem
+			if bush_ring == null or not bush_ring.visible:
+				failures.append("resource selection should show a footprint outline")
+			selection.call("_clear_selection")
 			selection.call("_add_selection", town_center)
+			var tc_ring := town_center.get_node_or_null("SelectionRing") as CanvasItem
+			if tc_ring == null or not tc_ring.visible:
+				failures.append("building selection should show a footprint outline")
+			elif not tc_ring is Line2D:
+				failures.append("building selection should show a white footprint box (Line2D)")
 			if hud.get_node("%CommandGrid").get_child_count() != 1:
 				failures.append("selecting the town center should show its train button")
 			if bool(build_system.call(

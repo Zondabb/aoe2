@@ -520,50 +520,64 @@ static func ensure_ground_shadow_2d(parent: Node2D, radius_px: float) -> void:
 	shadow.visible = true
 
 
-## AoE2-style selection footprint: thin white isometric ellipse under the unit.
-## `radius_sim` is UnitDef.footprint_radius (also used for soft collision).
-static func configure_unit_selection_ring(
-	parent: Node2D,
-	radius_sim: float = 0.42,
-	color: Color = Color(1.0, 1.0, 1.0, 0.92)
-) -> void:
+## Selection visuals: dynamic units → white circle; static entities → white footprint box.
+const SELECTION_LINE_WIDTH := 2.5
+const SELECTION_LINE_COLOR := Color(1.0, 1.0, 1.0, 1.0)
+const SELECTION_Z_INDEX := 1
+
+
+static func _ensure_selection_line(parent: Node2D) -> Line2D:
+	var existing := parent.get_node_or_null("SelectionRing")
+	if existing is Line2D:
+		var line := existing as Line2D
+		line.y_sort_enabled = false
+		line.z_index = SELECTION_Z_INDEX
+		return line
+	var was_visible := false
+	if existing != null:
+		was_visible = (existing as CanvasItem).visible
+		parent.remove_child(existing)
+		existing.free()
+	var created := Line2D.new()
+	created.name = "SelectionRing"
+	created.y_sort_enabled = false
+	created.z_index = SELECTION_Z_INDEX
+	created.joint_mode = Line2D.LINE_JOINT_ROUND
+	created.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	created.end_cap_mode = Line2D.LINE_CAP_ROUND
+	created.antialiased = true
+	created.visible = was_visible
+	parent.add_child(created)
+	parent.move_child(created, 0)
+	return created
+
+
+static func _apply_selection_line(line: Line2D, points: PackedVector2Array) -> void:
+	var closed := points.duplicate()
+	if closed.size() > 0:
+		closed.append(closed[0])
+	line.points = closed
+	line.width = SELECTION_LINE_WIDTH
+	line.default_color = SELECTION_LINE_COLOR
+
+
+## Static entities (buildings, trees, mines): white isometric footprint box.
+static func configure_selection_footprint(parent: Node2D, half_sim: Vector2) -> void:
+	if parent == null or half_sim.x <= 0.0 or half_sim.y <= 0.0:
+		return
+	var line := _ensure_selection_line(parent)
+	_apply_selection_line(line, IsoMath.footprint_polygon_screen(half_sim))
+
+
+## Dynamic units: white isometric circle under the feet.
+static func configure_selection_circle(parent: Node2D, radius_sim: float = 0.42) -> void:
 	if parent == null:
 		return
 	var radius := maxf(radius_sim, 0.2)
-	var existing := parent.get_node_or_null("SelectionRing")
-	var was_visible := false
-	var line: Line2D
-	if existing is Line2D:
-		line = existing as Line2D
-		was_visible = line.visible
-	else:
-		if existing != null:
-			was_visible = (existing as CanvasItem).visible
-			existing.free()
-		line = Line2D.new()
-		line.name = "SelectionRing"
-		line.z_index = -1
-		parent.add_child(line)
-		# Keep ring under billboard / body but above ground shadow.
-		var shadow := parent.get_node_or_null("GroundShadow")
-		if shadow != null:
-			parent.move_child(line, shadow.get_index() + 1)
-		else:
-			parent.move_child(line, 0)
+	var line := _ensure_selection_line(parent)
 	var rx := radius * IsoMath.SCALE_X
 	var ry := radius * IsoMath.SCALE_Y
-	var points := _ellipse_points(rx, ry, 36)
-	# Close the loop for Line2D.
-	if points.size() > 0:
-		points.append(points[0])
-	line.points = points
-	line.width = 1.75
-	line.default_color = color
-	line.joint_mode = Line2D.LINE_JOINT_ROUND
-	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	line.end_cap_mode = Line2D.LINE_CAP_ROUND
-	line.antialiased = true
-	line.visible = was_visible
+	_apply_selection_line(line, _ellipse_points(rx, ry, 36))
 
 
 static func _ellipse_points(radius_x: float, radius_y: float, segments: int) -> PackedVector2Array:

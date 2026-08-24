@@ -4,6 +4,7 @@ extends Control
 signal selection_changed(selected: Array)
 
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const DRAG_THRESHOLD := 6.0
 const CLICK_RADIUS := 28.0
 const MOVE_MARKER_DURATION := 1.35
@@ -267,6 +268,10 @@ func _player_selectables() -> Array[Node2D]:
 		var building := node as Node2D
 		if building != null and building.get("team") == Enums.Team.PLAYER:
 			result.append(building)
+	for node in get_tree().get_nodes_in_group("resource_nodes"):
+		var resource := node as Node2D
+		if resource != null and resource.visible and resource.has_method("set_selected"):
+			result.append(resource)
 	return result
 
 func get_selected_units() -> Array[Node2D]:
@@ -312,6 +317,8 @@ func _canvas_to_logical(screen_position: Vector2) -> Vector2:
 ## Distance for ranking hits. INF = miss.
 ## Units/buildings use the full sprite body rect (origin is feet via hotspot).
 func _pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
+	if entity.is_in_group("resource_nodes"):
+		return _footprint_pick_distance(entity, canvas_pos)
 	if _uses_visual_pick(entity):
 		var rect := _visual_rect_canvas(entity)
 		if rect.size.x > 0.0 and rect.size.y > 0.0:
@@ -333,6 +340,30 @@ func _entity_intersects_screen_box(entity: Node2D, screen_box: Rect2) -> bool:
 			return screen_box.intersects(screen_rect)
 	var screen_pos := get_viewport().get_canvas_transform() * entity.global_position
 	return screen_box.has_point(screen_pos)
+
+func _footprint_pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
+	var half := _entity_footprint_half(entity)
+	if half.length_squared() <= 0.0:
+		var distance := entity.global_position.distance_to(canvas_pos)
+		return distance if distance <= CLICK_RADIUS else INF
+	var local := entity.global_transform.affine_inverse() * canvas_pos
+	var poly := IsoMathScript.footprint_polygon_screen(half)
+	if Geometry2D.is_point_in_polygon(local, poly):
+		return local.length()
+	return INF
+
+
+func _entity_footprint_half(entity: Node2D) -> Vector2:
+	if entity.is_in_group("buildings"):
+		var building_def := entity.get("def") as BuildingDef
+		if building_def != null:
+			return building_def.footprint * 0.5
+	if entity.is_in_group("resource_nodes"):
+		return ResourceNodeScript.selection_footprint(
+			entity.get("resource_type") as Enums.ResourceType
+		) * 0.5
+	return Vector2.ZERO
+
 
 func _uses_visual_pick(entity: Node2D) -> bool:
 	return (
