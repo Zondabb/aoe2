@@ -12,6 +12,7 @@ const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
+const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const GROUND_MIN := -60
 const GROUND_MAX := 60
@@ -31,8 +32,7 @@ func _ready() -> void:
 	_setup_nav()
 	_setup_vision()
 	_spawn_entities()
-	call_deferred("_finish_nav_setup")
-	call_deferred("_finish_vision_setup")
+	call_deferred("_finish_setup")
 	_focus_camera_on_player_base()
 	_setup_building_controls()
 	_setup_ai_controller()
@@ -53,15 +53,33 @@ func _setup_vision() -> void:
 	if match_root != null:
 		match_root.add_child(holder)
 
-func _finish_nav_setup() -> void:
-	var holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
-	if holder != null:
-		holder.rebuild_from_scene()
+func _finish_setup() -> void:
+	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	if nav_holder != null:
+		nav_holder.rebuild_from_scene()
+	var vision_holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	if vision_holder != null:
+		vision_holder.rebuild_from_scene()
+	_setup_debug_overlay()
 
-func _finish_vision_setup() -> void:
-	var holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
-	if holder != null:
-		holder.rebuild_from_scene()
+func _setup_debug_overlay() -> void:
+	var match_root := get_parent()
+	if match_root == null:
+		return
+	if get_tree().get_first_node_in_group("nav_debug_overlay") != null:
+		return
+	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	var vision_holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	var overlay := NavDebugOverlayScript.new()
+	overlay.name = "NavDebugOverlay"
+	if nav_holder != null:
+		overlay.nav = nav_holder.nav
+	if vision_holder != null:
+		overlay.vision = vision_holder.vision
+	match_root.add_child(overlay)
+	var panel := match_root.get_node_or_null("UILayer/PathfindingDebugPanel")
+	if panel != null:
+		panel.call_deferred("_bind_overlay")
 
 func _focus_camera_on_player_base() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D

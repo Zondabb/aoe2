@@ -521,9 +521,11 @@ static func ensure_ground_shadow_2d(parent: Node2D, radius_px: float) -> void:
 
 
 ## Selection visuals: dynamic units → white circle; static entities → white footprint box.
-const SELECTION_LINE_WIDTH := 2.5
+const SELECTION_LINE_WIDTH := 1.0
+const UNIT_SELECTION_LINE_WIDTH := 1.0
 const SELECTION_LINE_COLOR := Color(1.0, 1.0, 1.0, 1.0)
-const SELECTION_Z_INDEX := 1
+const SELECTION_Z_INDEX := -2
+const UNIT_SELECTION_Z_INDEX := -2
 
 
 static func _ensure_selection_line(parent: Node2D) -> Line2D:
@@ -552,12 +554,14 @@ static func _ensure_selection_line(parent: Node2D) -> Line2D:
 	return created
 
 
-static func _apply_selection_line(line: Line2D, points: PackedVector2Array) -> void:
+static func _apply_selection_line(
+	line: Line2D, points: PackedVector2Array, width: float = SELECTION_LINE_WIDTH
+) -> void:
 	var closed := points.duplicate()
 	if closed.size() > 0:
 		closed.append(closed[0])
 	line.points = closed
-	line.width = SELECTION_LINE_WIDTH
+	line.width = width
 	line.default_color = SELECTION_LINE_COLOR
 
 
@@ -566,18 +570,22 @@ static func configure_selection_footprint(parent: Node2D, half_sim: Vector2) -> 
 	if parent == null or half_sim.x <= 0.0 or half_sim.y <= 0.0:
 		return
 	var line := _ensure_selection_line(parent)
+	line.y_sort_enabled = false
+	line.z_index = SELECTION_Z_INDEX
 	_apply_selection_line(line, IsoMath.footprint_polygon_screen(half_sim))
 
 
-## Dynamic units: white isometric circle under the feet.
+## Dynamic units: white isometric circle under the feet (drawn below sprites so others can cover it).
 static func configure_selection_circle(parent: Node2D, radius_sim: float = 0.42) -> void:
 	if parent == null:
 		return
 	var radius := maxf(radius_sim, 0.2)
 	var line := _ensure_selection_line(parent)
+	line.y_sort_enabled = true
+	line.z_index = UNIT_SELECTION_Z_INDEX
 	var rx := radius * IsoMath.SCALE_X
 	var ry := radius * IsoMath.SCALE_Y
-	_apply_selection_line(line, _ellipse_points(rx, ry, 36))
+	_apply_selection_line(line, _ellipse_points(rx, ry, 36), UNIT_SELECTION_LINE_WIDTH)
 
 
 static func _ellipse_points(radius_x: float, radius_y: float, segments: int) -> PackedVector2Array:
