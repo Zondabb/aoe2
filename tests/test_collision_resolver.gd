@@ -12,6 +12,8 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	CollisionResolverScript.reset_unit_block_angle_degrees()
 	_test_building_blocks_movement(failures)
+	_test_building_sideways_slide_allowed(failures)
+	_test_building_can_move_away(failures)
 	_test_unit_forward_cone_blocks(failures)
 	_test_unit_can_move_when_clear(failures)
 	_test_unit_can_move_away(failures)
@@ -48,6 +50,31 @@ func _test_building_blocks_movement(failures: Array[String]) -> void:
 	)
 	if resolved.distance_to(from_pos) > 0.001:
 		failures.append("movement into building should stop at from_pos, got %s" % resolved)
+
+func _test_building_sideways_slide_allowed(failures: Array[String]) -> void:
+	# Overlap the west face; pure lateral step has ~90° to center → allowed.
+	var unit := _make_unit(Vector2(-1.2, 0.0), 0.35)
+	var building := _make_building(Vector2(0, 0), Vector2(2, 2))
+	var from_pos := Vector2(-1.2, 0.0)
+	var desired := Vector2(-1.2, 0.25)
+	var resolved: Vector2 = CollisionResolverScript.resolve_move(
+		unit, from_pos, desired, [], [building]
+	)
+	if resolved.distance_to(desired) > 0.001:
+		failures.append(
+			"sideways step beside building should be allowed, got %s" % resolved
+		)
+
+func _test_building_can_move_away(failures: Array[String]) -> void:
+	var unit := _make_unit(Vector2(-1.0, 0.0), 0.35)
+	var building := _make_building(Vector2(0, 0), Vector2(2, 2))
+	var from_pos := Vector2(-1.0, 0.0)
+	var desired := Vector2(-1.5, 0.0)
+	var resolved: Vector2 = CollisionResolverScript.resolve_move(
+		unit, from_pos, desired, [], [building]
+	)
+	if resolved.distance_to(desired) > 0.001:
+		failures.append("step away from building overlap should be allowed, got %s" % resolved)
 
 func _test_unit_forward_cone_blocks(failures: Array[String]) -> void:
 	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)

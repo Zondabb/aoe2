@@ -43,7 +43,9 @@ func _setup_nav() -> void:
 	holder.setup(GROUND_MIN, GROUND_MAX, 1.0)
 	var match_root := get_parent()
 	if match_root != null:
-		match_root.add_child(holder)
+		# Must defer: Bootstrap._ready runs while Match is still adding children,
+		# so immediate add_child(Match, ...) fails and NavService never enters the tree.
+		match_root.call_deferred("add_child", holder)
 
 func _setup_vision() -> void:
 	var holder := VisionServiceHolderScript.new()
@@ -51,7 +53,7 @@ func _setup_vision() -> void:
 	holder.setup(2.0)
 	var match_root := get_parent()
 	if match_root != null:
-		match_root.add_child(holder)
+		match_root.call_deferred("add_child", holder)
 
 func _finish_setup() -> void:
 	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript

@@ -89,7 +89,13 @@ func rebuild_from_blockers(blockers: Array) -> void:
 		var half := _blocker_half(blocker)
 		if half.x <= 0.0 or half.y <= 0.0:
 			continue
-		_blocker_marks.append({"center": center, "half": half})
+		# Buildings: open the four corner cells so paths can cut corners smoothly.
+		#var chamfer := blocker.get("def") is BuildingDef
+		_blocker_marks.append({
+			"center": center,
+			"half": half,
+			"chamfer_corners": true,
+		})
 	_ensure_active_radius(DEFAULT_UNIT_RADIUS)
 
 
@@ -199,15 +205,18 @@ func find_path_avoiding_units(
 	return path
 
 
+## Point agent on a clearance grid: walkable iff the cell is not solid.
+## Solids are already inflated by unit radius; do not circle-test again.
 func is_world_walkable_with_radius(
 	world: Vector2, radius: float = DEFAULT_UNIT_RADIUS
 ) -> bool:
 	var quantized := _quantize_radius(radius)
 	_ensure_active_radius(quantized)
 	_query_radius = quantized
-	if _index_of(world_to_cell(world)) < 0:
+	var cell := world_to_cell(world)
+	if _index_of(cell) < 0:
 		return false
-	return not _circle_hits_solid(world, quantized)
+	return not is_cell_solid(cell)
 
 
 func nearest_walkable_world(
@@ -232,8 +241,6 @@ func nearest_walkable_world(
 				if _index_of(candidate_cell) < 0 or is_cell_solid(candidate_cell):
 					continue
 				var candidate := cell_to_world_center(candidate_cell)
-				if not is_world_walkable_with_radius(candidate, quantized):
-					continue
 				var dist := world.distance_squared_to(candidate)
 				if dist < best_dist:
 					best_dist = dist
@@ -364,9 +371,11 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 	inflated.fill(0)
 	var pad := Vector2(radius, radius)
 	for mark: Dictionary in _blocker_marks:
-		_mark_aabb_on_layer(
-			inflated, mark["center"] as Vector2, (mark["half"] as Vector2) + pad
-		)
+		var center := mark["center"] as Vector2
+		var half := (mark["half"] as Vector2) + pad
+		_mark_aabb_on_layer(inflated, center, half)
+		if bool(mark.get("chamfer_corners", false)):
+			_clear_aabb_corners_on_layer(inflated, center, half)
 	_solid_by_radius[key] = inflated
 	_solid_radius_order.append(key)
 	while _solid_radius_order.size() > MAX_RADIUS_GRID_CACHE:
@@ -383,6 +392,28 @@ func _mark_aabb_on_layer(layer: PackedByteArray, center: Vector2, half: Vector2)
 			var idx := _index_of(Vector2i(cx, cy))
 			if idx >= 0:
 				layer[idx] = 1
+
+
+## Open the four corner cells of a solid AABB (buildings only).
+## Requires at least 3x3 so the block does not disappear.
+func _clear_aabb_corners_on_layer(
+	layer: PackedByteArray, center: Vector2, half: Vector2
+) -> void:
+	var min_cell := world_to_cell(center - half)
+	var max_cell := world_to_cell(center + half - Vector2(0.001, 0.001))
+	var width := max_cell.x - min_cell.x + 1
+	var height := max_cell.y - min_cell.y + 1
+	if width < 3 or height < 3:
+		return
+	for corner in [
+		Vector2i(min_cell.x, min_cell.y),
+		Vector2i(max_cell.x, min_cell.y),
+		Vector2i(min_cell.x, max_cell.y),
+		Vector2i(max_cell.x, max_cell.y),
+	]:
+		var idx := _index_of(corner)
+		if idx >= 0:
+			layer[idx] = 0
 
 
 func _rebuild_solid_cells_cache() -> void:
@@ -544,37 +575,11 @@ func _simplify_path(points: PackedVector2Array) -> PackedVector2Array:
 func _line_clear(a: Vector2, b: Vector2) -> bool:
 	var dist := a.distance_to(b)
 	if dist < 0.001:
-		return not _circle_hits_solid(a, _query_radius)
+		return not is_world_solid(a)
 	var steps := maxi(2, int(ceil(dist / (cell_size * 0.35))))
 	for s in range(0, steps + 1):
 		var t := float(s) / float(steps)
 		var p := a.lerp(b, t)
-		if _circle_hits_solid(p, _query_radius):
+		if is_world_solid(p):
 			return false
 	return true
-
-
-func _circle_hits_solid(center: Vector2, radius: float) -> bool:
-	var search_half := Vector2(radius + cell_size, radius + cell_size)
-	var min_cell := world_to_cell(center - search_half)
-	var max_cell := world_to_cell(center + search_half)
-	var cell_half := Vector2(cell_size * 0.5, cell_size * 0.5)
-	for cy in range(min_cell.y, max_cell.y + 1):
-		for cx in range(min_cell.x, max_cell.x + 1):
-			var cell := Vector2i(cx, cy)
-			if not is_cell_solid(cell):
-				continue
-			var box_center := cell_to_world_center(cell)
-			if _circle_overlaps_aabb(center, radius, box_center, cell_half):
-				return true
-	return false
-
-
-static func _circle_overlaps_aabb(
-	circle_center: Vector2, radius: float, box_center: Vector2, box_half: Vector2
-) -> bool:
-	var closest := Vector2(
-		clampf(circle_center.x, box_center.x - box_half.x, box_center.x + box_half.x),
-		clampf(circle_center.y, box_center.y - box_half.y, box_center.y + box_half.y)
-	)
-	return circle_center.distance_squared_to(closest) <= radius * radius

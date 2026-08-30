@@ -6,7 +6,7 @@ const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 
 const DEFAULT_RADIUS := 0.42
 const UNIT_SEPARATION_EXTRA := 0.0
-## Half-angle of the forward cone toward another unit (degrees).
+## Half-angle of the forward cone toward another unit/building (degrees).
 ## Move is blocked when angle(move, to_other) < this value; sideways/away is allowed.
 const DEFAULT_UNIT_BLOCK_ANGLE_DEGREES := 45.0
 
@@ -77,7 +77,7 @@ static func resolve_move(
 	solids.append_array(buildings)
 	solids.append_array(path_blockers)
 	var pos := desired_pos
-	if _hits_any_building(desired_pos, radius, solids) and not _hits_any_building(from_pos, radius, solids):
+	if _blocks_building_move(from_pos, desired_pos, radius, solids):
 		pos = from_pos
 	if pos != from_pos and _blocks_unit_move(
 		from_pos, pos, radius, unit, units, ignore_units
@@ -117,6 +117,36 @@ static func _blocks_unit_move(
 			continue
 		# Block when moving into the forward cone toward the other unit.
 		# angle < threshold  <=>  dot(move_dir, to_other_dir) > cos(threshold)
+		if move_dir.dot(to_other.normalized()) > block_cos + 0.0001:
+			return true
+	return false
+
+
+## Same forward-cone rule as units: only block when the step closes on the
+## solid (overlap / entering AABB) and move aims at the blocker center.
+static func _blocks_building_move(
+	from_pos: Vector2,
+	desired_pos: Vector2,
+	radius: float,
+	buildings: Array
+) -> bool:
+	var move := desired_pos - from_pos
+	if move.length_squared() < 0.0000001:
+		return false
+	var move_dir := move.normalized()
+	var block_cos := cos(deg_to_rad(unit_block_angle_degrees))
+	for value in buildings:
+		var building := value as Object
+		if building == null or not is_instance_valid(building):
+			continue
+		var from_hits := _hits_building(from_pos, radius, building)
+		var desired_hits := _hits_building(desired_pos, radius, building)
+		if not from_hits and not desired_hits:
+			continue
+		var center: Vector2 = building.get("sim_pos")
+		var to_other := center - from_pos
+		if to_other.length_squared() < 0.0000001:
+			continue
 		if move_dir.dot(to_other.normalized()) > block_cos + 0.0001:
 			return true
 	return false

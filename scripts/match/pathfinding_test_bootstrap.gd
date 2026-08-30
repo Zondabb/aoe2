@@ -40,7 +40,7 @@ func _setup_nav() -> void:
 	nav_holder.name = "NavService"
 	nav_holder.setup(GROUND_MIN, GROUND_MAX, 1.0)
 	nav = nav_holder.nav
-	get_parent().add_child(nav_holder)
+	get_parent().call_deferred("add_child", nav_holder)
 
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D

@@ -45,7 +45,7 @@ func _setup_nav() -> void:
 	holder.setup(GROUND_MIN, GROUND_MAX, 1.0)
 	var match_root := get_parent()
 	if match_root != null:
-		match_root.add_child(holder)
+		match_root.call_deferred("add_child", holder)
 
 
 func _setup_vision() -> void:
@@ -54,7 +54,7 @@ func _setup_vision() -> void:
 	holder.setup(2.0)
 	var match_root := get_parent()
 	if match_root != null:
-		match_root.add_child(holder)
+		match_root.call_deferred("add_child", holder)
 
 
 func _finish_nav_setup() -> void:

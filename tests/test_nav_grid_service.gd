@@ -11,6 +11,8 @@ class BuildingStub extends Object:
 	var is_complete := false
 	var is_placement_ghost := false
 	var def: Object = null
+	var sim_pos := Vector2.ZERO
+	var block_half := Vector2.ONE
 
 
 class FakeUnit extends Object:
@@ -110,6 +112,43 @@ func run() -> Array[String]:
 	var large_cells := nav.get_solid_cells().size()
 	if large_cells <= small_cells:
 		failures.append("larger unit radius should inflate the nav grid more")
+
+	# Building footprints chamfer their four solid corners for smoother pathing.
+	var house := BuildingStub.new()
+	house.sim_pos = Vector2(0.0, 0.0)
+	house.block_half = Vector2(3.0, 3.0)
+	house.is_complete = true
+	var bdef := BuildingDef.new()
+	bdef.footprint = Vector2(6, 6)
+	house.def = bdef
+	nav.rebuild_from_blockers([house])
+	nav.find_path(Vector2(-8, 0), Vector2(8, 0), 0.35)
+	var half_eff := Vector2(3.35, 3.35)
+	var min_c: Vector2i = nav.world_to_cell(house.sim_pos - half_eff)
+	var max_c: Vector2i = nav.world_to_cell(
+		house.sim_pos + half_eff - Vector2(0.001, 0.001)
+	)
+	if nav.is_cell_solid(Vector2i(min_c.x, min_c.y)):
+		failures.append("building solid AABB SW corner should be walkable")
+	if nav.is_cell_solid(Vector2i(max_c.x, max_c.y)):
+		failures.append("building solid AABB NE corner should be walkable")
+	if not nav.is_world_solid(Vector2(0.0, 0.0)):
+		failures.append("building center should remain solid after corner chamfer")
+
+	# Clearance walkability is point-on-cell: first free cell beside obstacle stays put.
+	nav.rebuild_from_blockers([])
+	var wall2 := FakeBlocker.new()
+	wall2.sim_pos = Vector2(0.0, 0.0)
+	wall2.block_half = Vector2(2.0, 2.0)
+	nav.rebuild_from_blockers([wall2])
+	# Inflated half = 2.35 → solid cells cover through x=2 ([2,3)); stand in cell 3.
+	var beside := Vector2(3.1, 0.0)
+	nav.find_path(beside, Vector2(8.0, 0.0), 0.35)
+	if not nav.is_world_walkable_with_radius(beside, 0.35):
+		failures.append("point on clearance free cell should be walkable")
+	var snapped: Vector2 = nav.nearest_walkable_world(beside, 0.35)
+	if snapped.distance_to(beside) > 0.001:
+		failures.append("walkable start beside obstacle should not snap outward")
 
 	nav.rebuild_from_blockers([])
 	var blocker_unit := FakeUnit.new()
