@@ -14,6 +14,9 @@ const PATH_RETRY_COOLDOWN := 0.3
 ## Soft-sep / wall-slide only counts as walking with enough forward progress.
 const MIN_WALK_PROGRESS := 0.012
 const GATHER_RANGE := 1.2
+## Extra slack past 2× footprint so a second villager can gather a center-targeted
+## resource (berries) without standing on the same point as the first.
+const GATHER_CENTER_RANGE_SLACK := 0.4
 ## Set true to print drop-off diagnostics (search console for "[drop-off]").
 const DEBUG_DROP_OFF := true
 const DEBUG_DROP_OFF_INTERVAL := 0.5
@@ -27,6 +30,8 @@ const RANGED_RELEASE_FRACTION := 0.35
 const ATTACK_CHASE_SLACK := 0.25
 const MELEE_ATTACK_SLOTS := 12
 const ATTACK_STUCK_FRAMES := 6
+## After inserting a friendly peel waypoint, wait this many blocked frames before another.
+const FRIENDLY_PEEL_COOLDOWN_FRAMES := 6
 const FALLBACK_ATTACK_DURATION := 0.45
 const FALLBACK_DIE_DURATION := 0.8
 const WORLD_HP_BAR_WIDTH := 28.0
@@ -83,6 +88,7 @@ var _path_pending := false
 var _nav_goal := Vector2.ZERO
 var _stuck_repath_attempts := 0
 var _path_retry_cooldown := 0.0
+var _friendly_peel_cooldown := 0
 var _drop_off_debug_timer := 0.0
 var _debug_steer_velocity := Vector2.ZERO
 var _debug_actual_delta := Vector2.ZERO
@@ -440,7 +446,7 @@ func _process_gather(delta: float) -> void:
 		"to_resource":
 			if not _resource_available(_gather_target):
 				_finish_or_drop_off()
-			elif _gather_reach_distance(_gather_target) <= GATHER_RANGE:
+			elif _gather_reach_distance(_gather_target) <= _gather_interaction_range(_gather_target):
 				_gather_state = "gathering"
 				_unit_log("gather", "reached resource, gathering")
 				_face_toward(_gather_target.get("sim_pos"), delta, true)
@@ -457,7 +463,7 @@ func _gather(delta: float) -> void:
 	if not _resource_available(_gather_target):
 		_finish_or_drop_off()
 		return
-	if _gather_reach_distance(_gather_target) > GATHER_RANGE:
+	if _gather_reach_distance(_gather_target) > _gather_interaction_range(_gather_target):
 		_gather_state = "to_resource"
 		return
 	_face_toward(_gather_target.get("sim_pos"), delta, true)
@@ -560,6 +566,20 @@ func _gather_reach_distance(resource: Node2D) -> float:
 	if resource.has_method("approach_point"):
 		return sim_pos.distance_to(_gather_approach_point(resource))
 	return sim_pos.distance_to(resource.get("sim_pos"))
+
+
+## In-range threshold for starting/staying in gathering.
+## Center-targeted nodes (food) expand to ~2× unit radius so crowded gatherers still count.
+func _gather_interaction_range(resource: Node2D) -> float:
+	if resource == null:
+		return GATHER_RANGE
+	var center_variant: Variant = resource.get("sim_pos")
+	if not (center_variant is Vector2):
+		return GATHER_RANGE
+	var approach := _gather_approach_point(resource)
+	if approach.distance_squared_to(center_variant as Vector2) > 0.0001:
+		return GATHER_RANGE
+	return maxf(GATHER_RANGE, _pathfinding_radius() * 2.0 + GATHER_CENTER_RANGE_SLACK)
 
 
 func _build_approach_point(building: Node2D) -> Vector2:
@@ -712,7 +732,65 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, move_cont
 		path_blockers,
 		ignore_units
 	)
+	if sim_pos.distance_squared_to(from_pos) <= 0.0000001:
+		_try_insert_friendly_peel_waypoint(from_pos, desired_pos, units, ignore_units)
+	elif _friendly_peel_cooldown > 0:
+		_friendly_peel_cooldown -= 1
 	_vision_sync_position()
+
+
+## Ally blocked this step: rotate forward aim 45° outward and queue it as the next path point.
+func _try_insert_friendly_peel_waypoint(
+	from_pos: Vector2,
+	desired_pos: Vector2,
+	units: Array,
+	ignore_units: Array
+) -> void:
+	if _friendly_peel_cooldown > 0 or _path_pending:
+		return
+	var radius := CollisionResolverScript.unit_radius(self)
+	var blocker: Object = CollisionResolverScript.find_friendly_unit_blocker(
+		from_pos, desired_pos, radius, self, units, ignore_units
+	)
+	if blocker == null:
+		return
+	var other_pos: Vector2 = blocker.get("sim_pos")
+	var forward := desired_pos
+	if not _path.is_empty() and _path_index >= 0 and _path_index < _path.size():
+		forward = _path[_path_index]
+	elif _move_target != Vector2.ZERO:
+		forward = _move_target
+	var step_len := 0.75
+	if def != null:
+		step_len = maxf(0.5, def.move_speed * 0.2)
+	var peel := CollisionResolverScript.friendly_peel_point(
+		from_pos, forward, other_pos, step_len
+	)
+	_insert_path_waypoint_at_current(peel)
+	_friendly_peel_cooldown = FRIENDLY_PEEL_COOLDOWN_FRAMES
+	_no_progress_frames = 0
+	var blocker_name := "?"
+	if blocker is Node:
+		blocker_name = (blocker as Node).name
+	_unit_log("move", "friendly peel inserted", {"peel": peel, "blocker": blocker_name})
+
+
+func _insert_path_waypoint_at_current(point: Vector2) -> void:
+	if _path.is_empty():
+		var tail := _move_target if _move_target != Vector2.ZERO else point
+		_path = PackedVector2Array([point, tail])
+		_path_index = 0
+		return
+	# Avoid stacking duplicate peels on the same spot.
+	if _path[_path_index].distance_squared_to(point) < 0.04:
+		return
+	var rebuilt := PackedVector2Array()
+	for i in range(_path.size()):
+		if i == _path_index:
+			rebuilt.append(point)
+		rebuilt.append(_path[i])
+	_path = rebuilt
+
 
 func _move_toward(target: Vector2, delta: float) -> void:
 	_move_target = target

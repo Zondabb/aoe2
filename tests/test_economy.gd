@@ -10,6 +10,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_resource_extraction(failures)
 	_test_gather_and_drop_off(failures)
+	_test_berry_gather_range_allows_crowd_standoff(failures)
 	_test_drop_off_from_far_side_of_building(failures)
 	_test_drop_off_at_nav_stop_distance(failures)
 	_test_gather_switch_drops_off_first(failures)
@@ -70,6 +71,38 @@ func _test_gather_and_drop_off(failures: Array[String]) -> void:
 		failures.append("villager carry amount should never exceed capacity")
 	if villager.order != Enums.OrderType.GATHER:
 		failures.append("villager should return to gathering while the node has resources")
+
+	root.free()
+
+func _test_berry_gather_range_allows_crowd_standoff(failures: Array[String]) -> void:
+	# Villager radius 1.3 → old GATHER_RANGE 1.2 cannot fit a second gatherer at a
+	# center-targeted berry. Expanded range (~3.0) should start gathering at 2.5.
+	var tree := Engine.get_main_loop() as SceneTree
+	var root := Node2D.new()
+	tree.root.add_child(root)
+
+	var berry := RESOURCE_NODE_SCRIPT.new()
+	berry.resource_type = Enums.ResourceType.FOOD
+	berry.amount = 50.0
+	berry.gather_rate = 4.0
+	berry.sim_pos = Vector2.ZERO
+	root.add_child(berry)
+	berry._ready()
+
+	var villager := UNIT_VIEW.instantiate()
+	villager.def = VILLAGER_DEF
+	villager.team = Enums.Team.PLAYER
+	villager.sim_pos = Vector2(2.5, 0.0)
+	root.add_child(villager)
+	villager._ready()
+	villager.command_gather(berry)
+	villager._physics_process(0.05)
+
+	if String(villager.get("_gather_state")) != "gathering":
+		failures.append(
+			"berry gather range should allow standoff beyond old GATHER_RANGE, state=%s"
+			% villager.get("_gather_state")
+		)
 
 	root.free()
 

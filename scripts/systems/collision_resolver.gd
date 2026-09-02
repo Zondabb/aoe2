@@ -9,6 +9,8 @@ const UNIT_SEPARATION_EXTRA := 0.0
 ## Half-angle of the forward cone toward another unit/building (degrees).
 ## Move is blocked when angle(move, to_other) < this value; sideways/away is allowed.
 const DEFAULT_UNIT_BLOCK_ANGLE_DEGREES := 45.0
+## Rotate blocked forward aim by this much away from a friendly unit.
+const FRIENDLY_PEEL_ANGLE_DEGREES := 45.0
 
 static var _map_bounds_enabled := false
 static var _map_min := Vector2.ZERO
@@ -93,9 +95,21 @@ static func _blocks_unit_move(
 	units: Array,
 	ignore_units: Array
 ) -> bool:
+	return find_unit_blocker(from_pos, desired_pos, radius, unit, units, ignore_units) != null
+
+
+## First unit in the forward block cone (any team). Used by resolve_move.
+static func find_unit_blocker(
+	from_pos: Vector2,
+	desired_pos: Vector2,
+	radius: float,
+	unit: Object,
+	units: Array,
+	ignore_units: Array = []
+) -> Object:
 	var move := desired_pos - from_pos
 	if move.length_squared() < 0.0000001:
-		return false
+		return null
 	var move_dir := move.normalized()
 	var block_cos := cos(deg_to_rad(unit_block_angle_degrees))
 	for value in units:
@@ -104,22 +118,87 @@ static func _blocks_unit_move(
 			continue
 		if _is_ignored_unit(other, ignore_units):
 			continue
-		var other_pos: Vector2 = other.get("sim_pos")
-		var min_dist := min_unit_separation(radius, unit_radius(other))
-		var from_dist := from_pos.distance_to(other_pos)
-		var desired_dist := desired_pos.distance_to(other_pos)
-		# Only interact when already overlapping or about to enter the bubble.
-		if from_dist >= min_dist - 0.0001 and desired_dist >= min_dist - 0.0001:
+		if not _unit_blocks_step(from_pos, desired_pos, radius, move_dir, block_cos, other):
 			continue
-		var to_other := other_pos - from_pos
-		if to_other.length_squared() < 0.0000001:
-			# Coincident centers: no facing cone; allow unstacking.
+		return other
+	return null
+
+
+## Friendly dynamic unit that is hard-blocking this step (same team, has UnitDef).
+static func find_friendly_unit_blocker(
+	from_pos: Vector2,
+	desired_pos: Vector2,
+	radius: float,
+	unit: Object,
+	units: Array,
+	ignore_units: Array = []
+) -> Object:
+	var team_variant: Variant = unit.get("team") if unit != null else null
+	var move := desired_pos - from_pos
+	if move.length_squared() < 0.0000001:
+		return null
+	var move_dir := move.normalized()
+	var block_cos := cos(deg_to_rad(unit_block_angle_degrees))
+	for value in units:
+		var other := value as Object
+		if other == null or other == unit or not is_instance_valid(other):
 			continue
-		# Block when moving into the forward cone toward the other unit.
-		# angle < threshold  <=>  dot(move_dir, to_other_dir) > cos(threshold)
-		if move_dir.dot(to_other.normalized()) > block_cos + 0.0001:
-			return true
-	return false
+		if _is_ignored_unit(other, ignore_units):
+			continue
+		if other.get("def") as UnitDef == null:
+			continue
+		if team_variant != null and other.get("team") != team_variant:
+			continue
+		if not _unit_blocks_step(from_pos, desired_pos, radius, move_dir, block_cos, other):
+			continue
+		return other
+	return null
+
+
+static func _unit_blocks_step(
+	from_pos: Vector2,
+	desired_pos: Vector2,
+	radius: float,
+	move_dir: Vector2,
+	block_cos: float,
+	other: Object
+) -> bool:
+	var other_pos: Vector2 = other.get("sim_pos")
+	var min_dist := min_unit_separation(radius, unit_radius(other))
+	var from_dist := from_pos.distance_to(other_pos)
+	var desired_dist := desired_pos.distance_to(other_pos)
+	if from_dist >= min_dist - 0.0001 and desired_dist >= min_dist - 0.0001:
+		return false
+	var to_other := other_pos - from_pos
+	if to_other.length_squared() < 0.0000001:
+		return false
+	return move_dir.dot(to_other.normalized()) > block_cos + 0.0001
+
+
+## Rotate the forward aim ±45° and keep the side farther from the blocker (outward peel).
+static func friendly_peel_point(
+	from_pos: Vector2,
+	forward_point: Vector2,
+	other_pos: Vector2,
+	step_length: float
+) -> Vector2:
+	var length := maxf(step_length, 0.05)
+	var move := forward_point - from_pos
+	var move_dir: Vector2
+	if move.length_squared() < 0.0000001:
+		move_dir = from_pos - other_pos
+		if move_dir.length_squared() < 0.0000001:
+			move_dir = Vector2.RIGHT
+		else:
+			move_dir = move_dir.normalized()
+	else:
+		move_dir = move.normalized()
+	var angle := deg_to_rad(FRIENDLY_PEEL_ANGLE_DEGREES)
+	var plus := from_pos + move_dir.rotated(angle) * length
+	var minus := from_pos + move_dir.rotated(-angle) * length
+	if plus.distance_squared_to(other_pos) >= minus.distance_squared_to(other_pos):
+		return plus
+	return minus
 
 
 ## Same forward-cone rule as units: only block when the step closes on the

@@ -19,6 +19,8 @@ func run() -> Array[String]:
 	_test_unit_can_move_away(failures)
 	_test_unit_sideways_slide_allowed(failures)
 	_test_can_approach_until_separation_zone(failures)
+	_test_friendly_unit_blocker_detected(failures)
+	_test_friendly_peel_point_rotates_outward(failures)
 	_test_block_angle_is_configurable(failures)
 	_test_map_bounds_clamp(failures)
 	CollisionResolverScript.reset_unit_block_angle_degrees()
@@ -146,6 +148,40 @@ func _test_can_approach_until_separation_zone(failures: Array[String]) -> void:
 		failures.append(
 			"approach into separation zone in forward cone should stop, got %s" % resolved_inside
 		)
+
+func _test_friendly_unit_blocker_detected(failures: Array[String]) -> void:
+	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
+	mover.team = Enums.Team.PLAYER
+	var ally := _make_unit(Vector2(0.55, 0.0), 0.42)
+	ally.team = Enums.Team.PLAYER
+	var enemy := _make_unit(Vector2(0.55, 0.0), 0.42)
+	enemy.team = Enums.Team.AI
+	var from_pos := Vector2(0.0, 0.0)
+	var desired := Vector2(0.25, 0.0)
+	var friendly: Object = CollisionResolverScript.find_friendly_unit_blocker(
+		from_pos, desired, 0.42, mover, [mover, ally], []
+	)
+	if friendly != ally:
+		failures.append("same-team unit in forward cone should be the friendly blocker")
+	var as_enemy: Object = CollisionResolverScript.find_friendly_unit_blocker(
+		from_pos, desired, 0.42, mover, [mover, enemy], []
+	)
+	if as_enemy != null:
+		failures.append("enemy unit should not count as friendly blocker")
+
+func _test_friendly_peel_point_rotates_outward(failures: Array[String]) -> void:
+	var from_pos := Vector2(0.0, 0.0)
+	var forward := Vector2(1.0, 0.0)
+	var other := Vector2(0.5, 0.2)
+	var peel: Vector2 = CollisionResolverScript.friendly_peel_point(
+		from_pos, forward, other, 1.0
+	)
+	var straight := from_pos + (forward - from_pos).normalized() * 1.0
+	if peel.distance_squared_to(other) + 0.0001 < straight.distance_squared_to(other):
+		failures.append("peel point should be farther from blocker than straight ahead")
+	var angle := rad_to_deg((peel - from_pos).angle_to(forward - from_pos))
+	if absf(absf(angle) - 45.0) > 1.0:
+		failures.append("peel should rotate forward by about 45°, got %s deg" % angle)
 
 func _test_block_angle_is_configurable(failures: Array[String]) -> void:
 	var mover := _make_unit(Vector2(0.0, 0.0), 0.42)
