@@ -39,6 +39,22 @@ var print_vision_timing := false
 var _hint_label: Label
 var _timing_accum := 0.0
 var _last_timing_text := ""
+var _focus_units: Array[Node2D] = []
+
+
+func set_focus_units(units: Array) -> void:
+	_focus_units.clear()
+	for value in units:
+		var unit := value as Node2D
+		if unit != null and is_instance_valid(unit):
+			_focus_units.append(unit)
+	queue_redraw()
+
+
+func _unit_in_focus(unit: Node2D) -> bool:
+	if _focus_units.is_empty():
+		return true
+	return unit in _focus_units
 
 
 func _ready() -> void:
@@ -167,7 +183,8 @@ func _draw() -> void:
 func _draw_move_arrows() -> void:
 	if not is_inside_tree():
 		return
-	MovementDebugDrawScript.draw_unit_arrows(self, get_tree().get_nodes_in_group("units"))
+	var units := _focused_units_list()
+	MovementDebugDrawScript.draw_unit_arrows(self, units)
 
 
 func _draw_nav_grid_lines() -> void:
@@ -205,12 +222,9 @@ func _draw_block_cells() -> void:
 func _draw_unit_paths() -> void:
 	if not is_inside_tree():
 		return
-	var units: Array = get_tree().get_nodes_in_group("units")
+	var units := _focused_units_list()
 	var color_index := 0
-	for value in units:
-		var unit := value as Node2D
-		if unit == null or not is_instance_valid(unit):
-			continue
+	for unit in units:
 		if not unit.has_method("get_nav_path_debug"):
 			continue
 		var world_path: PackedVector2Array = unit.call("get_nav_path_debug")
@@ -231,11 +245,7 @@ func _draw_unit_paths() -> void:
 func _draw_vision_ranges() -> void:
 	if not is_inside_tree() or vision == null:
 		return
-	var units: Array = get_tree().get_nodes_in_group("units")
-	for value in units:
-		var unit := value as Node2D
-		if unit == null or not is_instance_valid(unit):
-			continue
+	for unit in _focused_units_list():
 		if float(unit.get("hp")) <= 0.0:
 			continue
 		var center: Vector2 = unit.get("sim_pos")
@@ -273,17 +283,14 @@ func _iso_circle_screen_points(center: Vector2, radius: float) -> PackedVector2A
 func _run_and_print_vision_timing() -> void:
 	if vision == null or not is_inside_tree():
 		_last_timing_text = "VisionService missing"
-		print("[vision] ", _last_timing_text)
+		#print("[vision] ", _last_timing_text)
 		_refresh_hint()
 		return
-	var units: Array = get_tree().get_nodes_in_group("units")
+	var units := _focused_units_list()
 	var observers := 0
 	var total_seen := 0
 	var t0 := Time.get_ticks_usec()
-	for value in units:
-		var unit := value as Object
-		if unit == null or not is_instance_valid(unit):
-			continue
+	for unit in units:
 		if float(unit.get("hp")) <= 0.0:
 			continue
 		observers += 1
@@ -298,12 +305,9 @@ func _run_and_print_vision_timing() -> void:
 	)
 	print("[vision] ", _last_timing_text)
 	var samples := 0
-	for value in units:
+	for unit in units:
 		if samples >= 5:
 			break
-		var unit := value as Object
-		if unit == null or not is_instance_valid(unit):
-			continue
 		if float(unit.get("hp")) <= 0.0:
 			continue
 		var radius := float(vision.vision_radius_of(unit))
@@ -316,6 +320,21 @@ func _run_and_print_vision_timing() -> void:
 		)
 		samples += 1
 	_refresh_hint()
+
+
+func _focused_units_list() -> Array[Node2D]:
+	var result: Array[Node2D] = []
+	if not is_inside_tree():
+		return result
+	for value in get_tree().get_nodes_in_group("units"):
+		var unit := value as Node2D
+		if unit == null or not is_instance_valid(unit):
+			continue
+		if float(unit.get("hp")) <= 0.0:
+			continue
+		if _unit_in_focus(unit):
+			result.append(unit)
+	return result
 
 
 func _hint_text() -> String:

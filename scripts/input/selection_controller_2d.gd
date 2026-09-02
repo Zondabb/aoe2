@@ -5,6 +5,7 @@ signal selection_changed(selected: Array)
 
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
+const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 const DRAG_THRESHOLD := 6.0
 const CLICK_RADIUS := 28.0
 const MOVE_MARKER_DURATION := 1.35
@@ -12,6 +13,10 @@ const MOVE_MARKER_DURATION := 1.35
 const FORMATION_SPACING := 3.3
 
 @export var camera_path: NodePath
+## 观战模式：可选中查看，但不响应右键移动/采集/攻击。
+@export var read_only := false
+## 为 true 时可选中任意阵营单位/建筑及资源（ai_vs_ai 观战）。
+@export var select_all_teams := false
 
 var _camera: Camera2D
 var _selected: Array[Node2D] = []
@@ -51,6 +56,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			mouse_event.pressed
 			and mouse_event.button_index == MOUSE_BUTTON_RIGHT
 		):
+			if read_only:
+				return
 			var enemy := _enemy_at_screen(mouse_event.position)
 			if enemy != null:
 				_issue_attack(enemy)
@@ -88,7 +95,7 @@ func _select_click(screen_position: Vector2, additive: bool) -> void:
 	var canvas_pos := _viewport_to_canvas(screen_position)
 	var closest: Node2D
 	var closest_distance := INF
-	for entity in _player_selectables():
+	for entity in _selectable_entities():
 		var distance := _pick_distance(entity, canvas_pos)
 		if distance < closest_distance:
 			closest = entity
@@ -102,7 +109,7 @@ func _select_click(screen_position: Vector2, additive: bool) -> void:
 func _select_box(box: Rect2, additive: bool) -> void:
 	if not additive:
 		_clear_selection(false)
-	for unit in _player_units():
+	for unit in _selectable_units():
 		if _entity_intersects_screen_box(unit, box):
 			_add_selection(unit, false)
 	_emit_selection_changed()
@@ -155,7 +162,7 @@ func _ensure_move_marker() -> void:
 func _match_root() -> Node:
 	var node: Node = self
 	while node != null:
-		if node.name == "Match":
+		if node.name == "Match" or node.name == "AiVsAi":
 			return node
 		node = node.get_parent()
 	return get_parent()
@@ -262,6 +269,22 @@ func _player_units() -> Array[Node2D]:
 			result.append(unit)
 	return result
 
+
+func _all_units() -> Array[Node2D]:
+	var result: Array[Node2D] = []
+	for node in get_tree().get_nodes_in_group("units"):
+		var unit := node as Node2D
+		if unit != null:
+			result.append(unit)
+	return result
+
+
+func _selectable_units() -> Array[Node2D]:
+	if select_all_teams:
+		return _all_units()
+	return _player_units()
+
+
 func _player_selectables() -> Array[Node2D]:
 	var result := _player_units()
 	for node in get_tree().get_nodes_in_group("buildings"):
@@ -274,6 +297,25 @@ func _player_selectables() -> Array[Node2D]:
 			result.append(resource)
 	return result
 
+
+func _all_selectables() -> Array[Node2D]:
+	var result := _all_units()
+	for node in get_tree().get_nodes_in_group("buildings"):
+		var building := node as Node2D
+		if building != null:
+			result.append(building)
+	for node in get_tree().get_nodes_in_group("resource_nodes"):
+		var resource := node as Node2D
+		if resource != null and resource.visible and resource.has_method("set_selected"):
+			result.append(resource)
+	return result
+
+
+func _selectable_entities() -> Array[Node2D]:
+	if select_all_teams:
+		return _all_selectables()
+	return _player_selectables()
+
 func get_selected_units() -> Array[Node2D]:
 	var result: Array[Node2D] = []
 	for entity in _selected:
@@ -284,6 +326,13 @@ func get_selected_units() -> Array[Node2D]:
 func get_selected_building() -> Node2D:
 	for entity in _selected:
 		if is_instance_valid(entity) and entity.is_in_group("buildings"):
+			return entity
+	return null
+
+
+func get_primary_selection() -> Node2D:
+	for entity in _selected:
+		if is_instance_valid(entity):
 			return entity
 	return null
 
@@ -306,7 +355,19 @@ func _clear_selection(notify := true) -> void:
 func _emit_selection_changed() -> void:
 	var snapshot: Array = []
 	snapshot.assign(_selected)
+	UnitDebugFocusScript.set_focus_from_selection(snapshot)
+	_sync_nav_debug_focus(snapshot)
 	selection_changed.emit(snapshot)
+
+
+func _sync_nav_debug_focus(selected: Array) -> void:
+	var focus_units: Array[Node2D] = []
+	for entity in selected:
+		if entity is Node2D and (entity as Node2D).is_in_group("units"):
+			focus_units.append(entity)
+	for node in get_tree().get_nodes_in_group("nav_debug_overlay"):
+		if node.has_method("set_focus_units"):
+			node.call("set_focus_units", focus_units)
 
 func _viewport_to_canvas(screen_position: Vector2) -> Vector2:
 	return get_viewport().get_canvas_transform().affine_inverse() * screen_position

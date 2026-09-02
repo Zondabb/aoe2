@@ -14,7 +14,9 @@ var match_state: MatchState
 var civ: CivDef
 var build_system: Node
 var selection: Node
+var read_only := false
 var _selected_building: Node2D
+var _status_label: Label
 
 @onready var _resources_label := %ResourcesLabel as Label
 @onready var _wood_digits := %WoodDigits as Aoe2DigitRow
@@ -45,12 +47,14 @@ func setup(
 	state: MatchState,
 	player_civ: CivDef,
 	system: Node,
-	selection_controller: Node
+	selection_controller: Node,
+	read_only_mode := false
 ) -> void:
 	match_state = state
 	civ = player_civ
 	build_system = system
 	selection = selection_controller
+	read_only = read_only_mode
 	_resources_label = get_node_or_null("%ResourcesLabel") as Label
 	_wood_digits = get_node_or_null("%WoodDigits") as Aoe2DigitRow
 	_food_digits = get_node_or_null("%FoodDigits") as Aoe2DigitRow
@@ -71,6 +75,8 @@ func setup(
 	_hp_label = get_node_or_null("%HpLabel") as Label
 	_count_label = get_node_or_null("%CountLabel") as Label
 	_command_grid = get_node_or_null("%CommandGrid") as GridContainer
+	if read_only:
+		_ensure_status_label()
 	_sync_hud_layout()
 	resized.connect(_on_hud_layout_dirty)
 	var vp := get_viewport()
@@ -89,6 +95,19 @@ func setup(
 	_refresh()
 	if match_state.winner != -1:
 		_on_winner_decided(match_state.winner)
+
+func _ensure_status_label() -> void:
+	if _status_label != null and is_instance_valid(_status_label):
+		return
+	var info_column := get_node_or_null("CommandPanel/Content/InfoColumn") as VBoxContainer
+	if info_column == null:
+		return
+	_status_label = Label.new()
+	_status_label.name = "StatusLabel"
+	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status_label.add_theme_color_override("font_color", Color(0.78, 0.86, 0.72, 1))
+	_status_label.add_theme_font_size_override("font_size", 13)
+	info_column.add_child(_status_label)
 
 func _on_hud_layout_dirty() -> void:
 	call_deferred("_sync_hud_layout")
@@ -184,16 +203,19 @@ func _refresh_info_panel() -> void:
 	var building: Node2D = (
 		selection.call("get_selected_building") as Node2D if selection != null else null
 	)
-	var total_count := units.size() + (1 if building != null else 0)
+	var primary: Node2D = (
+		selection.call("get_primary_selection") as Node2D if selection != null else null
+	)
+	var total_count := _selected_count(units, building, primary)
 	if total_count == 0:
 		_clear_info_panel()
 		return
-	var focus := _pick_info_entity(units, building)
+	var focus := _pick_info_entity(units, building, primary)
 	if focus == null:
 		_clear_info_panel()
 		return
 	var max_hp := _entity_max_hp(focus)
-	var current_hp := float(focus.get("hp"))
+	var current_hp := _entity_current_value(focus, max_hp)
 	_name_label.text = _entity_display_name(focus)
 	_hp_bar.max_value = maxf(max_hp, 1.0)
 	_hp_bar.value = clampf(current_hp, 0.0, _hp_bar.max_value)
@@ -202,6 +224,31 @@ func _refresh_info_panel() -> void:
 		_count_label.text = "×%d" % total_count if total_count > 1 else ""
 	if _portrait != null:
 		_portrait.texture = _entity_portrait(focus)
+	_refresh_status_label(focus, units)
+
+func _refresh_status_label(focus: Node2D, units: Array) -> void:
+	if not read_only or _status_label == null:
+		return
+	if focus == null:
+		_status_label.text = ""
+		return
+	if focus.is_in_group("units") and focus.has_method("get_inspect_summary"):
+		_status_label.text = focus.call("get_inspect_summary")
+	elif focus.is_in_group("resource_nodes"):
+		_status_label.text = "剩余 %.0f" % float(focus.get("amount"))
+	elif focus.is_in_group("buildings"):
+		var complete := bool(focus.get("is_complete"))
+		if complete:
+			_status_label.text = "建造完成"
+		else:
+			var building_def := focus.get("def") as BuildingDef
+			var build_time := building_def.build_time if building_def != null else 1.0
+			var pct := 100.0 * float(focus.get("build_progress")) / maxf(build_time, 0.001)
+			_status_label.text = "建造中 %.0f%%" % pct
+	elif units.size() > 1:
+		_status_label.text = "已选 %d 个单位" % units.size()
+	else:
+		_status_label.text = ""
 
 func _clear_info_panel() -> void:
 	if _name_label != null:
@@ -214,11 +261,24 @@ func _clear_info_panel() -> void:
 		_count_label.text = ""
 	if _portrait != null:
 		_portrait.texture = null
+	if _status_label != null:
+		_status_label.text = ""
 
-func _pick_info_entity(units: Array, building: Node2D) -> Node2D:
+func _selected_count(units: Array, building: Node2D, primary: Node2D) -> int:
+	if not units.is_empty():
+		return units.size()
+	if building != null:
+		return 1
+	if primary != null:
+		return 1
+	return 0
+
+func _pick_info_entity(units: Array, building: Node2D, primary: Node2D) -> Node2D:
 	if not units.is_empty():
 		return units[0] as Node2D
-	return building
+	if building != null:
+		return building
+	return primary
 
 func _entity_display_name(entity: Node2D) -> String:
 	var unit_def := entity.get("def") as UnitDef
@@ -227,7 +287,9 @@ func _entity_display_name(entity: Node2D) -> String:
 	var building_def := entity.get("def") as BuildingDef
 	if building_def != null:
 		return _building_display_name(building_def)
-	return ""
+	if entity.is_in_group("resource_nodes"):
+		return _resource_display_name(int(entity.get("resource_type")))
+	return entity.name
 
 func _building_display_name(building_def: BuildingDef) -> String:
 	match building_def.id:
@@ -250,6 +312,17 @@ func _building_display_name(building_def: BuildingDef) -> String:
 		_:
 			return String(building_def.id)
 
+func _resource_display_name(resource_type: int) -> String:
+	match resource_type:
+		Enums.ResourceType.FOOD:
+			return "浆果"
+		Enums.ResourceType.WOOD:
+			return "树木"
+		Enums.ResourceType.GOLD:
+			return "金矿"
+		_:
+			return "资源"
+
 func _entity_max_hp(entity: Node2D) -> float:
 	var unit_def := entity.get("def") as UnitDef
 	if unit_def != null:
@@ -259,7 +332,14 @@ func _entity_max_hp(entity: Node2D) -> float:
 		var entity_civ := entity.get("civ") as CivDef
 		var hp_multiplier := entity_civ.building_hp_mul if entity_civ != null else 1.0
 		return float(building_def.max_hp) * hp_multiplier
+	if entity.is_in_group("resource_nodes"):
+		return maxf(float(entity.get("amount")), 1.0)
 	return 0.0
+
+func _entity_current_value(entity: Node2D, max_hp: float) -> float:
+	if entity.is_in_group("resource_nodes"):
+		return clampf(float(entity.get("amount")), 0.0, max_hp)
+	return clampf(float(entity.get("hp")), 0.0, max_hp)
 
 func _entity_portrait(entity: Node2D) -> Texture2D:
 	var unit_def := entity.get("def") as UnitDef
@@ -305,7 +385,7 @@ func _rebuild_command_grid() -> void:
 	for child in _command_grid.get_children():
 		_command_grid.remove_child(child)
 		child.free()
-	if selection == null:
+	if read_only or selection == null:
 		return
 	var units: Array = selection.call("get_selected_units")
 	var has_player_villager := false
@@ -506,7 +586,7 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 func _match_root() -> Node:
 	var node: Node = self
 	while node != null:
-		if node.name == "Match":
+		if node.name == "Match" or node.name == "AiVsAi":
 			return node
 		node = node.get_parent()
 	return get_parent()

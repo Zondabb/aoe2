@@ -1,4 +1,12 @@
 # scripts/match/ai_vs_ai_bootstrap.gd
+## AI vs AI 验证场景入口（scenes/ai_vs_ai.tscn）。
+##
+## 启动流程：
+##   _ready → 地面 / Nav / Vision → 双方基地 → 相机 & 双 AiDirector → UI
+##   _finish_setup（deferred）→ 障碍网格 & 视野重建 → 寻路调试 overlay → 首次 AI tick
+##
+## 中国方挂在 Enums.Team.PLAYER，条顿方挂在 Enums.Team.AI；两方各一个 AiDirector，
+## 共用 decision_log，驱动逻辑见 scripts/systems/ai/ai_director.gd。
 extends Node
 
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
@@ -12,18 +20,22 @@ const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
+const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const AiDirectorScript := preload("res://scripts/systems/ai/ai_director.gd")
 const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
+const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 
 const GROUND_MIN := -60
 const GROUND_MAX := 60
 const GROUND_STEP := 8
 
 var match_state := MatchState.new()
+## 双方 AI 共用的决策日志，绑定右侧 AiDebugLog 面板。
 var decision_log := AiDecisionLogScript.new()
 
 
+## 场景启动总入口：先搭世界，再生成实体，最后挂 AI 与 UI。
 func _ready() -> void:
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
@@ -31,14 +43,15 @@ func _ready() -> void:
 	_setup_nav()
 	_setup_vision()
 	_spawn_entities()
-	call_deferred("_finish_nav_setup")
-	call_deferred("_finish_vision_setup")
+	# 等 Nav/Vision holder 进树后再 rebuild，避免空网格。
+	call_deferred("_finish_setup")
 	_focus_camera()
 	_setup_ais()
 	_setup_debug_panel()
 	_setup_hud()
 
 
+## 创建 NavGridService（A* 寻路），地图范围与 GROUND_* 一致。
 func _setup_nav() -> void:
 	var holder := NavServiceHolderScript.new()
 	holder.name = "NavService"
@@ -48,6 +61,7 @@ func _setup_nav() -> void:
 		match_root.call_deferred("add_child", holder)
 
 
+## 创建视野服务（Fog / 空间查询），供调试 overlay 与 AI 探敌。
 func _setup_vision() -> void:
 	var holder := VisionServiceHolderScript.new()
 	holder.name = "VisionService"
@@ -57,19 +71,40 @@ func _setup_vision() -> void:
 		match_root.call_deferred("add_child", holder)
 
 
-func _finish_nav_setup() -> void:
-	var holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
-	if holder != null:
-		holder.rebuild_from_scene()
+## 实体生成后的收尾：烘焙障碍、挂 G 键调试层、立刻跑一轮 AI（不必等 0.5s tick）。
+func _finish_setup() -> void:
+	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	if nav_holder != null:
+		nav_holder.rebuild_from_scene()
+	var vision_holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	if vision_holder != null:
+		vision_holder.rebuild_from_scene()
+	_setup_debug_overlay()
 	_kick_ais()
 
 
-func _finish_vision_setup() -> void:
-	var holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
-	if holder != null:
-		holder.rebuild_from_scene()
+## 按 G/N/B/P… 切换的 NavDebugOverlay；与 PathfindingDebugPanel 绑定。
+func _setup_debug_overlay() -> void:
+	var match_root := get_parent()
+	if match_root == null:
+		return
+	if get_tree().get_first_node_in_group("nav_debug_overlay") != null:
+		return
+	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	var vision_holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	var overlay := NavDebugOverlayScript.new()
+	overlay.name = "NavDebugOverlay"
+	if nav_holder != null:
+		overlay.nav = nav_holder.nav
+	if vision_holder != null:
+		overlay.vision = vision_holder.vision
+	match_root.add_child(overlay)
+	var panel := match_root.get_node_or_null("UILayer/PathfindingDebugPanel")
+	if panel != null:
+		panel.call_deferred("_bind_overlay")
 
 
+## Nav 网格就绪后手动触发 evaluate，避免 AI 在首 tick 前空转。
 func _kick_ais() -> void:
 	var match_root := get_parent()
 	if match_root == null:
@@ -88,6 +123,7 @@ func _focus_camera() -> void:
 		camera.call("focus_on", Vector2.ZERO)
 
 
+## 程序化铺草地贴图（与 match_2d 同逻辑）。
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D
 	if ground == null:
@@ -117,6 +153,7 @@ func _setup_ground() -> void:
 		lx += GROUND_STEP
 
 
+## 对称生成双方开局：中国 (-40,-40) vs 条顿 (40,40)。
 func _spawn_entities() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D
 	if entities == null or entities.get_child_count() > 0:
@@ -131,6 +168,8 @@ func _spawn_entities() -> void:
 	)
 
 
+## 单方基地包：城镇中心 + 起始村民 + 附近三资源。
+## direction：资源/村民相对 TC 的摆放方向（中国 +1，条顿 -1 镜像）。
 func _spawn_base(
 	entities: Node2D,
 	team: Enums.Team,
@@ -168,17 +207,17 @@ func _spawn_base(
 
 	_spawn_resource(
 		entities, "%sFoodBush" % prefix, Enums.ResourceType.FOOD,
-		origin + Vector2(9.0, 2.0) * direction,
+		origin + Vector2(15.0, 20.0) * direction,
 		Color(0.35, 0.75, 0.20)
 	)
 	_spawn_resource(
 		entities, "%sTree" % prefix, Enums.ResourceType.WOOD,
-		origin + Vector2(7.0, -6.0) * direction,
+		origin + Vector2(15.0, -10.0) * direction,
 		Color(0.12, 0.42, 0.12)
 	)
 	_spawn_resource(
 		entities, "%sGoldMine" % prefix, Enums.ResourceType.GOLD,
-		origin + Vector2(5.0, 9.0) * direction,
+		origin + Vector2(-15.0, 10.0) * direction,
 		Color(0.92, 0.72, 0.12)
 	)
 
@@ -213,6 +252,7 @@ func _make_marker(color: Color) -> Polygon2D:
 	return marker
 
 
+## 创建 ChineseAi / TeutonsAi 两个 AiDirector，每 0.5s evaluate 发 command_*。
 func _setup_ais() -> void:
 	var match_root := get_parent()
 	if match_root == null:
@@ -248,18 +288,28 @@ func _setup_ais() -> void:
 	)
 
 
+## 右侧 RichTextLabel 订阅 decision_log。
 func _setup_debug_panel() -> void:
 	var panel := get_node_or_null("../UILayer/AiDebugLog") as RichTextLabel
 	if panel != null and panel.has_method("setup"):
 		panel.call("setup", decision_log)
 
 
+## 顶部资源条等 HUD；隐藏胜负面板（本场景无玩家操作）。
 func _setup_hud() -> void:
-	var hud := get_node_or_null("../UILayer/HUD") as Control
+	var match_root := get_parent()
+	if match_root == null:
+		return
+	UnitDebugFocusScript.set_spectator_mode(true)
+	var selection := match_root.get_node_or_null("UILayer/SelectionController") as Control
+	var hud := match_root.get_node_or_null("UILayer/HUD") as Control
 	if hud == null:
 		return
 	if hud.has_method("setup"):
-		hud.call("setup", match_state, CHINESE_CIV, null, null)
+		hud.call("setup", match_state, CHINESE_CIV, null, selection, true)
 	var result_panel := hud.get_node_or_null("ResultPanel") as Control
 	if result_panel != null:
 		result_panel.visible = false
+	var unit_log := match_root.get_node_or_null("UILayer/UnitDebugLog") as RichTextLabel
+	if unit_log != null and unit_log.has_method("bind_selection") and selection != null:
+		unit_log.call("bind_selection", selection)

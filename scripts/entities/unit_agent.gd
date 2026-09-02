@@ -39,6 +39,7 @@ const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
@@ -205,6 +206,7 @@ func command_move(target: Vector2) -> void:
 	_stuck_repath_attempts = 0
 	_request_nav_path(target)
 	order = Enums.OrderType.MOVE
+	_unit_log("order", "MOVE target=%s" % target)
 
 func command_stop() -> void:
 	_move_target = Vector2.ZERO
@@ -222,6 +224,7 @@ func command_stop() -> void:
 	order = Enums.OrderType.NONE
 	_clear_move_debug()
 	_update_idle_animation(0.0)
+	_unit_log("order", "STOP")
 
 func command_gather(resource: Node2D) -> void:
 	if resource == null or float(resource.get("amount")) <= 0.0:
@@ -240,6 +243,7 @@ func command_gather(resource: Node2D) -> void:
 	_drop_off_target = null
 	_gather_state = "to_resource"
 	order = Enums.OrderType.GATHER
+	_unit_log("order", "GATHER resource=%s" % resource.name)
 
 func command_build(building: Node2D) -> void:
 	if (
@@ -255,6 +259,7 @@ func command_build(building: Node2D) -> void:
 	_drop_off_target = null
 	_gather_state = ""
 	order = Enums.OrderType.BUILD
+	_unit_log("order", "BUILD target=%s" % building.name)
 
 func command_attack(target: Node) -> void:
 	var target_2d := target as Node2D
@@ -272,6 +277,7 @@ func command_attack(target: Node) -> void:
 	_build_target = null
 	_gather_state = ""
 	order = Enums.OrderType.ATTACK
+	_unit_log("order", "ATTACK target=%s" % target_2d.name)
 
 func _process_attack(delta: float) -> void:
 	if _combat_action == &"die":
@@ -436,6 +442,7 @@ func _process_gather(delta: float) -> void:
 				_finish_or_drop_off()
 			elif _gather_reach_distance(_gather_target) <= GATHER_RANGE:
 				_gather_state = "gathering"
+				_unit_log("gather", "reached resource, gathering")
 				_face_toward(_gather_target.get("sim_pos"), delta, true)
 			else:
 				_move_toward(_gather_approach_point(_gather_target), delta)
@@ -581,7 +588,11 @@ func _building_interaction_range(building: Node2D) -> float:
 func _drop_off_log(message: String, details: Dictionary = {}) -> void:
 	if not DEBUG_DROP_OFF:
 		return
-	print("[drop-off] %s %s sim_pos=%s" % [name, message, sim_pos], details)
+	_unit_log("drop-off", message, details)
+
+
+func _unit_log(channel: String, message: String, details: Dictionary = {}) -> void:
+	UnitDebugFocusScript.log(self, channel, message, details)
 
 func _drop_off_log_throttled(message: String, details: Dictionary = {}) -> void:
 	if not DEBUG_DROP_OFF or _drop_off_debug_timer > 0.0:
@@ -856,6 +867,7 @@ func _try_recover_from_stuck() -> bool:
 		_request_nav_path_avoiding_crowd(_move_target)
 	else:
 		_request_nav_path(_move_target)
+	_unit_log("move", "stuck recover repath=%d" % _stuck_repath_attempts)
 	return true
 
 
@@ -978,6 +990,58 @@ func get_move_debug() -> Dictionary:
 		"stuck": moving and _no_progress_frames > 0,
 		"pending": _path_pending,
 	}
+
+
+func get_inspect_summary() -> String:
+	var team_name := "玩家" if team == Enums.Team.PLAYER else "AI"
+	var lines: PackedStringArray = ["阵营: %s" % team_name]
+	lines.append("order=%s" % _order_name(order))
+	if order == Enums.OrderType.GATHER and not _gather_state.is_empty():
+		lines.append("gather=%s carry=%.0f" % [_gather_state, carry_amount])
+	if order == Enums.OrderType.BUILD and is_instance_valid(_build_target):
+		lines.append("建造中")
+	if order == Enums.OrderType.ATTACK and is_instance_valid(_attack_target):
+		lines.append("攻击 %s" % _attack_target.name)
+	if _path_pending:
+		lines.append("寻路等待")
+	elif not _path.is_empty():
+		lines.append("路径 %d/%d" % [_path_index + 1, _path.size()])
+	if _no_progress_frames > 0:
+		lines.append("无进展 %d 帧" % _no_progress_frames)
+	return "\n".join(lines)
+
+
+func get_inspect_debug_line() -> String:
+	var dbg := get_move_debug()
+	return (
+		"order=%s gather=%s pos=%s path=%d/%d stuck=%s pending=%s"
+		% [
+			_order_name(order),
+			_gather_state if order == Enums.OrderType.GATHER else "-",
+			sim_pos,
+			_path_index,
+			_path.size(),
+			dbg.get("stuck", false),
+			dbg.get("pending", false),
+		]
+	)
+
+
+func _order_name(value: Enums.OrderType) -> String:
+	match value:
+		Enums.OrderType.NONE:
+			return "NONE"
+		Enums.OrderType.MOVE:
+			return "MOVE"
+		Enums.OrderType.GATHER:
+			return "GATHER"
+		Enums.OrderType.BUILD:
+			return "BUILD"
+		Enums.OrderType.ATTACK:
+			return "ATTACK"
+		_:
+			return "?"
+
 
 func _advance_path_waypoint() -> bool:
 	if _path_index + 1 < _path.size():
