@@ -1,0 +1,65 @@
+{
+  "name": "opening_eco",
+  "request": {
+    "protocol_version": 1,
+    "match_id": "parity_opening",
+    "team": 1,
+    "team_label": "Teutons",
+    "tick": 0,
+    "time_sec": 0.0,
+    "profile_id": "teutons",
+    "enemy_team": 0,
+    "events": [],
+    "observation": {
+      "economy": {
+        "food": 200,
+        "wood": 200,
+        "gold": 100,
+        "pop_used": 4,
+        "pop_cap": 5
+      },
+      "derived": {
+        "own_tc_id": 1,
+        "own_tc_pos": [40.0, 40.0],
+        "enemy_tc_id": 2,
+        "enemy_tc_pos": [-40.0, -40.0],
+        "threat_near_base": false,
+        "villager_count": 4,
+        "military_count": 0,
+        "incomplete_buildings": 0,
+        "match_time_sec": 0.0
+      },
+      "entities": [
+        {
+          "id": 10,
+          "kind": "unit",
+          "def_id": "villager",
+          "team": 1,
+          "pos": [42.0, 40.0],
+          "hp": 25.0,
+          "max_hp": 25.0,
+          "order": "NONE"
+        },
+        {
+          "id": 1,
+          "kind": "building",
+          "def_id": "town_center",
+          "team": 1,
+          "pos": [40.0, 40.0],
+          "hp": 2400.0,
+          "max_hp": 2400.0,
+          "is_complete": true,
+          "train_queue_empty": true
+        },
+        {
+          "id": 20,
+          "kind": "resource",
+          "resource_type": "FOOD",
+          "pos": [55.0, 50.0],
+          "amount": 200.0
+        }
+      ]
+    }
+  },
+  "expected_ops": ["gather", "train"]
+}

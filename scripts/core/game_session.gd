@@ -7,3 +7,5 @@ var ai_service_url := ""
 var ai_service_timeout_sec := 2.0
 var ai_use_local_embedded := true
 var ai_protocol_version := 1
+var ai_service_token := ""
+var ai_use_tick_batch := true

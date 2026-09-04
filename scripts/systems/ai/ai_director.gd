@@ -1,3 +1,5 @@
+## DEPRECATED (P5): In-process AI runtime. Production matches use AiGateway + Python service.
+## Kept for fallback adapter (local_ai_server.gd) and legacy unit tests.
 class_name AiDirector
 extends Node
 
@@ -67,7 +69,7 @@ func setup(
 	_blackboard = AiBlackboardScript.new()
 	_ctx = AiRunContextScript.new()
 	_bind_context()
-	set_process(true)
+	set_process(false)
 	decision_log.log(0.0, team_label, "SETUP", "AI 已启动 (%s)" % (civ.id if civ != null else "unknown"))
 	if defer_evaluate:
 		call_deferred("evaluate")

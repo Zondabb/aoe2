@@ -19,6 +19,7 @@ const TEUTONS: CivDef = preload("res://data/civs/teutons.tres")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_local_server_health_route(failures)
+	_test_local_server_tick_batch_route(failures)
 	_test_adapter_tick_to_executor_gather(failures)
 	return failures
 
@@ -32,6 +33,21 @@ func _test_local_server_health_route(failures: Array[String]) -> void:
 		failures.append("LocalAiServer /health should return HTTP 200")
 	if not response.contains('"status"') or not response.contains("ok"):
 		failures.append("LocalAiServer /health body should contain status ok")
+	server.free()
+
+
+func _test_local_server_tick_batch_route(failures: Array[String]) -> void:
+	var server := LocalAiServerScript.new()
+	var adapter := AiServiceAdapterScript.new()
+	server.configure(AiConfigScript.new(), adapter)
+	var body := '{"protocol_version":1,"match_id":"m1","requests":[]}'
+	var request := "POST /v1/ai/tick_batch HTTP/1.1\r\nContent-Length: %d\r\n\r\n%s" % [
+		body.length(),
+		body,
+	]
+	var response := server._handle_http_request(request)
+	if not response.contains("200"):
+		failures.append("LocalAiServer /v1/ai/tick_batch should return HTTP 200")
 	server.free()
 
 

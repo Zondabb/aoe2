@@ -5,11 +5,14 @@ const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 8765
 const DEFAULT_TIMEOUT_SEC := 2.0
 const ENV_AI_URL := "AOE2_AI_URL"
+const ENV_AI_TOKEN := "AOE2_AI_TOKEN"
 
 var service_url := ""
 var timeout_sec := DEFAULT_TIMEOUT_SEC
 var use_local_embedded := true
 var protocol_version := 1
+var bearer_token := ""
+var use_tick_batch := true
 
 
 static func from_game_session() -> AiConfig:
@@ -18,6 +21,8 @@ static func from_game_session() -> AiConfig:
 	config.timeout_sec = maxf(0.5, float(GameSession.ai_service_timeout_sec))
 	config.use_local_embedded = bool(GameSession.ai_use_local_embedded)
 	config.protocol_version = int(GameSession.ai_protocol_version)
+	config.bearer_token = String(GameSession.ai_service_token).strip_edges()
+	config.use_tick_batch = bool(GameSession.ai_use_tick_batch)
 	config.apply_env_override()
 	config.finalize_urls()
 	return config
@@ -29,10 +34,12 @@ static func default_service_url() -> String:
 
 func apply_env_override() -> void:
 	var env_url := OS.get_environment(ENV_AI_URL).strip_edges()
-	if env_url.is_empty():
-		return
-	service_url = env_url
-	use_local_embedded = false
+	if not env_url.is_empty():
+		service_url = env_url
+		use_local_embedded = false
+	var env_token := OS.get_environment(ENV_AI_TOKEN).strip_edges()
+	if not env_token.is_empty():
+		bearer_token = env_token
 
 
 func finalize_urls() -> void:
@@ -45,6 +52,8 @@ func save_to_game_session() -> void:
 	GameSession.ai_service_timeout_sec = timeout_sec
 	GameSession.ai_use_local_embedded = use_local_embedded
 	GameSession.ai_protocol_version = protocol_version
+	GameSession.ai_service_token = bearer_token
+	GameSession.ai_use_tick_batch = use_tick_batch
 
 
 static func from_civ_select(raw_url: String, use_embedded: bool) -> AiConfig:
@@ -74,6 +83,10 @@ func allows_embedded_fallback() -> bool:
 
 func tick_url() -> String:
 	return "%s/v1/ai/tick" % _base_url()
+
+
+func tick_batch_url() -> String:
+	return "%s/v1/ai/tick_batch" % _base_url()
 
 
 func match_start_url() -> String:

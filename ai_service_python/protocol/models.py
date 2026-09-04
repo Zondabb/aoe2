@@ -135,6 +135,29 @@ class TickResponse(BaseModel):
     debug: list[DebugEntry] = Field(default_factory=list)
 
 
+class TickBatchItem(BaseModel):
+    team: int
+    team_label: str = ""
+    tick: int
+    time_sec: float
+    profile_id: str = ""
+    enemy_team: int = 0
+    events: list[GameEvent] = Field(default_factory=list)
+    observation: Observation
+
+
+class TickBatchRequest(BaseModel):
+    protocol_version: int = PROTOCOL_VERSION
+    match_id: str
+    requests: list[TickBatchItem]
+
+
+class TickBatchResponse(BaseModel):
+    protocol_version: int = PROTOCOL_VERSION
+    match_id: str
+    responses: list[TickResponse]
+
+
 class MatchStartRequest(BaseModel):
     protocol_version: int = PROTOCOL_VERSION
     match_id: str

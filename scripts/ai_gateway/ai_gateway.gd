@@ -15,6 +15,7 @@ const HttpAiClientScript := preload("res://scripts/ai_gateway/http_ai_client.gd"
 const LocalAiServerScript := preload("res://scripts/ai_gateway/local_ai_server.gd")
 const AiServiceAdapterScript := preload("res://scripts/ai_gateway/ai_service_adapter.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
+const AiGatewayMetricsScript := preload("res://scripts/ai_gateway/ai_gateway_metrics.gd")
 const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
 const CivAiProfileScript := preload("res://scripts/data/civ_ai_profile.gd")
 
@@ -22,6 +23,7 @@ var match_state: MatchState
 var entities: Node2D
 var config: AiConfig
 var decision_log: AiDecisionLog
+var metrics
 var match_id := ""
 var match_time := 0.0
 var tick := 0
@@ -50,6 +52,7 @@ func setup(
 	entities = entities_root
 	config = gateway_config if gateway_config != null else AiConfigScript.from_game_session()
 	decision_log = shared_log if shared_log != null else AiDecisionLogScript.new()
+	metrics = AiGatewayMetricsScript.new()
 	_teams.clear()
 	for team_entry in teams:
 		if team_entry is Dictionary:
@@ -72,15 +75,15 @@ func _init_runtime() -> void:
 	_adapter = AiServiceAdapterScript.new()
 	_adapter.configure(match_state, entities, decision_log)
 
-	_local_server = LocalAiServerScript.new()
-	_local_server.name = "LocalAiServer"
-	_local_server.configure(config, _adapter)
-	add_child(_local_server)
-
 	_http_client = HttpAiClientScript.new()
 	_http_client.name = "HttpAiClient"
 	add_child(_http_client)
 	_http_client.configure(config)
+
+	_local_server = LocalAiServerScript.new()
+	_local_server.name = "LocalAiServer"
+	_local_server.configure(config, _adapter, _http_client)
+	add_child(_local_server)
 
 	for team_entry in _teams:
 		var team := int(team_entry.get("team", Enums.Team.AI))
@@ -90,6 +93,7 @@ func _init_runtime() -> void:
 		ctx.entities = entities
 		ctx.team = team
 		ctx.civ = civ
+		ctx.metrics = metrics
 		_exec_contexts[team] = ctx
 
 	call_deferred("_on_match_start")
@@ -100,6 +104,7 @@ func _on_match_start() -> void:
 		return
 	match_id = "m_%d" % int(Time.get_unix_time_from_system())
 	EventBufferScript.clear()
+	metrics.clear()
 	for ctx in _exec_contexts.values():
 		(ctx as CommandExecutionContext).clear_command_history()
 
@@ -130,14 +135,9 @@ func _on_match_start() -> void:
 
 func _ensure_ai_service() -> bool:
 	if config.use_local_embedded:
-		if _adapter == null:
-			return false
-		if not _local_server.is_running():
-			# Best-effort HTTP shim for external probes; direct adapter works without it.
-			_local_server.start()
 		config.service_url = AiConfigScript.default_service_url()
 		_http_client.configure(config)
-		return true
+		return await _local_server.start_async()
 
 	var health := await _http_client.get_health()
 	return health.get("ok") == true
@@ -162,9 +162,16 @@ func _process(delta: float) -> void:
 
 func _run_tick_requests(current_tick: int) -> void:
 	_request_in_flight = true
-	for team_entry in _teams:
-		await _request_tick_for_team(team_entry, current_tick)
+	if _should_use_tick_batch():
+		await _request_tick_batch(current_tick)
+	else:
+		for team_entry in _teams:
+			await _request_tick_for_team(team_entry, current_tick, EventBufferScript.drain())
 	_request_in_flight = false
+
+
+func _should_use_tick_batch() -> bool:
+	return config.use_tick_batch and _teams.size() >= 2
 
 
 func _execute_due_commands(current_tick: int) -> void:
@@ -199,7 +206,55 @@ func _apply_response(response: Dictionary) -> void:
 			)
 
 
-func _request_tick_for_team(team_entry: Dictionary, current_tick: int) -> void:
+func _request_tick_batch(current_tick: int) -> void:
+	var events := EventBufferScript.drain()
+	var requests: Array = []
+	for team_entry in _teams:
+		requests.append(_build_tick_payload(team_entry, current_tick, events))
+	var payload := {
+		"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
+		"match_id": match_id,
+		"requests": requests,
+	}
+	var started_usec := Time.get_ticks_usec()
+	var responses := await _http_client.post_tick_batch(payload)
+	if responses.is_empty() and config.use_local_embedded and _adapter != null:
+		responses = _adapter.handle_tick_batch(payload).get("responses", [])
+	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	if responses.is_empty():
+		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
+		return
+	metrics.record_tick_success(last_tick_latency_ms)
+	for response in responses:
+		if response is Dictionary:
+			_queue_response(response)
+
+
+func _request_tick_for_team(
+	team_entry: Dictionary, current_tick: int, events: Array
+) -> void:
+	var team := int(team_entry.get("team", Enums.Team.AI))
+	var request := _build_tick_payload(team_entry, current_tick, events)
+	var started_usec := Time.get_ticks_usec()
+	var response := await _http_client.post_tick(request)
+	if response.is_empty() and config.use_local_embedded and _adapter != null:
+		response = _adapter.handle_tick(request)
+	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	if response.is_empty():
+		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
+		return
+	metrics.record_tick_success(last_tick_latency_ms)
+	response["team"] = team
+	_pending_responses.append(response)
+
+
+func _queue_response(response: Dictionary) -> void:
+	var team := int(response.get("team", Enums.Team.AI))
+	response["team"] = team
+	_pending_responses.append(response)
+
+
+func _build_tick_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
 	var team := int(team_entry.get("team", Enums.Team.AI))
 	var enemy_team := int(team_entry.get("enemy_team", Enums.Team.PLAYER))
 	var civ: CivDef = team_entry.get("civ")
@@ -212,29 +267,25 @@ func _request_tick_for_team(team_entry: Dictionary, current_tick: int) -> void:
 		match_time,
 		profile.defend_radius if profile != null else 20.0,
 	)
-	var request := {
-		"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
-		"match_id": match_id,
+	return {
 		"team": team,
 		"team_label": String(team_entry.get("label", _team_label(team))),
 		"tick": current_tick,
 		"time_sec": match_time,
 		"profile_id": String(civ.id if civ != null else ""),
 		"enemy_team": enemy_team,
-		"events": EventBufferScript.drain(),
+		"events": events,
 		"observation": observation,
 	}
-	var started_usec := Time.get_ticks_usec()
-	var response: Dictionary
-	if config.use_local_embedded and _adapter != null:
-		response = _adapter.handle_tick(request)
-	else:
-		response = await _http_client.post_tick(request)
-	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
-	if response.is_empty():
+
+
+func _record_tick_skip(reason: String) -> void:
+	if metrics == null:
 		return
-	response["team"] = team
-	_pending_responses.append(response)
+	if reason in ["timeout", "http_408", "http_503", "network_error"]:
+		metrics.record_tick_skip("timeout")
+	else:
+		metrics.record_tick_skip(reason)
 
 
 func _teams_payload() -> Array:

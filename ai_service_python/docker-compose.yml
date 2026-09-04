@@ -1,0 +1,8 @@
+services:
+  ai-service:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      - AOE2_AI_TOKEN=${AOE2_AI_TOKEN:-}
+    restart: unless-stopped

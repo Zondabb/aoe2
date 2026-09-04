@@ -1,6 +1,6 @@
-# AoE2 RTS — Python AI Service (P4)
+# AoE2 RTS — Python AI Service
 
-独立 Python 进程，实现协议 v1 的 `/v1/ai/tick`，提供 **经济循环最小集**（采集 / 改派 / 训练村民 / ECO→BOOM→ATTACK 阶段机）。
+独立 Python 进程，实现协议 v1 的 HTTP AI 接口（`/v1/ai/tick`、`/v1/ai/tick_batch`）。
 
 ## 依赖
 
@@ -26,50 +26,58 @@ curl http://127.0.0.1:8765/health
 # {"status":"ok"}
 ```
 
+## Docker（P6）
+
+```bash
+cd ai_service_python
+docker compose up --build
+```
+
+游戏侧设置：
+
+- `GameSession.ai_use_local_embedded = false`
+- `GameSession.ai_service_url = "http://127.0.0.1:8765"`
+
+可选鉴权（服务端与客户端需一致）：
+
+```bash
+export AOE2_AI_TOKEN=your-secret
+# 游戏侧：GameSession.ai_service_token 或同环境变量
+```
+
 ## 测试
 
 ```bash
 cd ai_service_python
-pip install pytest
 pytest tests/ -v
+```
+
+负载测试（P6-9，默认 5 分钟双队 batch）：
+
+```bash
+pip install httpx
+python tools/load_test_tick_batch.py --base-url http://127.0.0.1:8765
 ```
 
 ## 游戏联调
 
-1. 启动 Python 服务（见上）
-2. 在 Godot 中设置 **不使用内嵌 AI**、URL 指向 Python：
-   - `GameSession.ai_use_local_embedded = false`
-   - `GameSession.ai_service_url = "http://127.0.0.1:8765"`
-   - 或在 civ_select 界面取消「使用内嵌服务」并填写 URL
-3. 运行 `scenes/ai_vs_ai.tscn`
-4. 右上角 AiGatewayStatus 应显示 `online`；浆果采完后 debug 日志应出现 `村民采集 wood`
-
-## 目录
-
-```text
-ai_service_python/
-  main.py                 # FastAPI 路由
-  requirements.txt
-  protocol/models.py      # Pydantic 协议模型
-  brain/
-    stores.py             # ObservationStore / EventStore
-    entity_queries.py     # 最近资源查询
-    economy_manager.py    # assign_gatherers
-    production_manager.py # 训练村民（ECO）
-    director.py           # 阶段机 + evaluate
-    command_builder.py    # commands / debug 输出
-  tests/
-    test_economy_food_depleted.py
-```
+1. 启动 Python 服务（或 Docker）
+2. 在 Godot 中设置 **不使用内嵌 AI**、URL 指向 Python
+3. 运行 `scenes/ai_vs_ai.tscn`（默认 `ai_use_tick_batch=true`，双 AI 单次 RTT）
+4. 右上角 AiGatewayStatus 应显示 `online`
 
 ## 协议
 
-与仓库根目录 `protocol/ai_v1.schema.json` 一致。示例请求见 `protocol/examples/tick_request.json`。
+- Schema：`protocol/ai_v1.schema.json`（v1 FROZEN）
+- 变更日志：`protocol/CHANGELOG.md`
+- 示例：`protocol/examples/tick_request.json`
 
-## 范围（P4）
+## 范围（P4–P6）
 
 - ✅ GET `/health`
-- ✅ POST `/v1/ai/match/start`, `/v1/ai/match/end`, `/v1/ai/tick`
-- ✅ 经济采集 + 浆果耗尽改派木头
-- ✅ ECO / BOOM / ATTACK 阶段机（简化）
-- ❌ Build / Army / Combat 全量（P5）
+- ✅ POST `/v1/ai/match/start`, `/match/end`, `/tick`, `/tick_batch`
+- ✅ Economy / Production / Build / Army / Combat managers
+- ✅ DEFEND 回防 + `threat_near_base` 阶段切换
+- ✅ 视野过滤 observation（游戏侧 VisionService）
+- ✅ Gateway metrics、Bearer 鉴权、结构化日志
+- ✅ Docker / docker-compose

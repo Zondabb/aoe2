@@ -74,6 +74,22 @@ func handle_tick(request: Dictionary) -> Dictionary:
 	}
 
 
+func handle_tick_batch(payload: Dictionary) -> Dictionary:
+	var match_id := String(payload.get("match_id", ""))
+	var responses: Array = []
+	for item in payload.get("requests", []):
+		if not (item is Dictionary):
+			continue
+		var request := (item as Dictionary).duplicate(true)
+		request["match_id"] = match_id
+		responses.append(handle_tick(request))
+	return {
+		"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
+		"match_id": match_id,
+		"responses": responses,
+	}
+
+
 func _get_or_create_director(
 	match_id: String,
 	team: Enums.Team,

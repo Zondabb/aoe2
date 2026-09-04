@@ -8,6 +8,7 @@ var config: AiConfig
 var _http: HTTPRequest
 var _active := false
 var _active_result: Dictionary = {}
+var last_error := ""
 
 
 func _ready() -> void:
@@ -45,14 +46,38 @@ func post_match_end(payload: Dictionary) -> Dictionary:
 func post_tick(request_dict: Dictionary, retry: bool = true) -> Dictionary:
 	var response := await _request_json("POST", config.tick_url(), request_dict)
 	if response.get("ok") == true:
+		last_error = ""
 		return response.get("body", {}) as Dictionary
 	if retry and _should_retry(response):
 		push_warning("AI tick request failed (%s), retrying once" % response.get("reason", ""))
 		response = await _request_json("POST", config.tick_url(), request_dict)
 		if response.get("ok") == true:
+			last_error = ""
 			return response.get("body", {}) as Dictionary
-	push_warning("AI tick skipped: %s" % response.get("reason", "unknown"))
+	last_error = String(response.get("reason", "unknown"))
+	push_warning("AI tick skipped: %s" % last_error)
 	return {}
+
+
+func post_tick_batch(request_dict: Dictionary, retry: bool = true) -> Array:
+	var response := await _request_json("POST", config.tick_batch_url(), request_dict)
+	if response.get("ok") == true:
+		last_error = ""
+		var body: Dictionary = response.get("body", {}) as Dictionary
+		var responses: Array = body.get("responses", [])
+		return responses
+	if retry and _should_retry(response):
+		push_warning(
+			"AI tick_batch request failed (%s), retrying once" % response.get("reason", "")
+		)
+		response = await _request_json("POST", config.tick_batch_url(), request_dict)
+		if response.get("ok") == true:
+			last_error = ""
+			var body: Dictionary = response.get("body", {}) as Dictionary
+			return body.get("responses", [])
+	last_error = String(response.get("reason", "unknown"))
+	push_warning("AI tick_batch skipped: %s" % last_error)
+	return []
 
 
 func _should_retry(response: Dictionary) -> bool:
@@ -87,7 +112,8 @@ func _request_json(method: String, url: String, payload: Dictionary) -> Dictiona
 			return {"ok": false, "reason": "tree_exited"}
 	_active = true
 	_active_result = {}
-	var headers := PackedStringArray(["Content-Type: application/json"])
+	last_error = ""
+	var headers := _auth_headers()
 	var body := ""
 	if method != "GET":
 		body = JSON.stringify(AiProtocolScript.json_safe(payload))
@@ -149,6 +175,10 @@ func _on_request_completed(
 		_active_result = {
 			"ok": false, "reason": "http_400", "status": response_code, "body": parsed
 		}
+	elif response_code == 401:
+		_active_result = {
+			"ok": false, "reason": "http_401", "status": response_code, "body": parsed
+		}
 	elif response_code < 200 or response_code >= 300:
 		_active_result = {
 			"ok": false,
@@ -163,3 +193,10 @@ func _on_request_completed(
 			"body": parsed if parsed is Dictionary else {},
 		}
 	_active = false
+
+
+func _auth_headers() -> PackedStringArray:
+	var headers := PackedStringArray(["Content-Type: application/json"])
+	if config != null and not config.bearer_token.is_empty():
+		headers.append("Authorization: Bearer %s" % config.bearer_token)
+	return headers

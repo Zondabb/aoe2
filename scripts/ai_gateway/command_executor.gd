@@ -17,6 +17,8 @@ static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary
 	var validation := CommandValidatorScript.validate(cmd, ctx)
 	if not validation.ok:
 		push_warning("AI command rejected (%s): %s" % [validation.reason, str(cmd)])
+		if ctx.metrics != null:
+			ctx.metrics.record_command_reject()
 		return _result(false, validation.reason)
 
 	var op := AiProtocolScript.op_from_string(String(cmd.get("op", "")))

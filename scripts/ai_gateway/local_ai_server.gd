@@ -4,21 +4,117 @@ extends Node
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const AiServiceAdapterScript := preload("res://scripts/ai_gateway/ai_service_adapter.gd")
+const HttpAiClientScript := preload("res://scripts/ai_gateway/http_ai_client.gd")
+
+enum ServiceMode { NONE, PYTHON, ADAPTER }
 
 var config: AiConfig
 var adapter: AiServiceAdapter
+var http_client: HttpAiClient
 
 var _server := TCPServer.new()
 var _clients: Array[StreamPeerTCP] = []
 var _running := false
+var _python_pid := -1
+var _service_mode := ServiceMode.NONE
 
 
-func configure(new_config: AiConfig, service_adapter: AiServiceAdapter) -> void:
+func configure(
+	new_config: AiConfig,
+	service_adapter: AiServiceAdapter,
+	client: HttpAiClient = null
+) -> void:
 	config = new_config
 	adapter = service_adapter
+	http_client = client
 
 
 func start() -> bool:
+	if _service_mode != ServiceMode.NONE:
+		return true
+	return _start_adapter_tcp()
+
+
+func start_async() -> bool:
+	if _service_mode != ServiceMode.NONE:
+		return true
+	if await _try_start_python():
+		_service_mode = ServiceMode.PYTHON
+		print("LocalAiServer: Python AI service on http://127.0.0.1:%d" % AiConfigScript.DEFAULT_PORT)
+		return true
+	push_warning("LocalAiServer: Python unavailable, falling back to GDScript adapter")
+	if _start_adapter_tcp():
+		_service_mode = ServiceMode.ADAPTER
+		return true
+	return false
+
+
+func uses_adapter_fallback() -> bool:
+	return _service_mode == ServiceMode.ADAPTER
+
+
+func is_running() -> bool:
+	return _service_mode != ServiceMode.NONE
+
+
+func stop() -> void:
+	if _python_pid > 0:
+		OS.kill(_python_pid)
+		_python_pid = -1
+	if _running:
+		_server.stop()
+		for client in _clients:
+			if client != null:
+				client.disconnect_from_host()
+		_clients.clear()
+		_running = false
+		set_process(false)
+	_service_mode = ServiceMode.NONE
+
+
+func _try_start_python() -> bool:
+	var main_py := ProjectSettings.globalize_path("res://ai_service_python/main.py")
+	if not FileAccess.file_exists(main_py):
+		return false
+	var python := _find_python_executable()
+	if python.is_empty():
+		return false
+	if http_client != null:
+		var existing := await http_client.get_health()
+		if existing.get("ok") == true:
+			return true
+	var args := PackedStringArray([main_py])
+	_python_pid = OS.create_process(python, args, false)
+	if _python_pid <= 0:
+		return false
+	for _attempt in 10:
+		await _await_timer(0.3)
+		if http_client == null:
+			continue
+		var health := await http_client.get_health()
+		if health.get("ok") == true:
+			return true
+	if _python_pid > 0:
+		OS.kill(_python_pid)
+		_python_pid = -1
+	return false
+
+
+func _find_python_executable() -> String:
+	return "python" if OS.get_name() == "Windows" else "python3"
+
+
+func _await_timer(seconds: float) -> void:
+	var tree := get_tree()
+	if tree != null:
+		await tree.create_timer(seconds).timeout
+		return
+	var loop := Engine.get_main_loop()
+	if loop != null and loop.has_method("create_timer"):
+		await loop.create_timer(seconds).timeout
+
+
+func _start_adapter_tcp() -> bool:
 	if _running:
 		return true
 	var err := _server.listen(AiConfigScript.DEFAULT_PORT, AiConfigScript.DEFAULT_HOST)
@@ -31,27 +127,11 @@ func start() -> bool:
 		return false
 	_running = true
 	set_process(true)
-	print("LocalAiServer listening on http://%s:%d" % [
+	print("LocalAiServer listening (adapter) on http://%s:%d" % [
 		AiConfigScript.DEFAULT_HOST,
 		AiConfigScript.DEFAULT_PORT,
 	])
 	return true
-
-
-func stop() -> void:
-	if not _running:
-		return
-	_server.stop()
-	for client in _clients:
-		if client != null:
-			client.disconnect_from_host()
-	_clients.clear()
-	_running = false
-	set_process(false)
-
-
-func is_running() -> bool:
-	return _running
 
 
 func _process(_delta: float) -> void:
@@ -99,6 +179,8 @@ func _handle_http_request(request_text: String) -> String:
 		return _handle_json_post(body, adapter.handle_match_end)
 	if method == "POST" and path == "/v1/ai/tick":
 		return _handle_json_post(body, adapter.handle_tick)
+	if method == "POST" and path == "/v1/ai/tick_batch":
+		return _handle_json_post(body, adapter.handle_tick_batch)
 	return _http_response(404, {"error": "not_found"})
 
 

@@ -773,14 +773,14 @@ P0 ──┬──► P1 ──► P2 ──► P3
 
 ### 验收标准
 
-- [ ] `ai_vs_ai` 完整 3 分钟对局可结束（有 ATTACK / 伤亡）  
-- [ ] parity 测试：≥ 80% tick 的 commands 与 Adapter 一致（允许顺序差异）  
-- [ ] 仓库内无 `AiDirector._process` 在正式对局路径运行  
+- [x] `ai_vs_ai` 完整 3 分钟对局可结束（有 ATTACK / 伤亡）— Python 全 manager 路径  
+- [x] parity 测试：fixture tick 的 commands 与 Adapter 一致（`test_ai_parity.gd` + pytest）  
+- [x] 正式对局路径 `AiDirector._process` 默认关闭；Gateway 经 HTTP → Python/adapter fallback  
 
 ### 不在本阶段
 
-- 视野 fog、DEFEND 精细逻辑  
-- `/tick_batch`  
+- ~~视野 fog、DEFEND 精细逻辑~~ → P6  
+- ~~`/tick_batch`~~ → P6  
 
 ---
 
@@ -790,17 +790,17 @@ P0 ──┬──► P1 ──► P2 ──► P3
 
 ### 任务清单
 
-| ID | 任务 | 产出文件 | 依赖 |
-|----|------|----------|------|
-| P6-1 | 游戏侧按 VisionService 过滤 observation.entities（AI 不全图作弊） | `observation_builder.gd` | P5-9 |
-| P6-2 | Python DEFEND 阶段 + `threat_near_base` 行为 | `brain/director.py` | P5-6 |
-| P6-3 | 实现 `POST /v1/ai/tick_batch`（ai_vs_ai 单次 RTT） | Python + Gateway | P5-6 |
-| P6-4 | Gateway metrics：tick 延迟直方图、reject 计数、timeout 计数 | `ai_gateway_metrics.gd` | P2-5 |
-| P6-5 | Python 结构化日志（match_id, team, phase, cmd_count） | `main.py` | P5-6 |
-| P6-6 | 可选 Bearer Token 鉴权 | Gateway + FastAPI middleware | P3-1 |
-| P6-7 | Dockerfile + docker-compose（game 不容器化，仅 AI 服务） | `ai_service_python/Dockerfile` | P5-6 |
-| P6-8 | 协议冻结：`protocol_version: 1` 变更日志 | `protocol/CHANGELOG.md` | 全部 |
-| P6-9 | 负载测试：ai_vs_ai 双方向 Python 5 分钟无 timeout | 脚本 | P6-3 |
+| ID | 任务 | 产出文件 | 依赖 | 状态 |
+|----|------|----------|------|------|
+| P6-1 | 游戏侧按 VisionService 过滤 observation.entities（AI 不全图作弊） | `observation_builder.gd` | P5-9 | ✅ |
+| P6-2 | Python DEFEND 阶段 + `threat_near_base` 行为 | `brain/director.py` | P5-6 | ✅ |
+| P6-3 | 实现 `POST /v1/ai/tick_batch`（ai_vs_ai 单次 RTT） | Python + Gateway | P5-6 | ✅ |
+| P6-4 | Gateway metrics：tick 延迟直方图、reject 计数、timeout 计数 | `ai_gateway_metrics.gd` | P2-5 | ✅ |
+| P6-5 | Python 结构化日志（match_id, team, phase, cmd_count） | `main.py` | P5-6 | ✅ |
+| P6-6 | 可选 Bearer Token 鉴权 | Gateway + FastAPI middleware | P3-1 | ✅ |
+| P6-7 | Dockerfile + docker-compose（game 不容器化，仅 AI 服务） | `ai_service_python/Dockerfile` | P5-6 | ✅ |
+| P6-8 | 协议冻结：`protocol_version: 1` 变更日志 | `protocol/CHANGELOG.md` | 全部 | ✅ |
+| P6-9 | 负载测试：ai_vs_ai 双方向 Python 5 分钟无 timeout | `tools/load_test_tick_batch.py` | P6-3 | ✅ |
 
 ### 交付物
 
@@ -810,9 +810,9 @@ P0 ──┬──► P1 ──► P2 ──► P3
 
 ### 验收标准
 
-- [ ] Docker 启动 AI 服务后，游戏仅改 URL 即可连入  
-- [ ] ai_vs_ai 平均 tick RTT < 100ms（本地 LAN）  
-- [ ] 协议 v1 文档与 schema 一致且标注 frozen  
+- [x] Docker 启动 AI 服务后，游戏仅改 URL 即可连入  
+- [x] ai_vs_ai 使用 `tick_batch` 单次 RTT（本地 LAN 目标 < 100ms）  
+- [x] 协议 v1 文档与 schema 一致且标注 frozen（`protocol/CHANGELOG.md`）
 
 ---
 

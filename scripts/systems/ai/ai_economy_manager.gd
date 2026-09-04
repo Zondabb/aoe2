@@ -1,3 +1,4 @@
+## DEPRECATED (P5): Use Python AI service; kept for LocalAiServer adapter fallback.
 class_name AiEconomyManager
 extends RefCounted
 

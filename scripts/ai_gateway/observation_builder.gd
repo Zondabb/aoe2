@@ -3,6 +3,7 @@ extends RefCounted
 
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
+const VisionServiceScript := preload("res://scripts/systems/vision_service.gd")
 
 const DEFAULT_DEFEND_RADIUS := 20.0
 
@@ -37,12 +38,16 @@ static func build(
 
 	var entity_snapshots: Array = []
 	var own_tc_pos := Vector2.ZERO
+	var vision := _vision_service(entities)
+	var observers := _team_observers(entities, team)
 
 	for node in entities.get_children():
 		var entity := node as Node2D
 		if entity == null:
 			continue
 		if entity.has_method("extract"):
+			if vision != null and not _resource_visible(entity, observers, vision):
+				continue
 			var resource_id := EntityRegistryScript.register(entity)
 			entity_snapshots.append(serialize_entity(entity, resource_id))
 			continue
@@ -62,6 +67,9 @@ static func build(
 						building.get("sim_pos")
 					)
 			if building_team != team:
+				if vision != null and not _is_entity_visible(entity, observers, vision):
+					continue
+				entity_snapshots.append(serialize_entity(building, building_id))
 				continue
 			entity_snapshots.append(serialize_entity(building, building_id))
 			if not bool(building.get("is_complete")):
@@ -69,14 +77,18 @@ static func build(
 			continue
 		if entity.get("def") is UnitDef:
 			var unit := entity
+			var unit_team: Enums.Team = unit.get("team")
 			var unit_id := EntityRegistryScript.register(unit)
-			entity_snapshots.append(serialize_entity(unit, unit_id))
-			if unit.get("team") != team:
+			if unit_team != team:
+				if vision != null and not _is_entity_visible(entity, observers, vision):
+					continue
+				entity_snapshots.append(serialize_entity(unit, unit_id))
 				if float(unit.get("hp")) > 0.0 and own_tc_pos != Vector2.ZERO:
 					var dist: float = own_tc_pos.distance_to(unit.get("sim_pos"))
 					if dist <= defend_radius:
 						derived["threat_near_base"] = true
 				continue
+			entity_snapshots.append(serialize_entity(unit, unit_id))
 			var unit_def := unit.get("def") as UnitDef
 			if unit_def != null and unit_def.id == &"villager":
 				derived["villager_count"] = int(derived["villager_count"]) + 1
@@ -213,3 +225,72 @@ static func _building_max_hp(entity: Node2D) -> float:
 	var entity_civ := entity.get("civ") as CivDef
 	var hp_multiplier := entity_civ.building_hp_mul if entity_civ != null else 1.0
 	return float(building_def.max_hp) * hp_multiplier
+
+
+static func _vision_service(from_node: Node = null) -> VisionServiceScript:
+	var tree: SceneTree = null
+	if from_node != null and is_instance_valid(from_node) and from_node.is_inside_tree():
+		tree = from_node.get_tree()
+	if tree == null:
+		tree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	var holders := tree.get_nodes_in_group("vision_service")
+	if holders.is_empty():
+		return null
+	var holder: Node = holders[0]
+	if holder.has_meta("vision"):
+		return holder.get_meta("vision") as VisionServiceScript
+	return holder.get("vision") as VisionServiceScript
+
+
+static func _team_observers(entities: Node2D, team: Enums.Team) -> Array:
+	var observers: Array = []
+	if entities == null:
+		return observers
+	for node in entities.get_children():
+		var entity := node as Node2D
+		if entity == null:
+			continue
+		if entity.get("team") != team:
+			continue
+		if float(entity.get("hp")) <= 0.0:
+			continue
+		if entity.get("is_placement_ghost") == true:
+			continue
+		if entity.get("def") is UnitDef or entity.get("def") is BuildingDef:
+			observers.append(entity)
+	return observers
+
+
+static func _is_entity_visible(
+	entity: Node2D,
+	observers: Array,
+	vision: VisionServiceScript
+) -> bool:
+	if observers.is_empty() or vision == null:
+		return true
+	for observer in observers:
+		if observer == null or not is_instance_valid(observer):
+			continue
+		for visible in vision.others_in_radius(observer):
+			if visible == entity:
+				return true
+	return false
+
+
+static func _resource_visible(
+	resource: Node2D,
+	observers: Array,
+	vision: VisionServiceScript
+) -> bool:
+	if observers.is_empty() or vision == null:
+		return true
+	var resource_pos: Vector2 = resource.get("sim_pos")
+	for observer in observers:
+		if observer == null or not is_instance_valid(observer):
+			continue
+		var radius := vision.vision_radius_of(observer)
+		if observer.get("sim_pos").distance_to(resource_pos) <= radius:
+			return true
+	return false

@@ -10,6 +10,7 @@ var team: Enums.Team = Enums.Team.AI
 var civ: CivDef
 var next_build_slot: int = 0
 var executed_command_ids: Dictionary = {}
+var metrics
 
 
 func clear_command_history() -> void:

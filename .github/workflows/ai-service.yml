@@ -1,0 +1,30 @@
+name: AI Service
+
+on:
+  push:
+    paths:
+      - "ai_service_python/**"
+      - "scripts/ai_gateway/**"
+      - "scripts/systems/ai/**"
+      - "tests/test_ai*.gd"
+      - "protocol/**"
+  pull_request:
+    paths:
+      - "ai_service_python/**"
+      - "scripts/ai_gateway/**"
+      - "scripts/systems/ai/**"
+      - "tests/test_ai*.gd"
+      - "protocol/**"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python deps
+        run: pip install -r ai_service_python/requirements.txt pytest
+      - name: Run pytest
+        run: pytest ai_service_python/tests/ -v

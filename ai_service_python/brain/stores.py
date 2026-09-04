@@ -11,6 +11,8 @@ GOLD = 2
 ORDER_NONE = "NONE"
 ORDER_GATHER = "GATHER"
 ORDER_BUILD = "BUILD"
+ORDER_ATTACK = "ATTACK"
+ORDER_MOVE = "MOVE"
 
 PHASE_ECO = 0
 PHASE_BOOM = 1
@@ -41,6 +43,9 @@ class Blackboard:
     team_villagers: list[dict[str, Any]] = field(default_factory=list)
     team_buildings: list[dict[str, Any]] = field(default_factory=list)
     resource_nodes: list[dict[str, Any]] = field(default_factory=list)
+    all_buildings: list[dict[str, Any]] = field(default_factory=list)
+    all_entities: list[dict[str, Any]] = field(default_factory=list)
+    entity_by_id: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
 class EventStore:
@@ -94,15 +99,21 @@ class ObservationStore:
         blackboard.team_villagers.clear()
         blackboard.team_buildings.clear()
         blackboard.resource_nodes.clear()
+        blackboard.all_buildings.clear()
+        blackboard.all_entities.clear()
+        blackboard.entity_by_id.clear()
 
         entity_by_id = {int(entity.get("id", -1)): entity for entity in self.entities}
+        blackboard.entity_by_id = entity_by_id
 
         for snapshot in self.entities:
+            blackboard.all_entities.append(snapshot)
             kind = str(snapshot.get("kind", ""))
             if kind == "resource":
                 blackboard.resource_nodes.append(snapshot)
                 continue
             if kind == "building":
+                blackboard.all_buildings.append(snapshot)
                 if int(snapshot.get("team", -1)) == team:
                     blackboard.team_buildings.append(snapshot)
                 continue
@@ -113,7 +124,6 @@ class ObservationStore:
                 if str(snapshot.get("def_id", "")) == "villager":
                     blackboard.team_villagers.append(snapshot)
 
-        # Attach resolved last_resource dict for gather logic.
         for villager in blackboard.team_villagers:
             last_id = villager.get("last_resource_id")
             if last_id is not None and int(last_id) in entity_by_id:

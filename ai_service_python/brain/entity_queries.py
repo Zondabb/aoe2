@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from brain.stores import FOOD, GOLD, WOOD, resource_type_from_name
+from brain.stores import resource_type_from_name
 
 
 def _pos(entity: dict[str, Any]) -> tuple[float, float]:
@@ -15,6 +15,17 @@ def _dist_sq(a: tuple[float, float], b: tuple[float, float]) -> float:
     dx = a[0] - b[0]
     dy = a[1] - b[1]
     return dx * dx + dy * dy
+
+
+def idle_villager(villagers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for villager in villagers:
+        if str(villager.get("order", "")) == "NONE":
+            return villager
+    return None
+
+
+def any_villager(villagers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return villagers[0] if villagers else None
 
 
 def nearest_resource(
@@ -119,3 +130,67 @@ def find_town_center(buildings: list[dict[str, Any]]) -> dict[str, Any] | None:
         if str(building.get("def_id", "")) == "town_center":
             return building
     return None
+
+
+def has_building(buildings: list[dict[str, Any]], building_id: str) -> bool:
+    for building in buildings:
+        if str(building.get("def_id", "")) == building_id:
+            return True
+    return False
+
+
+def has_incomplete_building(buildings: list[dict[str, Any]], building_id: str) -> bool:
+    for building in buildings:
+        if str(building.get("def_id", "")) != building_id:
+            continue
+        if not bool(building.get("is_complete", False)):
+            return True
+    return False
+
+
+def find_complete_building(
+    buildings: list[dict[str, Any]], building_id: str
+) -> dict[str, Any] | None:
+    for building in buildings:
+        if str(building.get("def_id", "")) != building_id:
+            continue
+        if bool(building.get("is_complete", False)):
+            return building
+    return None
+
+
+def find_enemy_town_center(
+    entities: list[dict[str, Any]], enemy_team: int
+) -> dict[str, Any] | None:
+    for entity in entities:
+        if entity.get("kind") != "building":
+            continue
+        if int(entity.get("team", -1)) != enemy_team:
+            continue
+        if str(entity.get("def_id", "")) == "town_center":
+            return entity
+    return None
+
+
+def nearest_hostile_in_radius(
+    unit: dict[str, Any],
+    entities: list[dict[str, Any]],
+    enemy_team: int,
+    radius: float,
+) -> dict[str, Any] | None:
+    unit_pos = _pos(unit)
+    nearest: dict[str, Any] | None = None
+    nearest_distance = math.inf
+    radius_sq = radius * radius
+    for entity in entities:
+        if entity.get("kind") not in ("unit", "building"):
+            continue
+        if int(entity.get("team", -1)) != enemy_team:
+            continue
+        if float(entity.get("hp", 0.0)) <= 0.0:
+            continue
+        distance = _dist_sq(unit_pos, _pos(entity))
+        if distance <= radius_sq and distance < nearest_distance:
+            nearest = entity
+            nearest_distance = distance
+    return nearest

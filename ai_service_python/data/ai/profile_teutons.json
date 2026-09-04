@@ -1,0 +1,17 @@
+{
+  "civ_id": "teutons",
+  "villager_target": 8,
+  "high_food_stockpile": 400,
+  "military_attack_count": 6,
+  "attack_time_seconds": 180.0,
+  "retarget_radius": 8.0,
+  "rally_radius": 6.0,
+  "build_order": ["house", "barracks", "archery_range", "stable"],
+  "army_composition": {
+    "swordsman": 3,
+    "teutonic_knight": 3
+  },
+  "unique_unit_priority": true,
+  "opening_seconds": 120.0,
+  "defend_radius": 20.0
+}

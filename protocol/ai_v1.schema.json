@@ -5,7 +5,9 @@
   "description": "HTTP JSON contract between Godot game and external AI service.",
   "oneOf": [
     { "$ref": "#/$defs/tick_request" },
-    { "$ref": "#/$defs/tick_response" }
+    { "$ref": "#/$defs/tick_response" },
+    { "$ref": "#/$defs/tick_batch_request" },
+    { "$ref": "#/$defs/tick_batch_response" }
   ],
   "$defs": {
     "protocol_version": {
@@ -242,6 +244,49 @@
               "message": { "type": "string" }
             }
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "tick_batch_request": {
+      "type": "object",
+      "required": ["protocol_version", "match_id", "requests"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "match_id": { "type": "string" },
+        "requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["team", "tick", "time_sec", "observation"],
+            "properties": {
+              "team": { "type": "integer" },
+              "team_label": { "type": "string" },
+              "tick": { "type": "integer" },
+              "time_sec": { "type": "number" },
+              "profile_id": { "type": "string" },
+              "enemy_team": { "type": "integer" },
+              "events": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/event" }
+              },
+              "observation": { "$ref": "#/$defs/observation" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "tick_batch_response": {
+      "type": "object",
+      "required": ["protocol_version", "match_id", "responses"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "match_id": { "type": "string" },
+        "responses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tick_response" }
         }
       },
       "additionalProperties": false
