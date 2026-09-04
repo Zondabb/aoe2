@@ -75,7 +75,7 @@ func _try_enqueue(ctx: AiRunContext, building: Node2D, unit_def: UnitDef) -> boo
 		return false
 	if not (building.get("train_queue") as Array).is_empty():
 		return false
-	return bool(building.call("enqueue_train", unit_def))
+	return ctx.issue_train(building, unit_def)
 
 
 func _find_building_for_unit(ctx: AiRunContext, unit_def: UnitDef) -> Node2D:

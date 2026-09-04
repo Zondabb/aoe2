@@ -462,9 +462,10 @@ static func pick_attack_target(unit, blackboard, profile) -> Node:
 
 ## References
 
-- 现有实现：`scripts/systems/ai_controller.gd`  
-- 战斗 micro：`scripts/systems/auto_combat_director.gd`  
-- 单位命令：`scripts/entities/unit_agent.gd`  
-- 对局启动：`scripts/match/match_bootstrap.gd`  
-- 寻路设计：`docs/superpowers/specs/2026-08-10-pathfinding-design.md`  
-- 碰撞设计：`docs/superpowers/specs/2026-08-08-unit-collision-design.md`  
+- 现有实现：`scripts/systems/ai/`（`AiDirector` 及 Managers）
+- **AI 与游戏分离（HTTP 服务、Python 实现）：** `docs/ai-service-design.md`
+- 战斗 micro：`scripts/systems/auto_combat_director.gd`
+- 单位命令：`scripts/entities/unit_agent.gd`
+- 对局启动：`scripts/match/match_bootstrap.gd`
+- 寻路设计：`docs/superpowers/specs/2026-08-10-pathfinding-design.md`
+- 碰撞设计：`docs/superpowers/specs/2026-08-08-unit-collision-design.md`

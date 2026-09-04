@@ -2,11 +2,11 @@
 ## AI vs AI 验证场景入口（scenes/ai_vs_ai.tscn）。
 ##
 ## 启动流程：
-##   _ready → 地面 / Nav / Vision → 双方基地 → 相机 & 双 AiDirector → UI
-##   _finish_setup（deferred）→ 障碍网格 & 视野重建 → 寻路调试 overlay → 首次 AI tick
+##   _ready → 地面 / Nav / Vision → 双方基地 → 相机 & AiGateway → UI
+##   _finish_setup（deferred）→ 障碍网格 & 视野重建 → 寻路调试 overlay
 ##
-## 中国方挂在 Enums.Team.PLAYER，条顿方挂在 Enums.Team.AI；两方各一个 AiDirector，
-## 共用 decision_log，驱动逻辑见 scripts/systems/ai/ai_director.gd。
+## 中国方挂在 Enums.Team.PLAYER，条顿方挂在 Enums.Team.AI；AiGateway 经 HTTP 驱动双方，
+## 共用 decision_log，本地 embedded 服务见 scripts/ai_gateway/local_ai_server.gd。
 extends Node
 
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
@@ -22,7 +22,8 @@ const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holde
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
-const AiDirectorScript := preload("res://scripts/systems/ai/ai_director.gd")
+const AiGatewayScript := preload("res://scripts/ai_gateway/ai_gateway.gd")
+const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
 const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 
@@ -46,8 +47,8 @@ func _ready() -> void:
 	# 等 Nav/Vision holder 进树后再 rebuild，避免空网格。
 	call_deferred("_finish_setup")
 	_focus_camera()
-	_setup_ais()
-	_setup_debug_panel()
+	# AiGateway 必须在父节点 _ready 结束后再 add_child，否则会被引擎拒绝入树。
+	call_deferred("_setup_ai_gateway")
 	_setup_hud()
 
 
@@ -71,7 +72,7 @@ func _setup_vision() -> void:
 		match_root.call_deferred("add_child", holder)
 
 
-## 实体生成后的收尾：烘焙障碍、挂 G 键调试层、立刻跑一轮 AI（不必等 0.5s tick）。
+## 实体生成后的收尾：烘焙障碍、挂 G 键调试层。
 func _finish_setup() -> void:
 	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
 	if nav_holder != null:
@@ -80,7 +81,6 @@ func _finish_setup() -> void:
 	if vision_holder != null:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
-	_kick_ais()
 
 
 ## 按 G/N/B/P… 切换的 NavDebugOverlay；与 PathfindingDebugPanel 绑定。
@@ -102,17 +102,6 @@ func _setup_debug_overlay() -> void:
 	var panel := match_root.get_node_or_null("UILayer/PathfindingDebugPanel")
 	if panel != null:
 		panel.call_deferred("_bind_overlay")
-
-
-## Nav 网格就绪后手动触发 evaluate，避免 AI 在首 tick 前空转。
-func _kick_ais() -> void:
-	var match_root := get_parent()
-	if match_root == null:
-		return
-	for ai_name in ["ChineseAi", "TeutonsAi"]:
-		var ai := match_root.get_node_or_null(ai_name)
-		if ai != null and ai.has_method("evaluate"):
-			ai.call("evaluate")
 
 
 func _focus_camera() -> void:
@@ -252,47 +241,50 @@ func _make_marker(color: Color) -> Polygon2D:
 	return marker
 
 
-## 创建 ChineseAi / TeutonsAi 两个 AiDirector，每 0.5s evaluate 发 command_*。
-func _setup_ais() -> void:
+## 创建 AiGateway：双方 team 各 tick，debug 来自 HTTP response。
+func _setup_ai_gateway() -> void:
 	var match_root := get_parent()
 	if match_root == null:
 		return
 	var entities := match_root.get_node_or_null("Entities") as Node2D
 	if entities == null:
 		return
-
-	var chinese_ai := AiDirectorScript.new()
-	chinese_ai.name = "ChineseAi"
-	match_root.add_child(chinese_ai)
-	chinese_ai.setup(
-		match_state,
-		entities,
-		CHINESE_CIV,
-		Enums.Team.PLAYER,
-		Enums.Team.AI,
-		"Chinese",
-		decision_log,
-	)
-
-	var teutons_ai := AiDirectorScript.new()
-	teutons_ai.name = "TeutonsAi"
-	match_root.add_child(teutons_ai)
-	teutons_ai.setup(
-		match_state,
-		entities,
-		TEUTONS_CIV,
-		Enums.Team.AI,
-		Enums.Team.PLAYER,
-		"Teutons",
-		decision_log,
-	)
+	if match_root.get_node_or_null("AiGateway") != null:
+		return
+	var gateway := AiGatewayScript.new()
+	gateway.name = "AiGateway"
+	match_root.add_child(gateway)
+	var teams: Array = [
+		{
+			"team": Enums.Team.PLAYER,
+			"enemy_team": Enums.Team.AI,
+			"civ": CHINESE_CIV,
+			"label": "Chinese",
+		},
+		{
+			"team": Enums.Team.AI,
+			"enemy_team": Enums.Team.PLAYER,
+			"civ": TEUTONS_CIV,
+			"label": "Teutons",
+		},
+	]
+	gateway.setup(match_state, entities, teams, AiConfigScript.from_game_session(), decision_log)
+	_setup_debug_panel(gateway)
 
 
-## 右侧 RichTextLabel 订阅 decision_log。
-func _setup_debug_panel() -> void:
-	var panel := get_node_or_null("../UILayer/AiDebugLog") as RichTextLabel
+## 右侧 RichTextLabel 订阅 decision_log；顶部显示 Gateway 状态。
+func _setup_debug_panel(gateway: Node = null) -> void:
+	var match_root := get_parent()
+	if match_root == null:
+		return
+	var panel := match_root.get_node_or_null("UILayer/AiDebugLog") as RichTextLabel
 	if panel != null and panel.has_method("setup"):
 		panel.call("setup", decision_log)
+	var status := match_root.get_node_or_null("UILayer/AiGatewayStatus") as Label
+	if gateway == null:
+		gateway = match_root.get_node_or_null("AiGateway")
+	if status != null and status.has_method("bind_gateway") and gateway != null:
+		status.call("bind_gateway", gateway)
 
 
 ## 顶部资源条等 HUD；隐藏胜负面板（本场景无玩家操作）。

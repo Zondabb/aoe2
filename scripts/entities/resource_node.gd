@@ -3,6 +3,9 @@ extends Node2D
 
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
+const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
+const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 
 @export var resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
 @export var amount := 100.0
@@ -71,12 +74,17 @@ func approach_point(from: Vector2, unit_radius: float = 0.35) -> Vector2:
 
 func _ready() -> void:
 	add_to_group("resource_nodes")
+	EntityRegistryScript.register(self)
 	if sim_pos == Vector2.ZERO:
 		sim_pos = position
 	IsoMathScript.sync_node(self, sim_pos)
 	block_half = pathfinding_footprint(resource_type) * 0.5
 	_setup_presentation()
 	set_selected(false)
+
+
+func _exit_tree() -> void:
+	EntityRegistryScript.unregister(self, "removed")
 
 func extract(delta: float) -> float:
 	if delta <= 0.0 or amount <= 0.0 or gather_rate <= 0.0:
@@ -86,8 +94,20 @@ func extract(delta: float) -> float:
 	if is_zero_approx(amount):
 		amount = 0.0
 		visible = false
+		_emit_resource_depleted()
 		_release_nav_if_depleted()
 	return extracted
+
+
+func _emit_resource_depleted() -> void:
+	var entity_id := EntityRegistryScript.id_of(self)
+	if entity_id < 0:
+		return
+	AiEventBufferScript.push({
+		"type": AiProtocolScript.EVENT_RESOURCE_DEPLETED,
+		"entity_id": entity_id,
+		"resource_type": AiProtocolScript.resource_type_name(resource_type),
+	})
 
 func _release_nav_if_depleted() -> void:
 	if amount > 0.0:

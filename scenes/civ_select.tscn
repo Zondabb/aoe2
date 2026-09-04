@@ -29,9 +29,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -120.0
-offset_top = -130.0
+offset_top = -190.0
 offset_right = 120.0
-offset_bottom = 130.0
+offset_bottom = 190.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 16
@@ -58,6 +58,28 @@ text = "战斗测试场"
 [node name="PathfindingArenaButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
 text = "寻路测试场"
+
+[node name="AiSectionLabel" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "AI 服务"
+horizontal_alignment = 1
+
+[node name="AiServiceUrl" type="LineEdit" parent="VBoxContainer"]
+layout_mode = 2
+placeholder_text = "留空 = 内嵌本地 http://127.0.0.1:8765"
+
+[node name="UseEmbeddedCheck" type="CheckBox" parent="VBoxContainer"]
+layout_mode = 2
+button_pressed = true
+text = "使用内嵌本地 AI 服务（失败时回退）"
+
+[node name="AiStatusLabel" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.78, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1
+autowrap_mode = 2
 
 [connection signal="pressed" from="VBoxContainer/ChineseButton" to="." method="_on_chinese_pressed"]
 [connection signal="pressed" from="VBoxContainer/TeutonsButton" to="." method="_on_teutons_pressed"]

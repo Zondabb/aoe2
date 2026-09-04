@@ -20,15 +20,15 @@ func tick_army(ctx: AiRunContext) -> void:
 		)
 		if nearby != null:
 			if unit.get("order") != Enums.OrderType.ATTACK or unit.get("_attack_target") != nearby:
-				unit.call("command_attack", nearby)
+				ctx.issue_attack(unit, nearby)
 				attacks += 1
 			continue
 		if enemy_tc != null:
 			if unit.get("order") != Enums.OrderType.ATTACK or unit.get("_attack_target") != enemy_tc:
-				unit.call("command_attack", enemy_tc)
+				ctx.issue_attack(unit, enemy_tc)
 				attacks += 1
 		elif ctx.blackboard.enemy_tc_pos != Vector2.ZERO:
-			unit.call("command_move", ctx.blackboard.enemy_tc_pos)
+			ctx.issue_move(unit, ctx.blackboard.enemy_tc_pos)
 	if attacks > 0:
 		ctx.log_decision("COMBAT", "下达 %d 个攻击命令" % attacks)
 

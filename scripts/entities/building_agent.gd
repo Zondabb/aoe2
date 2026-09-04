@@ -10,6 +10,9 @@ const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
 const AI_COLOR := Color(0.88, 0.18, 0.14)
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
+const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
+const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: BuildingDef
@@ -54,6 +57,8 @@ func _ready() -> void:
 			_complete_construction()
 	set_physics_process(not train_queue.is_empty())
 	set_selected(false)
+	if not is_placement_ghost:
+		EntityRegistryScript.register(self)
 
 func _physics_process(delta: float) -> void:
 	if match_state != null and match_state.frozen:
@@ -184,6 +189,7 @@ func clear_ghost_visual() -> void:
 func _complete_construction() -> void:
 	if is_complete and _population_cap_registered:
 		return
+	var was_incomplete := not is_complete
 	is_complete = true
 	if (
 		not _population_cap_registered
@@ -193,6 +199,13 @@ func _complete_construction() -> void:
 	):
 		match_state.register_pop(team, 0, def.population_provided)
 		_population_cap_registered = true
+	if was_incomplete:
+		var building_id := EntityRegistryScript.id_of(self)
+		if building_id >= 0:
+			AiEventBufferScript.push({
+				"type": AiProtocolScript.EVENT_BUILDING_COMPLETED,
+				"entity_id": building_id,
+			})
 	construction_completed.emit(self)
 
 func _train_time(unit_def: UnitDef) -> float:
@@ -286,6 +299,7 @@ func _register_groups() -> void:
 	_vision_register()
 
 func _exit_tree() -> void:
+	EntityRegistryScript.unregister(self, "removed")
 	_vision_unregister()
 	if _reserved_population != 0 and match_state != null:
 		match_state.reserve_pop(team, -_reserved_population)

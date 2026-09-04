@@ -5,6 +5,8 @@
 # Local SLP export config / raw dumps (never commit full game tree)
 tools/slp_export/config.json
 tools/slp_export/**/__pycache__/
+ai_service_python/**/__pycache__/
+ai_service_python/.pytest_cache/
 tools/slp_export/.pytest_cache/
 tools/slp_export/out/
 tools/slp_export/tmp/

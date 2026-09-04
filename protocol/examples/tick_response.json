@@ -1,0 +1,24 @@
+{
+  "protocol_version": 1,
+  "match_id": "m_20260904_001",
+  "team": 0,
+  "for_tick": 128,
+  "commands": [
+    {
+      "command_id": "c_128_0",
+      "op": "gather",
+      "unit_id": 12,
+      "target_id": 31
+    },
+    {
+      "command_id": "c_128_1",
+      "op": "train",
+      "building_id": 5,
+      "unit_def_id": "villager"
+    }
+  ],
+  "debug": [
+    { "category": "ECON", "message": "村民采集 wood" },
+    { "category": "PHASE", "message": "ECO → BOOM" }
+  ]
+}

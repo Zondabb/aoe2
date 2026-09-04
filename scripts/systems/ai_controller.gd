@@ -32,9 +32,10 @@ func setup(
 	ai_side: Enums.Team = Enums.Team.AI,
 	enemy_side: Enums.Team = Enums.Team.PLAYER,
 	label: String = "",
-	shared_log: AiDecisionLog = null
+	shared_log: AiDecisionLog = null,
+	defer_evaluate: bool = true
 ) -> void:
-	super.setup(state, entities_root, civ, ai_side, enemy_side, label, shared_log)
+	super.setup(state, entities_root, civ, ai_side, enemy_side, label, shared_log, defer_evaluate)
 	_legacy_phase = LegacyPhase.ECO
 
 

@@ -18,7 +18,7 @@ func rally(ctx: AiRunContext) -> void:
 		var dist_sq: float = unit.get("sim_pos").distance_squared_to(rally_point)
 		if dist_sq > rally_radius_sq:
 			if unit.get("order") != Enums.OrderType.MOVE:
-				unit.call("command_move", rally_point)
+				ctx.issue_move(unit, rally_point)
 				rallied += 1
 	if rallied > 0:
 		ctx.log_decision("ARMY", "集结 %d 单位 → %s" % [rallied, rally_point])

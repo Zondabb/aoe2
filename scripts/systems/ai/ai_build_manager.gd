@@ -59,6 +59,10 @@ func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
 	)
 	if place_position == null:
 		return false
+	if ctx.capture_commands:
+		ctx.issue_place_building(building_def, place_position as Vector2, builder)
+		ctx.log_decision("BUILD", "放置 %s @ %s" % [building_def.id, place_position])
+		return true
 	if not ctx.match_state.spend(
 		ctx.team,
 		building_def.cost_food,
@@ -78,7 +82,7 @@ func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
 	foundation.set("sim_pos", place_position)
 	foundation.call("start_construction")
 	ctx.entities.add_child(foundation)
-	builder.call("command_build", foundation)
+	ctx.issue_build(builder, foundation)
 	ctx.next_build_slot += 1
 	ctx.log_decision("BUILD", "放置 %s @ %s" % [building_def.id, place_position])
 	return true

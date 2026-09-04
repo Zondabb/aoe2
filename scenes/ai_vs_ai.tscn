@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://scripts/match/ai_vs_ai_bootstrap.gd" id="2_bootstrap"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="3_hud"]
 [ext_resource type="Script" path="res://scripts/ui/ai_debug_log_panel.gd" id="4_log"]
+[ext_resource type="Script" path="res://scripts/ui/ai_gateway_status_label.gd" id="4b_status"]
 [ext_resource type="Script" path="res://scripts/ui/pathfinding_debug_panel.gd" id="5_debug_panel"]
 [ext_resource type="Script" path="res://scripts/input/selection_controller_2d.gd" id="6_selection"]
 [ext_resource type="Script" path="res://scripts/ui/unit_debug_log_panel.gd" id="7_unit_log"]
@@ -91,6 +92,23 @@ theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/normal_font_size = 12
 scroll_following = true
 script = ExtResource("4_log")
+
+[node name="AiGatewayStatus" type="Label" parent="UILayer"]
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -420.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = 28.0
+grow_horizontal = 0
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.7)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 2
+script = ExtResource("4b_status")
 
 [node name="HUD" parent="UILayer" instance=ExtResource("3_hud")]
 

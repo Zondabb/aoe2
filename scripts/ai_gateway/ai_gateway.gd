@@ -1,0 +1,258 @@
+class_name AiGateway
+extends Node
+
+const TICK_INTERVAL := 0.5
+
+const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
+const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
+const ObservationBuilderScript := preload("res://scripts/ai_gateway/observation_builder.gd")
+const EventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
+const CommandExecutorScript := preload("res://scripts/ai_gateway/command_executor.gd")
+const CommandExecutionContextScript := preload(
+	"res://scripts/ai_gateway/command_execution_context.gd"
+)
+const HttpAiClientScript := preload("res://scripts/ai_gateway/http_ai_client.gd")
+const LocalAiServerScript := preload("res://scripts/ai_gateway/local_ai_server.gd")
+const AiServiceAdapterScript := preload("res://scripts/ai_gateway/ai_service_adapter.gd")
+const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
+const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
+const CivAiProfileScript := preload("res://scripts/data/civ_ai_profile.gd")
+
+var match_state: MatchState
+var entities: Node2D
+var config: AiConfig
+var decision_log: AiDecisionLog
+var match_id := ""
+var match_time := 0.0
+var tick := 0
+var enabled := true
+var last_tick_latency_ms := -1.0
+var service_status := "starting"
+
+var _teams: Array[Dictionary] = []
+var _exec_contexts: Dictionary = {}
+var _tick_accum := 0.0
+var _http_client: HttpAiClient
+var _local_server: LocalAiServer
+var _adapter: AiServiceAdapter
+var _pending_responses: Array[Dictionary] = []
+var _request_in_flight := false
+
+
+func setup(
+	state: MatchState,
+	entities_root: Node2D,
+	teams: Array,
+	gateway_config: AiConfig = null,
+	shared_log: AiDecisionLog = null
+) -> void:
+	match_state = state
+	entities = entities_root
+	config = gateway_config if gateway_config != null else AiConfigScript.from_game_session()
+	decision_log = shared_log if shared_log != null else AiDecisionLogScript.new()
+	_teams.clear()
+	for team_entry in teams:
+		if team_entry is Dictionary:
+			_teams.append(team_entry)
+	_init_runtime()
+	set_process(true)
+
+
+func stop() -> void:
+	enabled = false
+	service_status = "stopped"
+	set_process(false)
+	if _http_client != null and is_instance_valid(_http_client):
+		_http_client.cancel_requests()
+	if _local_server != null and _local_server.is_running():
+		_local_server.stop()
+
+
+func _init_runtime() -> void:
+	_adapter = AiServiceAdapterScript.new()
+	_adapter.configure(match_state, entities, decision_log)
+
+	_local_server = LocalAiServerScript.new()
+	_local_server.name = "LocalAiServer"
+	_local_server.configure(config, _adapter)
+	add_child(_local_server)
+
+	_http_client = HttpAiClientScript.new()
+	_http_client.name = "HttpAiClient"
+	add_child(_http_client)
+	_http_client.configure(config)
+
+	for team_entry in _teams:
+		var team := int(team_entry.get("team", Enums.Team.AI))
+		var civ: CivDef = team_entry.get("civ")
+		var ctx := CommandExecutionContextScript.new()
+		ctx.match_state = match_state
+		ctx.entities = entities
+		ctx.team = team
+		ctx.civ = civ
+		_exec_contexts[team] = ctx
+
+	call_deferred("_on_match_start")
+
+
+func _on_match_start() -> void:
+	if not enabled:
+		return
+	match_id = "m_%d" % int(Time.get_unix_time_from_system())
+	EventBufferScript.clear()
+	for ctx in _exec_contexts.values():
+		(ctx as CommandExecutionContext).clear_command_history()
+
+	if not await _ensure_ai_service():
+		service_status = "offline"
+		enabled = false
+		set_process(false)
+		push_warning("AiGateway: AI service unavailable; AI decisions disabled")
+		return
+
+	service_status = "online"
+	await _http_client.post_match_start(
+		{
+			"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
+			"match_id": match_id,
+			"teams": _teams_payload(),
+		}
+	)
+	if decision_log != null:
+		decision_log.log(
+			0.0,
+			"Gateway",
+			"SETUP",
+			"AI Gateway 已连接 %s" % config.display_url(),
+		)
+	call_deferred("_run_tick_requests", tick)
+
+
+func _ensure_ai_service() -> bool:
+	if config.use_local_embedded:
+		if _adapter == null:
+			return false
+		if not _local_server.is_running():
+			# Best-effort HTTP shim for external probes; direct adapter works without it.
+			_local_server.start()
+		config.service_url = AiConfigScript.default_service_url()
+		_http_client.configure(config)
+		return true
+
+	var health := await _http_client.get_health()
+	return health.get("ok") == true
+
+
+func _process(delta: float) -> void:
+	if not enabled or match_state == null:
+		return
+	if match_state.winner != -1:
+		stop()
+		return
+	match_time += delta
+	_tick_accum += delta
+	if _tick_accum < TICK_INTERVAL:
+		return
+	_tick_accum = 0.0
+	tick += 1
+	_execute_due_commands(tick)
+	if not _request_in_flight:
+		_run_tick_requests(tick)
+
+
+func _run_tick_requests(current_tick: int) -> void:
+	_request_in_flight = true
+	for team_entry in _teams:
+		await _request_tick_for_team(team_entry, current_tick)
+	_request_in_flight = false
+
+
+func _execute_due_commands(current_tick: int) -> void:
+	var execute_through := current_tick - 1
+	if execute_through < 0:
+		return
+	var remaining: Array[Dictionary] = []
+	for response in _pending_responses:
+		if int(response.get("for_tick", -1)) > execute_through:
+			remaining.append(response)
+			continue
+		_apply_response(response)
+	_pending_responses = remaining
+
+
+func _apply_response(response: Dictionary) -> void:
+	var team := int(response.get("team", Enums.Team.AI))
+	var ctx: CommandExecutionContext = _exec_contexts.get(team)
+	if ctx == null:
+		return
+	for cmd in response.get("commands", []):
+		if cmd is Dictionary:
+			CommandExecutorScript.execute(cmd, ctx)
+	for debug_entry in response.get("debug", []):
+		if debug_entry is Dictionary and decision_log != null:
+			var label := _team_label(team)
+			decision_log.log(
+				match_time,
+				label,
+				String(debug_entry.get("category", "")),
+				String(debug_entry.get("message", "")),
+			)
+
+
+func _request_tick_for_team(team_entry: Dictionary, current_tick: int) -> void:
+	var team := int(team_entry.get("team", Enums.Team.AI))
+	var enemy_team := int(team_entry.get("enemy_team", Enums.Team.PLAYER))
+	var civ: CivDef = team_entry.get("civ")
+	var profile := CivAiProfileScript.for_civ(civ)
+	var observation := ObservationBuilderScript.build(
+		match_state,
+		entities,
+		team,
+		enemy_team,
+		match_time,
+		profile.defend_radius if profile != null else 20.0,
+	)
+	var request := {
+		"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
+		"match_id": match_id,
+		"team": team,
+		"team_label": String(team_entry.get("label", _team_label(team))),
+		"tick": current_tick,
+		"time_sec": match_time,
+		"profile_id": String(civ.id if civ != null else ""),
+		"enemy_team": enemy_team,
+		"events": EventBufferScript.drain(),
+		"observation": observation,
+	}
+	var started_usec := Time.get_ticks_usec()
+	var response: Dictionary
+	if config.use_local_embedded and _adapter != null:
+		response = _adapter.handle_tick(request)
+	else:
+		response = await _http_client.post_tick(request)
+	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	if response.is_empty():
+		return
+	response["team"] = team
+	_pending_responses.append(response)
+
+
+func _teams_payload() -> Array:
+	var payload: Array = []
+	for team_entry in _teams:
+		var civ: CivDef = team_entry.get("civ")
+		payload.append(
+			{
+				"team": int(team_entry.get("team", Enums.Team.AI)),
+				"profile_id": String(civ.id if civ != null else ""),
+				"label": String(team_entry.get("label", "")),
+			}
+		)
+	return payload
+
+
+func _team_label(team: Enums.Team) -> String:
+	for team_entry in _teams:
+		if int(team_entry.get("team", -1)) == int(team):
+			return String(team_entry.get("label", "AI"))
+	return "AI"

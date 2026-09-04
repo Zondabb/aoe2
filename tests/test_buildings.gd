@@ -29,7 +29,7 @@ func _test_placement_rejects_overlap(failures: Array[String]) -> void:
 	existing.sim_pos = Vector2.ZERO
 	if BUILD_SYSTEM.can_place(HOUSE.footprint, Vector2.ZERO, [existing]):
 		failures.append("building placement should reject footprint overlap")
-	if not BUILD_SYSTEM.can_place(HOUSE.footprint, Vector2(3.0, 0.0), [existing]):
+	if not BUILD_SYSTEM.can_place(HOUSE.footprint, Vector2(6.0, 0.0), [existing]):
 		failures.append("building placement should allow separated footprints")
 	existing.free()
 

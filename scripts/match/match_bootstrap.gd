@@ -14,6 +14,8 @@ const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holde
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+const AiGatewayScript := preload("res://scripts/ai_gateway/ai_gateway.gd")
+const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const GROUND_MIN := -60
 const GROUND_MAX := 60
 const GROUND_STEP := 8
@@ -35,7 +37,7 @@ func _ready() -> void:
 	call_deferred("_finish_setup")
 	_focus_camera_on_player_base()
 	_setup_building_controls()
-	_setup_ai_controller()
+	call_deferred("_setup_ai_gateway")
 
 func _setup_nav() -> void:
 	var holder := NavServiceHolderScript.new()
@@ -239,17 +241,28 @@ func _setup_building_controls() -> void:
 	)
 	hud.call("setup", match_state, player_civ, build_system, selection)
 
-func _setup_ai_controller() -> void:
+func _setup_ai_gateway() -> void:
 	var match_root := get_parent()
 	if match_root == null:
 		return
 	var entities := match_root.get_node_or_null("Entities") as Node2D
 	if entities == null:
 		return
-	var ai := match_root.get_node_or_null("AiController") as Node
-	if ai == null:
-		ai = Node.new()
-		ai.name = "AiController"
-		ai.set_script(load("res://scripts/systems/ai_controller.gd"))
-		match_root.add_child(ai)
-	ai.call("setup", match_state, entities, ai_civ, Enums.Team.AI, Enums.Team.PLAYER)
+	var existing := match_root.get_node_or_null("AiGateway")
+	if existing != null:
+		existing.queue_free()
+	var ai := match_root.get_node_or_null("AiController")
+	if ai != null:
+		ai.queue_free()
+	var gateway := AiGatewayScript.new()
+	gateway.name = "AiGateway"
+	match_root.add_child(gateway)
+	var teams: Array = [
+		{
+			"team": Enums.Team.AI,
+			"enemy_team": Enums.Team.PLAYER,
+			"civ": ai_civ,
+			"label": "AI",
+		},
+	]
+	gateway.setup(match_state, entities, teams, AiConfigScript.from_game_session())

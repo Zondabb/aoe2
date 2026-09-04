@@ -18,14 +18,14 @@ func assign_builders(ctx: AiRunContext) -> void:
 			):
 				assigned_builder = villager
 				if int(villager.get("_no_progress_frames")) >= STUCK_GATHER_FRAMES:
-					villager.call("command_build", building)
+					ctx.issue_build(villager, building)
 					ctx.log_decision("ECON", "重建路径建造 %s" % _building_label(building))
 				break
 		if assigned_builder != null:
 			continue
 		var idle := AiEntityQueriesScript.idle_villager(ctx.blackboard.team_villagers)
 		if idle != null:
-			idle.call("command_build", building)
+			ctx.issue_build(idle, building)
 			ctx.log_decision(
 				"ECON",
 				"派村民建造 %s" % _building_label(building)
@@ -79,7 +79,7 @@ func _assign_opening_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> v
 		)
 		if resource == null:
 			continue
-		villager.call("command_gather", resource)
+		ctx.issue_gather(villager, resource)
 		ctx.log_decision("ECON", "开局采集 %s" % _resource_name(int(resource.get("resource_type"))))
 
 
@@ -95,7 +95,7 @@ func _assign_balanced_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> 
 		var resource := _pick_gather_target(ctx, villager, target_type, base_pos)
 		if resource == null:
 			continue
-		villager.call("command_gather", resource)
+		ctx.issue_gather(villager, resource)
 		var resource_type: int = int(resource.get("resource_type"))
 		if counts.has(resource_type):
 			counts[resource_type] = int(counts[resource_type]) + 1

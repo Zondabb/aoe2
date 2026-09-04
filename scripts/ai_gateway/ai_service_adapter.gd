@@ -1,0 +1,126 @@
+class_name AiServiceAdapter
+extends RefCounted
+
+const AiDirectorScript := preload("res://scripts/systems/ai/ai_director.gd")
+const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
+const CivAiProfileScript := preload("res://scripts/data/civ_ai_profile.gd")
+const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
+
+var match_state: MatchState
+var entities: Node2D
+var shared_decision_log: AiDecisionLog
+
+var _directors: Dictionary = {}
+
+
+func configure(
+	state: MatchState,
+	entities_root: Node2D,
+	decision_log: AiDecisionLog = null
+) -> void:
+	match_state = state
+	entities = entities_root
+	shared_decision_log = decision_log
+
+
+func clear_match(match_id: String) -> void:
+	var keys_to_remove: Array[String] = []
+	for key in _directors.keys():
+		if String(key).begins_with("%s:" % match_id):
+			keys_to_remove.append(String(key))
+	for key in keys_to_remove:
+		var director: AiDirector = _directors[key]
+		if director != null:
+			director.stop()
+		_directors.erase(key)
+
+
+func handle_match_start(payload: Dictionary) -> Dictionary:
+	var match_id := String(payload.get("match_id", ""))
+	clear_match(match_id)
+	return {"ok": true, "match_id": match_id}
+
+
+func handle_match_end(payload: Dictionary) -> Dictionary:
+	clear_match(String(payload.get("match_id", "")))
+	return {"ok": true}
+
+
+func handle_tick(request: Dictionary) -> Dictionary:
+	var match_id := String(request.get("match_id", ""))
+	var team := int(request.get("team", Enums.Team.AI))
+	var tick := int(request.get("tick", 0))
+	var time_sec := float(request.get("time_sec", 0.0))
+	var profile_id := String(request.get("profile_id", ""))
+	var enemy_team := int(request.get("enemy_team", Enums.Team.PLAYER))
+	var team_label := String(request.get("team_label", ""))
+	var observation: Dictionary = request.get("observation", {}) as Dictionary
+
+	if match_state == null or entities == null:
+		return _error_response(match_id, team, tick, "missing_world")
+
+	var director := _get_or_create_director(
+		match_id, team, profile_id, enemy_team, team_label
+	)
+	director.match_time = time_sec
+	var result := director.evaluate_from_observation(tick, observation)
+	return {
+		"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
+		"match_id": match_id,
+		"team": team,
+		"for_tick": tick,
+		"commands": result.get("commands", []),
+		"debug": result.get("debug", []),
+	}
+
+
+func _get_or_create_director(
+	match_id: String,
+	team: Enums.Team,
+	profile_id: String,
+	enemy_team: Enums.Team,
+	team_label: String
+) -> AiDirector:
+	var key := "%s:%d" % [match_id, int(team)]
+	if _directors.has(key):
+		return _directors[key] as AiDirector
+
+	var civ := _civ_for_profile(profile_id, team)
+	var director := AiDirectorScript.new()
+	director.setup(
+		match_state,
+		entities,
+		civ,
+		team,
+		enemy_team,
+		team_label,
+		shared_decision_log,
+		false,
+	)
+	director.set_process(false)
+	_directors[key] = director
+	return director
+
+
+func _civ_for_profile(profile_id: String, team: Enums.Team) -> CivDef:
+	match StringName(profile_id):
+		&"teutons":
+			return load("res://data/civs/teutons.tres") as CivDef
+		&"chinese":
+			return load("res://data/civs/chinese.tres") as CivDef
+		_:
+			if team == Enums.Team.AI:
+				return load("res://data/civs/teutons.tres") as CivDef
+			return load("res://data/civs/chinese.tres") as CivDef
+
+
+func _error_response(match_id: String, team: int, tick: int, error: String) -> Dictionary:
+	return {
+		"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
+		"match_id": match_id,
+		"team": team,
+		"for_tick": tick,
+		"commands": [],
+		"debug": [],
+		"error": error,
+	}

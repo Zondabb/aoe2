@@ -1,0 +1,169 @@
+class_name AiProtocol
+extends RefCounted
+
+## HTTP AI 协议常量与枚举字符串映射（protocol_version: 1）。
+
+const PROTOCOL_VERSION := 1
+const META_ENTITY_ID := &"entity_id"
+
+const OP_MOVE := &"move"
+const OP_STOP := &"stop"
+const OP_GATHER := &"gather"
+const OP_BUILD := &"build"
+const OP_ATTACK := &"attack"
+const OP_PLACE_BUILDING := &"place_building"
+const OP_TRAIN := &"train"
+const OP_NOOP := &"noop"
+
+const EVENT_MATCH_STARTED := &"match_started"
+const EVENT_MATCH_ENDED := &"match_ended"
+const EVENT_ENTITY_SPAWNED := &"entity_spawned"
+const EVENT_ENTITY_DESTROYED := &"entity_destroyed"
+const EVENT_BUILDING_COMPLETED := &"building_completed"
+const EVENT_RESOURCE_DEPLETED := &"resource_depleted"
+const EVENT_UNIT_ORDER_FINISHED := &"unit_order_finished"
+
+
+static func order_name(order: Enums.OrderType) -> String:
+	match order:
+		Enums.OrderType.NONE:
+			return "NONE"
+		Enums.OrderType.MOVE:
+			return "MOVE"
+		Enums.OrderType.GATHER:
+			return "GATHER"
+		Enums.OrderType.BUILD:
+			return "BUILD"
+		Enums.OrderType.ATTACK:
+			return "ATTACK"
+		_:
+			return "NONE"
+
+
+static func resource_type_name(resource_type: Enums.ResourceType) -> String:
+	match resource_type:
+		Enums.ResourceType.FOOD:
+			return "FOOD"
+		Enums.ResourceType.WOOD:
+			return "WOOD"
+		Enums.ResourceType.GOLD:
+			return "GOLD"
+		_:
+			return "UNKNOWN"
+
+
+static func entity_kind(entity: Node2D) -> String:
+	if entity == null:
+		return "unknown"
+	if entity.has_method("extract"):
+		return "resource"
+	if entity.get("def") is BuildingDef:
+		return "building"
+	if entity.get("def") is UnitDef:
+		return "unit"
+	return "unknown"
+
+
+static func vec2_to_array(value: Vector2) -> Array:
+	return [float(value.x), float(value.y)]
+
+
+static func def_id_string(entity: Node2D) -> String:
+	var unit_def := entity.get("def") as UnitDef
+	if unit_def != null:
+		return String(unit_def.id)
+	var building_def := entity.get("def") as BuildingDef
+	if building_def != null:
+		return String(building_def.id)
+	return ""
+
+
+static func json_safe(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_DICTIONARY:
+			var out := {}
+			for key in (value as Dictionary).keys():
+				out[str(key)] = json_safe((value as Dictionary)[key])
+			return out
+		TYPE_ARRAY:
+			var arr: Array = []
+			for item in value as Array:
+				arr.append(json_safe(item))
+			return arr
+		TYPE_VECTOR2:
+			return vec2_to_array(value as Vector2)
+		TYPE_STRING_NAME:
+			return String(value)
+		TYPE_OBJECT:
+			return str(value)
+		_:
+			return value
+
+
+static func op_from_string(value: String) -> StringName:
+	match value:
+		"move":
+			return OP_MOVE
+		"stop":
+			return OP_STOP
+		"gather":
+			return OP_GATHER
+		"build":
+			return OP_BUILD
+		"attack":
+			return OP_ATTACK
+		"place_building":
+			return OP_PLACE_BUILDING
+		"train":
+			return OP_TRAIN
+		"noop":
+			return OP_NOOP
+		_:
+			return &""
+
+
+static func array_to_vec2(value: Variant) -> Variant:
+	if value is Vector2:
+		return value
+	if value is Array and (value as Array).size() >= 2:
+		var arr := value as Array
+		return Vector2(float(arr[0]), float(arr[1]))
+	return null
+
+
+static func building_def_for_id(building_def_id: String) -> BuildingDef:
+	match StringName(building_def_id):
+		&"house":
+			return load("res://data/buildings/house.tres") as BuildingDef
+		&"town_center":
+			return load("res://data/buildings/town_center.tres") as BuildingDef
+		&"barracks":
+			return load("res://data/buildings/barracks.tres") as BuildingDef
+		&"archery_range":
+			return load("res://data/buildings/archery_range.tres") as BuildingDef
+		&"stable":
+			return load("res://data/buildings/stable.tres") as BuildingDef
+		&"mill":
+			return load("res://data/buildings/mill.tres") as BuildingDef
+		&"lumber_camp":
+			return load("res://data/buildings/lumber_camp.tres") as BuildingDef
+		&"mining_camp":
+			return load("res://data/buildings/mining_camp.tres") as BuildingDef
+		_:
+			return null
+
+
+static func unit_def_for_id(unit_def_id: String) -> UnitDef:
+	match StringName(unit_def_id):
+		&"villager":
+			return load("res://data/units/villager.tres") as UnitDef
+		&"swordsman":
+			return load("res://data/units/swordsman.tres") as UnitDef
+		&"archer":
+			return load("res://data/units/archer.tres") as UnitDef
+		&"chu_ko_nu":
+			return load("res://data/units/chu_ko_nu.tres") as UnitDef
+		&"teutonic_knight":
+			return load("res://data/units/teutonic_knight.tres") as UnitDef
+		_:
+			return null

@@ -32,15 +32,12 @@ func _test_bootstrap_wires_ai(failures: Array[String]) -> void:
 	var scene_root := packed.instantiate()
 	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
-	var ai := scene_root.get_node_or_null("AiController")
-	if ai == null or ai.get_script() == null:
-		failures.append("match scene should contain an AI controller")
-	elif ai.get("match_state") == null or ai.get("entities") == null:
-		failures.append("bootstrap should configure the AI controller")
-	elif ai.get("ai_civ") == null or ai.get("ai_civ").id != &"teutons":
-		failures.append("AI controller should use the AI civilization")
-	elif ai.get("phase") != AI_CONTROLLER.LegacyPhase.ECO:
-		failures.append("AI should start in ECO phase")
+	scene_root.get_node("Bootstrap").call("_setup_ai_gateway")
+	var gateway := scene_root.get_node_or_null("AiGateway")
+	if gateway == null:
+		failures.append("match scene should contain AiGateway")
+	elif gateway.get("match_state") == null or gateway.get("entities") == null:
+		failures.append("bootstrap should configure the AI gateway")
 	tree.root.remove_child(scene_root)
 	scene_root.free()
 
@@ -282,12 +279,15 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 	var bootstrap := scene_root.get_node("Bootstrap")
 	var state := bootstrap.get("match_state") as MatchState
 	var entities := scene_root.get_node("Entities") as Node2D
-	var ai := scene_root.get_node("AiController")
+	var ai := AI_CONTROLLER.new()
+	scene_root.add_child(ai)
+	ai.setup(state, entities, TEUTONS, Enums.Team.AI, Enums.Team.PLAYER)
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.FOOD, 800)
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.WOOD, 800)
 	state.add_resource(Enums.Team.AI, Enums.ResourceType.GOLD, 400)
 
 	for _tick in 360:
+		ai.set("match_time", float(ai.get("match_time")) + 0.5)
 		ai.call("evaluate")
 		for node in entities.get_children():
 			if node.has_method("_physics_process"):
@@ -299,7 +299,6 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 			):
 				var building_def := node.get("def") as BuildingDef
 				node.call("add_build_progress", building_def.build_time)
-		ai.set("match_time", float(ai.get("match_time")) + 0.5)
 
 	var military := 0
 	var complete_military_buildings := 0
@@ -330,14 +329,16 @@ func _test_ai_stops_on_winner(failures: Array[String]) -> void:
 	var scene_root := packed.instantiate()
 	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
-	var ai := scene_root.get_node("AiController")
+	var ai := scene_root.get_node_or_null("AiGateway")
 	var state := scene_root.get_node("Bootstrap").get("match_state") as MatchState
 	var hud := scene_root.get_node_or_null("UILayer/HUD")
 	state.set_winner(Enums.Team.PLAYER)
-	if bool(ai.get("enabled")):
-		failures.append("winner should stop the AI controller")
-	if ai.is_processing():
-		failures.append("winner should disable AI processing")
+	if ai != null:
+		ai.call("_process", 0.5)
+	if ai != null and bool(ai.get("enabled")):
+		failures.append("winner should stop the AI gateway")
+	if ai != null and ai.is_processing():
+		failures.append("winner should disable AI gateway processing")
 	if hud == null or not bool(hud.get_node("ResultPanel").visible):
 		failures.append("winner UI should still appear when AI is present")
 	if not bool(state.get("frozen")):

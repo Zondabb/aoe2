@@ -1,0 +1,75 @@
+{
+  "protocol_version": 1,
+  "match_id": "m_20260904_001",
+  "team": 0,
+  "team_label": "Chinese",
+  "tick": 128,
+  "time_sec": 64.0,
+  "profile_id": "chinese",
+  "enemy_team": 1,
+  "events": [
+    {
+      "seq": 40,
+      "type": "resource_depleted",
+      "entity_id": 30,
+      "resource_type": "FOOD"
+    }
+  ],
+  "observation": {
+    "economy": {
+      "food": 180,
+      "wood": 200,
+      "gold": 100,
+      "pop_used": 4,
+      "pop_cap": 5
+    },
+    "derived": {
+      "own_tc_id": 5,
+      "own_tc_pos": [-40.0, -40.0],
+      "enemy_tc_id": 105,
+      "enemy_tc_pos": [40.0, 40.0],
+      "threat_near_base": false,
+      "villager_count": 4,
+      "military_count": 0,
+      "incomplete_buildings": 0,
+      "match_time_sec": 64.0
+    },
+    "entities": [
+      {
+        "id": 12,
+        "kind": "unit",
+        "def_id": "villager",
+        "team": 0,
+        "pos": [-38.2, -39.1],
+        "hp": 25.0,
+        "max_hp": 25.0,
+        "order": "GATHER",
+        "gather_state": "to_drop_off",
+        "carry_type": "FOOD",
+        "carry_amount": 8.0,
+        "target_id": 5,
+        "last_resource_id": 30,
+        "stuck_frames": 0
+      },
+      {
+        "id": 5,
+        "kind": "building",
+        "def_id": "town_center",
+        "team": 0,
+        "pos": [-40.0, -40.0],
+        "hp": 2400.0,
+        "max_hp": 2400.0,
+        "is_complete": true,
+        "build_progress": 0.0,
+        "train_queue_empty": true
+      },
+      {
+        "id": 30,
+        "kind": "resource",
+        "resource_type": "FOOD",
+        "pos": [-25.0, -20.0],
+        "amount": 0.0
+      }
+    ]
+  }
+}

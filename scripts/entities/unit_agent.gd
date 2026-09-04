@@ -45,6 +45,7 @@ const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
+const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: UnitDef
@@ -95,6 +96,7 @@ var _debug_actual_delta := Vector2.ZERO
 
 func _ready() -> void:
 	add_to_group("units")
+	EntityRegistryScript.register(self)
 	if sim_pos == Vector2.ZERO:
 		sim_pos = position
 	_sync_visual()
@@ -1434,6 +1436,7 @@ func _apply_team_color() -> void:
 		)
 
 func _exit_tree() -> void:
+	EntityRegistryScript.unregister(self, "removed")
 	_vision_unregister()
 	if _population_registered and match_state != null and def != null:
 		match_state.register_pop(team, -def.population, 0)

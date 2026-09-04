@@ -14,6 +14,7 @@ const AiProductionManagerScript := preload("res://scripts/systems/ai/ai_producti
 const AiArmyManagerScript := preload("res://scripts/systems/ai/ai_army_manager.gd")
 const AiCombatManagerScript := preload("res://scripts/systems/ai/ai_combat_manager.gd")
 const CivAiProfileScript := preload("res://scripts/data/civ_ai_profile.gd")
+const ObservationStoreScript := preload("res://scripts/ai_gateway/observation_store.gd")
 
 var match_state: MatchState
 var entities: Node2D
@@ -46,7 +47,8 @@ func setup(
 	ai_side: Enums.Team = Enums.Team.AI,
 	enemy_side: Enums.Team = Enums.Team.PLAYER,
 	label: String = "",
-	shared_log: AiDecisionLog = null
+	shared_log: AiDecisionLog = null,
+	defer_evaluate: bool = true
 ) -> void:
 	match_state = state
 	entities = entities_root
@@ -67,7 +69,8 @@ func setup(
 	_bind_context()
 	set_process(true)
 	decision_log.log(0.0, team_label, "SETUP", "AI 已启动 (%s)" % (civ.id if civ != null else "unknown"))
-	call_deferred("evaluate")
+	if defer_evaluate:
+		call_deferred("evaluate")
 
 
 func stop() -> void:
@@ -114,6 +117,85 @@ func evaluate() -> void:
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
 			_combat.tick_army(_ctx)
+
+
+func evaluate_capture(tick: int) -> Dictionary:
+	if not enabled or match_state == null or entities == null:
+		return {"commands": [], "debug": []}
+	if match_state.winner != -1:
+		return {"commands": [], "debug": []}
+
+	_blackboard.refresh(
+		match_state,
+		entities,
+		ai_team,
+		enemy_team,
+		match_time,
+		profile.defend_radius if profile != null else 20.0,
+	)
+	_bind_context()
+	_update_phase()
+	_ctx.phase = director_phase
+	_ctx.begin_capture(tick)
+
+	_economy.assign_builders(_ctx)
+	_economy.assign_gatherers(_ctx)
+
+	match director_phase:
+		Phase.ECO:
+			_build.tick(_ctx)
+			_production.tick(_ctx, _build)
+		Phase.BOOM:
+			_build.tick(_ctx)
+			_production.tick(_ctx, _build)
+		Phase.ATTACK:
+			_production.tick(_ctx, _build)
+			_army.rally(_ctx)
+			_combat.tick_army(_ctx)
+		Phase.DEFEND:
+			_build.tick(_ctx)
+			_production.tick(_ctx, _build)
+			_combat.tick_army(_ctx)
+
+	_next_build_slot = _ctx.next_build_slot
+	return _ctx.end_capture()
+
+
+func evaluate_from_observation(tick: int, observation: Dictionary) -> Dictionary:
+	if not enabled or match_state == null or entities == null:
+		return {"commands": [], "debug": []}
+	if match_state.winner != -1:
+		return {"commands": [], "debug": []}
+
+	var store := ObservationStoreScript.new()
+	store.load_from_dict(observation)
+	store.apply_to_blackboard(_blackboard, ai_team, enemy_team)
+	_bind_context()
+	_update_phase()
+	_ctx.phase = director_phase
+	_ctx.begin_capture(tick)
+
+	_economy.assign_builders(_ctx)
+	_economy.assign_gatherers(_ctx)
+
+	match director_phase:
+		Phase.ECO:
+			_build.tick(_ctx)
+			_production.tick(_ctx, _build)
+		Phase.BOOM:
+			_build.tick(_ctx)
+			_production.tick(_ctx, _build)
+		Phase.ATTACK:
+			_production.tick(_ctx, _build)
+			_army.rally(_ctx)
+			_combat.tick_army(_ctx)
+		Phase.DEFEND:
+			_build.tick(_ctx)
+			_production.tick(_ctx, _build)
+			_combat.tick_army(_ctx)
+
+	_next_build_slot = _ctx.next_build_slot
+	return _ctx.end_capture()
 
 
 func _bind_context() -> void:
