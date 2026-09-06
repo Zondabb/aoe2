@@ -1,0 +1,83 @@
+{
+  "model": "aoe2-rules-v1",
+  "stream": false,
+  "temperature": 0,
+  "max_tokens": 2048,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an RTS commander. Act only through tools. Do not invent entity ids."
+    },
+    {
+      "role": "user",
+      "content": "Match tick=128 time=64.0s team=Chinese\nEconomy: food=180 wood=200 gold=100 pop=4/5\nVillagers: id=12 villager order=GATHER"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "gather",
+        "description": "Send a villager to gather a resource node.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "unit_id": { "type": "integer" },
+            "target_id": { "type": "integer" }
+          }
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto",
+  "metadata": {
+    "protocol_version": 2,
+    "match_id": "m_20260904_001",
+    "team": 0,
+    "tick": 128,
+    "time_sec": 64.0,
+    "profile_id": "chinese",
+    "enemy_team": 1,
+    "team_label": "Chinese"
+  },
+  "observation": {
+    "economy": {
+      "food": 180,
+      "wood": 200,
+      "gold": 100,
+      "pop_used": 4,
+      "pop_cap": 5
+    },
+    "derived": {
+      "own_tc_id": 5,
+      "own_tc_pos": [-40.0, -40.0],
+      "enemy_tc_id": 105,
+      "enemy_tc_pos": [40.0, 40.0],
+      "threat_near_base": false,
+      "villager_count": 4,
+      "military_count": 0,
+      "incomplete_buildings": 0,
+      "match_time_sec": 64.0
+    },
+    "entities": [
+      {
+        "id": 12,
+        "kind": "unit",
+        "def_id": "villager",
+        "team": 0,
+        "pos": [-38.2, -39.1],
+        "hp": 25.0,
+        "max_hp": 25.0,
+        "order": "GATHER"
+      }
+    ]
+  },
+  "events": [
+    {
+      "seq": 40,
+      "type": "resource_depleted",
+      "entity_id": 30,
+      "resource_type": "FOOD"
+    }
+  ]
+}

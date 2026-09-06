@@ -20,6 +20,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_local_server_health_route(failures)
 	_test_local_server_tick_batch_route(failures)
+	_test_local_server_chat_route(failures)
 	_test_adapter_tick_to_executor_gather(failures)
 	return failures
 
@@ -48,6 +49,23 @@ func _test_local_server_tick_batch_route(failures: Array[String]) -> void:
 	var response := server._handle_http_request(request)
 	if not response.contains("200"):
 		failures.append("LocalAiServer /v1/ai/tick_batch should return HTTP 200")
+	server.free()
+
+
+func _test_local_server_chat_route(failures: Array[String]) -> void:
+	var server := LocalAiServerScript.new()
+	var adapter := AiServiceAdapterScript.new()
+	server.configure(AiConfigScript.new(), adapter)
+	var body := '{"messages":[{"role":"user","content":"hi"}],"metadata":{"match_id":"m1","team":1,"tick":0},"observation":{"economy":{"food":0,"wood":0,"gold":0,"pop_used":0,"pop_cap":5},"derived":{"own_tc_id":-1,"own_tc_pos":[0,0],"enemy_tc_id":-1,"enemy_tc_pos":[0,0],"threat_near_base":false,"villager_count":0,"military_count":0,"incomplete_buildings":0},"entities":[]}}'
+	var request := "POST /v1/chat/completions HTTP/1.1\r\nContent-Length: %d\r\n\r\n%s" % [
+		body.length(),
+		body,
+	]
+	var response := server._handle_http_request(request)
+	if not response.contains("200"):
+		failures.append("LocalAiServer /v1/chat/completions should return HTTP 200")
+	if not response.contains("chat.completion"):
+		failures.append("LocalAiServer chat route should wrap a completion")
 	server.free()
 
 

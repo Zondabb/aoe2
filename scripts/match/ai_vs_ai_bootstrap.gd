@@ -24,6 +24,7 @@ const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_ove
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const AiGatewayScript := preload("res://scripts/ai_gateway/ai_gateway.gd")
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
+const GameSettingsScript := preload("res://scripts/core/game_settings.gd")
 const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
 const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 
@@ -251,6 +252,8 @@ func _setup_ai_gateway() -> void:
 		return
 	if match_root.get_node_or_null("AiGateway") != null:
 		return
+	# Autoload GameSession only loads cfg once; re-read so F6 / 重进场景能吃到改动。
+	GameSettingsScript.apply_from_config()
 	var gateway := AiGatewayScript.new()
 	gateway.name = "AiGateway"
 	match_root.add_child(gateway)
@@ -268,7 +271,12 @@ func _setup_ai_gateway() -> void:
 			"label": "Teutons",
 		},
 	]
-	gateway.setup(match_state, entities, teams, AiConfigScript.from_game_session(), decision_log)
+	var ai_config := AiConfigScript.from_game_session()
+	print(
+		"AiVsAi: protocol=%s backend=%s url=%s model=%s"
+		% [ai_config.protocol, ai_config.backend, ai_config.display_url(), ai_config.model]
+	)
+	gateway.setup(match_state, entities, teams, ai_config, decision_log)
 	_setup_debug_panel(gateway)
 
 

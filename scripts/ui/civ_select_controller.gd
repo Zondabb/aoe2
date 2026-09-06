@@ -7,12 +7,14 @@ const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const HttpAiClientScript := preload("res://scripts/ai_gateway/http_ai_client.gd")
 
 @onready var _ai_url_edit: LineEdit = $VBoxContainer/AiServiceUrl
+@onready var _ai_token_edit: LineEdit = $VBoxContainer/AiApiToken
 @onready var _embedded_check: CheckBox = $VBoxContainer/UseEmbeddedCheck
 @onready var _ai_status: Label = $VBoxContainer/AiStatusLabel
 
 
 func _ready() -> void:
 	_ai_url_edit.text = String(GameSession.ai_service_url)
+	_ai_token_edit.text = String(GameSession.ai_service_token)
 	_embedded_check.button_pressed = bool(GameSession.ai_use_local_embedded)
 	_clear_status()
 
@@ -47,6 +49,8 @@ func _apply_ai_settings() -> AiConfig:
 	var config := AiConfigScript.from_civ_select(
 		_ai_url_edit.text,
 		_embedded_check.button_pressed,
+		_ai_token_edit.text,
+		true,
 	)
 	config.save_to_game_session()
 	return config

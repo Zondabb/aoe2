@@ -35,6 +35,7 @@ static func footprint_offset_screen(delta_sim: Vector2) -> Vector2:
 
 ## Closed diamond matching a logical axis-aligned footprint (half extents in sim tiles).
 static func footprint_polygon_screen(half: Vector2) -> PackedVector2Array:
+	half += Vector2.ONE
 	if half.x <= 0.0 or half.y <= 0.0:
 		return PackedVector2Array()
 	return PackedVector2Array([

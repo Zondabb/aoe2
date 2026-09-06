@@ -5,6 +5,7 @@ const AiDirectorScript := preload("res://scripts/systems/ai/ai_director.gd")
 const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
 const CivAiProfileScript := preload("res://scripts/data/civ_ai_profile.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
+const LlmResponseParserScript := preload("res://scripts/ai_gateway/llm_response_parser.gd")
 
 var match_state: MatchState
 var entities: Node2D
@@ -72,6 +73,39 @@ func handle_tick(request: Dictionary) -> Dictionary:
 		"commands": result.get("commands", []),
 		"debug": result.get("debug", []),
 	}
+
+
+func handle_chat_completions(payload: Dictionary) -> Dictionary:
+	var meta: Dictionary = payload.get("metadata", {}) as Dictionary
+	if meta.is_empty() and payload.has("team"):
+		meta = payload
+	var tick_req := {
+		"match_id": String(meta.get("match_id", payload.get("match_id", ""))),
+		"team": int(meta.get("team", payload.get("team", Enums.Team.AI))),
+		"team_label": String(meta.get("team_label", payload.get("team_label", ""))),
+		"tick": int(meta.get("tick", payload.get("tick", 0))),
+		"time_sec": float(meta.get("time_sec", payload.get("time_sec", 0.0))),
+		"profile_id": String(meta.get("profile_id", payload.get("profile_id", ""))),
+		"enemy_team": int(meta.get("enemy_team", payload.get("enemy_team", Enums.Team.PLAYER))),
+		"events": payload.get("events", []),
+		"observation": payload.get("observation", {}),
+	}
+	var tick_resp := handle_tick(tick_req)
+	return LlmResponseParserScript.wrap_commands(
+		tick_resp.get("commands", []),
+		tick_resp.get("debug", []),
+		String(payload.get("model", "aoe2-rules-v1")),
+		"chatcmpl_%s_%d_%d" % [tick_req["match_id"], tick_req["tick"], tick_req["team"]],
+		int(tick_req["tick"]),
+	)
+
+
+func handle_chat_completions_batch(payload: Dictionary) -> Dictionary:
+	var responses: Array = []
+	for item in payload.get("requests", []):
+		if item is Dictionary:
+			responses.append(handle_chat_completions(item))
+	return {"responses": responses}
 
 
 func handle_tick_batch(payload: Dictionary) -> Dictionary:

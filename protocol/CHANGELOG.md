@@ -1,5 +1,41 @@
 # AI Protocol CHANGELOG
 
+## v2 — DRAFT (2026-09-04)
+
+Non-streaming Chat Completions adapter. v1 tick endpoints stay frozen and remain the default production path.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/chat/completions` | OpenAI-style completion; `stream` must be `false` |
+| POST | `/v1/chat/completions_batch` | Multi-team chat in one RTT (`requests[]` → `responses[]`) |
+
+### Schema
+
+Draft schema: [`ai_v2_chat.schema.json`](ai_v2_chat.schema.json)
+
+Examples: [`examples/chat_completion_request.json`](examples/chat_completion_request.json), [`examples/chat_completion_response.json`](examples/chat_completion_response.json)
+
+### Request notes
+
+- `messages` is the LLM channel; optional `observation` / `events` keep v1 structured snapshots for `rules_compat`.
+- `tools` names match v1 command ops: gather, train, place_building, build, move, attack, stop, noop.
+- `stream: true` is rejected with HTTP 400.
+
+### Response notes
+
+- Primary: `choices[0].message.tool_calls`.
+- Fallback: `choices[0].message.content` JSON `{ "commands": [...] }`.
+- `usage` may be zeros for the rules backend.
+- `backend=openai` (or env `AOE2_AI_BACKEND`) forwards messages/tools to an OpenAI-compatible API; on failure with `observation` present, falls back to rules.
+
+### Authentication
+
+Same Bearer token as v1 (`AOE2_AI_TOKEN`). `/health` remains unauthenticated.
+
+---
+
 ## v1 — FROZEN (2026-09-04)
 
 Protocol version `1` is frozen for production use. Breaking changes require `protocol_version: 2`.

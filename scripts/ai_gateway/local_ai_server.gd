@@ -181,6 +181,10 @@ func _handle_http_request(request_text: String) -> String:
 		return _handle_json_post(body, adapter.handle_tick)
 	if method == "POST" and path == "/v1/ai/tick_batch":
 		return _handle_json_post(body, adapter.handle_tick_batch)
+	if method == "POST" and path == "/v1/chat/completions":
+		return _handle_json_post(body, adapter.handle_chat_completions)
+	if method == "POST" and path == "/v1/chat/completions_batch":
+		return _handle_json_post(body, adapter.handle_chat_completions_batch)
 	return _http_response(404, {"error": "not_found"})
 
 

@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from brain import runtime_settings
 from brain.director import AiDirector
 from brain.stores import PHASE_ATTACK, PHASE_BOOM, PHASE_DEFEND, PHASE_ECO
+from brain.llm_proxy import forward_openai, is_openai_backend, resolve_backend
+from brain.rules_compat import observation_or_error, to_tick_request, wrap_tick_response
 from protocol.models import (
+    ChatCompletionBatchRequest,
+    ChatCompletionBatchResponse,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
     HealthResponse,
     MatchEndRequest,
     MatchStartRequest,
@@ -57,7 +65,7 @@ def _clear_match(match_id: str) -> None:
 
 
 def _expected_token() -> str:
-    return os.environ.get("AOE2_AI_TOKEN", "").strip()
+    return runtime_settings.ai_token()
 
 
 def _log_tick(
@@ -157,9 +165,155 @@ def tick_batch(req: TickBatchRequest) -> TickBatchResponse:
     return TickBatchResponse(match_id=req.match_id, responses=responses)
 
 
+def _log_observation_enabled(req: ChatCompletionRequest) -> bool:
+    if os.environ.get("AOE2_AI_LOG_OBSERVATION", "").strip().lower() in {"1", "true", "yes"}:
+        return True
+    extra = req.metadata.model_dump()
+    return bool(extra.get("log_observation"))
+
+
+def _maybe_log_observation(req: ChatCompletionRequest) -> None:
+    if not _log_observation_enabled(req):
+        return
+    msg_chars = sum(len(msg.content or "") for msg in req.messages)
+    entity_count = 0
+    if req.observation is not None:
+        entity_count = len(req.observation.entities)
+    logger.info(
+        '{"event":"chat_debug","messages_chars":%d,"message_count":%d,"entity_count":%d}',
+        msg_chars,
+        len(req.messages),
+        entity_count,
+    )
+
+
+def _log_chat(
+    model: str,
+    match_id: str,
+    team: int,
+    tick: int,
+    tool_call_count: int,
+    elapsed_ms: float,
+    backend: str,
+) -> None:
+    logger.info(
+        '{"event":"chat_completion","model":"%s","backend":"%s","match_id":"%s","team":%d,"tick":%d,'
+        '"tool_call_count":%d,"latency_ms":%.2f}',
+        model,
+        backend,
+        match_id,
+        team,
+        tick,
+        tool_call_count,
+        elapsed_ms,
+    )
+
+
+def _print_llm_json(title: str, payload: Any) -> None:
+    text = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    logger.info("%s\n%s", title, text)
+    print(f"\n===== {title} =====\n{text}\n", flush=True)
+
+
+def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
+    if req.stream:
+        raise HTTPException(status_code=400, detail="stream_not_supported")
+    _maybe_log_observation(req)
+    backend = resolve_backend(req)
+    started = time.perf_counter()
+    if is_openai_backend(backend):
+        try:
+            _print_llm_json(
+                "LLM request (to model)",
+                {
+                    "model": req.model,
+                    "team": req.metadata.team,
+                    "tick": req.metadata.tick,
+                    "match_id": req.metadata.match_id,
+                    "messages": [msg.model_dump() for msg in req.messages],
+                    "tool_names": [tool.function.name for tool in req.tools],
+                    "tool_choice": req.tool_choice,
+                    "max_tokens": req.max_tokens,
+                },
+            )
+            wrapped, _outbound, inbound = forward_openai(req)
+            _print_llm_json("LLM response (from model)", inbound)
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            tool_call_count = 0
+            if wrapped.choices and wrapped.choices[0].message.tool_calls:
+                tool_call_count = len(wrapped.choices[0].message.tool_calls)
+            _log_chat(
+                wrapped.model,
+                req.metadata.match_id or "chat",
+                req.metadata.team,
+                req.metadata.tick,
+                tool_call_count,
+                elapsed_ms,
+                backend,
+            )
+            return wrapped
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning('{"event":"llm_proxy_error","error":"%s"}', str(exc).replace('"', "'"))
+            print(f"\n===== LLM error =====\n{exc}\n", flush=True)
+            if observation_or_error(req) is None:
+                raise HTTPException(status_code=502, detail="llm_upstream_error") from exc
+            backend = "rules_compat"
+
+    if observation_or_error(req) is None:
+        raise HTTPException(status_code=400, detail="missing_observation")
+
+    meta = req.metadata
+    match_id = meta.match_id.strip() or "chat"
+    tick_req = to_tick_request(req, match_id)
+    tick_response = _evaluate_tick(tick_req)
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    completion_id = f"chatcmpl_{match_id}_{tick_req.tick}_{tick_req.team}"
+    wrapped = wrap_tick_response(tick_response, req.model, completion_id)
+    tool_call_count = 0
+    if wrapped.choices and wrapped.choices[0].message.tool_calls:
+        tool_call_count = len(wrapped.choices[0].message.tool_calls)
+    _log_chat(req.model, match_id, tick_req.team, tick_req.tick, tool_call_count, elapsed_ms, backend)
+    return wrapped
+
+
+@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+def chat_completions(req: ChatCompletionRequest) -> ChatCompletionResponse:
+    return _complete_chat(req)
+
+
+@app.post("/v1/chat/completions_batch", response_model=ChatCompletionBatchResponse)
+def chat_completions_batch(req: ChatCompletionBatchRequest) -> ChatCompletionBatchResponse:
+    started = time.perf_counter()
+    responses = [_complete_chat(item) for item in req.requests]
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    logger.info(
+        '{"event":"chat_completions_batch","teams":%d,"latency_ms":%.2f}',
+        len(responses),
+        elapsed_ms,
+    )
+    return ChatCompletionBatchResponse(responses=responses)
+
+
+def _log_startup(host: str, port: int) -> None:
+    token = runtime_settings.llm_token()
+    logger.info(
+        '{"event":"startup","listen":"%s:%d","backend":"%s","llm_base_url":"%s","llm_token":"%s"}',
+        host,
+        port,
+        runtime_settings.backend() or "(from request)",
+        runtime_settings.llm_base_url() or "(from request)",
+        runtime_settings.mask_secret(token),
+    )
+    if not token:
+        logger.warning("missing --llm-token; openai backend will fail with missing_llm_token")
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    host = os.environ.get("AOE2_AI_HOST", "127.0.0.1")
-    port = int(os.environ.get("AOE2_AI_PORT", "8765"))
-    uvicorn.run(app, host=host, port=port)
+    args = runtime_settings.build_parser().parse_args()
+    runtime_settings.apply_args(args)
+    _log_startup(args.host, args.port)
+    uvicorn.run(app, host=args.host, port=args.port)

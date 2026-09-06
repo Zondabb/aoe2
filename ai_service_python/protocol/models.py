@@ -171,3 +171,82 @@ class MatchEndRequest(BaseModel):
 
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
+
+
+PROTOCOL_VERSION_V2 = 2
+
+ChatRole = Literal["system", "user", "assistant", "tool"]
+ChatFinishReason = Literal["stop", "tool_calls", "length"]
+
+
+class ChatMessage(BaseModel):
+    role: ChatRole
+    content: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+
+
+class ChatToolFunction(BaseModel):
+    name: str
+    description: str = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatTool(BaseModel):
+    type: Literal["function"] = "function"
+    function: ChatToolFunction
+
+
+class ChatMetadata(BaseModel):
+    protocol_version: int = PROTOCOL_VERSION_V2
+    match_id: str = ""
+    team: int = 0
+    tick: int = 0
+    time_sec: float = 0.0
+    profile_id: str = ""
+    enemy_team: int | None = None
+    team_label: str = ""
+
+    model_config = {"extra": "allow"}
+
+
+class ChatCompletionRequest(BaseModel):
+    model: str = "aoe2-rules-v1"
+    stream: bool = False
+    temperature: float = 0.0
+    max_tokens: int = 2048
+    messages: list[ChatMessage]
+    tools: list[ChatTool] = Field(default_factory=list)
+    tool_choice: str | dict[str, Any] = "auto"
+    metadata: ChatMetadata = Field(default_factory=ChatMetadata)
+    observation: Observation | None = None
+    events: list[GameEvent] = Field(default_factory=list)
+
+
+class ChatCompletionChoice(BaseModel):
+    index: int = 0
+    finish_reason: ChatFinishReason = "stop"
+    message: ChatMessage
+
+
+class ChatUsage(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: Literal["chat.completion"] = "chat.completion"
+    model: str = "aoe2-rules-v1"
+    choices: list[ChatCompletionChoice]
+    usage: ChatUsage = Field(default_factory=ChatUsage)
+    debug: list[DebugEntry] = Field(default_factory=list)
+
+
+class ChatCompletionBatchRequest(BaseModel):
+    requests: list[ChatCompletionRequest]
+
+
+class ChatCompletionBatchResponse(BaseModel):
+    responses: list[ChatCompletionResponse]
+

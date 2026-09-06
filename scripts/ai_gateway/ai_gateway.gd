@@ -1,7 +1,7 @@
 class_name AiGateway
 extends Node
 
-const TICK_INTERVAL := 0.5
+const DEFAULT_TICK_INTERVAL := 0.5
 
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
@@ -18,6 +18,8 @@ const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.
 const AiGatewayMetricsScript := preload("res://scripts/ai_gateway/ai_gateway_metrics.gd")
 const AiDecisionLogScript := preload("res://scripts/systems/ai/ai_decision_log.gd")
 const CivAiProfileScript := preload("res://scripts/data/civ_ai_profile.gd")
+const PromptAssemblerScript := preload("res://scripts/ai_gateway/prompt_assembler.gd")
+const LlmResponseParserScript := preload("res://scripts/ai_gateway/llm_response_parser.gd")
 
 var match_state: MatchState
 var entities: Node2D
@@ -39,6 +41,7 @@ var _local_server: LocalAiServer
 var _adapter: AiServiceAdapter
 var _pending_responses: Array[Dictionary] = []
 var _request_in_flight := false
+var _chat_histories: Dictionary = {}
 
 
 func setup(
@@ -105,6 +108,7 @@ func _on_match_start() -> void:
 	match_id = "m_%d" % int(Time.get_unix_time_from_system())
 	EventBufferScript.clear()
 	metrics.clear()
+	_chat_histories.clear()
 	for ctx in _exec_contexts.values():
 		(ctx as CommandExecutionContext).clear_command_history()
 
@@ -128,7 +132,7 @@ func _on_match_start() -> void:
 			0.0,
 			"Gateway",
 			"SETUP",
-			"AI Gateway 已连接 %s" % config.display_url(),
+			"AI Gateway 已连接 %s (%s)" % [config.display_url(), config.protocol],
 		)
 	call_deferred("_run_tick_requests", tick)
 
@@ -151,7 +155,7 @@ func _process(delta: float) -> void:
 		return
 	match_time += delta
 	_tick_accum += delta
-	if _tick_accum < TICK_INTERVAL:
+	if _tick_accum < _tick_interval():
 		return
 	_tick_accum = 0.0
 	tick += 1
@@ -162,7 +166,14 @@ func _process(delta: float) -> void:
 
 func _run_tick_requests(current_tick: int) -> void:
 	_request_in_flight = true
-	if _should_use_tick_batch():
+	if config != null and config.uses_chat_protocol():
+		if _should_use_tick_batch():
+			await _request_chat_batch(current_tick)
+		else:
+			var events := EventBufferScript.drain()
+			for team_entry in _teams:
+				await _request_chat_for_team(team_entry, current_tick, events)
+	elif _should_use_tick_batch():
 		await _request_tick_batch(current_tick)
 	else:
 		for team_entry in _teams:
@@ -170,8 +181,14 @@ func _run_tick_requests(current_tick: int) -> void:
 	_request_in_flight = false
 
 
+func _tick_interval() -> float:
+	if config == null:
+		return DEFAULT_TICK_INTERVAL
+	return maxf(DEFAULT_TICK_INTERVAL * 0.1, float(config.tick_interval_sec))
+
+
 func _should_use_tick_batch() -> bool:
-	return config.use_tick_batch and _teams.size() >= 2
+	return config != null and config.use_tick_batch and _teams.size() >= 2
 
 
 func _execute_due_commands(current_tick: int) -> void:
@@ -222,6 +239,8 @@ func _request_tick_batch(current_tick: int) -> void:
 		responses = _adapter.handle_tick_batch(payload).get("responses", [])
 	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
 	if responses.is_empty():
+		if _handle_auth_failure():
+			return
 		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
 		return
 	metrics.record_tick_success(last_tick_latency_ms)
@@ -241,11 +260,133 @@ func _request_tick_for_team(
 		response = _adapter.handle_tick(request)
 	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
 	if response.is_empty():
+		if _handle_auth_failure():
+			return
 		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
 		return
 	metrics.record_tick_success(last_tick_latency_ms)
 	response["team"] = team
 	_pending_responses.append(response)
+
+
+func _request_chat_batch(current_tick: int) -> void:
+	var events := EventBufferScript.drain()
+	var requests: Array = []
+	for team_entry in _teams:
+		requests.append(_build_chat_payload(team_entry, current_tick, events))
+	var payload := {"requests": requests}
+	var started_usec := Time.get_ticks_usec()
+	var completions := await _http_client.post_chat_completions_batch(payload)
+	if completions.is_empty() and _should_fallback_embedded():
+		completions = _adapter.handle_chat_completions_batch(payload).get("responses", [])
+	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	if completions.is_empty():
+		if _handle_auth_failure():
+			return
+		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
+		return
+	metrics.record_tick_success(last_tick_latency_ms)
+	var index := 0
+	for team_entry in _teams:
+		if index >= completions.size():
+			break
+		var completion: Variant = completions[index]
+		if completion is Dictionary:
+			_queue_chat_completion(
+				completion,
+				int(team_entry.get("team", Enums.Team.AI)),
+				current_tick,
+			)
+		index += 1
+
+
+func _request_chat_for_team(team_entry: Dictionary, current_tick: int, events: Array) -> void:
+	var team := int(team_entry.get("team", Enums.Team.AI))
+	var request := _build_chat_payload(team_entry, current_tick, events)
+	var started_usec := Time.get_ticks_usec()
+	var completion := await _http_client.post_chat_completions(request)
+	if completion.is_empty() and _should_fallback_embedded():
+		completion = _adapter.handle_chat_completions(request)
+	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
+	if completion.is_empty():
+		if _handle_auth_failure():
+			return
+		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
+		return
+	metrics.record_tick_success(last_tick_latency_ms)
+	_queue_chat_completion(completion, team, current_tick)
+
+
+func _build_chat_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
+	var tick_payload := _build_tick_payload(team_entry, current_tick, events)
+	var team := int(tick_payload.get("team", 0))
+	return PromptAssemblerScript.assemble(
+		tick_payload.get("observation", {}),
+		events,
+		{
+			"match_id": match_id,
+			"team": team,
+			"tick": current_tick,
+			"time_sec": match_time,
+			"profile_id": String(tick_payload.get("profile_id", "")),
+			"enemy_team": int(tick_payload.get("enemy_team", 0)),
+			"team_label": String(tick_payload.get("team_label", "")),
+			"model": config.model if config != null else "aoe2-rules-v1",
+			"max_tokens": config.max_tokens if config != null else 2048,
+			"backend": config.backend if config != null else "rules_compat",
+			"log_observation": config.log_observation if config != null else false,
+			"llm_base_url": config.llm_base_url if config != null else "",
+		},
+		_history_for(team),
+	)
+
+
+func _queue_chat_completion(completion: Dictionary, team: int, current_tick: int) -> void:
+	var choices: Array = completion.get("choices", [])
+	if choices.is_empty():
+		_record_tick_skip("empty_choices")
+		return
+	var response := LlmResponseParserScript.to_tick_response(completion, team, current_tick)
+	_remember_history(team, response.get("commands", []))
+	_queue_response(response)
+
+
+func _history_for(team: int) -> Array:
+	if config == null or config.history_turns <= 0:
+		return []
+	var stored: Variant = _chat_histories.get(team, [])
+	return stored if stored is Array else []
+
+
+func _remember_history(team: int, commands: Array) -> void:
+	if config == null or config.history_turns <= 0:
+		return
+	var hist: Array = _history_for(team).duplicate()
+	hist.append(
+		{
+			"role": "assistant",
+			"content": LlmResponseParserScript.summarize_commands(commands),
+		}
+	)
+	if hist.size() > config.history_turns:
+		hist = hist.slice(hist.size() - config.history_turns)
+	_chat_histories[team] = hist
+
+
+func _should_fallback_embedded() -> bool:
+	return config != null and config.use_local_embedded and _adapter != null
+
+
+func _handle_auth_failure() -> bool:
+	if _http_client == null or _http_client.last_error != "http_401":
+		return false
+	if _should_fallback_embedded():
+		push_warning("AiGateway: 401 from AI service; using embedded adapter")
+		return false
+	push_warning("AiGateway: 401 unauthorized; AI decisions disabled")
+	service_status = "unauthorized"
+	stop()
+	return true
 
 
 func _queue_response(response: Dictionary) -> void:

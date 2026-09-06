@@ -59,6 +59,47 @@ func post_tick(request_dict: Dictionary, retry: bool = true) -> Dictionary:
 	return {}
 
 
+func post_chat_completions(request_dict: Dictionary, retry: bool = true) -> Dictionary:
+	var url := config.chat_completions_url()
+	var response := await _request_json("POST", url, request_dict)
+	if response.get("ok") == true:
+		last_error = ""
+		return response.get("body", {}) as Dictionary
+	if retry and _should_retry(response):
+		push_warning(
+			"AI chat completions request failed (%s), retrying once" % response.get("reason", "")
+		)
+		response = await _request_json("POST", url, request_dict)
+		if response.get("ok") == true:
+			last_error = ""
+			return response.get("body", {}) as Dictionary
+	last_error = String(response.get("reason", "unknown"))
+	push_warning("AI chat completions skipped: %s" % last_error)
+	return {}
+
+
+func post_chat_completions_batch(request_dict: Dictionary, retry: bool = true) -> Array:
+	var url := config.chat_completions_batch_url()
+	var response := await _request_json("POST", url, request_dict)
+	if response.get("ok") == true:
+		last_error = ""
+		var body: Dictionary = response.get("body", {}) as Dictionary
+		var responses: Array = body.get("responses", [])
+		return responses
+	if retry and _should_retry(response):
+		push_warning(
+			"AI chat completions_batch failed (%s), retrying once" % response.get("reason", "")
+		)
+		response = await _request_json("POST", url, request_dict)
+		if response.get("ok") == true:
+			last_error = ""
+			var body: Dictionary = response.get("body", {}) as Dictionary
+			return body.get("responses", [])
+	last_error = String(response.get("reason", "unknown"))
+	push_warning("AI chat completions_batch skipped: %s" % last_error)
+	return []
+
+
 func post_tick_batch(request_dict: Dictionary, retry: bool = true) -> Array:
 	var response := await _request_json("POST", config.tick_batch_url(), request_dict)
 	if response.get("ok") == true:

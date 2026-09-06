@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aoe2-rts.local/protocol/ai_v2_chat.schema.json",
+  "title": "AoE2 RTS AI Protocol v2 Chat Completions (draft)",
+  "description": "Non-streaming Chat Completions contract between Godot agent and AI service. v1 tick remains frozen.",
+  "oneOf": [
+    { "$ref": "#/$defs/chat_completion_request" },
+    { "$ref": "#/$defs/chat_completion_response" }
+  ],
+  "$defs": {
+    "vec2": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "tool_name": {
+      "type": "string",
+      "enum": [
+        "gather",
+        "train",
+        "place_building",
+        "build",
+        "move",
+        "attack",
+        "stop",
+        "noop"
+      ]
+    },
+    "chat_message": {
+      "type": "object",
+      "required": ["role"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["system", "user", "assistant", "tool"]
+        },
+        "content": { "type": ["string", "null"] },
+        "tool_calls": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool_call" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "tool_function": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/tool_name" },
+        "description": { "type": "string" },
+        "parameters": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "tool": {
+      "type": "object",
+      "required": ["type", "function"],
+      "properties": {
+        "type": { "const": "function" },
+        "function": { "$ref": "#/$defs/tool_function" }
+      },
+      "additionalProperties": true
+    },
+    "tool_call": {
+      "type": "object",
+      "required": ["id", "type", "function"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "const": "function" },
+        "function": {
+          "type": "object",
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "type": "string" },
+            "arguments": { "type": "string" }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "chat_metadata": {
+      "type": "object",
+      "properties": {
+        "protocol_version": { "type": "integer", "const": 2 },
+        "match_id": { "type": "string" },
+        "team": { "type": "integer" },
+        "tick": { "type": "integer" },
+        "time_sec": { "type": "number" },
+        "profile_id": { "type": "string" },
+        "enemy_team": { "type": "integer" },
+        "team_label": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "chat_completion_request": {
+      "type": "object",
+      "required": ["messages"],
+      "properties": {
+        "model": { "type": "string" },
+        "stream": { "type": "boolean" },
+        "temperature": { "type": "number" },
+        "max_tokens": { "type": "integer" },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/chat_message" }
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool" }
+        },
+        "tool_choice": {
+          "type": ["string", "object"]
+        },
+        "metadata": { "$ref": "#/$defs/chat_metadata" },
+        "observation": { "type": "object" },
+        "events": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "chat_completion_choice": {
+      "type": "object",
+      "required": ["index", "message"],
+      "properties": {
+        "index": { "type": "integer" },
+        "finish_reason": {
+          "type": "string",
+          "enum": ["stop", "tool_calls", "length"]
+        },
+        "message": { "$ref": "#/$defs/chat_message" }
+      },
+      "additionalProperties": true
+    },
+    "chat_completion_response": {
+      "type": "object",
+      "required": ["id", "object", "choices"],
+      "properties": {
+        "id": { "type": "string" },
+        "object": { "const": "chat.completion" },
+        "model": { "type": "string" },
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/chat_completion_choice" }
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "prompt_tokens": { "type": "integer" },
+            "completion_tokens": { "type": "integer" },
+            "total_tokens": { "type": "integer" }
+          },
+          "additionalProperties": true
+        },
+        "debug": { "type": "array" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
