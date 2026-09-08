@@ -82,10 +82,10 @@ func _test_user_prompt_contains_economy_and_entity(failures: Array[String]) -> v
 		failures.append("assemble should produce system + user messages")
 		return
 	var user := String((messages[1] as Dictionary).get("content", ""))
-	if user.find("food=180") < 0:
-		failures.append("user prompt should include food=180, got: %s" % user)
-	if user.find("wood=200") < 0:
-		failures.append("user prompt should include wood=200")
+	if user.find("食物=180") < 0:
+		failures.append("user prompt should include 食物=180, got: %s" % user)
+	if user.find("木材=200") < 0:
+		failures.append("user prompt should include 木材=200")
 	if user.find("id=12") < 0 or user.find("villager") < 0:
 		failures.append("user prompt should include villager entity text")
 	if user.find("resource_depleted#30") < 0:

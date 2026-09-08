@@ -32,17 +32,17 @@ static func tools_payload() -> Array:
 	return [
 		_fn(
 			TOOL_GATHER,
-			"Send a villager to gather a resource node.",
+			"派村民采集资源点（target_id 为观测中的资源 entity id）。",
 			{"unit_id": {"type": "integer"}, "target_id": {"type": "integer"}},
 		),
 		_fn(
 			TOOL_TRAIN,
-			"Queue a unit at a completed building.",
+			"在已完工建筑中排队训练单位。",
 			{"building_id": {"type": "integer"}, "unit_def_id": {"type": "string"}},
 		),
 		_fn(
 			TOOL_PLACE_BUILDING,
-			"Place a building foundation at pos.",
+			"在指定坐标放置建筑地基。",
 			{
 				"builder_id": {"type": "integer"},
 				"building_def_id": {"type": "string"},
@@ -51,12 +51,12 @@ static func tools_payload() -> Array:
 		),
 		_fn(
 			TOOL_BUILD,
-			"Send a villager to construct a foundation.",
+			"派村民建造指定地基。",
 			{"unit_id": {"type": "integer"}, "building_id": {"type": "integer"}},
 		),
 		_fn(
 			TOOL_MOVE,
-			"Move a unit to pos.",
+			"移动单位到指定坐标。",
 			{
 				"unit_id": {"type": "integer"},
 				"pos": {"type": "array", "items": {"type": "number"}},
@@ -64,15 +64,15 @@ static func tools_payload() -> Array:
 		),
 		_fn(
 			TOOL_ATTACK,
-			"Order a unit to attack a target entity.",
+			"命令单位攻击目标 entity。",
 			{"unit_id": {"type": "integer"}, "target_id": {"type": "integer"}},
 		),
 		_fn(
 			TOOL_STOP,
-			"Cancel a unit's current order.",
+			"取消单位当前指令。",
 			{"unit_id": {"type": "integer"}},
 		),
-		_fn(TOOL_NOOP, "Do nothing this tick.", {}),
+		_fn(TOOL_NOOP, "本 tick 不执行任何操作。", {}),
 	]
 
 

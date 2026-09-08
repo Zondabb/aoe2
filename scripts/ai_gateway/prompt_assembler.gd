@@ -4,10 +4,12 @@ extends RefCounted
 const AiToolCatalogScript := preload("res://scripts/ai_gateway/ai_tool_catalog.gd")
 
 const SYSTEM_PROMPT := (
-	"You are an RTS commander for an Age of Empires II style match. "
-	+ "Act only through function tools. Coordinates and entity ids must come from the observation; "
-	+ "do not invent ids. Return 0..N tool_calls per tick. Do not write long prose. "
-	+ "Do not train or place buildings when population or resources are insufficient."
+	"你是《帝国时代 II》风格即时战略对局的 AI 指挥官。"
+	+ "只能通过函数工具（tool_calls）下达命令，不要输出长篇文字或内心推理。"
+	+ "坐标与 entity id 必须来自下方观测，禁止编造 id。"
+	+ "每 tick 返回 0 到多条 tool_calls。"
+	+ "人口或资源不足时不要训练或放置建筑。"
+	+ "优先让村民采集可见资源；有资源 id 时使用 gather，不要只推理不行动。"
 )
 
 
@@ -54,7 +56,7 @@ static func render_user(observation: Dictionary, events: Array, metadata: Dictio
 	var derived: Dictionary = observation.get("derived", {}) as Dictionary
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append(
-		"Match tick=%d time=%.1fs team=%s phase_hint=ECO"
+		"对局 tick=%d 时间=%.1fs 文明=%s 阶段=经济"
 		% [
 			int(metadata.get("tick", 0)),
 			float(metadata.get("time_sec", 0.0)),
@@ -62,7 +64,7 @@ static func render_user(observation: Dictionary, events: Array, metadata: Dictio
 		]
 	)
 	lines.append(
-		"Economy: food=%d wood=%d gold=%d pop=%d/%d"
+		"经济：食物=%d 木材=%d 黄金=%d 人口=%d/%d"
 		% [
 			int(econ.get("food", 0)),
 			int(econ.get("wood", 0)),
@@ -74,7 +76,7 @@ static func render_user(observation: Dictionary, events: Array, metadata: Dictio
 	var own_pos: Variant = derived.get("own_tc_pos", [0, 0])
 	var enemy_pos: Variant = derived.get("enemy_tc_pos", [0, 0])
 	lines.append(
-		"Base TC id=%d at %s; Enemy TC id=%d at %s"
+		"己方城镇中心 id=%d 坐标=%s；敌方城镇中心 id=%d 坐标=%s"
 		% [
 			int(derived.get("own_tc_id", -1)),
 			_fmt_pos(own_pos),
@@ -82,10 +84,10 @@ static func render_user(observation: Dictionary, events: Array, metadata: Dictio
 			_fmt_pos(enemy_pos),
 		]
 	)
-	lines.append("Villagers: %d  Military: %d" % [
-		int(derived.get("villager_count", 0)),
-		int(derived.get("military_count", 0)),
-	])
+	lines.append(
+		"村民数=%d  军事单位数=%d"
+		% [int(derived.get("villager_count", 0)), int(derived.get("military_count", 0))]
+	)
 	var entities: Array = observation.get("entities", [])
 	var unit_bits: PackedStringArray = PackedStringArray()
 	var resource_bits: PackedStringArray = PackedStringArray()
@@ -95,7 +97,7 @@ static func render_user(observation: Dictionary, events: Array, metadata: Dictio
 		var kind := String((ent as Dictionary).get("kind", ""))
 		if kind == "unit":
 			unit_bits.append(
-				"id=%d %s order=%s pos=%s"
+				"id=%d %s 指令=%s 坐标=%s"
 				% [
 					int(ent.get("id", -1)),
 					String(ent.get("def_id", "")),
@@ -105,28 +107,40 @@ static func render_user(observation: Dictionary, events: Array, metadata: Dictio
 			)
 		elif kind == "resource":
 			resource_bits.append(
-				"id=%d %s amount=%.0f at %s"
+				"id=%d 类型=%s 储量=%.0f 坐标=%s"
 				% [
 					int(ent.get("id", -1)),
-					String(ent.get("resource_type", "UNKNOWN")),
+					_resource_type_zh(String(ent.get("resource_type", "UNKNOWN"))),
 					float(ent.get("amount", 0.0)),
 					_fmt_pos(ent.get("pos", [])),
 				]
 			)
 	if not unit_bits.is_empty():
-		lines.append("Units: " + ", ".join(unit_bits))
+		lines.append("单位：" + ", ".join(unit_bits))
 	if not resource_bits.is_empty():
-		lines.append("Visible resources: " + ", ".join(resource_bits))
+		lines.append("可见资源：" + ", ".join(resource_bits))
 	if events.is_empty():
-		lines.append("Events since last tick: (none)")
+		lines.append("自上一 tick 事件：（无）")
 	else:
 		var ev_bits: PackedStringArray = PackedStringArray()
 		for ev in events:
 			if ev is Dictionary:
 				var eid := int((ev as Dictionary).get("entity_id", -1))
 				ev_bits.append("%s#%d" % [String(ev.get("type", "event")), eid])
-		lines.append("Events since last tick: " + ", ".join(ev_bits))
+		lines.append("自上一 tick 事件：" + ", ".join(ev_bits))
 	return "\n".join(lines)
+
+
+static func _resource_type_zh(name: String) -> String:
+	match name:
+		"FOOD":
+			return "食物"
+		"WOOD":
+			return "木材"
+		"GOLD":
+			return "黄金"
+		_:
+			return name
 
 
 static func _fmt_pos(value: Variant) -> String:

@@ -77,13 +77,8 @@ def _tools_payload(req: ChatCompletionRequest) -> list[dict[str, Any]]:
     return [tool.model_dump() for tool in req.tools]
 
 
-def forward_openai(
-    req: ChatCompletionRequest,
-) -> tuple[ChatCompletionResponse, dict[str, Any], dict[str, Any]]:
-    token = llm_token()
-    if not token:
-        raise RuntimeError("missing_llm_token")
-    url = f"{llm_base_url(req)}/chat/completions"
+def build_openai_payload(req: ChatCompletionRequest) -> dict[str, Any]:
+    """OpenAI-compatible body sent to the upstream LLM (for HTTP and debug logs)."""
     payload: dict[str, Any] = {
         "model": req.model,
         "stream": False,
@@ -91,9 +86,21 @@ def forward_openai(
         "max_tokens": req.max_tokens,
         "messages": _messages_payload(req),
         "tool_choice": req.tool_choice,
+        # "thinking": {"type": "disabled"},
     }
     if req.tools:
         payload["tools"] = _tools_payload(req)
+    return payload
+
+
+def forward_openai(
+    req: ChatCompletionRequest,
+) -> tuple[ChatCompletionResponse, dict[str, Any], dict[str, Any]]:
+    token = llm_token()
+    if not token:
+        raise RuntimeError("missing_llm_token")
+    url = f"{llm_base_url(req)}/chat/completions"
+    payload = build_openai_payload(req)
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",

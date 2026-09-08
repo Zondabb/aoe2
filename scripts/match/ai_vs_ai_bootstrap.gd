@@ -197,17 +197,17 @@ func _spawn_base(
 
 	_spawn_resource(
 		entities, "%sFoodBush" % prefix, Enums.ResourceType.FOOD,
-		origin + Vector2(15.0, 20.0) * direction,
+		origin + Vector2(16.0, 6.0) * direction,
 		Color(0.35, 0.75, 0.20)
 	)
 	_spawn_resource(
 		entities, "%sTree" % prefix, Enums.ResourceType.WOOD,
-		origin + Vector2(15.0, -10.0) * direction,
+		origin + Vector2(10.0, -6.0) * direction,
 		Color(0.12, 0.42, 0.12)
 	)
 	_spawn_resource(
 		entities, "%sGoldMine" % prefix, Enums.ResourceType.GOLD,
-		origin + Vector2(-15.0, 10.0) * direction,
+		origin + Vector2(0.0, 16.0) * direction,
 		Color(0.92, 0.72, 0.12)
 	)
 

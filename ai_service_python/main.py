@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from brain import runtime_settings
 from brain.director import AiDirector
 from brain.stores import PHASE_ATTACK, PHASE_BOOM, PHASE_DEFEND, PHASE_ECO
-from brain.llm_proxy import forward_openai, is_openai_backend, resolve_backend
+from brain.llm_proxy import build_openai_payload, forward_openai, is_openai_backend, resolve_backend
 from brain.rules_compat import observation_or_error, to_tick_request, wrap_tick_response
 from protocol.models import (
     ChatCompletionBatchRequest,
@@ -212,7 +212,7 @@ def _log_chat(
 def _print_llm_json(title: str, payload: Any) -> None:
     text = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
     logger.info("%s\n%s", title, text)
-    print(f"\n===== {title} =====\n{text}\n", flush=True)
+    # print(f"\n===== {title} =====\n{text}\n", flush=True)
 
 
 def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
@@ -223,17 +223,14 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
     started = time.perf_counter()
     if is_openai_backend(backend):
         try:
+            outbound = build_openai_payload(req)
             _print_llm_json(
                 "LLM request (to model)",
                 {
-                    "model": req.model,
+                    **outbound,
                     "team": req.metadata.team,
                     "tick": req.metadata.tick,
                     "match_id": req.metadata.match_id,
-                    "messages": [msg.model_dump() for msg in req.messages],
-                    "tool_names": [tool.function.name for tool in req.tools],
-                    "tool_choice": req.tool_choice,
-                    "max_tokens": req.max_tokens,
                 },
             )
             wrapped, _outbound, inbound = forward_openai(req)
