@@ -16,6 +16,8 @@ const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
 const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
+const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
+const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const GROUND_MIN := -40
 const GROUND_MAX := 40
 const GROUND_STEP := 8
@@ -43,6 +45,7 @@ func _ready() -> void:
 		match_state.setup_defaults()
 	_raise_population_caps()
 	_setup_ground()
+	_setup_nav()
 	_setup_vision()
 	CollisionResolverScript.set_map_bounds(
 		Vector2(GROUND_MIN, GROUND_MIN), Vector2(GROUND_MAX, GROUND_MAX)
@@ -50,8 +53,10 @@ func _ready() -> void:
 	var setup_panel := get_node_or_null("../UILayer/ArenaSetupPanel") as Control
 	if setup_panel != null and setup_panel.has_signal("battle_requested"):
 		setup_panel.connect("battle_requested", _on_battle_requested)
+		call_deferred("_finish_setup")
 		return
 	_start_battle(_default_config())
+	call_deferred("_finish_setup")
 
 func _default_config() -> ArenaConfigScript:
 	var config := ArenaConfigScript.new()
@@ -89,6 +94,7 @@ func _start_battle(config: ArenaConfigScript) -> void:
 	_spawn_army(Enums.Team.PLAYER, player_civ, PLAYER_ORIGIN, 1.0)
 	_spawn_army(Enums.Team.AI, ai_civ, AI_ORIGIN, -1.0)
 	_rebuild_vision()
+	_rebuild_nav()
 	_focus_camera_on_battlefield()
 	_setup_player_controls()
 	_setup_auto_combat(_arena_config)
@@ -120,7 +126,50 @@ func _setup_vision() -> void:
 	holder.setup(2.0)
 	var match_root := get_parent()
 	if match_root != null:
-		match_root.add_child(holder)
+		match_root.call_deferred("add_child", holder)
+
+func _setup_nav() -> void:
+	if not is_inside_tree():
+		return
+	if get_tree().get_first_node_in_group("nav_service") != null:
+		return
+	var holder := NavServiceHolderScript.new()
+	holder.name = "NavService"
+	holder.setup(GROUND_MIN, GROUND_MAX, 1.0)
+	var match_root := get_parent()
+	if match_root != null:
+		match_root.call_deferred("add_child", holder)
+
+func _finish_setup() -> void:
+	_rebuild_nav()
+	_rebuild_vision()
+	_setup_debug_overlay()
+
+func _setup_debug_overlay() -> void:
+	var match_root := get_parent()
+	if match_root == null:
+		return
+	if get_tree().get_first_node_in_group("nav_debug_overlay") != null:
+		return
+	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	var vision_holder := get_tree().get_first_node_in_group("vision_service") as VisionServiceHolderScript
+	var overlay := NavDebugOverlayScript.new()
+	overlay.name = "NavDebugOverlay"
+	if nav_holder != null:
+		overlay.nav = nav_holder.nav
+	if vision_holder != null:
+		overlay.vision = vision_holder.vision
+	match_root.add_child(overlay)
+	var panel := match_root.get_node_or_null("UILayer/PathfindingDebugPanel")
+	if panel != null:
+		panel.call_deferred("_bind_overlay")
+
+func _rebuild_nav() -> void:
+	if not is_inside_tree():
+		return
+	var holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
+	if holder != null:
+		holder.rebuild_from_scene()
 
 func _rebuild_vision() -> void:
 	if not is_inside_tree():

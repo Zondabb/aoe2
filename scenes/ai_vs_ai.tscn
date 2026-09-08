@@ -46,17 +46,6 @@ camera_path = NodePath("../../Camera2D")
 read_only = true
 select_all_teams = true
 
-[node name="Title" type="Label" parent="UILayer"]
-offset_left = 12.0
-offset_top = 8.0
-offset_right = 680.0
-offset_bottom = 32.0
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
-theme_override_constants/shadow_offset_x = 1
-theme_override_constants/shadow_offset_y = 1
-text = "AI vs AI — 左键点选单位/建筑/资源查看状态（只读）"
-
 [node name="UnitDebugLog" type="RichTextLabel" parent="UILayer"]
 anchors_preset = 2
 anchor_top = 1.0

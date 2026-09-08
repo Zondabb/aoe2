@@ -36,7 +36,6 @@ var show_vision := false
 var show_move_arrows := false
 var print_vision_timing := false
 
-var _hint_label: Label
 var _timing_accum := 0.0
 var _last_timing_text := ""
 var _focus_units: Array[Node2D] = []
@@ -61,20 +60,6 @@ func _ready() -> void:
 	z_index = 80
 	add_to_group("nav_debug_overlay")
 	set_process(false)
-	_hint_label = Label.new()
-	_hint_label.text = _hint_text()
-	_hint_label.position = Vector2(12, 10)
-	_hint_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.85, 0.9))
-	_hint_label.add_theme_font_size_override("font_size", 14)
-	var ui := get_tree().get_first_node_in_group("pathfinding_ui_layer") as CanvasLayer
-	if ui != null:
-		ui.add_child(_hint_label)
-	else:
-		var layer := CanvasLayer.new()
-		layer.layer = 20
-		layer.add_to_group("pathfinding_ui_layer")
-		get_parent().call_deferred("add_child", layer)
-		layer.call_deferred("add_child", _hint_label)
 
 
 func refresh_debug_state() -> void:
@@ -83,7 +68,6 @@ func refresh_debug_state() -> void:
 	if not active:
 		_timing_accum = 0.0
 	queue_redraw()
-	_refresh_hint()
 	if print_vision_timing:
 		_run_and_print_vision_timing()
 
@@ -283,8 +267,6 @@ func _iso_circle_screen_points(center: Vector2, radius: float) -> PackedVector2A
 func _run_and_print_vision_timing() -> void:
 	if vision == null or not is_inside_tree():
 		_last_timing_text = "VisionService missing"
-		#print("[vision] ", _last_timing_text)
-		_refresh_hint()
 		return
 	var units := _focused_units_list()
 	var observers := 0
@@ -319,7 +301,6 @@ func _run_and_print_vision_timing() -> void:
 			% [str(unit.get("name")), str(unit.get("team")), radius, seen.size(), dt]
 		)
 		samples += 1
-	_refresh_hint()
 
 
 func _focused_units_list() -> Array[Node2D]:
@@ -335,19 +316,3 @@ func _focused_units_list() -> Array[Node2D]:
 		if _unit_in_focus(unit):
 			result.append(unit)
 	return result
-
-
-func _hint_text() -> String:
-	return (
-		"Debug panel → grid / solids / paths / vision / arrows / timing | "
-		+ "hotkeys G all, N grid, B solids, P paths, V vision, A arrows, T timing"
-	)
-
-
-func _refresh_hint() -> void:
-	if _hint_label == null:
-		return
-	var lines := [_hint_text()]
-	if print_vision_timing and not _last_timing_text.is_empty():
-		lines.append(_last_timing_text)
-	_hint_label.text = "\n".join(lines)

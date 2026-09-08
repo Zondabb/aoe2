@@ -4,7 +4,7 @@ extends RefCounted
 ## Vision queries over SpatialHash. Units/buildings register; observers use vision_radius.
 
 const SpatialHashScript := preload("res://scripts/systems/spatial_hash.gd")
-const DEFAULT_VISION_RADIUS := 8.0
+const DEFAULT_VISION_RADIUS := 16.0
 const DEFAULT_CELL_SIZE := 2.0
 
 var hash: SpatialHashScript = SpatialHashScript.new()
