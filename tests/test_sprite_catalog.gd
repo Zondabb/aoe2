@@ -79,6 +79,35 @@ func run() -> Array[String]:
 			):
 				failures.append("villager chop sheet exported but chop_dir_0 missing")
 
+	var arrow_base := SpriteCatalogScript.projectile_sheet_base()
+	if SpriteCatalogScript.sheet_paths_exist(arrow_base):
+		var arrow_meta := SpriteCatalogScript.load_meta(arrow_base)
+		if int(arrow_meta.get("directions", 0)) != SpriteCatalogScript.ARROW_DIRECTION_COUNT:
+			failures.append("arrow sheet should declare 16 direction groups")
+		if int(arrow_meta.get("frames_per_direction", 0)) != SpriteCatalogScript.ARROW_FRAMES_PER_DIRECTION:
+			failures.append("arrow sheet should declare 11 frames per direction")
+		if not is_equal_approx(
+			SpriteCatalogScript.screen_delta_to_clock_hours(Vector2(0.0, 1.0)), 6.0
+		):
+			failures.append("screen-down delta should read as 6 o'clock")
+		var six_frame := SpriteCatalogScript.projectile_frame_for_flight(6.0, 0)
+		if int(six_frame["group"]) != 0 or bool(six_frame["flip"]):
+			failures.append("6 o'clock should use arrow group 0 without flip")
+		var six_mid := SpriteCatalogScript.projectile_frame_for_flight(6.0, 4)
+		if int(six_mid["index"]) != 4:
+			failures.append("sequence step should advance within the fixed direction group")
+		var eleven_half := SpriteCatalogScript.projectile_frame_for_flight(11.5, 0)
+		if int(eleven_half["group"]) != SpriteCatalogScript.ARROW_DIRECTION_COUNT - 1:
+			failures.append("11:30 should use the last arrow direction group")
+		var three_frame := SpriteCatalogScript.projectile_frame_for_flight(3.0, 0)
+		if not bool(three_frame["flip"]):
+			failures.append("3 o'clock should mirror authored arrow frames")
+		if int(three_frame["group"]) != int(SpriteCatalogScript.projectile_frame_for_flight(9.0, 0)["group"]):
+			failures.append("3 o'clock mirror should match 9 o'clock source group")
+		var seq_end := SpriteCatalogScript.projectile_frame_for_flight(6.0, 10)
+		if int(seq_end["step"]) != SpriteCatalogScript.ARROW_FRAMES_PER_DIRECTION - 1:
+			failures.append("flight sequence step should reach the last in-group frame")
+
 	if not ResourceLoader.exists("res://assets/terrain/grass.png"):
 		failures.append("terrain grass texture should exist")
 	return failures

@@ -362,8 +362,9 @@ func _spawn_projectile() -> void:
 	if projectile == null:
 		return
 	parent.add_child(projectile)
-	var aim := ProjectileAgentScript.aim_point_for_target(sim_pos, _attack_target)
-	projectile.call("setup", sim_pos, aim, def, team, self)
+	var origin := _projectile_origin_sim()
+	var aim := ProjectileAgentScript.aim_point_for_target(origin, _attack_target)
+	projectile.call("setup", origin, aim, def, team, self)
 
 func _process_die(delta: float) -> void:
 	var duration := _combat_anim_duration(&"die")
@@ -1251,6 +1252,22 @@ func _sprite_top_local_y() -> float:
 	if body != null and body.visible and body.texture != null:
 		return body.position.y - body.texture.get_height() * body.scale.y * 0.5
 	return -40.0
+
+
+func _projectile_origin_sim() -> Vector2:
+	if not is_inside_tree():
+		return sim_pos
+	var head_screen := to_global(Vector2(0.0, _projectile_spawn_local_y()))
+	return IsoMathScript.screen_to_world(head_screen)
+
+
+func _projectile_spawn_local_y() -> float:
+	## Local screen Y above feet (negative = up). Uses sprite top ≈ head height.
+	var top_y := _sprite_top_local_y()
+	if top_y < -4.0:
+		return top_y * 0.88
+	return -32.0
+
 
 func _update_billboard_facing(velocity: Vector2, delta: float, animate: bool) -> void:
 	_update_billboard_facing_from_vector(velocity, delta, animate, animate)
