@@ -59,7 +59,7 @@ const ARROW_CLOCK_MIRROR_END_HOURS := 5.5
 
 const BUILDING_SHEETS := {
 	&"town_center": {
-		&"chinese": "res://assets/sprites/buildings/tc_asian_feudal_top",
+		&"chinese": "res://assets/sprites/buildings/tc_asian_feudal",
 		&"default": "res://assets/sprites/buildings/tc_dark_main",
 	},
 	&"house": {

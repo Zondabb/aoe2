@@ -240,18 +240,21 @@ func _configure_visuals() -> void:
 	var body := get_node_or_null("Body") as CanvasItem
 	var billboard := get_node_or_null("Billboard") as Sprite2D
 	var civ_id: StringName = civ.id if civ != null else &""
-	var base := SpriteCatalogScript.building_sheet_base(def.id, civ_id)
+	var base := ""
+	var meta := {}
+	if def != null:
+		base = SpriteCatalogScript.building_sheet_base(def.id, civ_id)
 	if billboard != null and SpriteCatalogScript.sheet_paths_exist(base):
-		var meta := SpriteCatalogScript.load_meta(base)
+		meta = SpriteCatalogScript.load_meta(base)
 		var texture := SpriteCatalogScript.load_texture(base)
 		if not meta.is_empty() and texture != null:
 			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
 			var hotspot := SpriteCatalogScript.average_hotspot(meta)
 			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
 			var frame_w := float(meta.get("frame_w", 1))
-			var target_width := maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 1.15
 			var pixel_scale := SpriteCatalogScript.BUILDING_PIXEL_SCALE_2D
-			if frame_w > 0.0:
+			if def != null and frame_w > 0.0:
+				var target_width := maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 1.15
 				pixel_scale = clampf(target_width / frame_w, 1.2, 3.0)
 			SpriteCatalogScript.configure_sprite_2d(billboard, pixel_scale, offset)
 			billboard.modulate = Color.WHITE
@@ -268,10 +271,16 @@ func _configure_visuals() -> void:
 		billboard.visible = false
 	if def != null:
 		SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
-	var shadow_radius := 18.0
-	if def != null:
-		shadow_radius = maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.4
-	SpriteCatalogScript.ensure_ground_shadow_2d(self, shadow_radius)
+	var has_sprite_shadow := bool(meta.get("includes_shadow", false))
+	var ground_shadow := get_node_or_null("GroundShadow") as CanvasItem
+	if has_sprite_shadow:
+		if ground_shadow != null:
+			ground_shadow.visible = false
+	else:
+		var shadow_radius := 18.0
+		if def != null:
+			shadow_radius = maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.4
+		SpriteCatalogScript.ensure_ground_shadow_2d(self, shadow_radius)
 	if not _use_billboard:
 		_apply_team_color()
 

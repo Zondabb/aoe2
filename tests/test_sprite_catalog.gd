@@ -110,4 +110,13 @@ func run() -> Array[String]:
 
 	if not ResourceLoader.exists("res://assets/terrain/grass.png"):
 		failures.append("terrain grass texture should exist")
+	var tc_base := SpriteCatalogScript.building_sheet_base(&"town_center", &"chinese")
+	if not String(tc_base).ends_with("tc_asian_feudal"):
+		failures.append("chinese town center should use the composited tc_asian_feudal sheet")
+	elif not SpriteCatalogScript.sheet_paths_exist(tc_base):
+		failures.append("composited chinese town center sheet should exist")
+	else:
+		var tc_meta := SpriteCatalogScript.load_meta(tc_base)
+		if int(tc_meta.get("frame_w", 0)) < 300:
+			failures.append("composited town center should be wider than the old top-only piece")
 	return failures

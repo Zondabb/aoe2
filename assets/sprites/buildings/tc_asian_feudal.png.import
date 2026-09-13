@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bqh67pucd30u8"
-path="res://.godot/imported/tc_asian_feudal_top.png-6e49574b2e859d3470da588478194d06.ctex"
+uid="uid://nqjlpvvim6ud"
+path="res://.godot/imported/tc_asian_feudal.png-18827d62996ac2daf1fdb380e5b3c2f6.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/buildings/tc_asian_feudal_top.png"
-dest_files=["res://.godot/imported/tc_asian_feudal_top.png-6e49574b2e859d3470da588478194d06.ctex"]
+source_file="res://assets/sprites/buildings/tc_asian_feudal.png"
+dest_files=["res://.godot/imported/tc_asian_feudal.png-18827d62996ac2daf1fdb380e5b3c2f6.ctex"]
 
 [params]
 

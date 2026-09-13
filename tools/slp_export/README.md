@@ -59,6 +59,9 @@ python export_sprites.py
 
 # Single id
 python export_sprites.py --id 1484 --key villager_walk --category units --directions 5
+
+# Bake Asian feudal Town Center layers into one PNG
+python export_sprites.py --composite-tc
 ```
 
 Outputs:
@@ -100,8 +103,8 @@ Classic AoE unit SLPs store **5 authored facings** (frame counts like 50/60/75 d
 | archer_walk | 12 | Archer moving |
 | chu_ko_nu_walk | 225 | Chinese unique |
 | teutonic_knight_walk | 1198 | Teuton unique |
-| tc_dark_main | 891 | Single TC layer (not full multi-part TC) |
-| tc_asian_feudal_top | 901 | Asian feudal TC top |
+| tc_dark_main | 891 | Dark Age TC (single layer) |
+| tc_asian_feudal | composite | Asian feudal TC (layers 893/901/3598/3602/3606/4614/4618/4622 baked into one PNG) |
 | house_dark | 2223 | Dark Age houses |
 | house_asian_feudal | 2233 | Asian feudal houses |
 | barracks_asian_feudal | 131 | |
@@ -121,7 +124,7 @@ IDs sourced from the openage AoC SLP list and verified present under
 
 ## Placeholders / limits
 
-- Town Centers are multi-SLP layers in the original game; we export representative tops only.
+- Town Centers are multi-SLP in the original game. `python export_sprites.py --composite-tc` bakes Asian feudal layers into `tc_asian_feudal.png`; Dark Age still uses the single 891 piece.
 - Unit sheets: 5 authored dirs + flip (see above); buildings/resources use `directions: 1`.
 - Player-color pixels remapped for player 1 (blue band); shadow pixels approximated.
 - Do not commit the full game tree — only tools + small converted PNGs.

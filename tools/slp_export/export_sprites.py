@@ -36,7 +36,6 @@ PRIORITY: List[Dict[str, Any]] = [
     {"key": "chu_ko_nu_walk", "category": "units", "id": 225, "directions": 5, "note": "Chu-Ko-Nu moving"},
     {"key": "teutonic_knight_walk", "category": "units", "id": 1198, "directions": 5, "note": "Teutonic knight moving"},
     {"key": "tc_dark_main", "category": "buildings", "id": 891, "directions": 1, "note": "Dark Age TC main top (single layer)"},
-    {"key": "tc_asian_feudal_top", "category": "buildings", "id": 901, "directions": 1, "note": "Asian feudal TC top piece"},
     {"key": "house_dark", "category": "buildings", "id": 2223, "directions": 1, "note": "Dark Age houses"},
     {"key": "house_asian_feudal", "category": "buildings", "id": 2233, "directions": 1, "note": "Asian feudal houses"},
     {"key": "barracks_asian_feudal", "category": "buildings", "id": 131, "directions": 1, "note": "Asian barracks feudal"},
@@ -50,6 +49,23 @@ PRIORITY: List[Dict[str, Any]] = [
     {"key": "cliff_main", "category": "terrain", "id": 226, "directions": 1, "note": "Cliffs"},
     {"key": "cliff_section", "category": "terrain", "id": 229, "directions": 1, "note": "Cliff section"},
     {"key": "cliff_section_b", "category": "terrain", "id": 230, "directions": 1, "note": "Cliff section B"},
+]
+
+# Asian feudal Town Center: decode these SLPs and bake one standing PNG (back → front).
+# tile: AoE2 map offset (1 tile = 96×48 iso). Wings are annexes toward the camera, not
+# stacked on the main hotspot — that was putting roofs behind/above the pagoda.
+AOE2_TILE_W = 96
+AOE2_TILE_H = 48
+TC_WING_TILE = (2.1, 2.1)
+TC_ASIAN_FEUDAL_LAYERS: List[Dict[str, Any]] = [
+    {"key": "shadow", "id": 893, "tile": (1.1, 1.1)},
+    {"key": "left_support", "id": 3606, "tile": (1.1, 1.1)},
+    {"key": "far_right_support", "id": 4622, "tile": (1.1, 1.1)},
+    {"key": "top", "id": 901, "tile": (0.0, 0.0)},
+    {"key": "left_roof_supports", "id": 3602, "tile": (1.6, 1.6)},
+    {"key": "right_roof_supports", "id": 4618, "tile": (1.6, 1.6)},
+    {"key": "left_roof", "id": 3598, "tile": TC_WING_TILE},
+    {"key": "right_roof", "id": 4614, "tile": TC_WING_TILE},
 ]
 
 COMBAT_PRIORITY: List[Dict[str, Any]] = [
@@ -117,6 +133,106 @@ def pack_sheet(
         sheet.paste(im, (ox, oy), im)
         pads.append({"x": pad_x, "y": pad_y})
     return sheet, cols, rows, frame_w, frame_h, pads
+
+
+def _read_slp(resources: Path, file_id: int, player: int, palette_name: str = "interface"):
+    graphics = resources / "_common" / "drs" / "graphics"
+    interface = resources / "_common" / "drs" / "interface"
+    loose_slp = resources / "_common" / "slp"
+    pal_path = resolve_palette(resources, palette_name)
+    palette = load_pal(pal_path)
+    data: Optional[bytes] = None
+    source = ""
+    for base in (graphics, interface, loose_slp):
+        try:
+            data = extract(base, file_id, ext="slp")
+            source = str(base / f"{file_id}.slp")
+            break
+        except (FileNotFoundError, KeyError):
+            continue
+    if data is None:
+        raise FileNotFoundError(f"SLP {file_id} not found under graphics/interface/slp")
+    frames, metas = decode_with_meta(data, palette, player=player)
+    if not frames:
+        raise ValueError(f"SLP {file_id} has no frames")
+    return frames, metas, source, pal_path
+
+
+def tile_to_screen_px(tile_x: float, tile_y: float) -> tuple[int, int]:
+    """AoE2 2:1 iso: +X NE, +Y SE; +X/+Y moves down the screen (toward camera)."""
+    sx = int(round((tile_x - tile_y) * (AOE2_TILE_W / 2.0)))
+    sy = int(round((tile_x + tile_y) * (AOE2_TILE_H / 2.0)))
+    return sx, sy
+
+
+def composite_hotspot_images(
+    parts: Sequence[tuple[Image.Image, int, int, int, int]],
+) -> tuple[Image.Image, int, int]:
+    """Stack images so hotspot + extra pixel offset share one origin. Returns canvas + origin."""
+    min_x = min(ox - hx for _im, hx, _hy, ox, _oy in parts)
+    min_y = min(oy - hy for _im, _hx, hy, _ox, oy in parts)
+    max_x = max(ox - hx + im.width for im, hx, _hy, ox, _oy in parts)
+    max_y = max(oy - hy + im.height for im, _hx, hy, _ox, oy in parts)
+    origin_x = -min_x
+    origin_y = -min_y
+    canvas = Image.new("RGBA", (max_x - min_x, max_y - min_y), (0, 0, 0, 0))
+    for im, hx, hy, ox, oy in parts:
+        canvas.paste(im, (origin_x - hx + ox, origin_y - hy + oy), im)
+    return canvas, origin_x, origin_y
+
+
+def export_composited_asian_feudal_tc(
+    resources: Path, out_dir: Path, player: int = 1
+) -> Dict[str, Any]:
+    parts: List[tuple[Image.Image, int, int, int, int]] = []
+    layer_info: List[Dict[str, Any]] = []
+    pal_path = resolve_palette(resources, "interface")
+    for item in TC_ASIAN_FEUDAL_LAYERS:
+        frames, metas, source, pal_path = _read_slp(resources, int(item["id"]), player)
+        frame = frames[0]
+        meta = metas[0]
+        tile = item.get("tile", (0.0, 0.0))
+        ox, oy = tile_to_screen_px(float(tile[0]), float(tile[1]))
+        parts.append((frame, int(meta.hotspot_x), int(meta.hotspot_y), ox, oy))
+        layer_info.append(
+            {
+                "key": item["key"],
+                "slp_id": item["id"],
+                "source": source,
+                "frame_w": frame.width,
+                "frame_h": frame.height,
+                "hotspot": {"x": meta.hotspot_x, "y": meta.hotspot_y},
+                "tile": [tile[0], tile[1]],
+                "pixel_offset": {"x": ox, "y": oy},
+            }
+        )
+    canvas, origin_x, origin_y = composite_hotspot_images(parts)
+    cat_dir = out_dir / "buildings"
+    cat_dir.mkdir(parents=True, exist_ok=True)
+    key = "tc_asian_feudal"
+    png_path = cat_dir / f"{key}.png"
+    json_path = cat_dir / f"{key}.json"
+    canvas.save(png_path)
+    out_meta = {
+        "key": key,
+        "slp_id": 901,
+        "source": "composite",
+        "palette": str(pal_path),
+        "note": "Asian feudal Town Center; wing annexes offset 2 tiles toward camera",
+        "cols": 1,
+        "rows": 1,
+        "frame_w": canvas.width,
+        "frame_h": canvas.height,
+        "frame_count": 1,
+        "directions": 1,
+        "frames_per_direction": 1,
+        "includes_shadow": True,
+        "hotspots": [{"x": origin_x, "y": origin_y}],
+        "layers": layer_info,
+    }
+    json_path.write_text(json.dumps(out_meta, indent=2), encoding="utf-8")
+    print(f"OK  {key} composite {canvas.width}x{canvas.height} hotspot=({origin_x},{origin_y})")
+    return out_meta
 
 
 def export_one(
@@ -231,12 +347,19 @@ def export_priority(resources: Path, out_dir: Path, player: int = 1) -> Dict[str
             missing.append({"key": item["key"], "id": item["id"], "error": str(exc)})
             print(f"MISS {item['key']} id={item['id']}: {exc}", file=sys.stderr)
 
+    try:
+        composite_meta = export_composited_asian_feudal_tc(resources, out_dir, player=player)
+        results.append(composite_meta)
+    except Exception as exc:  # noqa: BLE001
+        missing.append({"key": "tc_asian_feudal", "id": 901, "error": str(exc)})
+        print(f"MISS tc_asian_feudal composite: {exc}", file=sys.stderr)
+
     report = {
         "exported": [{"key": r["key"], "slp_id": r["slp_id"], "frame_count": r["frame_count"]} for r in results],
         "missing": missing,
         "discovered_ids": PRIORITY,
         "placeholders": [
-            "Full TC is multi-layer (base + roofs); demo uses single top pieces (891/901).",
+            "Asian feudal TC is composited from 893/901/3598/3602/3606/4614/4618/4622 into tc_asian_feudal.png.",
             "Unit sheets use 5 authored directions + horizontal flip for the mirrored facings.",
             "Shadow pixels are approximated as checkerboard alpha, not the in-game shadow table.",
         ],
@@ -330,6 +453,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=5,
         help="authored facing count (classic units: 5 + flip; buildings: 1)",
     )
+    parser.add_argument(
+        "--composite-tc",
+        action="store_true",
+        help="bake Asian feudal Town Center layers into one PNG",
+    )
     parser.add_argument("--out", type=Path, default=ROOT / "assets" / "sprites")
     args = parser.parse_args(argv)
 
@@ -339,6 +467,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not resources.is_dir():
         print(f"ERROR: aoe2_resources not found: {resources}", file=sys.stderr)
         return 1
+
+    if args.composite_tc:
+        meta = export_composited_asian_feudal_tc(resources, args.out, player=player)
+        print(json.dumps({k: meta[k] for k in ("key", "frame_w", "frame_h", "hotspots") if k in meta}, indent=2))
+        return 0
 
     if args.id is not None:
         meta = export_one(
