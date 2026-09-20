@@ -40,8 +40,8 @@ def test_clf_pal_len(resources: Path) -> None:
     assert len(pal) == 256
 
 
-def test_interface_palette_transparent_zero(resources: Path) -> None:
+def test_interface_palette_opaque_zero(resources: Path) -> None:
     pal = load_pal(resources / "_common/drs/interface/50500.bina")
     assert len(pal) == 256
-    assert pal[0][3] == 0
+    assert pal[0] == (0, 0, 0, 255)
     assert pal[1][3] == 255

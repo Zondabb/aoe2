@@ -41,6 +41,11 @@ This install already unpacks DRS archives into folders:
 From `tools/slp_export`:
 
 ```powershell
+# Rebuild all project SLP sheets and existing archer previews using config player_color
+python regenerate_all.py
+# Optional: override player color (1 = blue)
+python regenerate_all.py --player 1
+
 # Palette tests (set AOE2_RES to override)
 $env:AOE2_RES = "D:\BaiduNetdiskDownload\gaoqingban2\gaoqingban2\resources"
 pytest tests/test_palette.py -q
@@ -70,6 +75,12 @@ Outputs:
 - `{key}.json` — `{cols, rows, frame_w, frame_h, directions, hotspots, ...}`
 - `export_report.json` — success / missing summary (priority export)
 - `ui_export_report.json` — success / missing summary (UI export)
+- `regenerate_report.json` — full rebuild summary, including extra sheets and derived previews
+
+`regenerate_all.py` covers priority, combat, UI, existing extra SLP manifests,
+and the existing archer 1x/Scale2x 4x previews and individual frames. It does not
+recreate the standalone `assets/terrain/grass.png`, which is outside the SLP
+pipeline and has no source conversion manifest.
 
 ### UI sheets (`--ui`)
 
@@ -124,9 +135,13 @@ IDs sourced from the openage AoC SLP list and verified present under
 
 ## Placeholders / limits
 
+- SLP palette entries (including index 0, black) are opaque; only skip/outline commands and row bounds create transparent regions. Treating index 0 as transparent removes dark roof and interior details.
+
+- Town Center exports also write `buildings/tc_asian_feudal_green.jpg`, a green-background preview of the final RGBA composite for checking shadows.
+
 - Town Centers are multi-SLP in the original game. `python export_sprites.py --composite-tc` bakes Asian feudal layers into `tc_asian_feudal.png`; Dark Age still uses the single 891 piece.
 - Unit sheets: 5 authored dirs + flip (see above); buildings/resources use `directions: 1`.
-- Player-color pixels remapped for player 1 (blue band); shadow pixels approximated.
+- Player-color pixels use the configured player; shadow commands preserve every pixel as black with alpha 100 (matching openage). Sheets preserve RGBA and building layers use source-over alpha compositing.
 - Do not commit the full game tree — only tools + small converted PNGs.
 
 ## Modules

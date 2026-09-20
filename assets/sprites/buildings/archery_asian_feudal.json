@@ -1,9 +1,9 @@
 {
   "key": "archery_asian_feudal",
   "slp_id": 22,
-  "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\22.slp",
-  "palette": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
-  "note": "",
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\22.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Asian archery feudal",
   "cols": 1,
   "rows": 1,
   "frame_w": 325,

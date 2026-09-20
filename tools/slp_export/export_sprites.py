@@ -52,18 +52,20 @@ PRIORITY: List[Dict[str, Any]] = [
 ]
 
 # Asian feudal Town Center: decode these SLPs and bake one standing PNG (back → front).
-# tile: AoE2 map offset (1 tile = 96×48 iso). Wings are annexes toward the camera, not
-# stacked on the main hotspot — that was putting roofs behind/above the pagoda.
+# Original HD DAT composite graphic 3347: main -48px, base/shadow 0px,
+# middle supports +24px, roofs +48px. Normalize around the main hotspot:
+# 0/48/72/96px. Do not add the former 0.1-tile bias: it opens a 5px seam.
+# See tc_layout.md for the graphic-delta records read with openage.
 AOE2_TILE_W = 96
 AOE2_TILE_H = 48
-TC_WING_TILE = (2.1, 2.1)
+TC_WING_TILE = (2.0, 2.0)
 TC_ASIAN_FEUDAL_LAYERS: List[Dict[str, Any]] = [
-    {"key": "shadow", "id": 893, "tile": (1.1, 1.1)},
-    {"key": "left_support", "id": 3606, "tile": (1.1, 1.1)},
-    {"key": "far_right_support", "id": 4622, "tile": (1.1, 1.1)},
+    {"key": "shadow", "id": 893, "tile": (1.0, 1.0)},
+    {"key": "left_support", "id": 3606, "tile": (1.0, 1.0)},
+    {"key": "far_right_support", "id": 4622, "tile": (1.0, 1.0)},
     {"key": "top", "id": 901, "tile": (0.0, 0.0)},
-    {"key": "left_roof_supports", "id": 3602, "tile": (1.6, 1.6)},
-    {"key": "right_roof_supports", "id": 4618, "tile": (1.6, 1.6)},
+    {"key": "left_roof_supports", "id": 3602, "tile": (1.5, 1.5)},
+    {"key": "right_roof_supports", "id": 4618, "tile": (1.5, 1.5)},
     {"key": "left_roof", "id": 3598, "tile": TC_WING_TILE},
     {"key": "right_roof", "id": 4614, "tile": TC_WING_TILE},
 ]
@@ -130,7 +132,7 @@ def pack_sheet(
         pad_y = frame_h - im.height
         ox = c * frame_w + pad_x
         oy = r * frame_h + pad_y
-        sheet.paste(im, (ox, oy), im)
+        sheet.paste(im, (ox, oy))
         pads.append({"x": pad_x, "y": pad_y})
     return sheet, cols, rows, frame_w, frame_h, pads
 
@@ -177,7 +179,7 @@ def composite_hotspot_images(
     origin_y = -min_y
     canvas = Image.new("RGBA", (max_x - min_x, max_y - min_y), (0, 0, 0, 0))
     for im, hx, hy, ox, oy in parts:
-        canvas.paste(im, (origin_x - hx + ox, origin_y - hy + oy), im)
+        canvas.alpha_composite(im, (origin_x - hx + ox, origin_y - hy + oy))
     return canvas, origin_x, origin_y
 
 
@@ -213,12 +215,18 @@ def export_composited_asian_feudal_tc(
     png_path = cat_dir / f"{key}.png"
     json_path = cat_dir / f"{key}.json"
     canvas.save(png_path)
+    # Flatten the exported RGBA on green so shadow coverage is easy to inspect.
+    debug_path = cat_dir / f"{key}_green.jpg"
+    debug_background = Image.new("RGBA", canvas.size, (90, 140, 50, 255))
+    debug_background.alpha_composite(canvas)
+    debug_background.convert("RGB").save(debug_path, quality=100, subsampling=0)
+    print(f"DEBUG green background: {debug_path}")
     out_meta = {
         "key": key,
         "slp_id": 901,
         "source": "composite",
         "palette": str(pal_path),
-        "note": "Asian feudal Town Center; wing annexes offset 2 tiles toward camera",
+        "note": "Asian feudal Town Center; offsets from HD DAT composite graphic 3347, normalized to main hotspot",
         "cols": 1,
         "rows": 1,
         "frame_w": canvas.width,
@@ -361,7 +369,7 @@ def export_priority(resources: Path, out_dir: Path, player: int = 1) -> Dict[str
         "placeholders": [
             "Asian feudal TC is composited from 893/901/3598/3602/3606/4614/4618/4622 into tc_asian_feudal.png.",
             "Unit sheets use 5 authored directions + horizontal flip for the mirrored facings.",
-            "Shadow pixels are approximated as checkerboard alpha, not the in-game shadow table.",
+            "Shadow pixels use black alpha 100, matching openage's SLP export.",
         ],
     }
     report_path = out_dir / "export_report.json"

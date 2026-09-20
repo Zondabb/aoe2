@@ -1,9 +1,9 @@
 {
   "key": "cliff_section_b",
   "slp_id": 230,
-  "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\230.slp",
-  "palette": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
-  "note": "",
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\230.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Cliff section B",
   "cols": 5,
   "rows": 5,
   "frame_w": 240,

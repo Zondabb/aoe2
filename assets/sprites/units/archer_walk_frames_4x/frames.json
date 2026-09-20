@@ -1,0 +1,674 @@
+{
+  "unit": "archer_walk",
+  "source": "D:\\Users\\jiangzw\\workspace\\godot_game\\aoe2\\assets\\sprites\\units\\archer_walk.png",
+  "scale": 4,
+  "frame_size_1x": [
+    49,
+    53
+  ],
+  "frame_size_4x": [
+    196,
+    212
+  ],
+  "directions": [
+    "south",
+    "southeast",
+    "east",
+    "northeast",
+    "north"
+  ],
+  "frames_per_direction": 10,
+  "frame_count": 50,
+  "frames": [
+    {
+      "file": "archer_south_00.png",
+      "dir": "south",
+      "frame": 0,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        172
+      ]
+    },
+    {
+      "file": "archer_south_01.png",
+      "dir": "south",
+      "frame": 1,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        164
+      ]
+    },
+    {
+      "file": "archer_south_02.png",
+      "dir": "south",
+      "frame": 2,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        160
+      ]
+    },
+    {
+      "file": "archer_south_03.png",
+      "dir": "south",
+      "frame": 3,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        160
+      ]
+    },
+    {
+      "file": "archer_south_04.png",
+      "dir": "south",
+      "frame": 4,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        160
+      ]
+    },
+    {
+      "file": "archer_south_05.png",
+      "dir": "south",
+      "frame": 5,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        160
+      ]
+    },
+    {
+      "file": "archer_south_06.png",
+      "dir": "south",
+      "frame": 6,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        92,
+        160
+      ]
+    },
+    {
+      "file": "archer_south_07.png",
+      "dir": "south",
+      "frame": 7,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        92,
+        160
+      ]
+    },
+    {
+      "file": "archer_south_08.png",
+      "dir": "south",
+      "frame": 8,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        92,
+        164
+      ]
+    },
+    {
+      "file": "archer_south_09.png",
+      "dir": "south",
+      "frame": 9,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        92,
+        164
+      ]
+    },
+    {
+      "file": "archer_southeast_00.png",
+      "dir": "southeast",
+      "frame": 0,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        184
+      ]
+    },
+    {
+      "file": "archer_southeast_01.png",
+      "dir": "southeast",
+      "frame": 1,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        184
+      ]
+    },
+    {
+      "file": "archer_southeast_02.png",
+      "dir": "southeast",
+      "frame": 2,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        108,
+        184
+      ]
+    },
+    {
+      "file": "archer_southeast_03.png",
+      "dir": "southeast",
+      "frame": 3,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        116,
+        176
+      ]
+    },
+    {
+      "file": "archer_southeast_04.png",
+      "dir": "southeast",
+      "frame": 4,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        108,
+        172
+      ]
+    },
+    {
+      "file": "archer_southeast_05.png",
+      "dir": "southeast",
+      "frame": 5,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        172
+      ]
+    },
+    {
+      "file": "archer_southeast_06.png",
+      "dir": "southeast",
+      "frame": 6,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        108,
+        172
+      ]
+    },
+    {
+      "file": "archer_southeast_07.png",
+      "dir": "southeast",
+      "frame": 7,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        108,
+        176
+      ]
+    },
+    {
+      "file": "archer_southeast_08.png",
+      "dir": "southeast",
+      "frame": 8,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        180
+      ]
+    },
+    {
+      "file": "archer_southeast_09.png",
+      "dir": "southeast",
+      "frame": 9,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        100,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_00.png",
+      "dir": "east",
+      "frame": 0,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        76,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_01.png",
+      "dir": "east",
+      "frame": 1,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        88,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_02.png",
+      "dir": "east",
+      "frame": 2,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_03.png",
+      "dir": "east",
+      "frame": 3,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_04.png",
+      "dir": "east",
+      "frame": 4,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_05.png",
+      "dir": "east",
+      "frame": 5,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        116,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_06.png",
+      "dir": "east",
+      "frame": 6,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        108,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_07.png",
+      "dir": "east",
+      "frame": 7,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_08.png",
+      "dir": "east",
+      "frame": 8,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        92,
+        184
+      ]
+    },
+    {
+      "file": "archer_east_09.png",
+      "dir": "east",
+      "frame": 9,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        84,
+        184
+      ]
+    },
+    {
+      "file": "archer_northeast_00.png",
+      "dir": "northeast",
+      "frame": 0,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        76,
+        172
+      ]
+    },
+    {
+      "file": "archer_northeast_01.png",
+      "dir": "northeast",
+      "frame": 1,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        76,
+        172
+      ]
+    },
+    {
+      "file": "archer_northeast_02.png",
+      "dir": "northeast",
+      "frame": 2,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        80,
+        176
+      ]
+    },
+    {
+      "file": "archer_northeast_03.png",
+      "dir": "northeast",
+      "frame": 3,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        88,
+        184
+      ]
+    },
+    {
+      "file": "archer_northeast_04.png",
+      "dir": "northeast",
+      "frame": 4,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        96,
+        180
+      ]
+    },
+    {
+      "file": "archer_northeast_05.png",
+      "dir": "northeast",
+      "frame": 5,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        100,
+        180
+      ]
+    },
+    {
+      "file": "archer_northeast_06.png",
+      "dir": "northeast",
+      "frame": 6,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        92,
+        184
+      ]
+    },
+    {
+      "file": "archer_northeast_07.png",
+      "dir": "northeast",
+      "frame": 7,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        84,
+        180
+      ]
+    },
+    {
+      "file": "archer_northeast_08.png",
+      "dir": "northeast",
+      "frame": 8,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        80,
+        176
+      ]
+    },
+    {
+      "file": "archer_northeast_09.png",
+      "dir": "northeast",
+      "frame": 9,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        72,
+        172
+      ]
+    },
+    {
+      "file": "archer_north_00.png",
+      "dir": "north",
+      "frame": 0,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        152
+      ]
+    },
+    {
+      "file": "archer_north_01.png",
+      "dir": "north",
+      "frame": 1,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        100,
+        152
+      ]
+    },
+    {
+      "file": "archer_north_02.png",
+      "dir": "north",
+      "frame": 2,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        100,
+        156
+      ]
+    },
+    {
+      "file": "archer_north_03.png",
+      "dir": "north",
+      "frame": 3,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        100,
+        160
+      ]
+    },
+    {
+      "file": "archer_north_04.png",
+      "dir": "north",
+      "frame": 4,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        100,
+        168
+      ]
+    },
+    {
+      "file": "archer_north_05.png",
+      "dir": "north",
+      "frame": 5,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        100,
+        172
+      ]
+    },
+    {
+      "file": "archer_north_06.png",
+      "dir": "north",
+      "frame": 6,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        164
+      ]
+    },
+    {
+      "file": "archer_north_07.png",
+      "dir": "north",
+      "frame": 7,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        108,
+        156
+      ]
+    },
+    {
+      "file": "archer_north_08.png",
+      "dir": "north",
+      "frame": 8,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        108,
+        152
+      ]
+    },
+    {
+      "file": "archer_north_09.png",
+      "dir": "north",
+      "frame": 9,
+      "size": [
+        196,
+        212
+      ],
+      "hotspot": [
+        104,
+        152
+      ]
+    }
+  ]
+}

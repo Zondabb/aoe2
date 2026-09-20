@@ -2,12 +2,12 @@
   "key": "tc_asian_feudal",
   "slp_id": 901,
   "source": "composite",
-  "palette": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
-  "note": "Asian feudal Town Center; wing annexes offset 2 tiles toward camera",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Asian feudal Town Center; offsets from HD DAT composite graphic 3347, normalized to main hotspot",
   "cols": 1,
   "rows": 1,
   "frame_w": 401,
-  "frame_h": 300,
+  "frame_h": 295,
   "frame_count": 1,
   "directions": 1,
   "frames_per_direction": 1,
@@ -22,7 +22,7 @@
     {
       "key": "shadow",
       "slp_id": 893,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\893.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\893.slp",
       "frame_w": 396,
       "frame_h": 79,
       "hotspot": {
@@ -30,18 +30,18 @@
         "y": 35
       },
       "tile": [
-        1.1,
-        1.1
+        1.0,
+        1.0
       ],
       "pixel_offset": {
         "x": 0,
-        "y": 53
+        "y": 48
       }
     },
     {
       "key": "left_support",
       "slp_id": 3606,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\3606.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\3606.slp",
       "frame_w": 248,
       "frame_h": 211,
       "hotspot": {
@@ -49,18 +49,18 @@
         "y": 210
       },
       "tile": [
-        1.1,
-        1.1
+        1.0,
+        1.0
       ],
       "pixel_offset": {
         "x": 0,
-        "y": 53
+        "y": 48
       }
     },
     {
       "key": "far_right_support",
       "slp_id": 4622,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\4622.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\4622.slp",
       "frame_w": 139,
       "frame_h": 214,
       "hotspot": {
@@ -68,18 +68,18 @@
         "y": 210
       },
       "tile": [
-        1.1,
-        1.1
+        1.0,
+        1.0
       ],
       "pixel_offset": {
         "x": 0,
-        "y": 53
+        "y": 48
       }
     },
     {
       "key": "top",
       "slp_id": 901,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\901.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\901.slp",
       "frame_w": 206,
       "frame_h": 245,
       "hotspot": {
@@ -98,7 +98,7 @@
     {
       "key": "left_roof_supports",
       "slp_id": 3602,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\3602.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\3602.slp",
       "frame_w": 112,
       "frame_h": 40,
       "hotspot": {
@@ -106,18 +106,18 @@
         "y": 39
       },
       "tile": [
-        1.6,
-        1.6
+        1.5,
+        1.5
       ],
       "pixel_offset": {
         "x": 0,
-        "y": 77
+        "y": 72
       }
     },
     {
       "key": "right_roof_supports",
       "slp_id": 4618,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\4618.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\4618.slp",
       "frame_w": 99,
       "frame_h": 42,
       "hotspot": {
@@ -125,18 +125,18 @@
         "y": 42
       },
       "tile": [
-        1.6,
-        1.6
+        1.5,
+        1.5
       ],
       "pixel_offset": {
         "x": 0,
-        "y": 77
+        "y": 72
       }
     },
     {
       "key": "left_roof",
       "slp_id": 3598,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\3598.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\3598.slp",
       "frame_w": 162,
       "frame_h": 161,
       "hotspot": {
@@ -144,18 +144,18 @@
         "y": 162
       },
       "tile": [
-        2.1,
-        2.1
+        2.0,
+        2.0
       ],
       "pixel_offset": {
         "x": 0,
-        "y": 101
+        "y": 96
       }
     },
     {
       "key": "right_roof",
       "slp_id": 4614,
-      "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\4614.slp",
+      "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\4614.slp",
       "frame_w": 160,
       "frame_h": 161,
       "hotspot": {
@@ -163,12 +163,12 @@
         "y": 164
       },
       "tile": [
-        2.1,
-        2.1
+        2.0,
+        2.0
       ],
       "pixel_offset": {
         "x": 0,
-        "y": 101
+        "y": 96
       }
     }
   ]

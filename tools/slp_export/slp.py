@@ -76,9 +76,8 @@ def _decode_frame(
         if not (0 <= x < width and 0 <= y < height):
             return
         o = (y * width + x) * 4
-        # Checkerboard-ish soft shadow for export visibility.
-        if (x + y) & 1:
-            pixels[o : o + 4] = bytes((0, 0, 0, 96))
+        # Preserve every shadow-command pixel, matching openage's SLP RGBA export.
+        pixels[o : o + 4] = bytes((0, 0, 0, 100))
 
     for row in range(height):
         left, right = _EDGE.unpack_from(data, outline_table_offset + row * 4)

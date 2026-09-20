@@ -8,11 +8,14 @@ from typing import List, Tuple
 Color = Tuple[int, int, int, int]
 
 
-def load_pal(path: str | Path, *, transparent_index: int = 0) -> List[Color]:
+def load_pal(path: str | Path, *, transparent_index: int | None = None) -> List[Color]:
     """Load a 256-entry palette as (r, g, b, a) tuples.
 
     Supports JASC-PAL text (``pal_*.pal``, ``clf_pal.pal``, interface ``50500.bina``).
-    Index ``transparent_index`` is forced to alpha 0; others use alpha 255.
+    All entries are opaque by default, including black at index 0. SLP encodes
+    transparency with skip commands, not a palette color key (as in openage).
+    ``transparent_index`` optionally enables color-key transparency for callers
+    that explicitly need it.
     """
     text = Path(path).read_text(encoding="ascii", errors="replace")
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]

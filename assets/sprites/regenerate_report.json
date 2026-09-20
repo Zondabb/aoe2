@@ -1,0 +1,271 @@
+{
+  "player_color": 3,
+  "exported": [
+    {
+      "key": "villager_walk",
+      "slp_id": 1484,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_idle",
+      "slp_id": 1479,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_gather_food",
+      "slp_id": 2589,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_chop",
+      "slp_id": 1535,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_mine",
+      "slp_id": 1560,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_build",
+      "slp_id": 1496,
+      "frame_count": 75
+    },
+    {
+      "key": "militia_walk",
+      "slp_id": 997,
+      "frame_count": 60
+    },
+    {
+      "key": "swordsman_walk",
+      "slp_id": 604,
+      "frame_count": 50
+    },
+    {
+      "key": "archer_walk",
+      "slp_id": 12,
+      "frame_count": 50
+    },
+    {
+      "key": "chu_ko_nu_walk",
+      "slp_id": 225,
+      "frame_count": 75
+    },
+    {
+      "key": "teutonic_knight_walk",
+      "slp_id": 1198,
+      "frame_count": 50
+    },
+    {
+      "key": "tc_dark_main",
+      "slp_id": 891,
+      "frame_count": 1
+    },
+    {
+      "key": "house_dark",
+      "slp_id": 2223,
+      "frame_count": 3
+    },
+    {
+      "key": "house_asian_feudal",
+      "slp_id": 2233,
+      "frame_count": 3
+    },
+    {
+      "key": "barracks_asian_feudal",
+      "slp_id": 131,
+      "frame_count": 1
+    },
+    {
+      "key": "archery_asian_feudal",
+      "slp_id": 22,
+      "frame_count": 1
+    },
+    {
+      "key": "stable_asian_feudal",
+      "slp_id": 1007,
+      "frame_count": 1
+    },
+    {
+      "key": "stable_ne_feudal",
+      "slp_id": 1006,
+      "frame_count": 1
+    },
+    {
+      "key": "tree_oak",
+      "slp_id": 1251,
+      "frame_count": 1
+    },
+    {
+      "key": "gold_mine",
+      "slp_id": 4479,
+      "frame_count": 7
+    },
+    {
+      "key": "berry_bush",
+      "slp_id": 2560,
+      "frame_count": 4
+    },
+    {
+      "key": "water_shallow",
+      "slp_id": 1885,
+      "frame_count": 7
+    },
+    {
+      "key": "cliff_main",
+      "slp_id": 226,
+      "frame_count": 25
+    },
+    {
+      "key": "cliff_section",
+      "slp_id": 229,
+      "frame_count": 25
+    },
+    {
+      "key": "cliff_section_b",
+      "slp_id": 230,
+      "frame_count": 25
+    },
+    {
+      "key": "tc_asian_feudal",
+      "slp_id": 901,
+      "frame_count": 1
+    },
+    {
+      "key": "archer_attack",
+      "slp_id": 2,
+      "frame_count": 50
+    },
+    {
+      "key": "archer_die",
+      "slp_id": 5,
+      "frame_count": 50
+    },
+    {
+      "key": "swordsman_attack",
+      "slp_id": 594,
+      "frame_count": 75
+    },
+    {
+      "key": "swordsman_die",
+      "slp_id": 597,
+      "frame_count": 50
+    },
+    {
+      "key": "chu_ko_nu_attack",
+      "slp_id": 215,
+      "frame_count": 50
+    },
+    {
+      "key": "chu_ko_nu_die",
+      "slp_id": 218,
+      "frame_count": 50
+    },
+    {
+      "key": "teutonic_knight_attack",
+      "slp_id": 1188,
+      "frame_count": 75
+    },
+    {
+      "key": "teutonic_knight_die",
+      "slp_id": 1191,
+      "frame_count": 75
+    },
+    {
+      "key": "villager_die",
+      "slp_id": 3683,
+      "frame_count": 75
+    },
+    {
+      "key": "arrow",
+      "slp_id": 3799,
+      "frame_count": 176
+    },
+    {
+      "key": "panel_game",
+      "slp_id": 51141,
+      "frame_count": 1
+    },
+    {
+      "key": "icons_units",
+      "slp_id": 50730,
+      "frame_count": 134
+    },
+    {
+      "key": "icons_buildings",
+      "slp_id": 50705,
+      "frame_count": 52
+    },
+    {
+      "key": "icons_commands",
+      "slp_id": 50721,
+      "frame_count": 70
+    },
+    {
+      "key": "ui_50731",
+      "slp_id": 50731,
+      "frame_count": 11
+    },
+    {
+      "key": "test_2",
+      "slp_id": 51156,
+      "frame_count": 1
+    }
+  ],
+  "missing": [],
+  "derived_images": [
+    "units/archer_walk_transparent_1x.png",
+    "units/archer_walk_HD_4x.png",
+    "units/archer_walk_frames_4x/archer_south_00.png",
+    "units/archer_walk_frames_4x/archer_south_01.png",
+    "units/archer_walk_frames_4x/archer_south_02.png",
+    "units/archer_walk_frames_4x/archer_south_03.png",
+    "units/archer_walk_frames_4x/archer_south_04.png",
+    "units/archer_walk_frames_4x/archer_south_05.png",
+    "units/archer_walk_frames_4x/archer_south_06.png",
+    "units/archer_walk_frames_4x/archer_south_07.png",
+    "units/archer_walk_frames_4x/archer_south_08.png",
+    "units/archer_walk_frames_4x/archer_south_09.png",
+    "units/archer_walk_frames_4x/archer_southeast_00.png",
+    "units/archer_walk_frames_4x/archer_southeast_01.png",
+    "units/archer_walk_frames_4x/archer_southeast_02.png",
+    "units/archer_walk_frames_4x/archer_southeast_03.png",
+    "units/archer_walk_frames_4x/archer_southeast_04.png",
+    "units/archer_walk_frames_4x/archer_southeast_05.png",
+    "units/archer_walk_frames_4x/archer_southeast_06.png",
+    "units/archer_walk_frames_4x/archer_southeast_07.png",
+    "units/archer_walk_frames_4x/archer_southeast_08.png",
+    "units/archer_walk_frames_4x/archer_southeast_09.png",
+    "units/archer_walk_frames_4x/archer_east_00.png",
+    "units/archer_walk_frames_4x/archer_east_01.png",
+    "units/archer_walk_frames_4x/archer_east_02.png",
+    "units/archer_walk_frames_4x/archer_east_03.png",
+    "units/archer_walk_frames_4x/archer_east_04.png",
+    "units/archer_walk_frames_4x/archer_east_05.png",
+    "units/archer_walk_frames_4x/archer_east_06.png",
+    "units/archer_walk_frames_4x/archer_east_07.png",
+    "units/archer_walk_frames_4x/archer_east_08.png",
+    "units/archer_walk_frames_4x/archer_east_09.png",
+    "units/archer_walk_frames_4x/archer_northeast_00.png",
+    "units/archer_walk_frames_4x/archer_northeast_01.png",
+    "units/archer_walk_frames_4x/archer_northeast_02.png",
+    "units/archer_walk_frames_4x/archer_northeast_03.png",
+    "units/archer_walk_frames_4x/archer_northeast_04.png",
+    "units/archer_walk_frames_4x/archer_northeast_05.png",
+    "units/archer_walk_frames_4x/archer_northeast_06.png",
+    "units/archer_walk_frames_4x/archer_northeast_07.png",
+    "units/archer_walk_frames_4x/archer_northeast_08.png",
+    "units/archer_walk_frames_4x/archer_northeast_09.png",
+    "units/archer_walk_frames_4x/archer_north_00.png",
+    "units/archer_walk_frames_4x/archer_north_01.png",
+    "units/archer_walk_frames_4x/archer_north_02.png",
+    "units/archer_walk_frames_4x/archer_north_03.png",
+    "units/archer_walk_frames_4x/archer_north_04.png",
+    "units/archer_walk_frames_4x/archer_north_05.png",
+    "units/archer_walk_frames_4x/archer_north_06.png",
+    "units/archer_walk_frames_4x/archer_north_07.png",
+    "units/archer_walk_frames_4x/archer_north_08.png",
+    "units/archer_walk_frames_4x/archer_north_09.png"
+  ],
+  "debug_preview": "buildings/tc_asian_feudal_green.jpg"
+}

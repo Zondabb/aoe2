@@ -61,11 +61,6 @@
       "frame_count": 1
     },
     {
-      "key": "tc_asian_feudal_top",
-      "slp_id": 901,
-      "frame_count": 1
-    },
-    {
       "key": "house_dark",
       "slp_id": 2223,
       "frame_count": 3
@@ -109,6 +104,31 @@
       "key": "berry_bush",
       "slp_id": 2560,
       "frame_count": 4
+    },
+    {
+      "key": "water_shallow",
+      "slp_id": 1885,
+      "frame_count": 7
+    },
+    {
+      "key": "cliff_main",
+      "slp_id": 226,
+      "frame_count": 25
+    },
+    {
+      "key": "cliff_section",
+      "slp_id": 229,
+      "frame_count": 25
+    },
+    {
+      "key": "cliff_section_b",
+      "slp_id": 230,
+      "frame_count": 25
+    },
+    {
+      "key": "tc_asian_feudal",
+      "slp_id": 901,
+      "frame_count": 1
     }
   ],
   "missing": [],
@@ -198,13 +218,6 @@
       "note": "Dark Age TC main top (single layer)"
     },
     {
-      "key": "tc_asian_feudal_top",
-      "category": "buildings",
-      "id": 901,
-      "directions": 1,
-      "note": "Asian feudal TC top piece"
-    },
-    {
       "key": "house_dark",
       "category": "buildings",
       "id": 2223,
@@ -267,11 +280,39 @@
       "id": 2560,
       "directions": 1,
       "note": "Berry bush / food"
+    },
+    {
+      "key": "water_shallow",
+      "category": "terrain",
+      "id": 1885,
+      "directions": 1,
+      "note": "Water shallows tiles"
+    },
+    {
+      "key": "cliff_main",
+      "category": "terrain",
+      "id": 226,
+      "directions": 1,
+      "note": "Cliffs"
+    },
+    {
+      "key": "cliff_section",
+      "category": "terrain",
+      "id": 229,
+      "directions": 1,
+      "note": "Cliff section"
+    },
+    {
+      "key": "cliff_section_b",
+      "category": "terrain",
+      "id": 230,
+      "directions": 1,
+      "note": "Cliff section B"
     }
   ],
   "placeholders": [
-    "Full TC is multi-layer (base + roofs); demo uses single top pieces (891/901).",
+    "Asian feudal TC is composited from 893/901/3598/3602/3606/4614/4618/4622 into tc_asian_feudal.png.",
     "Unit sheets use 5 authored directions + horizontal flip for the mirrored facings.",
-    "Shadow pixels are approximated as checkerboard alpha, not the in-game shadow table."
+    "Shadow pixels use black alpha 100, matching openage's SLP export."
   ]
 }

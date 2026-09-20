@@ -3,7 +3,7 @@ extends Node2D
 
 ## Ground sim_pos flies straight to aim_pos; sprite follows a parabolic arc for visuals.
 
-const ARROW_SPEED := 5.0
+const ARROW_SPEED := 11.0
 const IMPACT_RADIUS := 0.6
 ## Peak arc height scales with flight distance (sim tiles).
 const ARC_HEIGHT_PER_TILE := 0.18

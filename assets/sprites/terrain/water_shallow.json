@@ -1,9 +1,9 @@
 {
   "key": "water_shallow",
   "slp_id": 1885,
-  "source": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\1885.slp",
-  "palette": "D:\\Program Files\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
-  "note": "",
+  "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\1885.slp",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Water shallows tiles",
   "cols": 3,
   "rows": 3,
   "frame_w": 69,

@@ -9,10 +9,8 @@
   "frame_w": 29,
   "frame_h": 28,
   "frame_count": 176,
-  "directions": 16,
-  "frames_per_direction": 11,
-  "projectile_clock_start_hours": 6.0,
-  "projectile_clock_end_hours": 11.5,
+  "directions": 1,
+  "frames_per_direction": 176,
   "hotspots": [
     {
       "x": 16,
