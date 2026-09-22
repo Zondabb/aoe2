@@ -1,6 +1,8 @@
 class_name AiEntityQueries
 extends RefCounted
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 const BuildSystemScript := preload("res://scripts/systems/build_system.gd")
 
 
@@ -21,6 +23,8 @@ static func nearest_resource(
 	var nearest: Node2D
 	var nearest_distance := INF
 	for node in nodes:
+		if not FogAccess.can_see(from_unit, node):
+			continue
 		if int(node.get("resource_type")) != int(resource_type):
 			continue
 		if float(node.get("amount")) <= 0.0:
@@ -36,6 +40,8 @@ static func nearest_any_resource(from_unit: Node2D, nodes: Array[Node2D]) -> Nod
 	var nearest: Node2D
 	var nearest_distance := INF
 	for node in nodes:
+		if not FogAccess.can_see(from_unit, node):
+			continue
 		if float(node.get("amount")) <= 0.0:
 			continue
 		var distance: float = from_unit.get("sim_pos").distance_squared_to(node.get("sim_pos"))
@@ -58,6 +64,8 @@ static func nearest_resource_near_base(
 	var nearest_distance := INF
 	var max_sq := max_radius * max_radius
 	for node in nodes:
+		if not FogAccess.can_see(from_unit, node):
+			continue
 		if int(node.get("resource_type")) != int(resource_type):
 			continue
 		if float(node.get("amount")) <= 0.0:
@@ -84,6 +92,8 @@ static func nearest_any_resource_near_base(
 	var nearest_distance := INF
 	var max_sq := max_radius * max_radius
 	for node in nodes:
+		if not FogAccess.can_see(from_unit, node):
+			continue
 		if float(node.get("amount")) <= 0.0:
 			continue
 		var node_pos: Vector2 = node.get("sim_pos")
@@ -111,6 +121,8 @@ static func nearest_hostile_in_radius(
 	if entities == null:
 		return null
 	for node in entities.get_children():
+		if not FogAccess.can_see(unit, node):
+			continue
 		if node.get("team") != enemy_team:
 			continue
 		if node.get("is_placement_ghost") == true:
@@ -217,6 +229,9 @@ static func next_build_position(
 	for index in offsets.size():
 		var slot := (build_slot + index) % offsets.size()
 		var candidate: Vector2 = origin + offsets[slot] * side
+		var fog := FogAccess.for_node(town_center)
+		if fog != null and not fog.footprint_visible(town_center.get("team"), candidate, building_def.footprint, true):
+			continue
 		if BuildSystemScript.can_place(building_def.footprint, candidate, existing):
 			return candidate
 	return null

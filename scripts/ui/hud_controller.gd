@@ -1,6 +1,8 @@
 class_name HudController
 extends Control
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
 const BARRACKS: BuildingDef = preload("res://data/buildings/barracks.tres")
 const ARCHERY_RANGE: BuildingDef = preload("res://data/buildings/archery_range.tres")
@@ -158,6 +160,8 @@ func _process(_delta: float) -> void:
 	_refresh()
 
 func _request_build(building_def: BuildingDef) -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
 	if build_system != null:
 		build_system.call("begin_placement", building_def)
 
@@ -227,7 +231,13 @@ func _refresh_info_panel() -> void:
 	_refresh_status_label(focus, units)
 
 func _refresh_status_label(focus: Node2D, units: Array) -> void:
-	if not read_only or _status_label == null:
+	if _status_label == null:
+		return
+	if not read_only:
+		if build_system != null and build_system.get("placement_reason") == "need_vision" and build_system.call("is_placing"):
+			_status_label.text = "需要视野：先探索并看清整个建筑占地"
+		else:
+			_status_label.text = ""
 		return
 	if focus == null:
 		_status_label.text = ""
@@ -479,6 +489,8 @@ func _add_command_button(
 	_command_grid.add_child(button)
 
 func _stop_selected_units() -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
 	if selection == null:
 		return
 	for unit in selection.call("get_selected_units"):
@@ -486,6 +498,8 @@ func _stop_selected_units() -> void:
 			unit.call("command_stop")
 
 func _enqueue_train(unit_def: UnitDef) -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
 	if _selected_building != null and is_instance_valid(_selected_building):
 		_selected_building.call("enqueue_train", unit_def)
 

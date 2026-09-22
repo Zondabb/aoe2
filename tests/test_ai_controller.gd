@@ -278,6 +278,8 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 	scene_root.get_node("Bootstrap").call("_ready")
 	var bootstrap := scene_root.get_node("Bootstrap")
 	var state := bootstrap.get("match_state") as MatchState
+	# Synchronous economic acceleration bypasses scene physics; fog has a dedicated suite.
+	state.fog_enabled = false
 	var entities := scene_root.get_node("Entities") as Node2D
 	var ai := AI_CONTROLLER.new()
 	scene_root.add_child(ai)

@@ -1,6 +1,8 @@
 # scripts/match/match_bootstrap.gd
 extends Node
 
+const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
@@ -25,6 +27,7 @@ var player_civ: CivDef
 var ai_civ: CivDef
 
 func _ready() -> void:
+	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	player_civ = _civ_for_id(GameSession.player_civ_id)
@@ -65,6 +68,7 @@ func _finish_setup() -> void:
 	if vision_holder != null:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
+	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, Enums.Team.PLAYER)
 
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()

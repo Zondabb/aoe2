@@ -1,5 +1,7 @@
 extends Node
 
+const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+
 ## F6 combat playground: fixed lanes for melee clash, projectile kite/miss,
 ## and building siege. R resets. AutoCombatDirector handles team auto-attack.
 
@@ -30,6 +32,7 @@ var ai_civ: CivDef = TEUTONS_CIV
 var _auto_combat: AutoCombatDirectorScript
 
 func _ready() -> void:
+	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	match_state.population_cap[Enums.Team.PLAYER] = 200
@@ -47,6 +50,7 @@ func _ready() -> void:
 	_focus_camera()
 	_setup_hud()
 	_setup_hint()
+	call_deferred("_setup_fog")
 
 func _process(delta: float) -> void:
 	if _auto_combat != null:
@@ -88,6 +92,8 @@ func _spawn_scenarios() -> void:
 		Enums.Team.AI, SWORDSMAN_DEF, Vector2(8.0, 10.0), Vector2(1.4, 0.0), 2, "SiegeGuardA"
 	)
 	_rebuild_vision()
+	if get_parent().has_meta("fog_holder"):
+		get_parent().get_meta("fog_holder").reset_match()
 
 func _setup_auto_combat() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D
@@ -122,7 +128,7 @@ func _setup_vision() -> void:
 	holder.setup(2.0)
 	var match_root := get_parent()
 	if match_root != null:
-		match_root.add_child(holder)
+		match_root.call_deferred("add_child", holder)
 
 
 func _rebuild_vision() -> void:
@@ -224,3 +230,7 @@ func _setup_hint() -> void:
 		"对战测试场  |  南：近战  中：远程/kite  北：攻建筑  |  "
 		+ "左键框选  右键攻击/移动  |  R 重置  |  AI 自动寻敌(40格)"
 	)
+
+func _setup_fog() -> void:
+	_rebuild_vision()
+	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, Enums.Team.PLAYER)

@@ -64,7 +64,7 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = "寻路测试场
 左键：选村民  |  右键：移动 / 点资源采集
-G：切换障碍 footprint 显示  |  R：重置村民位置
+G：进入/退出视野调试  |  R：重置村民位置
 红框=树/矿  蓝框=建筑  绿框=可通行浆果  黄线=当前路径"
 
 [node name="Bootstrap" type="Node" parent="."]

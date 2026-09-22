@@ -28,13 +28,20 @@ func _ready() -> void:
 		get_tree().node_added.connect(_on_node_added)
 
 func _on_node_added(node: Node) -> void:
-	call_deferred("_try_connect_building", node)
+	call_deferred("_try_connect_weak", weakref(node))
+
+func _try_connect_weak(reference: WeakRef) -> void:
+	var node := reference.get_ref() as Node
+	if node != null and node.is_inside_tree() and get_parent().is_ancestor_of(node):
+		_try_connect_building(node)
 
 func _connect_existing_buildings() -> void:
 	for node in get_tree().get_nodes_in_group("buildings"):
 		_try_connect_building(node)
 
 func _try_connect_building(node: Node) -> void:
+	if not is_instance_valid(node):
+		return
 	if node.has_signal("construction_started"):
 		if not node.is_connected("construction_started", _on_construction_changed):
 			node.connect("construction_started", _on_construction_changed)

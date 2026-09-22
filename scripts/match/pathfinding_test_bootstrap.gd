@@ -1,5 +1,7 @@
 extends Node
 
+const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
@@ -20,6 +22,7 @@ var nav_holder: NavServiceHolderScript
 var nav: NavGridServiceScript
 
 func _ready() -> void:
+	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	_setup_ground()
@@ -34,6 +37,7 @@ func _finish_setup() -> void:
 	var overlay := get_node_or_null("../PathDebug")
 	if overlay != null and overlay.has_method("set_nav"):
 		overlay.call("set_nav", nav)
+	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, -1)
 
 func _setup_nav() -> void:
 	nav_holder = NavServiceHolderScript.new()

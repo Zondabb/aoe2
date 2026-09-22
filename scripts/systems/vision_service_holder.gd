@@ -22,7 +22,12 @@ func _ready() -> void:
 
 
 func _on_node_added(node: Node) -> void:
-	call_deferred("_try_register", node)
+	call_deferred("_try_register_weak", weakref(node))
+
+func _try_register_weak(reference: WeakRef) -> void:
+	var node := reference.get_ref() as Node
+	if node != null and node.is_inside_tree() and get_parent().is_ancestor_of(node):
+		_try_register(node)
 
 
 func rebuild_from_scene() -> void:

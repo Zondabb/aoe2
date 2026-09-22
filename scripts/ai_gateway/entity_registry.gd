@@ -21,10 +21,10 @@ static func register(entity: Node2D) -> int:
 	entity.set_meta(AiProtocolScript.META_ENTITY_ID, entity_id)
 	_id_to_entity[entity_id] = entity
 	_entity_to_id[instance_id] = entity_id
-	AiEventBufferScript.push({
+	AiEventBufferScript.push_for_entity({
 		"type": AiProtocolScript.EVENT_ENTITY_SPAWNED,
 		"entity": ObservationBuilderScript.serialize_entity(entity, entity_id),
-	})
+	}, entity)
 	return entity_id
 
 
@@ -38,11 +38,11 @@ static func unregister(entity: Node2D, reason: String = "removed") -> void:
 	_entity_to_id.erase(entity.get_instance_id())
 	if entity.has_meta(AiProtocolScript.META_ENTITY_ID):
 		entity.remove_meta(AiProtocolScript.META_ENTITY_ID)
-	AiEventBufferScript.push({
+	AiEventBufferScript.push_for_entity({
 		"type": AiProtocolScript.EVENT_ENTITY_DESTROYED,
 		"entity_id": entity_id,
 		"reason": reason,
-	})
+	}, entity)
 
 
 static func resolve(entity_id: int) -> Node2D:

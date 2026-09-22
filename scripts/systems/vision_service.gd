@@ -1,6 +1,8 @@
 class_name VisionService
 extends RefCounted
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 ## Vision queries over SpatialHash. Units/buildings register; observers use vision_radius.
 
 const SpatialHashScript := preload("res://scripts/systems/spatial_hash.gd")
@@ -59,6 +61,9 @@ func vision_radius_of(observer: Object) -> float:
 	var override_variant: Variant = observer.get("vision_radius_override")
 	if override_variant is float and float(override_variant) >= 0.0:
 		return float(override_variant)
+	var building_def := observer.get("def") as BuildingDef
+	if building_def != null:
+		return building_def.vision_radius if observer.get("is_complete") else building_def.construction_vision_radius
 	var unit_def := observer.get("def") as UnitDef
 	if unit_def != null:
 		return unit_def.resolved_vision_radius()
@@ -144,6 +149,8 @@ static func _is_indexable(entity: Object) -> bool:
 
 static func _is_valid_hostile(observer: Object, target: Object, enemy_team: Enums.Team) -> bool:
 	if target == null or target == observer or not is_instance_valid(target):
+		return false
+	if not FogAccess.can_see(observer, target):
 		return false
 	if target.get("team") != enemy_team:
 		return false

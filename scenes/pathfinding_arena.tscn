@@ -88,7 +88,7 @@ text = "Vision range (V)"
 
 [node name="ArrowsCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
 layout_mode = 2
-text = "Move arrows (A)"
+text = "Move arrows"
 
 [node name="TimingCheck" type="CheckBox" parent="UILayer/PathfindingDebugPanel/Margin/VBox"]
 layout_mode = 2
@@ -98,4 +98,4 @@ text = "Vision timing log (T)"
 layout_mode = 2
 theme_override_colors/font_color = Color(0.75, 0.78, 0.72, 1)
 theme_override_font_sizes/font_size = 12
-text = "G toggles all layers"
+text = "G：进入/退出视野调试"

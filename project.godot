@@ -31,6 +31,13 @@ window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[input]
+
+toggle_debug_mode={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":71,"unicode":103)]
+}
+
 [rendering]
 
 textures/canvas_textures/default_texture_filter=0

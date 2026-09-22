@@ -13,11 +13,16 @@ var population_cap: Dictionary = {}
 var population_reserved: Dictionary = {}
 ## Visual palette selection only; combat ownership still uses Enums.Team.
 var team_color_ids: Dictionary = {}
+## Enabled explicitly by 2D match bootstraps; legacy fixtures opt out.
+var fog_enabled := false
+var fog: RefCounted
 var winner := -1
 ## When true, unit/building simulation should early-return (match ended).
 var frozen := false
 
 func setup_defaults() -> void:
+	if fog != null:
+		fog.reset()
 	winner = -1
 	frozen = false
 	team_color_ids.clear()

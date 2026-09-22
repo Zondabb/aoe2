@@ -14,6 +14,7 @@ var _timing: CheckBox
 
 
 func _ready() -> void:
+	visible = false
 	add_to_group("pathfinding_debug_panel")
 	_grid = get_node_or_null("Margin/VBox/GridCheck") as CheckBox
 	_solids = get_node_or_null("Margin/VBox/SolidsCheck") as CheckBox
@@ -43,7 +44,10 @@ func _bind_overlay() -> void:
 func _wire_checkbox(box: CheckBox, property: String, default_on: bool) -> void:
 	if box == null:
 		return
-	box.button_pressed = default_on
+	box.set_pressed_no_signal(default_on)
+	if box.has_meta("wired"):
+		return
+	box.set_meta("wired", true)
 	box.toggled.connect(func(pressed: bool): _set_overlay_flag(property, pressed))
 
 
@@ -67,4 +71,4 @@ func _sync_from_overlay() -> void:
 
 func _set_check(box: CheckBox, value: bool) -> void:
 	if box != null:
-		box.button_pressed = value
+		box.set_pressed_no_signal(value)

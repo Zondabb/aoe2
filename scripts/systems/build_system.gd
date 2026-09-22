@@ -1,6 +1,8 @@
 class_name BuildSystem
 extends Node
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 signal placement_changed(active: bool)
 
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
@@ -14,6 +16,7 @@ var _entities: Node2D
 var _selection: Control
 var _ghost: Node2D
 var _placement_valid := false
+var placement_reason := ""
 
 static func can_place(
 	footprint: Vector2, center: Vector2, existing_buildings: Array
@@ -88,6 +91,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func begin_placement(building_def: BuildingDef) -> bool:
+	if FogAccess.local_read_only(self):
+		return false
 	if (
 		building_def == null
 		or _entities == null
@@ -116,6 +121,8 @@ func begin_placement(building_def: BuildingDef) -> bool:
 	return true
 
 func confirm_placement() -> bool:
+	if FogAccess.local_read_only(self):
+		return false
 	if _ghost == null:
 		return false
 	_update_placement_validity()
@@ -167,6 +174,12 @@ func _selected_builders() -> Array[Node2D]:
 
 func _update_placement_validity() -> void:
 	if _ghost == null:
+		return
+	placement_reason = ""
+	if match_state.fog_enabled and (match_state.fog == null or not match_state.fog.footprint_visible(Enums.Team.PLAYER, _ghost.get("sim_pos"), _ghost.get("def").footprint, true)):
+		_placement_valid = false
+		placement_reason = "need_vision"
+		_ghost.call("set_ghost_visual", false)
 		return
 	var existing: Array = []
 	for node in _entities.get_children():

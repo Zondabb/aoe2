@@ -1,5 +1,7 @@
 extends Node
 
+const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+
 ## Standalone pathfinding playground: dozens of units, square blockers
 ## (buildings / ore / water / cliff), G toggles footprint/path/vision overlay.
 
@@ -39,6 +41,7 @@ var player_civ: CivDef = CHINESE_CIV
 var ai_civ: CivDef = TEUTONS_CIV
 
 func _ready() -> void:
+	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	match_state.register_pop(Enums.Team.PLAYER, 0, 80)
@@ -57,6 +60,7 @@ func _finish_setup() -> void:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
 	_focus_camera()
+	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, -1)
 
 func _setup_nav() -> void:
 	nav_holder = NavServiceHolderScript.new()

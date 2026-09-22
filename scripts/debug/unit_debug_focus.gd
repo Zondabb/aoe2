@@ -28,7 +28,7 @@ static func set_focus_unit(unit: Object) -> void:
 
 static func set_focus_from_selection(selected: Array) -> void:
 	for entity in selected:
-		if entity is Node2D and (entity as Node2D).is_in_group("units"):
+		if is_instance_valid(entity) and entity is Node2D and not entity.is_queued_for_deletion() and entity.is_in_group("units"):
 			set_focus_unit(entity)
 			return
 	set_focus_unit(null)

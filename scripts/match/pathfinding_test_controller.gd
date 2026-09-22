@@ -1,5 +1,7 @@
 extends Control
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const SelectionControllerScript := preload("res://scripts/input/selection_controller_2d.gd")
 const CLICK_RADIUS := 28.0
@@ -35,10 +37,6 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key_event := event as InputEventKey
-		if key_event.keycode == KEY_G and _debug_overlay != null:
-			if _debug_overlay.has_method("toggle_footprints"):
-				_debug_overlay.call("toggle_footprints")
-			return
 		if key_event.keycode == KEY_R:
 			_reset_villagers()
 			return
@@ -71,6 +69,8 @@ func _select_at_screen(screen_position: Vector2, additive: bool) -> void:
 			hit.call("set_selected", true)
 
 func _issue_move(target: Vector2) -> void:
+	if FogAccess.local_read_only(self):
+		return
 	var movers: Array[Node2D] = []
 	for unit in _selected:
 		if is_instance_valid(unit) and unit.has_method("command_move"):
@@ -83,6 +83,8 @@ func _issue_move(target: Vector2) -> void:
 	_show_move_marker(target)
 
 func _issue_gather(resource: Node2D) -> void:
+	if FogAccess.local_read_only(self):
+		return
 	for unit in _selected:
 		if is_instance_valid(unit) and unit.has_method("command_gather"):
 			unit.call("command_gather", resource)
@@ -96,6 +98,8 @@ func _show_move_marker(target: Vector2) -> void:
 	_move_marker_ttl = 1.35
 
 func _reset_villagers() -> void:
+	if FogAccess.local_read_only(self):
+		return
 	var spawn_points := [
 		Vector2(-12.0, -8.0),
 		Vector2(-10.0, -10.0),
@@ -119,7 +123,7 @@ func _unit_at_screen(screen_position: Vector2) -> Node2D:
 	var best_dist := CLICK_RADIUS
 	for unit in get_tree().get_nodes_in_group("units"):
 		var node := unit as Node2D
-		if node == null or node.get("team") != Enums.Team.PLAYER:
+		if node == null or not FogAccess.view_can_see(node) or node.get("team") != Enums.Team.PLAYER:
 			continue
 		var screen := IsoMathScript.world_to_screen(node.get("sim_pos"))
 		var dist := screen.distance_to(screen_position)
@@ -133,7 +137,7 @@ func _resource_at_screen(screen_position: Vector2) -> Node2D:
 	var best_dist := CLICK_RADIUS * 1.5
 	for resource in get_tree().get_nodes_in_group("resource_nodes"):
 		var node := resource as Node2D
-		if node == null or float(node.get("amount")) <= 0.0:
+		if node == null or not FogAccess.view_can_see(node) or float(node.get("amount")) <= 0.0:
 			continue
 		var screen := IsoMathScript.world_to_screen(node.get("sim_pos"))
 		var dist := screen.distance_to(screen_position)

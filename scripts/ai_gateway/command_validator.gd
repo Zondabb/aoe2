@@ -1,6 +1,8 @@
 class_name CommandValidator
 extends RefCounted
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const AiBuildPlacementScript := preload("res://scripts/ai_gateway/build_placement.gd")
@@ -58,6 +60,10 @@ static func _validate_gather(cmd: Dictionary, ctx: CommandExecutionContext) -> V
 	if not result.ok:
 		return result
 	var target := _resolve_entity(int(cmd.get("target_id", -1)))
+	if ctx.match_state != null and ctx.match_state.fog_enabled and not FogAccess.state_can_see(ctx.match_state, ctx.team, target):
+		result.ok = false
+		result.reason = "target_unavailable"
+		return result
 	if target == null:
 		result.ok = false
 		result.reason = "missing_target"
@@ -100,6 +106,10 @@ static func _validate_attack(cmd: Dictionary, ctx: CommandExecutionContext) -> V
 	if not result.ok:
 		return result
 	var target := _resolve_entity(int(cmd.get("target_id", -1)))
+	if ctx.match_state != null and ctx.match_state.fog_enabled and not FogAccess.state_can_see(ctx.match_state, ctx.team, target):
+		result.ok = false
+		result.reason = "target_unavailable"
+		return result
 	if target == null:
 		result.ok = false
 		result.reason = "missing_target"
@@ -138,6 +148,9 @@ static func _validate_place_building(
 	var pos: Variant = AiProtocolScript.array_to_vec2(cmd.get("pos"))
 	if pos == null:
 		result.reason = "invalid_pos"
+		return result
+	if ctx.match_state.fog_enabled and (ctx.match_state.fog == null or not ctx.match_state.fog.footprint_visible(ctx.team, pos, building_def.footprint, true)):
+		result.reason = "need_vision"
 		return result
 	if not ctx.match_state.can_afford(
 		ctx.team,

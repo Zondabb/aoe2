@@ -9,6 +9,9 @@
 ## 共用 decision_log，本地 embedded 服务见 scripts/ai_gateway/local_ai_server.gd。
 extends Node
 
+const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+
+
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
@@ -39,6 +42,7 @@ var decision_log := AiDecisionLogScript.new()
 
 ## 场景启动总入口：先搭世界，再生成实体，最后挂 AI 与 UI。
 func _ready() -> void:
+	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	_setup_ground()
@@ -82,9 +86,11 @@ func _finish_setup() -> void:
 	if vision_holder != null:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
+	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, -1)
 
 
 ## 按 G/N/B/P… 切换的 NavDebugOverlay；与 PathfindingDebugPanel 绑定。
+
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()
 	if match_root == null:

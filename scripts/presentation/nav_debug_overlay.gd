@@ -26,6 +26,9 @@ const PATH_COLORS := [
 const VISION_SEGMENTS := 48
 const TIMING_INTERVAL_SEC := 1.0
 
+var debug_enabled := false
+var view_team := -1
+
 var nav: NavGridServiceScript
 var vision: VisionServiceScript
 
@@ -44,8 +47,10 @@ var _focus_units: Array[Node2D] = []
 func set_focus_units(units: Array) -> void:
 	_focus_units.clear()
 	for value in units:
+		if not is_instance_valid(value):
+			continue
 		var unit := value as Node2D
-		if unit != null and is_instance_valid(unit):
+		if unit != null and not unit.is_queued_for_deletion():
 			_focus_units.append(unit)
 	queue_redraw()
 
@@ -59,16 +64,17 @@ func _unit_in_focus(unit: Node2D) -> bool:
 func _ready() -> void:
 	z_index = 80
 	add_to_group("nav_debug_overlay")
+	visible = false
 	set_process(false)
 
 
 func refresh_debug_state() -> void:
-	var active := _any_draw() or print_vision_timing
+	var active := debug_enabled and (_any_draw() or print_vision_timing)
 	set_process(active)
 	if not active:
 		_timing_accum = 0.0
 	queue_redraw()
-	if print_vision_timing:
+	if debug_enabled and print_vision_timing:
 		_run_and_print_vision_timing()
 
 
@@ -84,12 +90,14 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not debug_enabled:
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is TextEdit:
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
 		match key.keycode:
-			KEY_G:
-				_toggle_all_layers()
-				get_viewport().set_input_as_handled()
 			KEY_B:
 				show_solid_cells = not show_solid_cells
 				refresh_debug_state()
@@ -100,10 +108,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			KEY_P:
 				show_paths = not show_paths
-				refresh_debug_state()
-				get_viewport().set_input_as_handled()
-			KEY_A:
-				show_move_arrows = not show_move_arrows
 				refresh_debug_state()
 				get_viewport().set_input_as_handled()
 			KEY_T:
@@ -229,14 +233,18 @@ func _draw_unit_paths() -> void:
 func _draw_vision_ranges() -> void:
 	if not is_inside_tree() or vision == null:
 		return
-	for unit in _focused_units_list():
+	var sources: Array = _focused_units_list()
+	sources.append_array(get_tree().get_nodes_in_group("buildings"))
+	for unit in sources:
+		if view_team >= 0 and unit.get("team") != view_team:
+			continue
 		if float(unit.get("hp")) <= 0.0:
 			continue
 		var center: Vector2 = unit.get("sim_pos")
 		var radius := float(vision.vision_radius_of(unit))
-		var is_ai: bool = unit.get("team") == Enums.Team.AI
-		var fill := VISION_FILL_AI if is_ai else VISION_FILL_PLAYER
-		var edge := VISION_EDGE_AI if is_ai else VISION_EDGE_PLAYER
+		var colors := preload("res://scripts/presentation/team_color_catalog.gd")
+		var edge := colors.fallback_color(colors.resolve_color_id(unit.get("team"), unit.get("match_state")))
+		var fill := Color(edge, 0.10)
 		var ring := _iso_circle_screen_points(center, radius)
 		if ring.size() >= 3:
 			draw_colored_polygon(ring, fill)
@@ -310,6 +318,8 @@ func _focused_units_list() -> Array[Node2D]:
 	for value in get_tree().get_nodes_in_group("units"):
 		var unit := value as Node2D
 		if unit == null or not is_instance_valid(unit):
+			continue
+		if view_team >= 0 and unit.get("team") != view_team:
 			continue
 		if float(unit.get("hp")) <= 0.0:
 			continue

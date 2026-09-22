@@ -103,11 +103,11 @@ func _emit_resource_depleted() -> void:
 	var entity_id := EntityRegistryScript.id_of(self)
 	if entity_id < 0:
 		return
-	AiEventBufferScript.push({
+	AiEventBufferScript.push_for_entity({
 		"type": AiProtocolScript.EVENT_RESOURCE_DEPLETED,
 		"entity_id": entity_id,
 		"resource_type": AiProtocolScript.resource_type_name(resource_type),
-	})
+	}, self)
 
 func _release_nav_if_depleted() -> void:
 	if amount > 0.0:

@@ -4,6 +4,8 @@ extends Resource
 @export var id: StringName
 @export var max_hp: int
 @export var footprint: Vector2
+@export var vision_radius := 16.0
+@export var construction_vision_radius := 2.0
 @export var melee_armor: int = 0
 @export var pierce_armor: int = 0
 @export var cost_food: int

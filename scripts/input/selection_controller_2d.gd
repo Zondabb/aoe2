@@ -1,6 +1,8 @@
 class_name SelectionController2D
 extends Control
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 signal selection_changed(selected: Array)
 
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
@@ -32,6 +34,17 @@ func _ready() -> void:
 	set_process(true)
 
 func _process(delta: float) -> void:
+	var changed := false
+	# Remove by index: comparing/erasing a freed Object reference is unreliable.
+	for index in range(_selected.size() - 1, -1, -1):
+		var entity = _selected[index]
+		if not is_instance_valid(entity) or entity.is_queued_for_deletion() or not FogAccess.view_can_see(entity):
+			if is_instance_valid(entity):
+				entity.call("set_selected", false)
+			_selected.remove_at(index)
+			changed = true
+	if changed:
+		_emit_selection_changed()
 	if _move_marker_ttl <= 0.0:
 		return
 	_move_marker_ttl = maxf(0.0, _move_marker_ttl - delta)
@@ -115,6 +128,8 @@ func _select_box(box: Rect2, additive: bool) -> void:
 	_emit_selection_changed()
 
 func _issue_move(target: Vector2) -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
 	var movers: Array[Node2D] = []
 	for unit in _selected.duplicate():
 		if not is_instance_valid(unit):
@@ -168,6 +183,8 @@ func _match_root() -> Node:
 	return get_parent()
 
 func _issue_gather(resource: Node2D) -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
 	for unit in _selected.duplicate():
 		if not is_instance_valid(unit):
 			_selected.erase(unit)
@@ -182,6 +199,8 @@ func _issue_gather(resource: Node2D) -> void:
 			unit.call("command_gather", resource)
 
 func _issue_build(building: Node2D) -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
 	for unit in _selected.duplicate():
 		if not is_instance_valid(unit):
 			_selected.erase(unit)
@@ -196,6 +215,8 @@ func _issue_build(building: Node2D) -> void:
 			unit.call("command_build", building)
 
 func _issue_attack(target: Node2D) -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
 	for unit in _selected.duplicate():
 		if not is_instance_valid(unit):
 			_selected.erase(unit)
@@ -235,7 +256,7 @@ func _resource_at_screen(screen_position: Vector2) -> Node2D:
 	var closest_distance := CLICK_RADIUS
 	for node in get_tree().get_nodes_in_group("resource_nodes"):
 		var resource := node as Node2D
-		if resource == null or not resource.visible:
+		if resource == null or not resource.visible or not FogAccess.view_can_see(resource):
 			continue
 		var distance := resource.global_position.distance_to(canvas_pos)
 		if distance <= closest_distance:
@@ -337,6 +358,8 @@ func get_primary_selection() -> Node2D:
 	return null
 
 func _add_selection(unit: Node2D, notify := true) -> void:
+	if not FogAccess.view_can_see(unit):
+		return
 	if unit in _selected:
 		return
 	_selected.append(unit)
@@ -353,6 +376,10 @@ func _clear_selection(notify := true) -> void:
 		_emit_selection_changed()
 
 func _emit_selection_changed() -> void:
+	# Other input paths may emit between a unit's deletion and the next frame.
+	for index in range(_selected.size() - 1, -1, -1):
+		if not is_instance_valid(_selected[index]) or _selected[index].is_queued_for_deletion():
+			_selected.remove_at(index)
 	var snapshot: Array = []
 	snapshot.assign(_selected)
 	UnitDebugFocusScript.set_focus_from_selection(snapshot)
@@ -361,9 +388,11 @@ func _emit_selection_changed() -> void:
 
 
 func _sync_nav_debug_focus(selected: Array) -> void:
+	if not is_inside_tree():
+		return
 	var focus_units: Array[Node2D] = []
 	for entity in selected:
-		if entity is Node2D and (entity as Node2D).is_in_group("units"):
+		if is_instance_valid(entity) and entity is Node2D and not entity.is_queued_for_deletion() and entity.is_in_group("units"):
 			focus_units.append(entity)
 	for node in get_tree().get_nodes_in_group("nav_debug_overlay"):
 		if node.has_method("set_focus_units"):
@@ -378,6 +407,8 @@ func _canvas_to_logical(screen_position: Vector2) -> Vector2:
 ## Distance for ranking hits. INF = miss.
 ## Units/buildings use the full sprite body rect (origin is feet via hotspot).
 func _pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
+	if not FogAccess.view_can_see(entity):
+		return INF
 	if entity.is_in_group("resource_nodes"):
 		return _footprint_pick_distance(entity, canvas_pos)
 	if _uses_visual_pick(entity):
@@ -392,6 +423,8 @@ func _pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
 	return INF
 
 func _entity_intersects_screen_box(entity: Node2D, screen_box: Rect2) -> bool:
+	if not FogAccess.view_can_see(entity):
+		return false
 	if _uses_visual_pick(entity):
 		var canvas_rect := _visual_rect_canvas(entity)
 		if canvas_rect.size.x > 0.0 and canvas_rect.size.y > 0.0:

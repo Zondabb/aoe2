@@ -1,6 +1,8 @@
 class_name AiCombatManager
 extends RefCounted
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
 const AiEntityQueriesScript := preload("res://scripts/systems/ai/ai_entity_queries.gd")
 
@@ -45,6 +47,8 @@ func _find_enemy_town_center(ctx: AiRunContext) -> Node2D:
 	if ctx.entities == null:
 		return null
 	for node in ctx.entities.get_children():
+		if not FogAccess.state_can_see(ctx.match_state, ctx.team, node):
+			continue
 		if node.get("team") != ctx.enemy_team:
 			continue
 		var building_def := node.get("def") as BuildingDef

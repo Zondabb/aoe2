@@ -1,5 +1,7 @@
 extends Node
 
+const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
@@ -41,6 +43,7 @@ var _ai_controller: Node
 var _auto_combat: AutoCombatDirectorScript
 
 func _ready() -> void:
+	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	_raise_population_caps()
@@ -98,6 +101,8 @@ func _start_battle(config: ArenaConfigScript) -> void:
 	_focus_camera_on_battlefield()
 	_setup_player_controls()
 	_setup_auto_combat(_arena_config)
+	if get_parent().has_meta("fog_holder"):
+		get_parent().get_meta("fog_holder").reset_match()
 
 func reopen_setup() -> void:
 	_show_reconfigure_button(false)
@@ -144,6 +149,7 @@ func _finish_setup() -> void:
 	_rebuild_nav()
 	_rebuild_vision()
 	_setup_debug_overlay()
+	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, Enums.Team.PLAYER)
 
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()

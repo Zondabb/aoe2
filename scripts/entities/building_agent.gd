@@ -186,12 +186,16 @@ func _apply_ghost_tint(valid: bool) -> void:
 	body.modulate = tint
 
 func clear_ghost_visual() -> void:
+	if match_state != null and match_state.fog != null:
+		match_state.fog.dirty = true
 	is_placement_ghost = false
 	_ghost_visual_valid = null
 	_register_groups()
 	_configure_visuals()
 
 func _complete_construction() -> void:
+	if match_state != null and match_state.fog != null:
+		match_state.fog.dirty = true
 	if is_complete and _population_cap_registered:
 		return
 	var was_incomplete := not is_complete
@@ -207,10 +211,10 @@ func _complete_construction() -> void:
 	if was_incomplete:
 		var building_id := EntityRegistryScript.id_of(self)
 		if building_id >= 0:
-			AiEventBufferScript.push({
+			AiEventBufferScript.push_for_entity({
 				"type": AiProtocolScript.EVENT_BUILDING_COMPLETED,
 				"entity_id": building_id,
-			})
+			}, self)
 	construction_completed.emit(self)
 
 func _train_time(unit_def: UnitDef) -> float:

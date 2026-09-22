@@ -1,6 +1,8 @@
 class_name AiBlackboard
 extends RefCounted
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 ## 每 tick 从场面快照的「黑板」：AiDirector.evaluate() 开头调用 refresh()，
 ## 各 manager 只读 ctx.blackboard，不直接扫 Entities。
 ##
@@ -71,6 +73,8 @@ func refresh(
 	pop_cap = int(match_state.population_cap.get(team, 0))
 
 	for node in entities.get_children():
+		if not FogAccess.state_can_see(match_state, team, node) or node.get("is_placement_ghost") == true:
+			continue
 		# 资源：有 extract() 即 ResourceNode，全局可见供采集分配。
 		if node.has_method("extract"):
 			resource_nodes.append(node as Node2D)

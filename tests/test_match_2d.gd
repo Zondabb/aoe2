@@ -20,6 +20,8 @@ func run() -> Array[String]:
 	var scene_root := packed.instantiate()
 	tree.root.add_child(scene_root)
 	scene_root.get_node("Bootstrap").call("_ready")
+	# This synchronous layout/input fixture opts out; run_fog_of_war covers real scene startup.
+	scene_root.get_node("Bootstrap").get("match_state").fog_enabled = false
 	var ground := scene_root.get_node_or_null("Map/Ground") as Node2D
 	if ground == null or ground.get_child_count() == 0:
 		failures.append("match scene should contain iso grass ground tiles")

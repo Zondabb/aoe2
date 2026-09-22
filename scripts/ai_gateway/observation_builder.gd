@@ -1,6 +1,8 @@
 class_name ObservationBuilder
 extends RefCounted
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const VisionServiceScript := preload("res://scripts/systems/vision_service.gd")
@@ -43,10 +45,12 @@ static func build(
 
 	for node in entities.get_children():
 		var entity := node as Node2D
-		if entity == null:
+		if entity == null or entity.get("is_placement_ghost") == true:
+			continue
+		if not FogAccess.state_can_see(match_state, team, entity):
 			continue
 		if entity.has_method("extract"):
-			if vision != null and not _resource_visible(entity, observers, vision):
+			if not match_state.fog_enabled and vision != null and not _resource_visible(entity, observers, vision):
 				continue
 			var resource_id := EntityRegistryScript.register(entity)
 			entity_snapshots.append(serialize_entity(entity, resource_id))
@@ -55,6 +59,8 @@ static func build(
 			var building := entity
 			var building_def := building.get("def") as BuildingDef
 			var building_team: Enums.Team = building.get("team")
+			if building_team != team and not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
+				continue
 			var building_id := EntityRegistryScript.register(building)
 			if building_def != null and building_def.id == &"town_center":
 				if building_team == team:
@@ -67,7 +73,7 @@ static func build(
 						building.get("sim_pos")
 					)
 			if building_team != team:
-				if vision != null and not _is_entity_visible(entity, observers, vision):
+				if not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
 					continue
 				entity_snapshots.append(serialize_entity(building, building_id))
 				continue
@@ -80,7 +86,7 @@ static func build(
 			var unit_team: Enums.Team = unit.get("team")
 			var unit_id := EntityRegistryScript.register(unit)
 			if unit_team != team:
-				if vision != null and not _is_entity_visible(entity, observers, vision):
+				if not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
 					continue
 				entity_snapshots.append(serialize_entity(unit, unit_id))
 				if float(unit.get("hp")) > 0.0 and own_tc_pos != Vector2.ZERO:

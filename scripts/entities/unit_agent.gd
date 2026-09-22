@@ -1,6 +1,8 @@
 class_name UnitAgent
 extends Node2D
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 const ARRIVAL_DISTANCE := 0.15
 ## Near goal with no forward progress → treat as arrived (stops cluster skate).
 const STUCK_ARRIVE_DISTANCE := 1.05
@@ -64,6 +66,8 @@ var _gather_target: Node2D
 var _last_resource: Node2D
 var _drop_off_target: Node2D
 var _build_target: Node2D
+var _last_seen_resource_pos := Vector2.ZERO
+var _last_seen_attack_pos := Vector2.ZERO
 var _attack_target: Node2D
 var _attack_cooldown_remaining := 0.0
 var _gather_state := ""
@@ -128,6 +132,8 @@ func resolved_vision_radius() -> float:
 
 
 func set_vision_radius(radius: float) -> void:
+	if match_state != null and match_state.fog != null:
+		match_state.fog.dirty = true
 	vision_radius_override = maxf(0.0, radius)
 
 func _physics_process(delta: float) -> void:
@@ -236,11 +242,14 @@ func command_stop() -> void:
 	_unit_log("order", "STOP")
 
 func command_gather(resource: Node2D) -> void:
+	if not FogAccess.can_see(self, resource):
+		return
 	if resource == null or float(resource.get("amount")) <= 0.0:
 		return
 	_build_target = null
 	_attack_target = null
 	var new_type := int(resource.get("resource_type"))
+	_last_seen_resource_pos = resource.get("sim_pos")
 	if carry_amount > 0.0 and carry_type != -1 and carry_type != new_type:
 		_last_resource = resource
 		_gather_target = resource
@@ -271,6 +280,8 @@ func command_build(building: Node2D) -> void:
 	_unit_log("order", "BUILD target=%s" % building.name)
 
 func command_attack(target: Node) -> void:
+	if not FogAccess.can_see(self, target):
+		return
 	var target_2d := target as Node2D
 	if (
 		target_2d == null
@@ -280,6 +291,7 @@ func command_attack(target: Node) -> void:
 		or not target_2d.has_method("take_damage")
 	):
 		return
+	_last_seen_attack_pos = target_2d.get("sim_pos")
 	_attack_target = target_2d
 	_gather_target = null
 	_drop_off_target = null
@@ -289,6 +301,12 @@ func command_attack(target: Node) -> void:
 	_unit_log("order", "ATTACK target=%s" % target_2d.name)
 
 func _process_attack(delta: float) -> void:
+	if match_state != null and match_state.fog_enabled and not FogAccess.can_see(self, _attack_target):
+		_cancel_combat_action()
+		command_move(_last_seen_attack_pos)
+		return
+	if is_instance_valid(_attack_target):
+		_last_seen_attack_pos = _attack_target.get("sim_pos")
 	if _combat_action == &"die":
 		_process_die(delta)
 		return
@@ -375,6 +393,8 @@ func _process_die(delta: float) -> void:
 		queue_free()
 
 func _begin_die() -> void:
+	if match_state != null and match_state.fog != null:
+		match_state.fog.dirty = true
 	order = Enums.OrderType.NONE
 	_attack_target = null
 	_gather_target = null
@@ -426,6 +446,7 @@ func _try_retaliate(source: Node) -> void:
 func _attack_target_available() -> bool:
 	return (
 		is_instance_valid(_attack_target)
+		and FogAccess.can_see(self, _attack_target)
 		and not _attack_target.is_queued_for_deletion()
 		and float(_attack_target.get("hp")) > 0.0
 		and _attack_target.get("team") != team
@@ -446,6 +467,9 @@ func _process_build(delta: float) -> void:
 		order = Enums.OrderType.NONE
 
 func _process_gather(delta: float) -> void:
+	if _gather_state in ["to_resource", "gathering"] and match_state != null and match_state.fog_enabled and not FogAccess.can_see(self, _gather_target):
+		command_move(_last_seen_resource_pos)
+		return
 	match _gather_state:
 		"to_resource":
 			if not _resource_available(_gather_target):
@@ -536,7 +560,9 @@ func _process_drop_off(delta: float) -> void:
 	carry_amount = 0.0
 	carry_type = -1
 	_drop_off_target = null
-	if _resource_available(_last_resource):
+	if is_instance_valid(_last_resource) and not FogAccess.can_see(self, _last_resource):
+		command_move(_last_seen_resource_pos)
+	elif _resource_available(_last_resource):
 		_gather_target = _last_resource
 		_gather_state = "to_resource"
 	else:

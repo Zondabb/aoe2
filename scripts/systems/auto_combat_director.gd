@@ -1,6 +1,8 @@
 class_name AutoCombatDirector
 extends RefCounted
 
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
+
 ## Periodic hostile scan + command_attack for arena / skirmish demos.
 
 const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
@@ -175,6 +177,8 @@ func _hostiles_for_unit(unit: Object) -> Array[Node]:
 
 static func _is_valid_hostile(unit: Object, target: Node) -> bool:
 	if target == null or not is_instance_valid(target):
+		return false
+	if not FogAccess.can_see(unit, target):
 		return false
 	if target.get("team") == unit.get("team"):
 		return false

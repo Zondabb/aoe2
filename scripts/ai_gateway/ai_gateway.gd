@@ -322,7 +322,7 @@ func _build_chat_payload(team_entry: Dictionary, current_tick: int, events: Arra
 	var team := int(tick_payload.get("team", 0))
 	return PromptAssemblerScript.assemble(
 		tick_payload.get("observation", {}),
-		events,
+		tick_payload.get("events", []),
 		{
 			"match_id": match_id,
 			"team": team,
@@ -415,7 +415,7 @@ func _build_tick_payload(team_entry: Dictionary, current_tick: int, events: Arra
 		"time_sec": match_time,
 		"profile_id": String(civ.id if civ != null else ""),
 		"enemy_team": enemy_team,
-		"events": events,
+		"events": EventBufferScript.for_team(events, team, match_state != null and match_state.fog_enabled),
 		"observation": observation,
 	}
 
