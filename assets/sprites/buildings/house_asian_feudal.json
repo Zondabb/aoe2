@@ -24,5 +24,12 @@
       "x": 135,
       "y": 117
     }
-  ]
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "house_asian_feudal_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 3,
+    "encoding": "index_weight_rg8"
+  }
 }

@@ -212,5 +212,12 @@
       "x": 15,
       "y": 49
     }
-  ]
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "chu_ko_nu_attack_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 3,
+    "encoding": "index_weight_rg8"
+  }
 }

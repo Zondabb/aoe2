@@ -312,5 +312,12 @@
       "x": 28,
       "y": 24
     }
-  ]
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "teutonic_knight_die_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 3,
+    "encoding": "index_weight_rg8"
+  }
 }

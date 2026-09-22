@@ -20,10 +20,6 @@ const GATHER_CENTER_RANGE_SLACK := 0.4
 ## Set true to print drop-off diagnostics (search console for "[drop-off]").
 const DEBUG_DROP_OFF := true
 const DEBUG_DROP_OFF_INTERVAL := 0.5
-const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
-const AI_COLOR := Color(0.88, 0.18, 0.14)
-const PLAYER_BILLBOARD_TINT := Color(0.65, 0.82, 1.0, 1.0)
-const AI_BILLBOARD_TINT := Color(1.0, 0.62, 0.58, 1.0)
 const ANIM_FPS := 18.0
 const ATTACK_HIT_FRACTION := 0.45
 const RANGED_RELEASE_FRACTION := 0.35
@@ -42,6 +38,7 @@ const ProjectileAgentScript := preload("res://scripts/entities/projectile_agent.
 const GatherSystemScript := preload("res://scripts/systems/gather_system.gd")
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
@@ -77,6 +74,8 @@ var _facing_dir := 0
 var _facing_flip := false
 var _anim_frame := 0.0
 var _sprite_metas: Dictionary = {}
+var _player_color_sheet := ""
+var _player_color_id := -1
 var _no_progress_frames := 0
 var _combat_action := &""
 var _combat_anim_time := 0.0
@@ -95,6 +94,8 @@ var _debug_steer_velocity := Vector2.ZERO
 var _debug_actual_delta := Vector2.ZERO
 
 func _ready() -> void:
+	if match_state != null and not match_state.team_color_changed.is_connected(_on_team_color_changed):
+		match_state.team_color_changed.connect(_on_team_color_changed)
 	add_to_group("units")
 	EntityRegistryScript.register(self)
 	if sim_pos == Vector2.ZERO:
@@ -1143,12 +1144,13 @@ func _setup_presentation() -> void:
 	var body := get_node_or_null("Body") as CanvasItem
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	_use_billboard = false
+	_player_color_sheet = ""
+	_player_color_id = -1
 	if billboard != null and def != null:
-		var sprite_frames: SpriteFrames = null
+		var sprite_frames: SpriteFrames = SpriteCatalogScript.unit_sprite_frames(def.id)
 		_sprite_metas = {}
 		_villager_actions = false
 		if def.id == &"villager":
-			sprite_frames = SpriteCatalogScript.build_villager_sprite_frames()
 			_sprite_metas = SpriteCatalogScript.load_villager_metas_by_action()
 			_villager_actions = (
 				sprite_frames != null
@@ -1158,15 +1160,14 @@ func _setup_presentation() -> void:
 			var base := SpriteCatalogScript.unit_sheet_base(def.id)
 			if SpriteCatalogScript.sheet_paths_exist(base):
 				var meta := SpriteCatalogScript.load_meta(base)
-				var texture := SpriteCatalogScript.load_texture(base)
-				if not meta.is_empty() and texture != null:
-					sprite_frames = SpriteCatalogScript.build_unit_sprite_frames(meta, texture)
+				if not meta.is_empty() and sprite_frames != null:
 					_sprite_metas = {&"": meta}
-					var combat_metas := SpriteCatalogScript.append_unit_combat_frames(
-						sprite_frames, def.id
-					)
-					for action: StringName in combat_metas:
-						_sprite_metas[action] = combat_metas[action]
+					for action: StringName in [&"attack", &"die"]:
+						var action_base := SpriteCatalogScript.combat_sheet_base(def.id, action)
+						if not action_base.is_empty():
+							var action_meta := SpriteCatalogScript.load_meta(action_base)
+							if not action_meta.is_empty():
+								_sprite_metas[action] = action_meta
 		if sprite_frames != null and not _sprite_metas.is_empty():
 			billboard.sprite_frames = sprite_frames
 			SpriteCatalogScript.configure_sprite_2d(
@@ -1178,7 +1179,7 @@ func _setup_presentation() -> void:
 			_update_idle_animation(0.0)
 			SpriteCatalogScript.ensure_ground_shadow_2d(self, 14.0)
 	if body != null:
-		body.visible = not _use_billboard
+		body.visible = not _use_billboard or not billboard.visible
 		if not _use_billboard:
 			_apply_team_color()
 	if billboard != null and not _use_billboard:
@@ -1414,6 +1415,7 @@ func _apply_billboard_frame(
 	var frame_count := billboard.sprite_frames.get_frame_count(anim)
 	if frame_count <= 0:
 		return
+	_apply_billboard_player_color(billboard, anim)
 	var one_shot := action in [&"attack", &"die"]
 	var frame_idx := 0
 	if one_shot:
@@ -1443,14 +1445,42 @@ func _apply_billboard_hotspot(
 
 
 func _apply_team_color() -> void:
+	var color_id := TeamColorCatalogScript.resolve_color_id(team, match_state)
 	var body := get_node_or_null("Body") as CanvasItem
-	if body != null and body.visible:
-		body.modulate = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
+	if body != null:
+		body.modulate = TeamColorCatalogScript.fallback_color(color_id)
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard != null and _use_billboard:
-		billboard.modulate = (
-			PLAYER_BILLBOARD_TINT if team == Enums.Team.PLAYER else AI_BILLBOARD_TINT
-		)
+		billboard.modulate = Color.WHITE
+		_apply_billboard_player_color(billboard, billboard.animation)
+
+
+func _apply_billboard_player_color(billboard: AnimatedSprite2D, anim: StringName) -> void:
+	if def == null:
+		return
+	var base := SpriteCatalogScript.unit_animation_sheet_base(def.id, anim)
+	var color_id := TeamColorCatalogScript.resolve_color_id(team, match_state)
+	if base == _player_color_sheet and color_id == _player_color_id:
+		return
+	_player_color_sheet = base
+	_player_color_id = color_id
+	var valid := SpriteCatalogScript.apply_player_color(billboard, base, color_id)
+	billboard.visible = valid
+	var body := get_node_or_null("Body") as CanvasItem
+	if body != null:
+		body.visible = not valid
+		body.modulate = TeamColorCatalogScript.fallback_color(color_id)
+
+
+func refresh_team_color() -> void:
+	## Rebind an immutable cached material, never mutate its uniforms in-place.
+	_player_color_id = -1
+	_apply_team_color()
+
+
+func _on_team_color_changed(changed_team: int) -> void:
+	if changed_team == team:
+		refresh_team_color()
 
 func _exit_tree() -> void:
 	EntityRegistryScript.unregister(self, "removed")

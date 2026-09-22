@@ -149,11 +149,18 @@ func run() -> Array[String]:
 			else null
 		)
 		if player_billboard == null or ai_billboard == null:
-			failures.append("units should expose Billboard nodes for team tint checks")
+			failures.append("units should expose Billboard nodes for player-color checks")
 		elif not bool(unit.get("_use_billboard")) or not bool(ai_villager.get("_use_billboard")):
-			failures.append("both teams should bind 2D sprites for tint checks")
-		elif is_equal_approx(player_billboard.modulate.r, ai_billboard.modulate.r):
-			failures.append("player and AI sprites should use different team tints")
+			failures.append("both teams should bind 2D sprites for player-color checks")
+		elif not player_billboard.material is ShaderMaterial or not ai_billboard.material is ShaderMaterial:
+			failures.append("both teams should bind indexed player-color shader materials")
+		elif (
+			int(player_billboard.material.get_shader_parameter("target_player")) != 1
+			or int(ai_billboard.material.get_shader_parameter("target_player")) != 2
+		):
+			failures.append("player and AI sprites should use blue/red palette rows")
+		elif player_billboard.modulate != Color.WHITE or ai_billboard.modulate != Color.WHITE:
+			failures.append("player colors should preserve untinted non-player pixels")
 
 		var food_bush := entities.get_node_or_null("PlayerFoodBush")
 		var town_center := entities.get_node_or_null("PlayerTownCenter")

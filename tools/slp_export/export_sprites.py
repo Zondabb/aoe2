@@ -14,7 +14,10 @@ from PIL import Image
 
 from drs import extract
 from palette import load_pal
-from slp import decode_with_meta
+from slp import decode_with_player_masks
+from player_color import (
+    composite_player_masks, export_player_palette, pack_masks, save_player_mask,
+)
 
 ROOT = Path(__file__).resolve().parents[2]  # aoe2/
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -154,10 +157,10 @@ def _read_slp(resources: Path, file_id: int, player: int, palette_name: str = "i
             continue
     if data is None:
         raise FileNotFoundError(f"SLP {file_id} not found under graphics/interface/slp")
-    frames, metas = decode_with_meta(data, palette, player=player)
+    frames, metas, masks = decode_with_player_masks(data, palette, player=player)
     if not frames:
         raise ValueError(f"SLP {file_id} has no frames")
-    return frames, metas, source, pal_path
+    return frames, metas, masks, source, pal_path
 
 
 def tile_to_screen_px(tile_x: float, tile_y: float) -> tuple[int, int]:
@@ -184,18 +187,20 @@ def composite_hotspot_images(
 
 
 def export_composited_asian_feudal_tc(
-    resources: Path, out_dir: Path, player: int = 1
+    resources: Path, out_dir: Path, player: int = 1, *, write_debug: bool = True
 ) -> Dict[str, Any]:
     parts: List[tuple[Image.Image, int, int, int, int]] = []
+    masks: List[Image.Image] = []
     layer_info: List[Dict[str, Any]] = []
     pal_path = resolve_palette(resources, "interface")
     for item in TC_ASIAN_FEUDAL_LAYERS:
-        frames, metas, source, pal_path = _read_slp(resources, int(item["id"]), player)
+        frames, metas, layer_masks, source, pal_path = _read_slp(resources, int(item["id"]), player)
         frame = frames[0]
         meta = metas[0]
         tile = item.get("tile", (0.0, 0.0))
         ox, oy = tile_to_screen_px(float(tile[0]), float(tile[1]))
         parts.append((frame, int(meta.hotspot_x), int(meta.hotspot_y), ox, oy))
+        masks.append(layer_masks[0])
         layer_info.append(
             {
                 "key": item["key"],
@@ -209,18 +214,22 @@ def export_composited_asian_feudal_tc(
             }
         )
     canvas, origin_x, origin_y = composite_hotspot_images(parts)
+    mask = composite_player_masks(parts, masks, canvas, origin_x, origin_y)
     cat_dir = out_dir / "buildings"
     cat_dir.mkdir(parents=True, exist_ok=True)
     key = "tc_asian_feudal"
     png_path = cat_dir / f"{key}.png"
     json_path = cat_dir / f"{key}.json"
     canvas.save(png_path)
+    export_player_palette(out_dir, load_pal(pal_path))
+    player_color = save_player_mask(mask, cat_dir, key, player)
     # Flatten the exported RGBA on green so shadow coverage is easy to inspect.
-    debug_path = cat_dir / f"{key}_green.jpg"
-    debug_background = Image.new("RGBA", canvas.size, (90, 140, 50, 255))
-    debug_background.alpha_composite(canvas)
-    debug_background.convert("RGB").save(debug_path, quality=100, subsampling=0)
-    print(f"DEBUG green background: {debug_path}")
+    if write_debug:
+        debug_path = cat_dir / f"{key}_green.jpg"
+        debug_background = Image.new("RGBA", canvas.size, (90, 140, 50, 255))
+        debug_background.alpha_composite(canvas)
+        debug_background.convert("RGB").save(debug_path, quality=100, subsampling=0)
+        print(f"DEBUG green background: {debug_path}")
     out_meta = {
         "key": key,
         "slp_id": 901,
@@ -237,6 +246,7 @@ def export_composited_asian_feudal_tc(
         "includes_shadow": True,
         "hotspots": [{"x": origin_x, "y": origin_y}],
         "layers": layer_info,
+        "player_color": player_color,
     }
     json_path.write_text(json.dumps(out_meta, indent=2), encoding="utf-8")
     print(f"OK  {key} composite {canvas.width}x{canvas.height} hotspot=({origin_x},{origin_y})")
@@ -275,7 +285,7 @@ def export_one(
     if data is None:
         raise FileNotFoundError(f"SLP {file_id} not found under graphics/interface/slp")
 
-    frames, metas = decode_with_meta(data, palette, player=player, max_frames=max_frames)
+    frames, metas, masks = decode_with_player_masks(data, palette, player=player, max_frames=max_frames)
     sheet, cols, rows, frame_w, frame_h, pads = pack_sheet(frames)
 
     cat_dir = out_dir / category
@@ -283,6 +293,16 @@ def export_one(
     png_path = cat_dir / f"{key}.png"
     json_path = cat_dir / f"{key}.json"
     sheet.save(png_path)
+    mask_sheet = pack_masks(masks, sheet.size, cols, frame_w, frame_h, pads)
+    # Units/buildings share the interface palette. Other palette families may
+    # have different player ramps and must not overwrite the shared texture.
+    player_color = {"mode": "none"}
+    if mask_sheet.getchannel("R").getbbox():
+        interface_palette = load_pal(resolve_palette(resources, "interface"))
+        if list(palette[16:144]) != list(interface_palette[16:144]):
+            raise ValueError("player-colored SLP uses a different player palette")
+        export_player_palette(out_dir, palette)
+        player_color = save_player_mask(mask_sheet, cat_dir, key, player)
 
     # SLP hotspots are relative to the original frame top-left; remap into uniform sheet cells.
     hotspots = [
@@ -304,6 +324,7 @@ def export_one(
         "directions": directions,
         "frames_per_direction": (len(frames) // directions) if directions > 0 else len(frames),
         "hotspots": hotspots,
+        "player_color": player_color,
     }
     json_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return meta

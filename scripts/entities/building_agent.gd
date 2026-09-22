@@ -6,9 +6,8 @@ signal construction_started(building: BuildingAgent)
 signal train_queue_changed
 signal destroyed(building: BuildingAgent)
 
-const PLAYER_COLOR := Color(0.18, 0.42, 0.95)
-const AI_COLOR := Color(0.88, 0.18, 0.14)
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
@@ -34,9 +33,12 @@ var _population_cap_registered := false
 var _reserved_population := 0
 var _ghost_visual_valid: Variant = null
 var _use_billboard := false
+var _sprite_sheet_base := ""
 var block_half := Vector2.ONE
 
 func _ready() -> void:
+	if match_state != null and not match_state.team_color_changed.is_connected(_on_team_color_changed):
+		match_state.team_color_changed.connect(_on_team_color_changed)
 	if sim_pos == Vector2.ZERO:
 		sim_pos = position
 	_sync_visual()
@@ -170,6 +172,9 @@ func set_ghost_visual(valid: bool) -> void:
 	if _ghost_visual_valid == valid:
 		return
 	_ghost_visual_valid = valid
+	_apply_ghost_tint(valid)
+
+func _apply_ghost_tint(valid: bool) -> void:
 	var tint := Color(0.2, 0.9, 0.35, 0.55) if valid else Color(0.95, 0.2, 0.2, 0.55)
 	var billboard := get_node_or_null("Billboard") as CanvasItem
 	if _use_billboard and billboard != null:
@@ -237,6 +242,7 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 
 func _configure_visuals() -> void:
 	_use_billboard = false
+	_sprite_sheet_base = ""
 	var body := get_node_or_null("Body") as CanvasItem
 	var billboard := get_node_or_null("Billboard") as Sprite2D
 	var civ_id: StringName = civ.id if civ != null else &""
@@ -248,6 +254,7 @@ func _configure_visuals() -> void:
 		meta = SpriteCatalogScript.load_meta(base)
 		var texture := SpriteCatalogScript.load_texture(base)
 		if not meta.is_empty() and texture != null:
+			_sprite_sheet_base = base
 			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
 			var hotspot := SpriteCatalogScript.average_hotspot(meta)
 			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
@@ -281,8 +288,7 @@ func _configure_visuals() -> void:
 		if def != null:
 			shadow_radius = maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.4
 		SpriteCatalogScript.ensure_ground_shadow_2d(self, shadow_radius)
-	if not _use_billboard:
-		_apply_team_color()
+	_apply_team_color()
 
 func _sync_block_half() -> void:
 	if def == null:
@@ -293,10 +299,25 @@ func _sync_block_half() -> void:
 	block_half = footprint * 0.5
 
 func _apply_team_color() -> void:
+	var color_id := TeamColorCatalogScript.resolve_color_id(team, match_state)
 	var body := get_node_or_null("Body") as CanvasItem
-	if body == null:
-		return
-	body.modulate = PLAYER_COLOR if team == Enums.Team.PLAYER else AI_COLOR
+	var billboard := get_node_or_null("Billboard") as Sprite2D
+	if not _sprite_sheet_base.is_empty() and billboard != null:
+		_use_billboard = SpriteCatalogScript.apply_player_color(billboard, _sprite_sheet_base, color_id)
+		billboard.modulate = Color.WHITE
+		billboard.visible = _use_billboard
+	if body != null:
+		body.visible = not _use_billboard
+		body.modulate = TeamColorCatalogScript.fallback_color(color_id)
+	if _ghost_visual_valid != null:
+		_apply_ghost_tint(bool(_ghost_visual_valid))
+
+func refresh_team_color() -> void:
+	_apply_team_color()
+
+func _on_team_color_changed(changed_team: int) -> void:
+	if changed_team == team:
+		refresh_team_color()
 
 func _sync_visual() -> void:
 	IsoMathScript.sync_node(self, sim_pos)

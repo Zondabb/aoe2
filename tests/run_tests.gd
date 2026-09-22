@@ -31,6 +31,7 @@ func _initialize() -> void:
 	failures.append_array(load("res://tests/test_observation_vision.gd").new().run())
 	failures.append_array(load("res://tests/test_ai_parity.gd").new().run())
 	failures.append_array(load("res://tests/test_sprite_catalog.gd").new().run())
+	failures.append_array(load("res://tests/test_team_color.gd").new().run())
 	failures.append_array(load("res://tests/test_collision_resolver.gd").new().run())
 	failures.append_array(load("res://tests/test_locomotion.gd").new().run())
 	failures.append_array(load("res://tests/test_nav_grid_service.gd").new().run())

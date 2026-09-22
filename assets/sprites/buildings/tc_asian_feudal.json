@@ -171,5 +171,12 @@
         "y": 96
       }
     }
-  ]
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "tc_asian_feudal_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 3,
+    "encoding": "index_weight_rg8"
+  }
 }

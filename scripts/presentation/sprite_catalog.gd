@@ -3,6 +3,17 @@ extends RefCounted
 
 ## Paths and helpers for exported AoE2 sprite sheets under assets/sprites/.
 
+const PLAYER_COLOR_SHADER := preload("res://shaders/player_color.gdshader")
+const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
+
+## Cached resources are read-only after creation. Materials are keyed by both
+## sheet and player, so changing one entity never mutates another entity's color.
+static var _meta_cache: Dictionary = {}
+static var _texture_cache: Dictionary = {}
+static var _player_color_cache: Dictionary = {}
+static var _player_material_cache: Dictionary = {}
+static var _unit_frames_cache: Dictionary = {}
+
 const UNIT_SHEETS := {
 	&"villager": "res://assets/sprites/units/villager_walk",
 	&"swordsman": "res://assets/sprites/units/swordsman_walk",
@@ -234,21 +245,161 @@ static func sheet_paths_exist(base: String) -> bool:
 
 
 static func load_meta(base: String) -> Dictionary:
+	if _meta_cache.has(base):
+		return _meta_cache[base]
 	if not ResourceLoader.exists(base + ".json"):
+		_meta_cache[base] = {}
 		return {}
 	var file := FileAccess.open(base + ".json", FileAccess.READ)
 	if file == null:
+		_meta_cache[base] = {}
 		return {}
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
 	if typeof(parsed) != TYPE_DICTIONARY:
+		_meta_cache[base] = {}
 		return {}
-	return parsed as Dictionary
+	_meta_cache[base] = parsed as Dictionary
+	return _meta_cache[base]
 
 
 static func load_texture(base: String) -> Texture2D:
-	if not ResourceLoader.exists(base + ".png"):
+	return _load_texture_path(base + ".png")
+
+
+static func _load_texture_path(path: String) -> Texture2D:
+	if _texture_cache.has(path):
+		return _texture_cache[path] as Texture2D
+	if not ResourceLoader.exists(path):
+		_texture_cache[path] = null
 		return null
-	return load(base + ".png") as Texture2D
+	var texture := load(path) as Texture2D
+	_texture_cache[path] = texture
+	return texture
+
+
+static func clear_caches() -> void:
+	## For asset re-export or tests. Existing sprites keep their resources alive;
+	## normal play needs no per-frame I/O and no cache invalidation.
+	_meta_cache.clear()
+	_texture_cache.clear()
+	_player_color_cache.clear()
+	_player_material_cache.clear()
+	_unit_frames_cache.clear()
+
+
+static func _invalid_player_color(base: String, reason: String) -> Dictionary:
+	var result := {"valid": false}
+	_player_color_cache[base] = result
+	push_warning("Player color unavailable for %s: %s; use colored Body fallback." % [base, reason])
+	return result
+
+
+static func _player_color_data(base: String) -> Dictionary:
+	if _player_color_cache.has(base):
+		return _player_color_cache[base]
+	var meta := load_meta(base)
+	var value: Variant = meta.get("player_color", null)
+	if typeof(value) != TYPE_DICTIONARY:
+		return _invalid_player_color(base, "missing player_color metadata (re-export this sheet)")
+	var data := value as Dictionary
+	var mode := String(data.get("mode", ""))
+	if mode == "none":
+		var plain := {"valid": true, "mode": "none"}
+		_player_color_cache[base] = plain
+		return plain
+	if mode != "indexed" or String(data.get("encoding", "")) != "index_weight_rg8":
+		return _invalid_player_color(base, "unsupported mode or mask encoding")
+	var source_player := int(data.get("source_player", 0))
+	if not TeamColorCatalogScript.is_valid_color_id(source_player):
+		return _invalid_player_color(base, "source_player must be 1..8")
+	var mask_path := String(data.get("mask", ""))
+	var palette_path := String(data.get("palette", ""))
+	if mask_path.is_empty() or palette_path.is_empty():
+		return _invalid_player_color(base, "missing mask or palette path")
+	if not mask_path.begins_with("res://"):
+		mask_path = base.get_base_dir().path_join(mask_path)
+	if not palette_path.begins_with("res://"):
+		palette_path = base.get_base_dir().path_join(palette_path)
+	var source := load_texture(base)
+	var mask := _load_texture_path(mask_path)
+	var palette := _load_texture_path(palette_path)
+	if source == null or mask == null or palette == null:
+		return _invalid_player_color(base, "texture, mask or palette could not be loaded")
+	if mask.get_size() != source.get_size():
+		return _invalid_player_color(base, "mask dimensions must equal the full sprite sheet")
+	if palette.get_size() != Vector2(16, 8):
+		return _invalid_player_color(base, "player palette must be 16 x 8")
+	var result := {
+		"valid": true, "mode": mode, "mask": mask, "palette": palette,
+		"source_player": source_player,
+	}
+	_player_color_cache[base] = result
+	return result
+
+
+static func player_color_is_valid(base: String) -> bool:
+	return bool(_player_color_data(base).get("valid", false))
+
+
+static func player_color_material(base: String, color_id: int) -> ShaderMaterial:
+	if not TeamColorCatalogScript.is_valid_color_id(color_id):
+		return null
+	var key := "%s#%d" % [base, color_id]
+	if _player_material_cache.has(key):
+		return _player_material_cache[key] as ShaderMaterial
+	var data := _player_color_data(base)
+	if not bool(data.get("valid", false)) or data.get("mode", "") == "none":
+		return null
+	var material := ShaderMaterial.new()
+	material.shader = PLAYER_COLOR_SHADER
+	material.set_shader_parameter("player_mask", data["mask"])
+	material.set_shader_parameter("player_palette", data["palette"])
+	material.set_shader_parameter("source_player", data["source_player"])
+	material.set_shader_parameter("target_player", color_id)
+	_player_material_cache[key] = material
+	return material
+
+
+static func apply_player_color(sprite: CanvasItem, base: String, color_id: int) -> bool:
+	## True also covers explicitly colorless sheets, which need no ShaderMaterial.
+	## False means the caller must show its colored Body instead of baked colors.
+	if sprite == null:
+		return false
+	if not TeamColorCatalogScript.is_valid_color_id(color_id):
+		sprite.material = null
+		return false
+	if not player_color_is_valid(base):
+		sprite.material = null
+		return false
+	sprite.use_parent_material = false
+	sprite.material = player_color_material(base, color_id)
+	return true
+
+
+static func unit_animation_sheet_base(unit_id: StringName, animation: StringName) -> String:
+	var action: StringName = parse_directional_animation(animation)["action"]
+	if unit_id == &"villager" and VILLAGER_ACTION_SHEETS.has(action):
+		return String(VILLAGER_ACTION_SHEETS[action])
+	var combat_base := combat_sheet_base(unit_id, action)
+	return combat_base if not combat_base.is_empty() else unit_sheet_base(unit_id)
+
+
+static func unit_sprite_frames(unit_id: StringName) -> SpriteFrames:
+	## SpriteFrames contain only shared atlas regions; color is a sprite material.
+	if _unit_frames_cache.has(unit_id):
+		return _unit_frames_cache[unit_id] as SpriteFrames
+	var frames: SpriteFrames
+	if unit_id == &"villager":
+		frames = build_villager_sprite_frames()
+	else:
+		var base := unit_sheet_base(unit_id)
+		var meta := load_meta(base)
+		var texture := load_texture(base)
+		if not meta.is_empty() and texture != null:
+			frames = build_unit_sprite_frames(meta, texture)
+			append_unit_combat_frames(frames, unit_id)
+	_unit_frames_cache[unit_id] = frames
+	return frames
 
 
 static func average_hotspot(meta: Dictionary) -> Vector2:

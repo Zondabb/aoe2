@@ -3,11 +3,16 @@ class_name MatchState
 extends RefCounted
 
 signal winner_decided(team: Enums.Team)
+signal team_color_changed(team: int)
+
+const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
 
 var resources: Dictionary = {}
 var population: Dictionary = {}
 var population_cap: Dictionary = {}
 var population_reserved: Dictionary = {}
+## Visual palette selection only; combat ownership still uses Enums.Team.
+var team_color_ids: Dictionary = {}
 var winner := -1
 ## When true, unit/building simulation should early-return (match ended).
 var frozen := false
@@ -15,7 +20,9 @@ var frozen := false
 func setup_defaults() -> void:
 	winner = -1
 	frozen = false
+	team_color_ids.clear()
 	for team in Enums.Team.values():
+		team_color_ids[team] = TeamColorCatalogScript.default_color_id(team)
 		resources[team] = {
 			Enums.ResourceType.FOOD: 200,
 			Enums.ResourceType.WOOD: 200,
@@ -24,6 +31,20 @@ func setup_defaults() -> void:
 		population[team] = 0
 		population_cap[team] = 0
 		population_reserved[team] = 0
+		team_color_changed.emit(team)
+
+func get_team_color_id(team: int) -> int:
+	var color_id := int(team_color_ids.get(team, TeamColorCatalogScript.default_color_id(team)))
+	return color_id if TeamColorCatalogScript.is_valid_color_id(color_id) else TeamColorCatalogScript.default_color_id(team)
+
+func set_team_color_id(team: int, color_id: int) -> bool:
+	if team not in Enums.Team.values() or not TeamColorCatalogScript.is_valid_color_id(color_id):
+		return false
+	if get_team_color_id(team) == color_id:
+		return true
+	team_color_ids[team] = color_id
+	team_color_changed.emit(team)
+	return true
 
 func get_resource(team: Enums.Team, type: Enums.ResourceType) -> int:
 	return resources[team][type]

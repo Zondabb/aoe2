@@ -45,7 +45,7 @@ def _decode_frame(
     palette: Sequence[Color],
     *,
     player: int = 1,
-) -> Tuple[Image.Image, FrameMeta]:
+) -> Tuple[Image.Image, FrameMeta, Image.Image]:
     (
         cmd_table_offset,
         outline_table_offset,
@@ -59,11 +59,12 @@ def _decode_frame(
 
     if width <= 0 or height <= 0:
         img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
-        return img, FrameMeta(1, 1, 0, 0)
+        return img, FrameMeta(1, 1, 0, 0), Image.new("RGB", (1, 1))
 
     pixels = bytearray(width * height * 4)
+    player_mask = bytearray(width * height * 3)
 
-    def put_pixel(x: int, y: int, index: int) -> None:
+    def put_pixel(x: int, y: int, index: int, shade: Optional[int] = None) -> None:
         if not (0 <= x < width and 0 <= y < height):
             return
         if index < 0 or index >= len(palette):
@@ -71,6 +72,10 @@ def _decode_frame(
         r, g, b, a = palette[index]
         o = (y * width + x) * 4
         pixels[o : o + 4] = bytes((r, g, b, a))
+        mo = (y * width + x) * 3
+        # Only player-color opcodes mark pixels: literal palette indices can
+        # have identical RGB and must still remain ordinary artwork.
+        player_mask[mo : mo + 3] = bytes((shade + 1, 255, 0)) if shade is not None and a else bytes(3)
 
     def put_shadow(x: int, y: int) -> None:
         if not (0 <= x < width and 0 <= y < height):
@@ -130,7 +135,7 @@ def _decode_frame(
             if low == 0x06:  # player color draw
                 length, pos = _read_length4(cmd, data, pos)
                 for _ in range(length):
-                    put_pixel(x, row, _player_index(data[pos], player))
+                    put_pixel(x, row, _player_index(data[pos], player), data[pos] & 0x0F)
                     pos += 1
                     x += 1
                 continue
@@ -146,10 +151,11 @@ def _decode_frame(
 
             if low == 0x0A:  # fill player color
                 length, pos = _read_length4(cmd, data, pos)
+                shade = data[pos] & 0x0F
                 color = _player_index(data[pos], player)
                 pos += 1
                 for _ in range(length):
-                    put_pixel(x, row, color)
+                    put_pixel(x, row, color, shade)
                     x += 1
                 continue
 
@@ -182,7 +188,8 @@ def _decode_frame(
             raise ValueError(f"unknown SLP command 0x{cmd:02x} at row {row}")
 
     img = Image.frombytes("RGBA", (width, height), bytes(pixels))
-    return img, FrameMeta(width, height, hotspot_x, hotspot_y)
+    mask = Image.frombytes("RGB", (width, height), bytes(player_mask))
+    return img, FrameMeta(width, height, hotspot_x, hotspot_y), mask
 
 
 def decode(
@@ -207,7 +214,7 @@ def decode(
     frames: List[Image.Image] = []
     for i in range(limit):
         frame_off = _HEADER.size + i * _FRAME.size
-        img, _meta = _decode_frame(data, frame_off, palette, player=player)
+        img, _meta, _mask = _decode_frame(data, frame_off, palette, player=player)
         frames.append(img)
     return frames
 
@@ -219,15 +226,36 @@ def decode_with_meta(
     player: int = 1,
     max_frames: Optional[int] = None,
 ) -> Tuple[List[Image.Image], List[FrameMeta]]:
+    images, metas, _masks = decode_with_player_masks(data, palette, player=player, max_frames=max_frames)
+    return images, metas
+
+
+def decode_with_player_masks(
+    data: bytes,
+    palette: Sequence[Color],
+    *,
+    player: int = 1,
+    max_frames: Optional[int] = None,
+) -> Tuple[List[Image.Image], List[FrameMeta], List[Image.Image]]:
+    """Return RGBA frames, hotspots, and RGB player-index/weight data masks.
+
+    R is shade + 1 (0 means ordinary artwork); G is the player color's
+    contribution to straight RGB (255 for an uncomposited player pixel).
+    B is reserved, always zero. Masks are opaque data, never color textures.
+    """
+    if len(data) < _HEADER.size:
+        raise ValueError("SLP too small")
     version, num_frames, _comment = _HEADER.unpack_from(data, 0)
     if version != b"2.0N":
         raise ValueError(f"unsupported SLP version {version!r}")
     limit = num_frames if max_frames is None else min(num_frames, max_frames)
     images: List[Image.Image] = []
     metas: List[FrameMeta] = []
+    masks: List[Image.Image] = []
     for i in range(limit):
         frame_off = _HEADER.size + i * _FRAME.size
-        img, meta = _decode_frame(data, frame_off, palette, player=player)
+        img, meta, mask = _decode_frame(data, frame_off, palette, player=player)
         images.append(img)
         metas.append(meta)
-    return images, metas
+        masks.append(mask)
+    return images, metas, masks

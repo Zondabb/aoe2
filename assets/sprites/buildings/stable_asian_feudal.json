@@ -16,5 +16,12 @@
       "x": 165,
       "y": 169
     }
-  ]
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "stable_asian_feudal_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 3,
+    "encoding": "index_weight_rg8"
+  }
 }

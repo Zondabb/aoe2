@@ -38,6 +38,34 @@ This install already unpacks DRS archives into folders:
 
 ## Commands
 
+Player colors now use one original atlas plus a semantic index/weight mask,
+with a shared 16x8 palette. Godot's player-color shader recolors only SLP player
+pixels; it does not need one atlas per team. To rebuild only the game units and
+buildings, from the repository root run:
+
+```powershell
+python tools/slp_export/regenerate_all.py --team-masks
+python -m pytest tools/slp_export/tests -q
+```
+
+The configured `player_color` remains the original atlas's baked source color;
+it is recorded in JSON as `player_color.source_player`. This is independent of
+the match's blue/red defaults. Each colored sheet writes `_player_mask.png`:
+R byte = shade + 1 (zero means ordinary artwork), G byte = player contribution
+to straight RGB, B = 0. Data imports are lossless, nearest-sampled, without
+mipmaps or alpha-border processing. `player_palette.png` is shared by all teams.
+Uncolored sheets declare `mode: none`. Town Center masks follow the same layer
+offsets and preserve attenuation by overlaid shadows. Ordinary palette-colored
+pixels are never inferred to be player pixels from their RGB value.
+
+The regular exporters also maintain this metadata, so rebuilding a sheet with
+another source player does not invalidate its shader. `--team-masks` excludes
+UI, terrain and enlarged previews. The full rebuild keeps enlarged preview
+masks aligned using the original image's Scale2x pixel choices.
+
+See [the shader design](../../docs/superpowers/specs/2026-09-21-team-color-shader-design.md)
+for runtime integration, limitations and GPU verification commands.
+
 From `tools/slp_export`:
 
 ```powershell
