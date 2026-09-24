@@ -114,6 +114,7 @@ func _build_ui() -> void:
 	_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(_ui)
 	var theme := Theme.new()
+	theme.default_font = load("res://assets/fonts/NotoSansSC-Regular.ttf")
 	theme.default_font_size = 15
 	_ui.theme = theme
 	var toolbar := _panel(_ui, Vector2(12, 10), Vector2(-12, 96), true)

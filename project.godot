@@ -31,6 +31,10 @@ window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[gui]
+
+theme/custom="res://assets/ui/app_theme.tres"
+
 [input]
 
 toggle_debug_mode={
