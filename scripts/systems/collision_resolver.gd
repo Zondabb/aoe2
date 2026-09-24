@@ -6,16 +6,9 @@ const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 
 const DEFAULT_RADIUS := 0.42
 const UNIT_SEPARATION_EXTRA := 0.0
-## Half-angle of the forward cone toward another unit/building (degrees).
-## Move is blocked when angle(move, to_other) < this value; sideways/away is allowed.
-const DEFAULT_UNIT_BLOCK_ANGLE_DEGREES := 45.0
-## Rotate blocked forward aim by this much away from a friendly unit.
-const FRIENDLY_PEEL_ANGLE_DEGREES := 45.0
-
 static var _map_bounds_enabled := false
 static var _map_min := Vector2.ZERO
 static var _map_max := Vector2.ZERO
-static var unit_block_angle_degrees := DEFAULT_UNIT_BLOCK_ANGLE_DEGREES
 
 
 static func set_map_bounds(world_min: Vector2, world_max: Vector2) -> void:
@@ -26,14 +19,6 @@ static func set_map_bounds(world_min: Vector2, world_max: Vector2) -> void:
 
 static func clear_map_bounds() -> void:
 	_map_bounds_enabled = false
-
-
-static func set_unit_block_angle_degrees(degrees: float) -> void:
-	unit_block_angle_degrees = clampf(degrees, 0.0, 180.0)
-
-
-static func reset_unit_block_angle_degrees() -> void:
-	unit_block_angle_degrees = DEFAULT_UNIT_BLOCK_ANGLE_DEGREES
 
 
 static func clamp_to_map(pos: Vector2, radius: float) -> Vector2:
@@ -58,13 +43,6 @@ static func min_unit_separation(radius: float, other_radius: float) -> float:
 	return radius + other_radius + UNIT_SEPARATION_EXTRA
 
 
-static func _is_ignored_unit(other: Object, ignore_units: Array) -> bool:
-	for item in ignore_units:
-		if item == other:
-			return true
-	return false
-
-
 static func resolve_move(
 	unit: Object,
 	from_pos: Vector2,
@@ -78,157 +56,76 @@ static func resolve_move(
 	var solids: Array = []
 	solids.append_array(buildings)
 	solids.append_array(path_blockers)
-	var pos := desired_pos
-	if _blocks_building_move(from_pos, desired_pos, radius, solids):
-		pos = from_pos
-	if pos != from_pos and _blocks_unit_move(
-		from_pos, pos, radius, unit, units, ignore_units
-	):
-		pos = from_pos
-	return clamp_to_map(pos, radius)
-
-static func _blocks_unit_move(
-	from_pos: Vector2,
-	desired_pos: Vector2,
-	radius: float,
-	unit: Object,
-	units: Array,
-	ignore_units: Array
-) -> bool:
-	return find_unit_blocker(from_pos, desired_pos, radius, unit, units, ignore_units) != null
+	var pos := clamp_to_map(desired_pos, radius)
+	return pos if is_step_safe(unit, from_pos, pos, units, solids, ignore_units) else from_pos
 
 
-## First unit in the forward block cone (any team). Used by resolve_move.
-static func find_unit_blocker(
-	from_pos: Vector2,
-	desired_pos: Vector2,
-	radius: float,
-	unit: Object,
-	units: Array,
-	ignore_units: Array = []
-) -> Object:
-	var move := desired_pos - from_pos
-	if move.length_squared() < 0.0000001:
-		return null
-	var move_dir := move.normalized()
-	var block_cos := cos(deg_to_rad(unit_block_angle_degrees))
-	for value in units:
-		var other := value as Object
-		if other == null or other == unit or not is_instance_valid(other):
-			continue
-		if _is_ignored_unit(other, ignore_units):
-			continue
-		if not _unit_blocks_step(from_pos, desired_pos, radius, move_dir, block_cos, other):
-			continue
-		return other
-	return null
-
-
-## Friendly dynamic unit that is hard-blocking this step (same team, has UnitDef).
-static func find_friendly_unit_blocker(
-	from_pos: Vector2,
-	desired_pos: Vector2,
-	radius: float,
-	unit: Object,
-	units: Array,
-	ignore_units: Array = []
-) -> Object:
-	var team_variant: Variant = unit.get("team") if unit != null else null
-	var move := desired_pos - from_pos
-	if move.length_squared() < 0.0000001:
-		return null
-	var move_dir := move.normalized()
-	var block_cos := cos(deg_to_rad(unit_block_angle_degrees))
-	for value in units:
-		var other := value as Object
-		if other == null or other == unit or not is_instance_valid(other):
-			continue
-		if _is_ignored_unit(other, ignore_units):
-			continue
-		if other.get("def") as UnitDef == null:
-			continue
-		if team_variant != null and other.get("team") != team_variant:
-			continue
-		if not _unit_blocks_step(from_pos, desired_pos, radius, move_dir, block_cos, other):
-			continue
-		return other
-	return null
-
-
-static func _unit_blocks_step(
-	from_pos: Vector2,
-	desired_pos: Vector2,
-	radius: float,
-	move_dir: Vector2,
-	block_cos: float,
-	other: Object
-) -> bool:
-	var other_pos: Vector2 = other.get("sim_pos")
-	var min_dist := min_unit_separation(radius, unit_radius(other))
-	var from_dist := from_pos.distance_to(other_pos)
-	var desired_dist := desired_pos.distance_to(other_pos)
-	if from_dist >= min_dist - 0.0001 and desired_dist >= min_dist - 0.0001:
+## Swept geometry, independent of facing angle. Existing overlaps may escape,
+## but a lateral/large step cannot create a new overlap or tunnel through a body.
+static func is_step_safe(unit: Object, from: Vector2, to: Vector2, units: Array, solids: Array, ignore: Array = []) -> bool:
+	var radius := unit_radius(unit)
+	if not clamp_to_map(to, radius).is_equal_approx(to):
 		return false
-	var to_other := other_pos - from_pos
-	if to_other.length_squared() < 0.0000001:
+	if not static_step_safe(from, to, radius, solids):
 		return false
-	return move_dir.dot(to_other.normalized()) > block_cos + 0.0001
-
-
-## Rotate the forward aim ±45° and keep the side farther from the blocker (outward peel).
-static func friendly_peel_point(
-	from_pos: Vector2,
-	forward_point: Vector2,
-	other_pos: Vector2,
-	step_length: float
-) -> Vector2:
-	var length := maxf(step_length, 0.05)
-	var move := forward_point - from_pos
-	var move_dir: Vector2
-	if move.length_squared() < 0.0000001:
-		move_dir = from_pos - other_pos
-		if move_dir.length_squared() < 0.0000001:
-			move_dir = Vector2.RIGHT
-		else:
-			move_dir = move_dir.normalized()
-	else:
-		move_dir = move.normalized()
-	var angle := deg_to_rad(FRIENDLY_PEEL_ANGLE_DEGREES)
-	var plus := from_pos + move_dir.rotated(angle) * length
-	var minus := from_pos + move_dir.rotated(-angle) * length
-	if plus.distance_squared_to(other_pos) >= minus.distance_squared_to(other_pos):
-		return plus
-	return minus
-
-
-## Same forward-cone rule as units: only block when the step closes on the
-## solid (overlap / entering AABB) and move aims at the blocker center.
-static func _blocks_building_move(
-	from_pos: Vector2,
-	desired_pos: Vector2,
-	radius: float,
-	buildings: Array
-) -> bool:
-	var move := desired_pos - from_pos
-	if move.length_squared() < 0.0000001:
-		return false
-	var move_dir := move.normalized()
-	var block_cos := cos(deg_to_rad(unit_block_angle_degrees))
-	for value in buildings:
-		var building := value as Object
-		if building == null or not is_instance_valid(building):
+	for other in units:
+		if not is_instance_valid(other) or other == unit or other in ignore:
 			continue
-		var from_hits := _hits_building(from_pos, radius, building)
-		var desired_hits := _hits_building(desired_pos, radius, building)
-		if not from_hits and not desired_hits:
+		var health: Variant = other.get("hp")
+		if health != null and float(health) <= 0:
 			continue
-		var center: Vector2 = building.get("sim_pos")
-		var to_other := center - from_pos
-		if to_other.length_squared() < 0.0000001:
+		var center: Vector2 = other.get("sim_pos")
+		var separation := radius + unit_radius(other)
+		var old_distance := from.distance_squared_to(center)
+		if old_distance < separation * separation - 0.0001:
+			if (to - from).dot(from - center) < -0.00001:
+				return false
 			continue
-		if move_dir.dot(to_other.normalized()) > block_cos + 0.0001:
-			return true
-	return false
+		var nearest := Geometry2D.get_closest_point_to_segment(center, from, to)
+		if nearest.distance_squared_to(center) < separation * separation - 0.0001:
+			return false
+	return true
+
+
+static func static_step_safe(from: Vector2, to: Vector2, radius: float, solids: Array) -> bool:
+	for solid in solids:
+		if not is_instance_valid(solid) or solid.get("is_placement_ghost") == true:
+			continue
+		var half := _blocker_half(solid, radius)
+		if half.x <= 0 or half.y <= 0:
+			continue
+		var center: Vector2 = solid.get("sim_pos")
+		if segment_hits_box(from - center, to - center, half):
+			return false
+	return true
+
+
+static func segment_hits_box(from: Vector2, to: Vector2, half: Vector2) -> bool:
+	# A tiny inset permits tangential travel exactly along a boundary.
+	half -= Vector2.ONE * 0.0001
+	var motion := to - from
+	if absf(from.x) < half.x and absf(from.y) < half.y:
+		var depth := half - from.abs()
+		# Already embedded: permit sliding or moving out via the nearest face.
+		if depth.x <= depth.y + 0.0001 and motion.x * signf(from.x) >= -0.00001:
+			return false
+		if depth.y <= depth.x + 0.0001 and motion.y * signf(from.y) >= -0.00001:
+			return false
+		return true
+	var near := 0.0
+	var far := 1.0
+	for axis in 2:
+		if absf(motion[axis]) < 0.0000001:
+			if absf(from[axis]) >= half[axis]:
+				return false
+			continue
+		var first := (-half[axis] - from[axis]) / motion[axis]
+		var second := (half[axis] - from[axis]) / motion[axis]
+		near = maxf(near, minf(first, second))
+		far = minf(far, maxf(first, second))
+		if near > far:
+			return false
+	return near <= far and far >= 0 and near <= 1
 
 static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 	if blocker == null:

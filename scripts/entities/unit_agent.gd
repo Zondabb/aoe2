@@ -4,11 +4,8 @@ extends Node2D
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 const ARRIVAL_DISTANCE := 0.15
-## Near goal with no forward progress → treat as arrived (stops cluster skate).
-const STUCK_ARRIVE_DISTANCE := 1.05
-const STUCK_FRAMES_TO_STOP := 10
-const CROWD_ARRIVE_DISTANCE := 1.85
-const MAX_STUCK_REPATH_ATTEMPTS := 2
+const STUCK_REPATH_SECONDS := 0.65
+const REPATH_INTERVAL := 0.8
 ## Crowd repath: query radius and forward cone for temporary unit obstacles.
 const STUCK_CROWD_QUERY_RADIUS := 6.0
 const STUCK_CROWD_BLOCK_ANGLE_DEG := 60.0
@@ -27,9 +24,6 @@ const ATTACK_HIT_FRACTION := 0.45
 const RANGED_RELEASE_FRACTION := 0.35
 const ATTACK_CHASE_SLACK := 0.25
 const MELEE_ATTACK_SLOTS := 12
-const ATTACK_STUCK_FRAMES := 6
-## After inserting a friendly peel waypoint, wait this many blocked frames before another.
-const FRIENDLY_PEEL_COOLDOWN_FRAMES := 6
 const FALLBACK_ATTACK_DURATION := 0.45
 const FALLBACK_DIE_DURATION := 0.8
 const WORLD_HP_BAR_WIDTH := 28.0
@@ -43,6 +37,7 @@ const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.
 const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const Avoidance := preload("res://scripts/systems/local_avoidance.gd")
 const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 
@@ -92,7 +87,16 @@ var _path_pending := false
 var _nav_goal := Vector2.ZERO
 var _stuck_repath_attempts := 0
 var _path_retry_cooldown := 0.0
-var _friendly_peel_cooldown := 0
+var _locomotion_velocity := Vector2.ZERO
+var _stuck_seconds := 0.0
+var _repath_cooldown := 0.0
+var _requested_move_target := Vector2.ZERO
+var _progress_elapsed := 0.0
+var _progress_distance := INF
+var _pending_crowd_route := false
+var _path_is_crowd_route := false
+var _has_move_command := false
+var _goal_refresh_remaining := 0.0
 var _drop_off_debug_timer := 0.0
 var _debug_steer_velocity := Vector2.ZERO
 var _debug_actual_delta := Vector2.ZERO
@@ -141,6 +145,10 @@ func _physics_process(delta: float) -> void:
 		return
 	if match_state != null and match_state.frozen:
 		return
+	var frame_start := sim_pos
+	_repath_cooldown = maxf(0, _repath_cooldown - delta)
+	_goal_refresh_remaining = maxf(0, _goal_refresh_remaining - delta)
+	_path_retry_cooldown = maxf(0, _path_retry_cooldown - delta)
 	if order == Enums.OrderType.MOVE:
 		_process_move(delta)
 	elif order == Enums.OrderType.GATHER:
@@ -153,10 +161,26 @@ func _physics_process(delta: float) -> void:
 		_process_die(delta)
 	else:
 		_update_idle_animation(delta)
+	_locomotion_velocity = (sim_pos - frame_start) / maxf(delta, 0.00001)
+	if order == Enums.OrderType.MOVE:
+		_progress_elapsed += delta
+		if _progress_elapsed >= 2.0:
+			var distance := sim_pos.distance_to(_move_target)
+			if distance >= _progress_distance - 0.5:
+				_try_recover_from_stuck()
+			_progress_distance = distance
+			_progress_elapsed = 0.0
+
+func locomotion_velocity() -> Vector2:
+	return _locomotion_velocity
 
 func _process_move(delta: float) -> void:
+	_refresh_reserved_goal()
 	var from_pos := sim_pos
-	if _path_pending:
+	if sim_pos.distance_to(_move_target) <= ARRIVAL_DISTANCE:
+		_finish_move()
+		return
+	if _path_pending and _path.is_empty():
 		var steer := _steer_velocity_toward(delta)
 		if steer.length_squared() > 0.0001:
 			_update_move_facing(steer, delta, false)
@@ -164,7 +188,6 @@ func _process_move(delta: float) -> void:
 		return
 	if _path.is_empty():
 		if _path_retry_cooldown > 0.0:
-			_path_retry_cooldown = maxf(0.0, _path_retry_cooldown - delta)
 			var wait_dir := _move_target - sim_pos
 			if wait_dir.length_squared() > 0.0001:
 				_update_move_facing(wait_dir, delta, false)
@@ -174,30 +197,22 @@ func _process_move(delta: float) -> void:
 		_request_nav_path(_move_target)
 		_refresh_move_debug(_steer_velocity_toward(delta), from_pos)
 		return
+	_skip_visible_waypoints()
 	var steer_target := _current_steer_target()
 	var offset := steer_target - sim_pos
 	var distance := offset.length()
 	if distance <= ARRIVAL_DISTANCE:
 		if _advance_path_waypoint():
 			return
-		_finish_move()
+		# A temporary crowd detour may end at a nearby free cell, not our goal.
+		_request_nav_path(_move_target)
 		return
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
-	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
-	var progress := forward_progress(from_pos, sim_pos, velocity)
-	var walking := is_walk_progress(progress, step)
-	if walking:
-		_no_progress_frames = 0
-	else:
-		_no_progress_frames += 1
-		if _no_progress_frames >= STUCK_FRAMES_TO_STOP:
-			if _try_recover_from_stuck():
-				return
-			_no_progress_frames = 0
-	_update_move_facing(offset, delta, walking)
+	_track_move_progress(from_pos, velocity, step, delta, offset)
 
 func _finish_move() -> void:
 	_no_progress_frames = 0
@@ -210,8 +225,12 @@ func _finish_move() -> void:
 	_update_idle_animation(0.0)
 
 func command_move(target: Vector2) -> void:
-	_move_target = target
-	_nav_goal = target
+	if order == Enums.OrderType.MOVE and _requested_move_target.is_equal_approx(target):
+		return
+	_requested_move_target = target
+	_has_move_command = true
+	_move_target = _choose_move_goal(target)
+	_nav_goal = _move_target
 	_gather_target = null
 	_drop_off_target = null
 	_build_target = null
@@ -219,11 +238,22 @@ func command_move(target: Vector2) -> void:
 	_gather_state = ""
 	_no_progress_frames = 0
 	_stuck_repath_attempts = 0
-	_request_nav_path(target)
+	_stuck_seconds = 0
+	_repath_cooldown = 0
+	_progress_distance = sim_pos.distance_to(_move_target)
+	_progress_elapsed = 0
+	_goal_refresh_remaining = 0
+	_request_nav_path(_move_target)
 	order = Enums.OrderType.MOVE
 	_unit_log("order", "MOVE target=%s" % target)
 
 func command_stop() -> void:
+	_has_move_command = false
+	var nav := _get_nav_service()
+	if nav != null and nav.has_method("cancel_path"):
+		nav.cancel_path(get_instance_id())
+	_locomotion_velocity = Vector2.ZERO
+	_stuck_seconds = 0
 	_move_target = Vector2.ZERO
 	_nav_goal = Vector2.ZERO
 	_path = PackedVector2Array()
@@ -246,6 +276,7 @@ func command_gather(resource: Node2D) -> void:
 		return
 	if resource == null or float(resource.get("amount")) <= 0.0:
 		return
+	_has_move_command = false
 	_build_target = null
 	_attack_target = null
 	var new_type := int(resource.get("resource_type"))
@@ -272,6 +303,7 @@ func command_build(building: Node2D) -> void:
 	):
 		return
 	_build_target = building
+	_has_move_command = false
 	_attack_target = null
 	_gather_target = null
 	_drop_off_target = null
@@ -292,6 +324,7 @@ func command_attack(target: Node) -> void:
 	):
 		return
 	_last_seen_attack_pos = target_2d.get("sim_pos")
+	_has_move_command = false
 	_attack_target = target_2d
 	_gather_target = null
 	_drop_off_target = null
@@ -301,15 +334,20 @@ func command_attack(target: Node) -> void:
 	_unit_log("order", "ATTACK target=%s" % target_2d.name)
 
 func _process_attack(delta: float) -> void:
+	if _combat_action == &"die":
+		_process_die(delta)
+		return
+	# Freed references fail typed Object arguments before the callee can guard them.
+	if not is_instance_valid(_attack_target) or _attack_target.is_queued_for_deletion():
+		_cancel_combat_action()
+		_attack_target = null
+		order = Enums.OrderType.NONE
+		return
 	if match_state != null and match_state.fog_enabled and not FogAccess.can_see(self, _attack_target):
 		_cancel_combat_action()
 		command_move(_last_seen_attack_pos)
 		return
-	if is_instance_valid(_attack_target):
-		_last_seen_attack_pos = _attack_target.get("sim_pos")
-	if _combat_action == &"die":
-		_process_die(delta)
-		return
+	_last_seen_attack_pos = _attack_target.get("sim_pos")
 	if not _attack_target_available():
 		_cancel_combat_action()
 		_attack_target = null
@@ -467,6 +505,10 @@ func _process_build(delta: float) -> void:
 		order = Enums.OrderType.NONE
 
 func _process_gather(delta: float) -> void:
+	if _gather_state in ["to_resource", "gathering"] and (not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion()):
+		_gather_target = null
+		_finish_or_drop_off()
+		return
 	if _gather_state in ["to_resource", "gathering"] and match_state != null and match_state.fog_enabled and not FogAccess.can_see(self, _gather_target):
 		command_move(_last_seen_resource_pos)
 		return
@@ -576,8 +618,9 @@ func _finish_or_drop_off() -> void:
 		order = Enums.OrderType.NONE
 		_gather_state = ""
 
-func _resource_available(resource: Node2D) -> bool:
-	return is_instance_valid(resource) and float(resource.get("amount")) > 0.0
+func _resource_available(resource: Variant) -> bool:
+	# May receive a cached resource that was freed during the drop-off trip.
+	return is_instance_valid(resource) and not resource.is_queued_for_deletion() and float(resource.get("amount")) > 0.0
 
 
 func _gather_approach_point(resource: Node2D) -> Vector2:
@@ -734,97 +777,102 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 
 
 func _move_resolve_context() -> Dictionary:
-	var ctx := {"ignore_units": []}
-	if order == Enums.OrderType.ATTACK and _attack_target_available():
-		ctx["ignore_units"] = [_attack_target]
-	return ctx
+	# Combat range already includes both radii; targets remain physical obstacles.
+	return {}
 
 
-func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, move_context: Dictionary = {}) -> void:
+func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_context: Dictionary = {}, delta := 1.0 / 60.0) -> void:
 	var units: Array = []
-	var buildings: Array = []
-	var path_blockers: Array = []
+	var solids: Array = []
+	var query_radius := maxf(Avoidance.NEIGHBOR_RANGE, 2.0 * (_pathfinding_radius() + def.move_speed * (Avoidance.HORIZON + delta)))
 	if is_inside_tree():
-		var tree := get_tree()
-		units = tree.get_nodes_in_group("units")
-		buildings = tree.get_nodes_in_group("buildings")
-		path_blockers = tree.get_nodes_in_group("path_blockers")
-		for node in tree.get_nodes_in_group("resource_nodes"):
-			if node.get("amount") != null and float(node.get("amount")) > 0.0:
-				path_blockers.append(node)
-	var ignore_units: Array = move_context.get("ignore_units", [])
-	sim_pos = CollisionResolverScript.resolve_move(
-		self,
-		from_pos,
-		desired_pos,
-		units,
-		buildings,
-		path_blockers,
-		ignore_units
-	)
-	if sim_pos.distance_squared_to(from_pos) <= 0.0000001:
-		_try_insert_friendly_peel_waypoint(from_pos, desired_pos, units, ignore_units)
-	elif _friendly_peel_cooldown > 0:
-		_friendly_peel_cooldown -= 1
+		var vision := _get_vision_service()
+		if vision != null and vision.has_method("others_in_radius"):
+			for other in vision.others_in_radius(self, query_radius):
+				if other.get("def") is UnitDef:
+					units.append(other)
+		else:
+			for other in get_tree().get_nodes_in_group("units"):
+				if other != self and sim_pos.distance_squared_to(other.sim_pos) < query_radius * query_radius:
+					units.append(other)
+		solids.append_array(get_tree().get_nodes_in_group("buildings"))
+		solids.append_array(get_tree().get_nodes_in_group("path_blockers"))
+		for resource in get_tree().get_nodes_in_group("resource_nodes"):
+			if resource.amount > 0 and ResourceNode.resource_blocks_pathfinding(resource.resource_type):
+				solids.append(resource)
+	var preferred := (desired_pos - from_pos) / maxf(delta, 0.00001)
+	sim_pos = Avoidance.step(self, preferred, _locomotion_velocity, delta, units, solids)
 	_vision_sync_position()
 
 
-## Ally blocked this step: rotate forward aim 45° outward and queue it as the next path point.
-func _try_insert_friendly_peel_waypoint(
-	from_pos: Vector2,
-	desired_pos: Vector2,
-	units: Array,
-	ignore_units: Array
-) -> void:
-	if _friendly_peel_cooldown > 0 or _path_pending:
-		return
-	var radius := CollisionResolverScript.unit_radius(self)
-	var blocker: Object = CollisionResolverScript.find_friendly_unit_blocker(
-		from_pos, desired_pos, radius, self, units, ignore_units
-	)
-	if blocker == null:
-		return
-	var other_pos: Vector2 = blocker.get("sim_pos")
-	var forward := desired_pos
-	if not _path.is_empty() and _path_index >= 0 and _path_index < _path.size():
-		forward = _path[_path_index]
-	elif _move_target != Vector2.ZERO:
-		forward = _move_target
-	var step_len := 0.75
-	if def != null:
-		step_len = maxf(0.5, def.move_speed * 0.2)
-	var peel := CollisionResolverScript.friendly_peel_point(
-		from_pos, forward, other_pos, step_len
-	)
-	_insert_path_waypoint_at_current(peel)
-	_friendly_peel_cooldown = FRIENDLY_PEEL_COOLDOWN_FRAMES
-	_no_progress_frames = 0
-	var blocker_name := "?"
-	if blocker is Node:
-		blocker_name = (blocker as Node).name
-	_unit_log("move", "friendly peel inserted", {"peel": peel, "blocker": blocker_name})
+## Reserve separate, walkable destinations even for repeated AI rally commands.
+func _choose_move_goal(target: Vector2) -> Vector2:
+	if not is_inside_tree():
+		return target
+	var radius := _pathfinding_radius()
+	var nav := _get_nav_service()
+	var center := CollisionResolverScript.clamp_to_map(target, radius)
+	if nav != null:
+		center = nav.nearest_walkable_world(center, radius)
+	var units := get_tree().get_nodes_in_group("units")
+	var spacing := radius * 2.0 + 0.3
+	var approach := (sim_pos - center).angle()
+	for ring in range(0, 13):
+		var count := 1 if ring == 0 else ring * 8
+		for slot in count:
+			var candidate := center + Vector2.from_angle(approach + TAU * slot / count) * spacing * ring
+			if not CollisionResolverScript.clamp_to_map(candidate, radius).is_equal_approx(candidate):
+				continue
+			if nav != null and not nav.is_world_walkable_with_radius(candidate, radius):
+				continue
+			var available := true
+			for other in units:
+				if other == self or other.hp <= 0:
+					continue
+				var occupied: Vector2 = other._move_target if other.order == Enums.OrderType.MOVE else other.sim_pos
+				if candidate.distance_to(occupied) < radius + CollisionResolverScript.unit_radius(other) + 0.2:
+					available = false
+					break
+			if available:
+				return candidate
+	return center
 
 
-func _insert_path_waypoint_at_current(point: Vector2) -> void:
-	if _path.is_empty():
-		var tail := _move_target if _move_target != Vector2.ZERO else point
-		_path = PackedVector2Array([point, tail])
-		_path_index = 0
+func _refresh_reserved_goal() -> void:
+	if _goal_refresh_remaining > 0 or _move_target.is_equal_approx(_requested_move_target) or not is_inside_tree():
 		return
-	# Avoid stacking duplicate peels on the same spot.
-	if _path[_path_index].distance_squared_to(point) < 0.04:
+	_goal_refresh_remaining = 0.5
+	var radius := _pathfinding_radius()
+	var nav := _get_nav_service()
+	if not CollisionResolverScript.clamp_to_map(_requested_move_target, radius).is_equal_approx(_requested_move_target):
 		return
-	var rebuilt := PackedVector2Array()
-	for i in range(_path.size()):
-		if i == _path_index:
-			rebuilt.append(point)
-		rebuilt.append(_path[i])
-	_path = rebuilt
+	if nav != null and not nav.is_world_walkable_with_radius(_requested_move_target, radius):
+		return
+	for other in get_tree().get_nodes_in_group("units"):
+		if other == self or other.hp <= 0:
+			continue
+		var occupied: Vector2 = other._move_target if other.order == Enums.OrderType.MOVE else other.sim_pos
+		if _requested_move_target.distance_to(occupied) < radius + CollisionResolverScript.unit_radius(other) + 0.2:
+			return
+	_move_target = _requested_move_target
+	_request_nav_path(_move_target)
+
+
+func _skip_visible_waypoints() -> void:
+	var nav := _get_nav_service()
+	while _path_index + 1 < _path.size():
+		var next: Vector2 = _path[_path_index + 1]
+		if sim_pos.distance_to(_path[_path_index]) <= ARRIVAL_DISTANCE:
+			_path_index += 1
+		elif not _path_is_crowd_route and nav != null and nav.has_method("is_segment_walkable") and nav.is_segment_walkable(sim_pos, next, _pathfinding_radius()):
+			_path_index += 1
+		else:
+			break
 
 
 func _move_toward(target: Vector2, delta: float) -> void:
 	_move_target = target
-	if _nav_goal.distance_to(target) > 0.75 or (_path.is_empty() and not _path_pending):
+	if (_nav_goal.distance_to(target) > 0.75 or _path.is_empty()) and not _path_pending and _path_retry_cooldown <= 0:
 		_request_nav_path(target)
 		_nav_goal = target
 	if _path_pending:
@@ -834,8 +882,9 @@ func _move_toward(target: Vector2, delta: float) -> void:
 		_refresh_move_debug(steer, sim_pos)
 		return
 	if _path.is_empty():
-		_direct_step_toward(target, delta)
+		_update_move_facing(target - sim_pos, delta, false)
 		return
+	_skip_visible_waypoints()
 	var steer_target := _current_steer_target()
 	var offset := steer_target - sim_pos
 	var distance := offset.length()
@@ -853,7 +902,7 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
-	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	_track_move_progress(from_pos, velocity, step, delta, offset)
@@ -871,26 +920,27 @@ func _direct_step_toward(target: Vector2, delta: float) -> void:
 	var step := minf(def.move_speed * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
-	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context())
+	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
 	_track_move_progress(from_pos, velocity, step, delta, offset)
 
 
 func _track_move_progress(
-	from_pos: Vector2, velocity: Vector2, step: float, delta: float, face_vector: Vector2
+	from_pos: Vector2, _velocity: Vector2, step: float, delta: float, face_vector: Vector2
 ) -> void:
-	var progress := forward_progress(from_pos, sim_pos, velocity)
-	var walking := is_walk_progress(progress, step)
+	var actual := sim_pos - from_pos
+	var walking := actual.length() > maxf(0.001, step * 0.08)
 	if walking:
 		_no_progress_frames = 0
+		_stuck_seconds = 0
 	else:
 		_no_progress_frames += 1
-		if _no_progress_frames >= ATTACK_STUCK_FRAMES:
-			if _try_recover_from_stuck():
-				return
-			_no_progress_frames = 0
-	_update_move_facing(face_vector, delta, walking)
+		_stuck_seconds += delta
+		if _stuck_seconds >= STUCK_REPATH_SECONDS:
+			_try_recover_from_stuck()
+	# Sideways avoidance is intentional walking; face actual travel, not a blocked goal.
+	_update_move_facing(actual if walking else face_vector, delta, walking)
 
 
 func _update_move_facing(face_vector: Vector2, delta: float, moved: bool) -> void:
@@ -910,6 +960,8 @@ func _get_nav_service() -> Object:
 	return null
 
 func _request_nav_path(target: Vector2) -> void:
+	_pending_crowd_route = false
+	_path_is_crowd_route = false
 	_path = PackedVector2Array()
 	_path_index = 0
 	_path_pending = false
@@ -931,73 +983,92 @@ func _pathfinding_radius() -> float:
 	return CollisionResolverScript.unit_radius(self)
 
 func apply_nav_path(path: PackedVector2Array) -> void:
+	if not _path_pending:
+		return
 	_path_pending = false
 	_path_retry_cooldown = 0.0
+	_path_is_crowd_route = _pending_crowd_route
 	if path.is_empty():
-		# A* 失败时仍向目标直线移动（靠 CollisionResolver 修正）
-		if _move_target != Vector2.ZERO:
-			_path = PackedVector2Array([_move_target])
-		else:
-			_path = PackedVector2Array()
+		# Unreachable is not permission to walk straight through a wall.
+		_path = PackedVector2Array()
+		_path_retry_cooldown = PATH_RETRY_COOLDOWN
 		_path_index = 0
 		return
 	_path = path
 	_path_index = 0
+	var nav := _get_nav_service()
+	if _path[-1].distance_to(_move_target) > ARRIVAL_DISTANCE and nav != null and nav.is_segment_walkable(_path[-1], _move_target, _pathfinding_radius()):
+		_path.append(_move_target)
 
 
 func refresh_nav_path_if_moving() -> void:
 	match order:
 		Enums.OrderType.MOVE:
-			if _move_target != Vector2.ZERO:
-				_stuck_repath_attempts = 0
-				_request_nav_path(_move_target)
+			_stuck_repath_attempts = 0
+			_request_nav_path(_move_target)
 		Enums.OrderType.GATHER, Enums.OrderType.BUILD:
 			_path = PackedVector2Array()
 			_path_index = 0
 			_stuck_repath_attempts = 0
 		Enums.OrderType.ATTACK:
-			if _move_target != Vector2.ZERO:
-				_stuck_repath_attempts = 0
-				_request_nav_path(_move_target)
+			_stuck_repath_attempts = 0
+			_request_nav_path(_move_target)
 
 
 func _try_recover_from_stuck() -> bool:
-	if _move_target == Vector2.ZERO:
+	if _repath_cooldown > 0 or _path_pending:
 		return false
-	_no_progress_frames = 0
-	if _path_index + 1 < _path.size():
-		_path_index += 1
+	if _try_settle_shared_goal():
 		return true
-	if _stuck_repath_attempts >= MAX_STUCK_REPATH_ATTEMPTS:
-		return false
+	_stuck_seconds = 0
+	_no_progress_frames = 0
 	_stuck_repath_attempts += 1
-	if _stuck_repath_attempts >= MAX_STUCK_REPATH_ATTEMPTS:
-		_request_nav_path_avoiding_crowd(_move_target)
-	else:
-		_request_nav_path(_move_target)
-	_unit_log("move", "stuck recover repath=%d" % _stuck_repath_attempts)
+	_repath_cooldown = REPATH_INTERVAL + float(get_instance_id() % 7) * 0.04
+	_request_nav_path_avoiding_crowd(_move_target)
+	return true
+
+
+## A shared rally point is an area: once teammates have arrived, accept a free
+## nearby spot instead of trying forever to enter a ring of stationary bodies.
+## Solo commands, different goals, and unreachable terrain never use this rule.
+func _try_settle_shared_goal() -> bool:
+	if order != Enums.OrderType.MOVE or not is_inside_tree():
+		return false
+	var peers := 1
+	var settled := false
+	var units := get_tree().get_nodes_in_group("units")
+	for other in units:
+		if other == self or other.hp <= 0 or other.team != team:
+			continue
+		if other._has_move_command and other._requested_move_target.distance_to(_requested_move_target) < 0.1:
+			peers += 1
+			settled = settled or other.order == Enums.OrderType.NONE
+	if peers < 2 or not settled:
+		return false
+	var arrival_radius := _pathfinding_radius() * 2.0 * sqrt(float(peers))
+	if sim_pos.distance_to(_requested_move_target) > arrival_radius:
+		return false
+	var nav := _get_nav_service()
+	if nav != null and not nav.is_segment_walkable(sim_pos, _requested_move_target, _pathfinding_radius()):
+		return false
+	for other in units:
+		if other != self and other.hp > 0 and sim_pos.distance_to(other.sim_pos) < _pathfinding_radius() + CollisionResolverScript.unit_radius(other) + 0.05:
+			return false
+	_move_target = sim_pos
+	_finish_move()
 	return true
 
 
 func _request_nav_path_avoiding_crowd(target: Vector2) -> void:
-	_path = PackedVector2Array()
-	_path_index = 0
-	_path_pending = false
 	var nav := _get_nav_service()
 	if nav == null:
 		_path = PackedVector2Array([target])
+		_path_index = 0
 		return
-	var radius := _pathfinding_radius()
-	var blockers := _crowd_blockers_for_stuck_repath(target)
-	if nav.has_method("find_path_avoiding_units"):
-		_path = nav.call(
-			"find_path_avoiding_units", sim_pos, target, radius, blockers
-		) as PackedVector2Array
-	elif nav.has_method("find_path"):
-		_path = nav.call("find_path", sim_pos, target, radius) as PackedVector2Array
-	else:
-		_path = PackedVector2Array([target])
-	apply_nav_path(_path)
+	# The same per-frame budget applies to recovery; no synchronous crowd A* burst.
+	nav.enqueue_path(get_instance_id(), sim_pos, target, _pathfinding_radius(), _crowd_blockers_for_stuck_repath(target))
+	_path_pending = true
+	_pending_crowd_route = true
 
 
 func _crowd_blockers_for_stuck_repath(target: Vector2) -> Array:

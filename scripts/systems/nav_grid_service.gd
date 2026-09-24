@@ -46,12 +46,24 @@ func setup(
 	p_map_max: int = DEFAULT_MAP_MAX,
 	p_cell_size: float = CELL_SIZE
 ) -> void:
-	map_min = p_map_min
-	map_max = p_map_max
+	setup_rect(Vector2i(p_map_min, p_map_min), Vector2i(p_map_max, p_map_max), p_cell_size)
+
+
+## Rectangular grid bounds in cell coordinates; setup() retains the square-map API.
+func setup_rect(minimum: Vector2i, maximum: Vector2i, p_cell_size: float = CELL_SIZE) -> void:
+	map_min = mini(minimum.x, minimum.y)
+	map_max = maxi(maximum.x, maximum.y)
 	cell_size = maxf(0.25, p_cell_size)
-	_origin_cell = Vector2i(map_min, map_min)
-	_width = map_max - map_min
-	_height = map_max - map_min
+	_origin_cell = minimum
+	_width = maximum.x - minimum.x
+	_height = maximum.y - minimum.y
+	_pending_requests.clear()
+	_blocker_marks.clear()
+	_solid_by_radius.clear()
+	_solid_radius_order.clear()
+	_active_radius_key = ""
+	_solid_cells_dirty = true
+	_clear_path_cache()
 	_solid = PackedByteArray()
 	_solid.resize(_width * _height)
 	_solid.fill(0)
@@ -89,12 +101,9 @@ func rebuild_from_blockers(blockers: Array) -> void:
 		var half := _blocker_half(blocker)
 		if half.x <= 0.0 or half.y <= 0.0:
 			continue
-		# Buildings: open the four corner cells so paths can cut corners smoothly.
-		#var chamfer := blocker.get("def") is BuildingDef
 		_blocker_marks.append({
 			"center": center,
 			"half": half,
-			"chamfer_corners": true,
 		})
 	_ensure_active_radius(DEFAULT_UNIT_RADIUS)
 
@@ -194,7 +203,7 @@ func find_path_avoiding_units(
 		var center_variant: Variant = unit.get("sim_pos")
 		if not (center_variant is Vector2):
 			continue
-		var half := _unit_footprint_half(unit)
+		var half := _unit_footprint_half(unit) + radius
 		_mark_aabb_temp_solid(center_variant as Vector2, Vector2(half, half), changed)
 	if changed.is_empty():
 		return find_path(from, to, unit_radius)
@@ -260,13 +269,15 @@ func enqueue_path(
 	unit_id: int,
 	from: Vector2,
 	to: Vector2,
-	unit_radius: float = DEFAULT_UNIT_RADIUS
+	unit_radius: float = DEFAULT_UNIT_RADIUS,
+	avoid_units: Array = []
 ) -> void:
 	var req := {
 		"id": unit_id,
 		"from": from,
 		"to": to,
 		"radius": unit_radius,
+		"avoid_units": avoid_units.map(func(unit: Object): return weakref(unit)),
 	}
 	for index in _pending_requests.size():
 		var pending: Dictionary = _pending_requests[index]
@@ -282,13 +293,28 @@ func flush_pending_paths() -> Dictionary:
 	while not _pending_requests.is_empty() and count < _frame_budget:
 		var req: Dictionary = _pending_requests.pop_front()
 		var radius := float(req.get("radius", DEFAULT_UNIT_RADIUS))
-		results[int(req["id"])] = find_path(req["from"], req["to"], radius)
+		var avoid: Array = []
+		for reference in req.get("avoid_units", []):
+			var other: Object = reference.get_ref()
+			if other != null:
+				avoid.append(other)
+		results[int(req["id"])] = find_path_avoiding_units(req["from"], req["to"], radius, avoid)
 		count += 1
 	return results
 
 
 func pending_count() -> int:
 	return _pending_requests.size()
+
+
+func cancel_path(unit_id: int) -> void:
+	_pending_requests = _pending_requests.filter(func(request: Dictionary): return int(request.id) != unit_id)
+
+
+func is_segment_walkable(from: Vector2, to: Vector2, radius: float) -> bool:
+	_query_radius = _quantize_radius(radius)
+	_ensure_active_radius(_query_radius)
+	return _line_clear(from, to)
 
 
 func set_frame_budget(budget: int) -> void:
@@ -303,7 +329,7 @@ func get_solid_cells() -> Array[Vector2i]:
 
 func get_map_rect() -> Rect2:
 	return Rect2(
-		Vector2(float(map_min), float(map_min)) * cell_size,
+		Vector2(_origin_cell) * cell_size,
 		Vector2(float(_width), float(_height)) * cell_size
 	)
 
@@ -341,7 +367,7 @@ static func _resource_blocks_nav(resource: Object) -> bool:
 
 
 func _quantize_radius(radius: float) -> float:
-	return maxf(MIN_UNIT_RADIUS, snappedf(radius, RADIUS_QUANTIZE_STEP))
+	return maxf(MIN_UNIT_RADIUS, ceilf(radius / RADIUS_QUANTIZE_STEP - 0.00001) * RADIUS_QUANTIZE_STEP)
 
 
 func _radius_key(radius: float) -> String:
@@ -370,12 +396,15 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 	inflated.resize(_width * _height)
 	inflated.fill(0)
 	var pad := Vector2(radius, radius)
+	var interior := get_map_rect().grow(-radius)
+	for y in _height:
+		for x in _width:
+			if not interior.has_point(cell_to_world_center(_origin_cell + Vector2i(x, y))):
+				inflated[y * _width + x] = 1
 	for mark: Dictionary in _blocker_marks:
 		var center := mark["center"] as Vector2
 		var half := (mark["half"] as Vector2) + pad
 		_mark_aabb_on_layer(inflated, center, half)
-		if bool(mark.get("chamfer_corners", false)):
-			_clear_aabb_corners_on_layer(inflated, center, half)
 	_solid_by_radius[key] = inflated
 	_solid_radius_order.append(key)
 	while _solid_radius_order.size() > MAX_RADIUS_GRID_CACHE:
@@ -392,28 +421,6 @@ func _mark_aabb_on_layer(layer: PackedByteArray, center: Vector2, half: Vector2)
 			var idx := _index_of(Vector2i(cx, cy))
 			if idx >= 0:
 				layer[idx] = 1
-
-
-## Open the four corner cells of a solid AABB (buildings only).
-## Requires at least 3x3 so the block does not disappear.
-func _clear_aabb_corners_on_layer(
-	layer: PackedByteArray, center: Vector2, half: Vector2
-) -> void:
-	var min_cell := world_to_cell(center - half)
-	var max_cell := world_to_cell(center + half - Vector2(0.001, 0.001))
-	var width := max_cell.x - min_cell.x + 1
-	var height := max_cell.y - min_cell.y + 1
-	if width < 3 or height < 3:
-		return
-	for corner in [
-		Vector2i(min_cell.x, min_cell.y),
-		Vector2i(max_cell.x, min_cell.y),
-		Vector2i(min_cell.x, max_cell.y),
-		Vector2i(max_cell.x, max_cell.y),
-	]:
-		var idx := _index_of(corner)
-		if idx >= 0:
-			layer[idx] = 0
 
 
 func _rebuild_solid_cells_cache() -> void:

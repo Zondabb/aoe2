@@ -127,6 +127,14 @@ func _select_box(box: Rect2, additive: bool) -> void:
 			_add_selection(unit, false)
 	_emit_selection_changed()
 
+## UI commands share formation spacing, ownership checks and the world marker.
+func issue_minimap_move(target: Vector2) -> void:
+	_issue_move(target)
+
+func cancel_selection_drag() -> void:
+	_dragging = false
+	queue_redraw()
+
 func _issue_move(target: Vector2) -> void:
 	if read_only or FogAccess.local_read_only(self):
 		return

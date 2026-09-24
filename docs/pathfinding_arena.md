@@ -49,3 +49,7 @@ Square logical footprints baked into `NavGridService`:
 - Cliff sections (AoE2 SLP 229 / 230)
 
 Units are **not** baked into the nav grid. Vision uses `VisionService` / `SpatialHash` (cell size 2).
+
+Moving units use predictive local avoidance and swept collision checks. Recovery
+paths can temporarily account for nearby units through the budgeted path queue.
+See [多单位寻路、避让与碰撞优化](crowd_movement.md) for the implementation and regression results.

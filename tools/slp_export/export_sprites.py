@@ -45,7 +45,7 @@ PRIORITY: List[Dict[str, Any]] = [
     {"key": "archery_asian_feudal", "category": "buildings", "id": 22, "directions": 1, "note": "Asian archery feudal"},
     {"key": "stable_asian_feudal", "category": "buildings", "id": 1007, "directions": 1, "note": "Asian stable feudal"},
     {"key": "stable_ne_feudal", "category": "buildings", "id": 1006, "directions": 1, "note": "North European stable feudal (Teutons)"},
-    {"key": "tree_oak", "category": "resources", "id": 1251, "directions": 1, "palette": "pal_2", "note": "Oak tree (pal_2)"},
+    {"key": "tree_oak", "category": "resources", "id": 1251, "directions": 1, "palette": "interface", "note": "Oak tree (main palette)"},
     {"key": "gold_mine", "category": "resources", "id": 4479, "directions": 1, "note": "Gold mine"},
     {"key": "berry_bush", "category": "resources", "id": 2560, "directions": 1, "note": "Berry bush / food"},
     {"key": "water_shallow", "category": "terrain", "id": 1885, "directions": 1, "note": "Water shallows tiles"},

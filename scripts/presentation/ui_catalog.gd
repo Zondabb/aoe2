@@ -9,6 +9,8 @@ const PANEL_DESIGN_HEIGHT := 1024.0
 const PANEL_TOP_BAND_PX := 32.0
 ## Opaque bottom command chrome height inside panel_game.png (y≈819–1023).
 const PANEL_BOTTOM_BAND_PX := 205.0
+## Inner diamond bounds in the original 1280 x 1024 panel artwork.
+const PANEL_MINIMAP_RECT := Rect2(868.0, 820.0, 392.0, 196.0)
 ## Text inset inside the top band (design pixels at 1280 width).
 const PANEL_TOP_TEXT_LEFT_PX := 96.0
 const PANEL_TOP_TEXT_TOP_PX := 6.0

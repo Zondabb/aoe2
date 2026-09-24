@@ -1,0 +1,193 @@
+{
+  "bounds": {
+    "max": [
+      32,
+      24
+    ],
+    "min": [
+      -32,
+      -24
+    ]
+  },
+  "display_name": "双阵营营地 · 编辑示例",
+  "entities": [
+    {
+      "id": "player_tc",
+      "type": "building",
+      "building_id": "town_center",
+      "team": "player",
+      "pos": [
+        -14,
+        -8
+      ]
+    },
+    {
+      "id": "player_house",
+      "type": "building",
+      "building_id": "house",
+      "team": "player",
+      "pos": [
+        -21,
+        -8
+      ]
+    },
+    {
+      "id": "player_barracks",
+      "type": "building",
+      "building_id": "barracks",
+      "team": "player",
+      "pos": [
+        -15,
+        -16
+      ]
+    },
+    {
+      "id": "player_villager",
+      "type": "unit",
+      "unit_id": "villager",
+      "team": "player",
+      "pos": [
+        -9,
+        -7
+      ]
+    },
+    {
+      "id": "player_archer",
+      "type": "unit",
+      "unit_id": "archer",
+      "team": "player",
+      "pos": [
+        -5,
+        -2
+      ]
+    },
+    {
+      "id": "player_swordsman",
+      "type": "unit",
+      "unit_id": "swordsman",
+      "team": "player",
+      "pos": [
+        -5,
+        2
+      ]
+    },
+    {
+      "id": "food",
+      "type": "resource",
+      "resource_type": "food",
+      "amount": 500,
+      "gather_rate": 4,
+      "pos": [
+        -8,
+        -13
+      ]
+    },
+    {
+      "id": "gold",
+      "type": "resource",
+      "resource_type": "gold",
+      "amount": 800,
+      "gather_rate": 4,
+      "pos": [
+        -20,
+        0
+      ]
+    },
+    {
+      "id": "tree_1",
+      "type": "resource",
+      "resource_type": "wood",
+      "amount": 300,
+      "gather_rate": 4,
+      "pos": [
+        -10,
+        2
+      ]
+    },
+    {
+      "id": "tree_2",
+      "type": "resource",
+      "resource_type": "wood",
+      "amount": 300,
+      "gather_rate": 4,
+      "pos": [
+        -12,
+        4
+      ]
+    },
+    {
+      "id": "tree_3",
+      "type": "resource",
+      "resource_type": "wood",
+      "amount": 300,
+      "gather_rate": 4,
+      "pos": [
+        -14,
+        6
+      ]
+    },
+    {
+      "id": "ai_tc",
+      "type": "building",
+      "building_id": "town_center",
+      "team": "ai",
+      "pos": [
+        16,
+        8
+      ]
+    },
+    {
+      "id": "ai_house",
+      "type": "building",
+      "building_id": "house",
+      "team": "ai",
+      "pos": [
+        23,
+        8
+      ]
+    },
+    {
+      "id": "ai_knight",
+      "type": "unit",
+      "unit_id": "teutonic_knight",
+      "team": "ai",
+      "pos": [
+        5,
+        2
+      ]
+    },
+    {
+      "id": "ai_archer",
+      "type": "unit",
+      "unit_id": "archer",
+      "team": "ai",
+      "pos": [
+        9,
+        2
+      ]
+    },
+    {
+      "id": "ai_villager",
+      "type": "unit",
+      "unit_id": "villager",
+      "team": "ai",
+      "pos": [
+        12,
+        8
+      ]
+    },
+    {
+      "id": "ai_gold",
+      "type": "resource",
+      "resource_type": "gold",
+      "amount": 800,
+      "gather_rate": 4,
+      "pos": [
+        20,
+        16
+      ]
+    }
+  ],
+  "format": "aoe2-rts-map",
+  "schema_version": 1
+}

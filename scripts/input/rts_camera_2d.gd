@@ -43,13 +43,15 @@ func _process(delta: float) -> void:
 
 	var viewport_size := get_viewport().get_visible_rect().size
 	var mouse_position := get_viewport().get_mouse_position()
-	if mouse_position.x <= edge_margin:
+	# GUI navigation (especially dragging the minimap) must not also edge-pan.
+	var over_ui := get_viewport().gui_get_hovered_control() != null
+	if not over_ui and mouse_position.x <= edge_margin:
 		pan_input.x -= 1.0
-	elif mouse_position.x >= viewport_size.x - edge_margin:
+	elif not over_ui and mouse_position.x >= viewport_size.x - edge_margin:
 		pan_input.x += 1.0
-	if mouse_position.y <= edge_margin:
+	if not over_ui and mouse_position.y <= edge_margin:
 		pan_input.y -= 1.0
-	elif mouse_position.y >= viewport_size.y - edge_margin:
+	elif not over_ui and mouse_position.y >= viewport_size.y - edge_margin:
 		pan_input.y += 1.0
 
 	if pan_input != Vector2.ZERO:

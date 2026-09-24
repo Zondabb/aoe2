@@ -2,8 +2,8 @@
   "key": "tree_oak",
   "slp_id": 1251,
   "source": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\graphics\\1251.slp",
-  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\dat\\pal_2.pal",
-  "note": "Oak tree (pal_2)",
+  "palette": "D:\\BaiduNetdiskDownload\\gaoqingban2\\gaoqingban2\\resources\\_common\\drs\\interface\\50500.bina",
+  "note": "Oak tree (main palette)",
   "cols": 1,
   "rows": 1,
   "frame_w": 119,
@@ -16,5 +16,8 @@
       "x": 52,
       "y": 142
     }
-  ]
+  ],
+  "player_color": {
+    "mode": "none"
+  }
 }

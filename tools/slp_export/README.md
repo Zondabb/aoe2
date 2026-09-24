@@ -150,7 +150,7 @@ Classic AoE unit SLPs store **5 authored facings** (frame counts like 50/60/75 d
 | archery_asian_feudal | 22 | |
 | stable_asian_feudal | 1007 | Chinese-facing set |
 | stable_ne_feudal | 1006 | Teuton-facing set |
-| tree_oak | 1251 | Uses `pal_2.pal` |
+| tree_oak | 1251 | Uses the main `50500.bina` palette; `pal_2.pal` produces incorrect foliage colors |
 | gold_mine | 4479 | |
 | berry_bush | 2560 | Food source |
 | water_shallow | 1885 | Water shallows tiles |

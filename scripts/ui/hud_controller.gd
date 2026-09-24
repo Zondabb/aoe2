@@ -45,6 +45,13 @@ var _shown_pop_cap := -1
 @onready var _count_label := %CountLabel as Label
 @onready var _command_grid := %CommandGrid as GridContainer
 
+func _ready() -> void:
+	_sync_hud_layout()
+	resized.connect(_on_hud_layout_dirty)
+	var vp := get_viewport()
+	if vp != null and not vp.size_changed.is_connected(_on_hud_layout_dirty):
+		vp.size_changed.connect(_on_hud_layout_dirty)
+
 func setup(
 	state: MatchState,
 	player_civ: CivDef,
@@ -57,6 +64,9 @@ func setup(
 	build_system = system
 	selection = selection_controller
 	read_only = read_only_mode
+	var minimap := get_node_or_null("Minimap")
+	if minimap != null:
+		minimap.setup(state, selection_controller, system, read_only_mode)
 	_resources_label = get_node_or_null("%ResourcesLabel") as Label
 	_wood_digits = get_node_or_null("%WoodDigits") as Aoe2DigitRow
 	_food_digits = get_node_or_null("%FoodDigits") as Aoe2DigitRow
@@ -80,10 +90,6 @@ func setup(
 	if read_only:
 		_ensure_status_label()
 	_sync_hud_layout()
-	resized.connect(_on_hud_layout_dirty)
-	var vp := get_viewport()
-	if vp != null and not vp.size_changed.is_connected(_on_hud_layout_dirty):
-		vp.size_changed.connect(_on_hud_layout_dirty)
 	if selection != null:
 		if not selection.is_connected("selection_changed", _on_selection_changed):
 			selection.connect("selection_changed", _on_selection_changed)
@@ -117,6 +123,20 @@ func _on_hud_layout_dirty() -> void:
 func _sync_hud_layout() -> void:
 	_sync_top_bar_layout()
 	_sync_command_panel_layout()
+	_sync_minimap_layout()
+
+func _sync_minimap_layout() -> void:
+	var minimap := get_node_or_null("Minimap") as Control
+	if minimap == null:
+		return
+	var panel_scale := UiCatalogScript.panel_scale_for_width(size.x)
+	var slot: Rect2 = UiCatalogScript.PANEL_MINIMAP_RECT
+	minimap.position = Vector2(slot.position.x * panel_scale,
+		size.y + (slot.position.y - UiCatalogScript.PANEL_DESIGN_HEIGHT) * panel_scale)
+	minimap.size = slot.size * panel_scale
+	var content := get_node_or_null("CommandPanel/Content") as Control
+	if content != null:
+		content.offset_right = -(UiCatalogScript.PANEL_DESIGN_WIDTH - 844.0) * panel_scale
 
 func _sync_top_bar_layout() -> void:
 	var top_bar := get_node_or_null("%ResourceTopBar") as Control

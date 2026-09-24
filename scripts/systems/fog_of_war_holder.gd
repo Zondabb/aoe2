@@ -111,6 +111,9 @@ func _update_memories(nodes: Array) -> void:
 			observed[key] = true
 			known[key] = {"sim_pos": node.get("sim_pos"), "position": node.position,
 				"footprint": Fog.footprint_of(node), "parts": Memory.capture(node),
+				"minimap_kind": "building" if node.get("def") is BuildingDef else ("resource" if node.has_method("extract") else "blocker"),
+				"team": node.get("team"), "resource_type": node.get("resource_type"),
+				"kind": node.get("kind"),
 				"last_seen_msec": Time.get_ticks_msec()}
 		for key in known.keys():
 			var snapshot: Dictionary = known[key]

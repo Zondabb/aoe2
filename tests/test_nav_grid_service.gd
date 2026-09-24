@@ -113,7 +113,7 @@ func run() -> Array[String]:
 	if large_cells <= small_cells:
 		failures.append("larger unit radius should inflate the nav grid more")
 
-	# Building footprints chamfer their four solid corners for smoother pathing.
+	# Clearance cells must agree with the physical AABB, including its corners.
 	var house := BuildingStub.new()
 	house.sim_pos = Vector2(0.0, 0.0)
 	house.block_half = Vector2(3.0, 3.0)
@@ -128,12 +128,12 @@ func run() -> Array[String]:
 	var max_c: Vector2i = nav.world_to_cell(
 		house.sim_pos + half_eff - Vector2(0.001, 0.001)
 	)
-	if nav.is_cell_solid(Vector2i(min_c.x, min_c.y)):
-		failures.append("building solid AABB SW corner should be walkable")
-	if nav.is_cell_solid(Vector2i(max_c.x, max_c.y)):
-		failures.append("building solid AABB NE corner should be walkable")
+	if not nav.is_cell_solid(Vector2i(min_c.x, min_c.y)):
+		failures.append("building clearance SW corner must remain solid")
+	if not nav.is_cell_solid(Vector2i(max_c.x, max_c.y)):
+		failures.append("building clearance NE corner must remain solid")
 	if not nav.is_world_solid(Vector2(0.0, 0.0)):
-		failures.append("building center should remain solid after corner chamfer")
+		failures.append("building center should remain solid on the clearance grid")
 
 	# Clearance walkability is point-on-cell: first free cell beside obstacle stays put.
 	nav.rebuild_from_blockers([])
@@ -172,4 +172,8 @@ func run() -> Array[String]:
 	if after.is_empty():
 		failures.append("grid should be walkable again after temp unit marks revert")
 
+	incomplete.def.free()
+	complete.def.free()
+	for fixture in [wall, incomplete, complete, pillar, house, wall2, blocker_unit]:
+		fixture.free()
 	return failures

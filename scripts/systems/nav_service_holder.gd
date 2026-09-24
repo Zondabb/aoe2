@@ -27,6 +27,15 @@ func _ready() -> void:
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
 
+
+func setup_rect(minimum: Vector2i, maximum: Vector2i) -> void:
+	nav = NavGridServiceScript.new()
+	nav.setup_rect(minimum, maximum)
+	nav.set_frame_budget(DEFAULT_FRAME_BUDGET)
+	CollisionResolverScript.set_map_bounds(Vector2(minimum), Vector2(maximum))
+	set_meta("nav", nav)
+	add_to_group("nav_service")
+
 func _on_node_added(node: Node) -> void:
 	call_deferred("_try_connect_weak", weakref(node))
 

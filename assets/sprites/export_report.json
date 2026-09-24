@@ -264,8 +264,8 @@
       "category": "resources",
       "id": 1251,
       "directions": 1,
-      "palette": "pal_2",
-      "note": "Oak tree (pal_2)"
+      "palette": "interface",
+      "note": "Oak tree (main palette)"
     },
     {
       "key": "gold_mine",

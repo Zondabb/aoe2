@@ -35,6 +35,10 @@ func _on_pathfinding_arena_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/pathfinding_arena.tscn")
 
 
+func _on_map_editor_pressed() -> void:
+	get_tree().change_scene_to_file("res://scenes/editor/map_editor.tscn")
+
+
 func _choose_civ(civ_id: StringName) -> void:
 	var config := _apply_ai_settings()
 	if not await _validate_ai_service(config):

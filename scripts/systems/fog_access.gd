@@ -14,14 +14,15 @@ static func for_node(node: Object) -> Object:
 		parent = parent.get_parent()
 	return null
 
-static func can_see(observer: Object, target: Object) -> bool:
+## Variant permits stale cached references to reach the validity guard.
+static func can_see(observer: Object, target: Variant) -> bool:
 	if not is_instance_valid(target):
 		return false
 	var state: Variant = observer.get("match_state")
 	var team: int = observer.get("team")
 	return state_can_see(state, team, target)
 
-static func state_can_see(state: Object, team: int, target: Object) -> bool:
+static func state_can_see(state: Object, team: int, target: Variant) -> bool:
 	if not is_instance_valid(target):
 		return false
 	if state == null or state.get("fog_enabled") != true:
