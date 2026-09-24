@@ -29,13 +29,17 @@ const ICONS_BUILDINGS_BASE := "res://assets/sprites/ui/icons_buildings"
 const ICONS_COMMANDS_BASE := "res://assets/sprites/ui/icons_commands"
 
 ## Frame indices verified against exported SLP sheets (50705 / 50721 / 50730).
-const FRAME_STOP := 0
+const FRAME_STOP := 3
+const FRAME_BACK := 0
+const FRAME_ECONOMY := 30
+const FRAME_MILITARY := 31
+const FRAME_BUILD_TOWN_CENTER := 28
 const FRAME_BUILD_HOUSE := 34
 const FRAME_BUILD_BARRACKS := 2
 const FRAME_BUILD_ARCHERY := 0
-const FRAME_BUILD_STABLE := 24
-const FRAME_BUILD_MILL := 20
-const FRAME_BUILD_LUMBER := 41
+const FRAME_BUILD_STABLE := 23
+const FRAME_BUILD_MILL := 19
+const FRAME_BUILD_LUMBER := 40
 const FRAME_BUILD_MINING := 39
 
 const FRAME_UNIT_VILLAGER := 15
@@ -133,3 +137,19 @@ static func unit_icon_frame(unit_id: StringName) -> int:
 			return FRAME_UNIT_TEUTONIC_KNIGHT
 		_:
 			return 0
+
+static func unit_display_name(unit_id: StringName) -> String:
+	match unit_id:
+		&"villager": return "村民"
+		&"archer": return "弓箭手"
+		&"swordsman": return "剑士"
+		&"chu_ko_nu": return "诸葛弩"
+		&"teutonic_knight": return "条顿武士"
+		_: return String(unit_id)
+
+static func unit_train_hotkey(unit_id: StringName) -> Key:
+	match unit_id:
+		&"villager": return KEY_C
+		&"archer": return KEY_A
+		&"swordsman": return KEY_S
+		_: return KEY_T

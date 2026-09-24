@@ -19,6 +19,8 @@ var selection: Node
 var read_only := false
 var _selected_building: Node2D
 var _status_label: Label
+var _command_page := "root"
+var _hovered_command: BaseButton
 
 @onready var _resources_label := %ResourcesLabel as Label
 @onready var _wood_digits := %WoodDigits as Aoe2DigitRow
@@ -44,8 +46,12 @@ var _shown_pop_cap := -1
 @onready var _hp_label := %HpLabel as Label
 @onready var _count_label := %CountLabel as Label
 @onready var _command_grid := %CommandGrid as GridContainer
+@onready var _stats_label := %StatsLabel as Label
+@onready var _queue_label := %QueueLabel as Label
+@onready var _command_hint := %CommandHint as Label
 
 func _ready() -> void:
+	_style_health_bar()
 	_sync_hud_layout()
 	resized.connect(_on_hud_layout_dirty)
 	var vp := get_viewport()
@@ -87,8 +93,10 @@ func setup(
 	_hp_label = get_node_or_null("%HpLabel") as Label
 	_count_label = get_node_or_null("%CountLabel") as Label
 	_command_grid = get_node_or_null("%CommandGrid") as GridContainer
-	if read_only:
-		_ensure_status_label()
+	_stats_label = get_node_or_null("%StatsLabel") as Label
+	_queue_label = get_node_or_null("%QueueLabel") as Label
+	_command_hint = get_node_or_null("%CommandHint") as Label
+	_ensure_status_label()
 	_sync_hud_layout()
 	if selection != null:
 		if not selection.is_connected("selection_changed", _on_selection_changed):
@@ -107,15 +115,7 @@ func setup(
 func _ensure_status_label() -> void:
 	if _status_label != null and is_instance_valid(_status_label):
 		return
-	var info_column := get_node_or_null("CommandPanel/Content/InfoColumn") as VBoxContainer
-	if info_column == null:
-		return
-	_status_label = Label.new()
-	_status_label.name = "StatusLabel"
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status_label.add_theme_color_override("font_color", Color(0.78, 0.86, 0.72, 1))
-	_status_label.add_theme_font_size_override("font_size", 13)
-	info_column.add_child(_status_label)
+	_status_label = get_node_or_null("%CommandHint") as Label
 
 func _on_hud_layout_dirty() -> void:
 	call_deferred("_sync_hud_layout")
@@ -134,9 +134,6 @@ func _sync_minimap_layout() -> void:
 	minimap.position = Vector2(slot.position.x * panel_scale,
 		size.y + (slot.position.y - UiCatalogScript.PANEL_DESIGN_HEIGHT) * panel_scale)
 	minimap.size = slot.size * panel_scale
-	var content := get_node_or_null("CommandPanel/Content") as Control
-	if content != null:
-		content.offset_right = -(UiCatalogScript.PANEL_DESIGN_WIDTH - 844.0) * panel_scale
 
 func _sync_top_bar_layout() -> void:
 	var top_bar := get_node_or_null("%ResourceTopBar") as Control
@@ -169,18 +166,29 @@ func _sync_top_bar_layout() -> void:
 func _sync_command_panel_layout() -> void:
 	if _command_panel == null:
 		return
-	var frame := get_node_or_null("GamePanelFrame") as GamePanelFrame
-	var band := frame.bottom_band_height if frame != null else 150.0
-	if band <= 0.0:
-		band = UiCatalogScript.panel_scaled_bottom_band(size.x)
-	_command_panel.offset_top = -band
+	var panel_scale := UiCatalogScript.panel_scale_for_width(size.x)
+	_command_panel.offset_top = -UiCatalogScript.panel_scaled_bottom_band(size.x)
+	var content := get_node_or_null("CommandPanel/Content") as Control
+	if content != null:
+		content.scale = Vector2.ONE * panel_scale
+		content.size = Vector2(844, 205)
+
+func _style_health_bar() -> void:
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color("392a1a")
+	background.border_color = Color("62492c")
+	background.set_border_width_all(1)
+	_hp_bar.add_theme_stylebox_override("background", background)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color("438331")
+	_hp_bar.add_theme_stylebox_override("fill", fill)
 
 func _process(_delta: float) -> void:
 	_ensure_selected_building_valid()
 	_refresh()
 
 func _request_build(building_def: BuildingDef) -> void:
-	if read_only or FogAccess.local_read_only(self):
+	if not _can_build(building_def):
 		return
 	if build_system != null:
 		build_system.call("begin_placement", building_def)
@@ -189,6 +197,7 @@ func _civ_allows_stable() -> bool:
 	return civ != null and Enums.BuildingType.STABLE in civ.allowed_buildings
 
 func _on_selection_changed(_selected: Array) -> void:
+	_command_page = "root"
 	_disconnect_selected_building()
 	if selection == null:
 		_selected_building = null
@@ -248,16 +257,46 @@ func _refresh_info_panel() -> void:
 		_count_label.text = "×%d" % total_count if total_count > 1 else ""
 	if _portrait != null:
 		_portrait.texture = _entity_portrait(focus)
+	_hp_bar.visible = max_hp > 0
+	_refresh_entity_details(focus, total_count)
 	_refresh_status_label(focus, units)
+
+func _refresh_entity_details(focus: Node2D, total_count: int) -> void:
+	if _stats_label == null or _queue_label == null:
+		return
+	var definition: Variant = focus.get("def")
+	_stats_label.text = ""
+	_queue_label.text = ""
+	_count_label.text = "已选择 %d 个单位" % total_count if total_count > 1 else ""
+	if total_count == 1 and focus.get("team") != null:
+		_count_label.text = "己方" if focus.get("team") == Enums.Team.PLAYER else "对手"
+	if definition is UnitDef:
+		_stats_label.text = "攻击 %d    护甲 %d / %d    射程 %.1f" % [definition.attack, focus.melee_armor, focus.pierce_armor, definition.attack_range]
+		if focus.get("carry_amount") != null and focus.carry_amount > 0:
+			_queue_label.text = "携带资源 %d / %d" % [focus.carry_amount, focus.carry_capacity]
+	elif definition is BuildingDef:
+		_stats_label.text = "护甲 %d / %d    人口上限 +%d" % [definition.melee_armor, definition.pierce_armor, definition.population_provided]
+		var training: Array = focus.get("train_queue")
+		if not focus.is_complete:
+			_queue_label.text = "建造中  %d%%" % (100 * focus.build_progress / maxf(definition.build_time, 0.01))
+		elif not training.is_empty():
+			var trainee: UnitDef = training[0]
+			_queue_label.text = "训练 %s  %d%%" % [UiCatalogScript.unit_display_name(trainee.id), 100 * focus.train_progress / maxf(trainee.train_time, 0.01)]
+	elif focus.is_in_group("resource_nodes"):
+		_stats_label.text = "采集速度  %.1f / 秒" % float(focus.get("gather_rate"))
 
 func _refresh_status_label(focus: Node2D, units: Array) -> void:
 	if _status_label == null:
 		return
 	if not read_only:
-		if build_system != null and build_system.get("placement_reason") == "need_vision" and build_system.call("is_placing"):
-			_status_label.text = "需要视野：先探索并看清整个建筑占地"
+		if is_instance_valid(_hovered_command):
+			_status_label.text = _hovered_command.tooltip_text.replace("\n", "  ")
+		elif build_system != null and build_system.call("is_placing"):
+			_status_label.text = "需要视野：先探索整个建筑占地" if build_system.get("placement_reason") == "need_vision" else "左键放置建筑；右键或 Esc 取消。"
+		elif _command_page != "root":
+			_status_label.text = "%s：选择建筑，再在地图上放置。Esc 返回。" % ("经济建筑" if _command_page == "economy" else "军事建筑")
 		else:
-			_status_label.text = ""
+			_status_label.text = "右键移动、采集或攻击；B 经济建筑 / V 军事建筑。" if not units.is_empty() and units[0].get("team") == Enums.Team.PLAYER and units[0].get("def").id == &"villager" else "右键下达指令。" if not units.is_empty() and units[0].get("team") == Enums.Team.PLAYER else ""
 		return
 	if focus == null:
 		_status_label.text = ""
@@ -281,10 +320,15 @@ func _refresh_status_label(focus: Node2D, units: Array) -> void:
 		_status_label.text = ""
 
 func _clear_info_panel() -> void:
+	if _stats_label != null:
+		_stats_label.text = ""
+	if _queue_label != null:
+		_queue_label.text = ""
 	if _name_label != null:
 		_name_label.text = ""
 	if _hp_bar != null:
 		_hp_bar.value = 0.0
+		_hp_bar.visible = false
 	if _hp_label != null:
 		_hp_label.text = ""
 	if _count_label != null:
@@ -313,7 +357,7 @@ func _pick_info_entity(units: Array, building: Node2D, primary: Node2D) -> Node2
 func _entity_display_name(entity: Node2D) -> String:
 	var unit_def := entity.get("def") as UnitDef
 	if unit_def != null:
-		return unit_def.display_name
+		return UiCatalogScript.unit_display_name(unit_def.id)
 	var building_def := entity.get("def") as BuildingDef
 	if building_def != null:
 		return _building_display_name(building_def)
@@ -369,7 +413,8 @@ func _entity_max_hp(entity: Node2D) -> float:
 func _entity_current_value(entity: Node2D, max_hp: float) -> float:
 	if entity.is_in_group("resource_nodes"):
 		return clampf(float(entity.get("amount")), 0.0, max_hp)
-	return clampf(float(entity.get("hp")), 0.0, max_hp)
+	var health: Variant = entity.get("hp")
+	return clampf(float(health), 0.0, max_hp) if health != null else 0.0
 
 func _entity_portrait(entity: Node2D) -> Texture2D:
 	var unit_def := entity.get("def") as UnitDef
@@ -386,6 +431,8 @@ func _entity_portrait(entity: Node2D) -> Texture2D:
 
 func _building_icon_frame(building_def: BuildingDef) -> int:
 	match building_def.id:
+		&"town_center":
+			return UiCatalogScript.FRAME_BUILD_TOWN_CENTER
 		&"house":
 			return UiCatalogScript.FRAME_BUILD_HOUSE
 		&"barracks":
@@ -407,109 +454,159 @@ func _on_train_queue_changed() -> void:
 	# Defer so we never free the TextureButton still handling `pressed`.
 	call_deferred("_rebuild_command_grid")
 
+func _commands_enabled() -> bool:
+	return not read_only and not FogAccess.local_read_only(self) and match_state != null and not match_state.frozen and match_state.winner == -1
+
+func _set_command_page(page: String) -> void:
+	if not _commands_enabled() or page not in ["root", "economy", "military"]:
+		return
+	_command_page = page
+	# A page button may still be delivering its pressed signal.
+	call_deferred("_rebuild_command_grid")
+
 func _rebuild_command_grid() -> void:
 	if _command_grid == null:
-		_command_grid = get_node_or_null("%CommandGrid") as GridContainer
-	if _command_grid == null:
 		return
+	_hovered_command = null
 	for child in _command_grid.get_children():
 		_command_grid.remove_child(child)
-		child.free()
-	if read_only or selection == null:
+		child.queue_free()
+	# Empty positions are intentional: commands never slide into another slot.
+	for index in 15:
+		var empty := Control.new()
+		empty.custom_minimum_size = Vector2(46, 46)
+		empty.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_command_grid.add_child(empty)
+	if read_only or not is_instance_valid(selection):
 		return
 	var units: Array = selection.call("get_selected_units")
 	var has_player_villager := false
 	var has_player_units := false
 	for unit in units:
-		if unit.get("team") != Enums.Team.PLAYER:
+		if not is_instance_valid(unit) or unit.get("team") != Enums.Team.PLAYER:
 			continue
 		has_player_units = true
 		var unit_def := unit.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"villager":
 			has_player_villager = true
 	if has_player_villager:
-		_add_build_commands()
-	if (
-		_selected_building != null
-		and is_instance_valid(_selected_building)
-		and bool(_selected_building.get("is_complete"))
-	):
+		if _command_page == "root":
+			_add_command_button(0, "economy", "经济建筑", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_ECONOMY, KEY_B, _set_command_page.bind("economy"))
+			_add_command_button(1, "military", "军事建筑", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_MILITARY, KEY_V, _set_command_page.bind("military"))
+		else:
+			_add_build_commands()
+	if has_player_units and _command_page == "root":
+		_add_command_button(9, "stop", "停止", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_STOP, KEY_S, _stop_selected_units)
+	if is_instance_valid(_selected_building) and _selected_building.get("team") == Enums.Team.PLAYER and bool(_selected_building.get("is_complete")):
+		var slot := 0
 		for unit_def in _selected_building.call("get_trainable_units"):
-			_add_command_button(
-				"训练 %s" % unit_def.display_name,
-				UiCatalogScript.ICONS_UNITS_BASE,
-				UiCatalogScript.unit_icon_frame(unit_def.id),
-				_enqueue_train.bind(unit_def),
-				not _can_enqueue(unit_def),
-				"unit_def",
-				unit_def
-			)
-	if has_player_units:
-		_add_command_button(
-			"停止",
-			UiCatalogScript.ICONS_COMMANDS_BASE,
-			UiCatalogScript.FRAME_STOP,
-			_stop_selected_units,
-			false
-		)
+			_add_command_button(slot, "train_%s" % unit_def.id, "训练 %s" % UiCatalogScript.unit_display_name(unit_def.id), UiCatalogScript.ICONS_UNITS_BASE, UiCatalogScript.unit_icon_frame(unit_def.id), UiCatalogScript.unit_train_hotkey(unit_def.id), _enqueue_train.bind(unit_def), "unit_def", unit_def)
+			slot += 1
+	_refresh_command_grid_states()
 
 func _add_build_commands() -> void:
-	var build_entries: Array[Dictionary] = [
-		{"def": HOUSE, "label": "房屋", "frame": UiCatalogScript.FRAME_BUILD_HOUSE},
-		{"def": BARRACKS, "label": "兵营", "frame": UiCatalogScript.FRAME_BUILD_BARRACKS},
-		{"def": ARCHERY_RANGE, "label": "靶场", "frame": UiCatalogScript.FRAME_BUILD_ARCHERY},
-		{"def": MILL, "label": "磨坊", "frame": UiCatalogScript.FRAME_BUILD_MILL},
-		{"def": LUMBER_CAMP, "label": "伐木场", "frame": UiCatalogScript.FRAME_BUILD_LUMBER},
-		{"def": MINING_CAMP, "label": "采矿营", "frame": UiCatalogScript.FRAME_BUILD_MINING},
-	]
-	if _civ_allows_stable():
-		build_entries.insert(
-			3,
-			{"def": STABLE, "label": "马厩", "frame": UiCatalogScript.FRAME_BUILD_STABLE}
-		)
-	for entry in build_entries:
-		var building_def: BuildingDef = entry["def"]
-		_add_command_button(
-			entry["label"],
-			UiCatalogScript.ICONS_BUILDINGS_BASE,
-			int(entry["frame"]),
-			_request_build.bind(building_def),
-			not _can_build(building_def),
-			"building_def",
-			building_def
-		)
-
-func _add_command_button(
-	label: String,
-	icon_base: String,
-	frame_index: int,
-	callback: Callable,
-	disabled: bool = false,
-	meta_key: String = "",
-	meta_value: Variant = null
-) -> void:
-	var button: BaseButton
-	var icon: Texture2D = UiCatalogScript.atlas_frame(icon_base, frame_index)
-	if icon != null:
-		var texture_button := TextureButton.new()
-		texture_button.texture_normal = icon
-		texture_button.custom_minimum_size = Vector2(48, 48)
-		texture_button.tooltip_text = label
-		texture_button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-		button = texture_button
+	var entries: Array = []
+	if _command_page == "economy":
+		entries = [[HOUSE, KEY_E], [MILL, KEY_I], [MINING_CAMP, KEY_G], [LUMBER_CAMP, KEY_Z]]
 	else:
-		var text_button := Button.new()
-		text_button.text = label
-		button = text_button
-	button.disabled = disabled
+		entries = [[BARRACKS, KEY_B], [ARCHERY_RANGE, KEY_A], [STABLE, KEY_L]]
+	for slot in entries.size():
+		var definition: BuildingDef = entries[slot][0]
+		if definition == STABLE and not _civ_allows_stable():
+			continue
+		_add_command_button(slot, "build_%s" % definition.id, _building_display_name(definition), UiCatalogScript.ICONS_BUILDINGS_BASE, _building_icon_frame(definition), entries[slot][1], _request_build.bind(definition), "building_def", definition)
+	_add_command_button(14, "back", "返回单位指令", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_BACK, KEY_ESCAPE, _set_command_page.bind("root"))
+
+func _add_command_button(slot: int, command_id: String, label: String, icon_base: String, frame_index: int, hotkey: Key, callback: Callable, meta_key: String = "", meta_value: Variant = null) -> void:
+	var button := Button.new()
+	button.name = command_id.to_pascal_case()
+	button.custom_minimum_size = Vector2(46, 46)
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.set_meta("command_id", command_id)
+	button.set_meta("hotkey", hotkey)
+	button.set_meta("label", label)
+	button.set_meta("slot", slot)
 	if meta_key != "":
 		button.set_meta(meta_key, meta_value)
-	if not button.pressed.is_connected(callback):
-		button.pressed.connect(callback)
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color("292619") if state == "normal" else Color("48402a") if state == "hover" else Color("17180f")
+		style.border_color = Color("e8c887") if state == "hover" else Color("9b8755") if state == "normal" else Color("514831")
+		style.set_border_width_all(1)
+		button.add_theme_stylebox_override(state, style)
+	var icon := TextureRect.new()
+	icon.name = "Icon"
+	icon.texture = UiCatalogScript.atlas_frame(icon_base, frame_index)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(icon)
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = 3
+	icon.offset_top = 3
+	icon.offset_right = -3
+	icon.offset_bottom = -3
+	var key_label := Label.new()
+	key_label.name = "Hotkey"
+	key_label.text = "Esc" if hotkey == KEY_ESCAPE else OS.get_keycode_string(hotkey)
+	key_label.add_theme_font_size_override("font_size", 10)
+	key_label.add_theme_color_override("font_color", Color("fff0b3"))
+	key_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	key_label.add_theme_constant_override("outline_size", 3)
+	key_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(key_label)
+	key_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	key_label.position = Vector2(43 - key_label.get_minimum_size().x, 1)
+	button.pressed.connect(callback)
+	button.mouse_entered.connect(func(): _hovered_command = button)
+	button.mouse_exited.connect(func():
+		if _hovered_command == button:
+			_hovered_command = null)
+	var placeholder := _command_grid.get_child(slot)
+	_command_grid.remove_child(placeholder)
+	placeholder.queue_free()
 	_command_grid.add_child(button)
+	_command_grid.move_child(button, slot)
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not event is InputEventKey or not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not _commands_enabled():
+		return
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused is LineEdit or focused is TextEdit:
+		return
+	var key: Key = event.physical_keycode if event.physical_keycode != 0 else event.keycode
+	if key == KEY_ESCAPE and build_system != null and build_system.call("is_placing"):
+		build_system.call("cancel_placement")
+		get_viewport().set_input_as_handled()
+		return
+	if key == KEY_H and _select_town_center():
+		get_viewport().set_input_as_handled()
+		return
+	for child in _command_grid.get_children():
+		if child is BaseButton and child.get_meta("hotkey", KEY_NONE) == key:
+			if not child.disabled:
+				child.pressed.emit()
+			get_viewport().set_input_as_handled()
+			return
+
+func _select_town_center() -> bool:
+	if not is_instance_valid(selection) or not selection.has_method("_add_selection"):
+		return false
+	for building in get_tree().get_nodes_in_group("buildings"):
+		var definition := building.get("def") as BuildingDef
+		if building.get("team") != Enums.Team.PLAYER or definition == null or definition.id != &"town_center" or building.is_queued_for_deletion():
+			continue
+		selection.call("_clear_selection", false)
+		selection.call("_add_selection", building)
+		var camera := get_viewport().get_camera_2d()
+		if camera != null and camera.has_method("focus_on"):
+			camera.call("focus_on", building.get("sim_pos"))
+		return true
+	return false
 
 func _stop_selected_units() -> void:
-	if read_only or FogAccess.local_read_only(self):
+	if not _commands_enabled():
 		return
 	if selection == null:
 		return
@@ -518,15 +615,17 @@ func _stop_selected_units() -> void:
 			unit.call("command_stop")
 
 func _enqueue_train(unit_def: UnitDef) -> void:
-	if read_only or FogAccess.local_read_only(self):
+	if not _can_enqueue(unit_def):
 		return
 	if _selected_building != null and is_instance_valid(_selected_building):
 		_selected_building.call("enqueue_train", unit_def)
 
 func _can_enqueue(unit_def: UnitDef) -> bool:
 	return (
-		_selected_building != null
+		_commands_enabled()
+		and _selected_building != null
 		and is_instance_valid(_selected_building)
+		and _selected_building.get("team") == Enums.Team.PLAYER
 		and bool(_selected_building.get("is_complete"))
 		and (_selected_building.get("train_queue") as Array).is_empty()
 		and match_state != null
@@ -541,15 +640,30 @@ func _refresh_command_grid_states() -> void:
 		var button := child as BaseButton
 		if button == null:
 			continue
+		var reason := ""
+		button.disabled = not _commands_enabled()
+		var definition: Variant = null
 		if button.has_meta("building_def"):
-			var building_def: Variant = button.get_meta("building_def")
-			if building_def is BuildingDef:
-				button.disabled = not _can_build(building_def)
-			continue
-		if button.has_meta("unit_def"):
-			var unit_def: Variant = button.get_meta("unit_def")
-			if unit_def is UnitDef:
-				button.disabled = not _can_enqueue(unit_def)
+			definition = button.get_meta("building_def")
+			button.disabled = not _can_build(definition)
+			if button.disabled:
+				reason = "资源不足或当前无法建造"
+		elif button.has_meta("unit_def"):
+			definition = button.get_meta("unit_def")
+			button.disabled = not _can_enqueue(definition)
+			if button.disabled:
+				reason = "正在训练" if is_instance_valid(_selected_building) and not _selected_building.train_queue.is_empty() else "资源或人口空间不足"
+		var hotkey: Key = button.get_meta("hotkey")
+		button.tooltip_text = "%s [%s]" % [button.get_meta("label"), "Esc" if hotkey == KEY_ESCAPE else OS.get_keycode_string(hotkey)]
+		if definition != null:
+			var costs: PackedStringArray = []
+			if definition.cost_wood > 0: costs.append("木材 %d" % definition.cost_wood)
+			if definition.cost_food > 0: costs.append("食物 %d" % definition.cost_food)
+			if definition.cost_gold > 0: costs.append("黄金 %d" % definition.cost_gold)
+			button.tooltip_text += "\n" + "  ".join(costs)
+		if not reason.is_empty():
+			button.tooltip_text += "\n" + reason
+		button.get_node("Icon").modulate = Color(0.4, 0.4, 0.4, 0.8) if button.disabled else Color.WHITE
 
 func _refresh() -> void:
 	if match_state == null or match_state.resources.is_empty():
@@ -581,9 +695,11 @@ func _refresh() -> void:
 	_refresh_command_grid_states()
 
 func _can_build(building_def: BuildingDef) -> bool:
-	if selection == null or match_state == null or match_state.winner != -1:
+	if not _commands_enabled() or selection == null or (building_def == STABLE and not _civ_allows_stable()):
 		return false
 	for unit in selection.call("get_selected_units"):
+		if not is_instance_valid(unit) or unit.get("team") != Enums.Team.PLAYER:
+			continue
 		var unit_def := unit.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"villager":
 			return match_state.can_afford(

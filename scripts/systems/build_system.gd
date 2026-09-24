@@ -71,12 +71,6 @@ func _update_ghost_position(screen_position: Vector2) -> void:
 	_update_placement_validity()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey:
-		var key_event := event as InputEventKey
-		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_H:
-			begin_placement(HOUSE)
-			get_viewport().set_input_as_handled()
-			return
 	if _ghost == null or not event is InputEventMouseButton:
 		return
 	var mouse_event := event as InputEventMouseButton

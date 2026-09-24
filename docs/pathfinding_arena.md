@@ -28,7 +28,7 @@ Or:
 | **V** | Vision rings + sight links |
 | **A** | Move steer arrows |
 | **T** | Vision query timing to console |
-| WASD / edge | Pan camera |
+| Arrow keys / edge | Pan camera |
 | Wheel | Zoom |
 
 ## Vision

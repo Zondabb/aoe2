@@ -217,7 +217,8 @@ func run() -> Array[String]:
 				failures.append("building selection should show a footprint outline")
 			elif not tc_ring is Line2D:
 				failures.append("building selection should show a white footprint box (Line2D)")
-			if hud.get_node("%CommandGrid").get_child_count() != 1:
+			var train_button := hud.get_node("%CommandGrid").get_child(0) as BaseButton
+			if train_button == null or train_button.get_meta("command_id", "") != "train_villager":
 				failures.append("selecting the town center should show its train button")
 			if bool(build_system.call(
 				"begin_placement",

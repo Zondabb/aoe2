@@ -32,13 +32,17 @@ func focus_on(world_position: Vector2) -> void:
 
 func _process(delta: float) -> void:
 	var pan_input := Vector2.ZERO
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused is LineEdit or focused is TextEdit:
+		return
+	# Letter keys belong to the selected unit's commands (AoE II classic layout).
+	if Input.is_key_pressed(KEY_LEFT):
 		pan_input.x -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+	if Input.is_key_pressed(KEY_RIGHT):
 		pan_input.x += 1.0
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+	if Input.is_key_pressed(KEY_UP):
 		pan_input.y -= 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+	if Input.is_key_pressed(KEY_DOWN):
 		pan_input.y += 1.0
 
 	var viewport_size := get_viewport().get_visible_rect().size

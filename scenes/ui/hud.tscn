@@ -168,73 +168,123 @@ grow_horizontal = 2
 grow_vertical = 0
 mouse_filter = 0
 
-[node name="Content" type="HBoxContainer" parent="CommandPanel"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = 8.0
-offset_right = -12.0
-offset_bottom = -8.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_constants/separation = 16
-
-[node name="InfoColumn" type="VBoxContainer" parent="CommandPanel/Content"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(200, 0)
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="Portrait" type="TextureRect" parent="CommandPanel/Content/InfoColumn"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(64, 64)
-layout_mode = 2
-expand_mode = 1
-stretch_mode = 5
-
-[node name="NameLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.95, 0.93, 0.82, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
-theme_override_constants/outline_size = 2
-theme_override_font_sizes/font_size = 18
-text = ""
-
-[node name="HpBar" type="ProgressBar" parent="CommandPanel/Content/InfoColumn"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 18)
-layout_mode = 2
-max_value = 100.0
-show_percentage = false
-
-[node name="HpLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.86, 0.92, 1, 1)
-theme_override_font_sizes/font_size = 14
-text = ""
-
-[node name="CountLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.95, 0.93, 0.82, 1)
-theme_override_font_sizes/font_size = 16
-text = ""
-
-[node name="CenterReserve" type="Control" parent="CommandPanel/Content"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
+[node name="Content" type="Control" parent="CommandPanel"]
+layout_mode = 0
+offset_right = 844.0
+offset_bottom = 205.0
+mouse_filter = 1
 
 [node name="CommandGrid" type="GridContainer" parent="CommandPanel/Content"]
 unique_name_in_owner = true
-layout_mode = 2
-theme_override_constants/h_separation = 4
-theme_override_constants/v_separation = 4
+layout_mode = 0
+offset_left = 34.0
+offset_top = 26.0
+offset_right = 288.0
+offset_bottom = 176.0
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
 columns = 5
+
+[node name="InfoColumn" type="Control" parent="CommandPanel/Content"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 358.0
+offset_top = 22.0
+offset_right = 832.0
+offset_bottom = 188.0
+mouse_filter = 1
+
+[node name="Portrait" type="TextureRect" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_right = 60.0
+offset_bottom = 60.0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="HpBar" type="ProgressBar" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_top = 65.0
+offset_right = 60.0
+offset_bottom = 73.0
+mouse_filter = 2
+show_percentage = false
+
+[node name="NameLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 78.0
+offset_top = 0.0
+offset_right = 462.0
+offset_bottom = 30.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.16, 0.10, 0.045, 1)
+theme_override_font_sizes/font_size = 20
+text_overrun_behavior = 3
+
+[node name="HpLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 0.0
+offset_top = 77.0
+offset_right = 66.0
+offset_bottom = 100.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.16, 0.10, 0.045, 1)
+theme_override_font_sizes/font_size = 12
+text_overrun_behavior = 3
+horizontal_alignment = 1
+
+[node name="CountLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 78.0
+offset_top = 31.0
+offset_right = 462.0
+offset_bottom = 52.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.16, 0.10, 0.045, 1)
+theme_override_font_sizes/font_size = 13
+text_overrun_behavior = 3
+
+[node name="StatsLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 78.0
+offset_top = 56.0
+offset_right = 462.0
+offset_bottom = 83.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.16, 0.10, 0.045, 1)
+theme_override_font_sizes/font_size = 14
+text_overrun_behavior = 3
+
+[node name="QueueLabel" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 78.0
+offset_top = 85.0
+offset_right = 462.0
+offset_bottom = 111.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.16, 0.10, 0.045, 1)
+theme_override_font_sizes/font_size = 13
+text_overrun_behavior = 3
+
+[node name="CommandHint" type="Label" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 0.0
+offset_top = 116.0
+offset_right = 470.0
+offset_bottom = 166.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.16, 0.10, 0.045, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 2
+clip_text = true
 
 [node name="Minimap" type="Control" parent="."]
 unique_name_in_owner = true

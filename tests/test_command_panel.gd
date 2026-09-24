@@ -19,6 +19,9 @@ class MockSelection extends Node:
 	func get_selected_building() -> Node2D:
 		return building
 
+	func get_primary_selection() -> Node2D:
+		return units[0] if not units.is_empty() else building
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_command_stop_clears_move(failures)
@@ -63,6 +66,7 @@ func _test_command_grid_for_villager(failures: Array[String]) -> void:
 	var unit := UNIT_VIEW.instantiate() as UnitAgent
 	unit.def = VILLAGER
 	unit.team = Enums.Team.PLAYER
+	root.add_child(unit)
 	mock.units = [unit]
 	hud.setup(state, civ, null, mock)
 	var grid := hud.get_node("%CommandGrid") as GridContainer
@@ -105,6 +109,7 @@ func _test_train_button_click_survives(failures: Array[String]) -> void:
 	state.setup_defaults()
 	state.resources[Enums.Team.PLAYER][Enums.ResourceType.FOOD] = 999
 	state.resources[Enums.Team.PLAYER][Enums.ResourceType.GOLD] = 999
+	state.population_cap[Enums.Team.PLAYER] = 10
 	var civ := load("res://data/civs/chinese.tres") as CivDef
 	var building := BUILDING_VIEW.instantiate() as Node2D
 	building.set("def", BARRACKS)
@@ -122,6 +127,6 @@ func _test_train_button_click_survives(failures: Array[String]) -> void:
 		return
 	var button := grid.get_child(0) as BaseButton
 	button.pressed.emit()
-	if not (building.get("train_queue") as Array).is_empty():
+	if (building.get("train_queue") as Array).is_empty():
 		failures.append("train button click should enqueue a unit")
 	root.free()
