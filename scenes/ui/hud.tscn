@@ -346,4 +346,4 @@ horizontal_alignment = 1
 [node name="ReturnButton" type="Button" parent="ResultPanel/Center/PanelContainer/VBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "返回文明选择"
+text = "返回主菜单"

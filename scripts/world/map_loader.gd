@@ -44,7 +44,7 @@ static func save_file(data: Dictionary, path: String) -> String:
 		return "保存失败，原文件保留：%s" % error_string(error)
 	return ""
 
-static func spawn_entity(record: Dictionary, parent: Node2D, state: MatchState, editing := false) -> Node2D:
+static func spawn_entity(record: Dictionary, parent: Node2D, state: MatchState, editing := false, civilizations: Dictionary = {}) -> Node2D:
 	var entity: Node2D
 	var id := Catalog.definition_id(record)
 	match record.type:
@@ -65,7 +65,7 @@ static func spawn_entity(record: Dictionary, parent: Node2D, state: MatchState, 
 	if record.type != "resource":
 		var team := Enums.Team.PLAYER if record.team == "player" else Enums.Team.AI
 		entity.set("team", team)
-		entity.set("civ", CHINESE if team == Enums.Team.PLAYER else TEUTONS)
+		entity.set("civ", civilizations.get(team, CHINESE if team == Enums.Team.PLAYER else TEUTONS))
 		entity.set("match_state", state)
 	entity.set("sim_pos", Data.position_of(record))
 	entity.set_meta("map_id", record.id)
@@ -75,9 +75,9 @@ static func spawn_entity(record: Dictionary, parent: Node2D, state: MatchState, 
 	parent.add_child(entity)
 	return entity
 
-static func spawn_entities(data: Dictionary, parent: Node2D, state: MatchState, editing := false) -> void:
+static func spawn_entities(data: Dictionary, parent: Node2D, state: MatchState, editing := false, civilizations: Dictionary = {}) -> void:
 	for record in data.entities:
-		spawn_entity(record, parent, state, editing)
+		spawn_entity(record, parent, state, editing, civilizations)
 
 static func setup_ground(data: Dictionary, parent: Node2D) -> void:
 	for child in parent.get_children():

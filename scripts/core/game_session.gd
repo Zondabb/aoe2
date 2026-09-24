@@ -4,6 +4,11 @@ const GameSettingsScript := preload("res://scripts/core/game_settings.gd")
 
 var player_civ_id: StringName = &"chinese"
 var ai_civ_id: StringName = &"teutons"
+## Empty snapshot selects the legacy default map. A match never rereads the file.
+var match_map_data: Dictionary = {}
+var selected_map_path := ""
+var match_ai_mode := "gateway"
+var menu_notice := ""
 ## AI HTTP 服务根地址；空则使用内嵌 LocalAiServer 默认端口。
 var ai_service_url := ""
 ## Chat Completions 完整 URL；空则由 service_url 拼接 /v1/chat/completions。

@@ -176,15 +176,16 @@ func _draw_move_arrows() -> void:
 
 
 func _draw_nav_grid_lines() -> void:
-	var min_i := nav.map_min
-	var max_i := nav.map_max
-	for x in range(min_i, max_i + 1):
-		var a := IsoMathScript.world_to_screen(Vector2(float(x), float(min_i)))
-		var b := IsoMathScript.world_to_screen(Vector2(float(x), float(max_i)))
+	var region: Rect2i = nav._grid.region
+	var minimum := Vector2(region.position) * nav.cell_size
+	var maximum := Vector2(region.end) * nav.cell_size
+	for x in range(region.position.x, region.end.x + 1):
+		var a := IsoMathScript.world_to_screen(Vector2(x * nav.cell_size, minimum.y))
+		var b := IsoMathScript.world_to_screen(Vector2(x * nav.cell_size, maximum.y))
 		draw_line(a, b, GRID_LINE, 1.0)
-	for y in range(min_i, max_i + 1):
-		var a := IsoMathScript.world_to_screen(Vector2(float(min_i), float(y)))
-		var b := IsoMathScript.world_to_screen(Vector2(float(max_i), float(y)))
+	for y in range(region.position.y, region.end.y + 1):
+		var a := IsoMathScript.world_to_screen(Vector2(minimum.x, y * nav.cell_size))
+		var b := IsoMathScript.world_to_screen(Vector2(maximum.x, y * nav.cell_size))
 		draw_line(a, b, GRID_LINE, 1.0)
 
 

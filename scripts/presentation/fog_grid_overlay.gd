@@ -12,9 +12,9 @@ func _draw() -> void:
 		return
 	var fog: RefCounted = holder.fog
 	var viewport_rect := get_viewport_rect().grow(60)
-	for y in fog.side:
-		for x in fog.side:
-			var pos: Vector2 = Vector2.ONE * fog.map_min + Vector2(x, y) * fog.cell_size
+	for y in fog.grid_size.y:
+		for x in fog.grid_size.x:
+			var pos: Vector2 = fog.map_origin + Vector2(x, y) * fog.cell_size
 			var pixel := Iso.world_to_screen(pos)
 			if not viewport_rect.has_point(get_viewport_transform() * pixel):
 				continue

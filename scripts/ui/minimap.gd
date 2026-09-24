@@ -75,8 +75,8 @@ func _process(delta: float) -> void:
 	map_min = _camera.get("map_world_min")
 	map_max = _camera.get("map_world_max")
 	if _fog != null:
-		map_min = Vector2.ONE * _fog.map_min
-		map_max = Vector2.ONE * _fog.map_max
+		map_min = _fog.map_origin
+		map_max = _fog.map_end
 	_sync_terrain()
 	_elapsed += delta
 	if _elapsed >= UPDATE_INTERVAL:
@@ -114,19 +114,19 @@ func _sync_terrain() -> void:
 	if key == _terrain_key:
 		return
 	_terrain_key = key
-	var side: int = _fog.side if _fog != null else 1
-	var pixels := Image.create(side, side, false, Image.FORMAT_RGB8)
+	var dims: Vector2i = _fog.grid_size if _fog != null else Vector2i.ONE
+	var pixels := Image.create(dims.x, dims.y, false, Image.FORMAT_RGB8)
 	var hidden := match_state != null and match_state.fog_enabled and _team != -1
 	pixels.fill(Color.BLACK if hidden else GRASS)
 	if hidden and _fog != null:
 		var explored: PackedByteArray = _fog.explored.get(_team, PackedByteArray())
 		var current: PackedByteArray = _fog.visible_now.get(_team, PackedByteArray())
-		for y in side:
-			for x in side:
-				var index := y * side + x
+		for y in dims.y:
+			for x in dims.x:
+				var index := y * dims.x + x
 				if index < explored.size() and explored[index] != 0:
 					pixels.set_pixel(x, y, GRASS if current[index] != 0 else GRASS.darkened(0.58))
-	if _terrain != null and _terrain.get_width() == side:
+	if _terrain != null and _terrain.get_width() == dims.x and _terrain.get_height() == dims.y:
 		_terrain.update(pixels)
 	else:
 		_terrain = ImageTexture.create_from_image(pixels)

@@ -6,7 +6,10 @@ enum State { UNEXPLORED, EXPLORED, VISIBLE }
 var map_min := -60.0
 var map_max := 60.0
 var cell_size := 1.0
-var side := 120
+var side := 120 # Row stride; retained for square-map callers.
+var map_origin := Vector2(-60, -60)
+var map_end := Vector2(60, 60)
+var grid_size := Vector2i(120, 120)
 var visible_now: Dictionary = {}
 var explored: Dictionary = {}
 var memories: Dictionary = {}
@@ -17,16 +20,22 @@ var ready := false
 var dirty := false
 
 func setup(minimum: float, maximum: float, size := 1.0) -> void:
-	map_min = minimum
-	map_max = maximum
+	setup_rect(Vector2(minimum, minimum), Vector2(maximum, maximum), size)
+
+func setup_rect(minimum: Vector2, maximum: Vector2, size := 1.0) -> void:
+	map_origin = minimum
+	map_end = maximum
+	map_min = minimum.x
+	map_max = maximum.x
 	cell_size = maxf(size, 0.1)
-	side = maxi(1, ceili((map_max - map_min) / cell_size))
+	grid_size = Vector2i(maxi(1, ceili((maximum.x - minimum.x) / cell_size)), maxi(1, ceili((maximum.y - minimum.y) / cell_size)))
+	side = grid_size.x
 	reset()
 
 func reset() -> void:
 	for team in Enums.Team.values():
 		var mask := PackedByteArray()
-		mask.resize(side * side)
+		mask.resize(grid_size.x * grid_size.y)
 		mask.fill(0)
 		visible_now[team] = mask.duplicate()
 		explored[team] = mask.duplicate()
@@ -37,10 +46,10 @@ func reset() -> void:
 	revision += 1
 
 func cell_at(pos: Vector2) -> Vector2i:
-	if pos.x < map_min or pos.y < map_min or pos.x > map_max or pos.y > map_max:
+	if pos.x < map_origin.x or pos.y < map_origin.y or pos.x > map_end.x or pos.y > map_end.y:
 		return Vector2i(-1, -1)
-	return Vector2i(clampi(floori((pos.x-map_min)/cell_size), 0, side-1),
-		clampi(floori((pos.y-map_min)/cell_size), 0, side-1))
+	return Vector2i(clampi(floori((pos.x-map_origin.x)/cell_size), 0, side-1),
+		clampi(floori((pos.y-map_origin.y)/cell_size), 0, grid_size.y-1))
 
 func state_at(team: int, pos: Vector2) -> int:
 	var cell := cell_at(pos)
@@ -100,12 +109,12 @@ func rebuild(entities: Array) -> void:
 	var changed := not ready
 	for team in Enums.Team.values():
 		var mask := PackedByteArray()
-		mask.resize(side * side)
+		mask.resize(grid_size.x * grid_size.y)
 		mask.fill(0)
 		var row_min := PackedInt32Array()
 		var row_max := PackedInt32Array()
-		row_min.resize(side)
-		row_max.resize(side)
+		row_min.resize(grid_size.y)
+		row_max.resize(grid_size.y)
 		row_min.fill(side)
 		row_max.fill(-1)
 		var count := 0
@@ -134,16 +143,16 @@ func rebuild(entities: Array) -> void:
 	elapsed_ms = float(Time.get_ticks_usec() - started) / 1000.0
 
 func _stamp(mask: PackedByteArray, pos: Vector2, radius: float, row_min: PackedInt32Array, row_max: PackedInt32Array) -> void:
-	var y0 := maxi(0, floori((pos.y-radius-map_min)/cell_size))
-	var y1 := mini(side-1, floori((pos.y+radius-map_min)/cell_size))
+	var y0 := maxi(0, floori((pos.y-radius-map_origin.y)/cell_size))
+	var y1 := mini(grid_size.y-1, floori((pos.y+radius-map_origin.y)/cell_size))
 	for y in range(y0, y1+1):
-		var dy := map_min + (y+0.5)*cell_size - pos.y
+		var dy := map_origin.y + (y+0.5)*cell_size - pos.y
 		var remaining := radius*radius-dy*dy
 		if remaining < 0:
 			continue
 		var dx := sqrt(remaining)
-		var x0 := maxi(0, ceili((pos.x-dx-map_min)/cell_size-0.5))
-		var x1 := mini(side-1, floori((pos.x+dx-map_min)/cell_size-0.5))
+		var x0 := maxi(0, ceili((pos.x-dx-map_origin.x)/cell_size-0.5))
+		var x1 := mini(side-1, floori((pos.x+dx-map_origin.x)/cell_size-0.5))
 		# Track a guaranteed continuous covered run per row. Overlapping circles
 		# only write its exposed ends; disjoint runs never fill gaps accidentally.
 		var lo := row_min[y]
@@ -164,10 +173,10 @@ func _stamp(mask: PackedByteArray, pos: Vector2, radius: float, row_min: PackedI
 
 func mask_image(team: int) -> Image:
 	var pixels := PackedByteArray()
-	pixels.resize(side * side * 2)
+	pixels.resize(grid_size.x * grid_size.y * 2)
 	var current: PackedByteArray = visible_now[team]
 	var history: PackedByteArray = explored[team]
 	for i in current.size():
 		pixels[2*i] = current[i]
 		pixels[2*i+1] = history[i]
-	return Image.create_from_data(side, side, false, Image.FORMAT_RG8, pixels)
+	return Image.create_from_data(grid_size.x, grid_size.y, false, Image.FORMAT_RG8, pixels)

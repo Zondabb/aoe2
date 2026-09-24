@@ -288,6 +288,7 @@ func run() -> Array[String]:
 
 	if game_session != null:
 		game_session.set("player_civ_id", &"teutons")
+		game_session.set("ai_civ_id", &"chinese")
 		var teutons_match := packed.instantiate()
 		tree.root.add_child(teutons_match)
 		teutons_match.get_node("Bootstrap").call("_ready")
@@ -301,7 +302,7 @@ func run() -> Array[String]:
 		if teutons_player_tc == null or teutons_player_tc.get("civ").id != &"teutons":
 			failures.append("player base should use the selected Teutons civilization")
 		if chinese_ai_tc == null or chinese_ai_tc.get("civ").id != &"chinese":
-			failures.append("AI should switch to Chinese when player selects Teutons")
+			failures.append("AI should use independently selected Chinese civilization")
 		var teutons_hud := teutons_match.get_node_or_null("UILayer/HUD")
 		var teutons_stable := (
 			teutons_hud.find_child("StableButton", true, false) as Button

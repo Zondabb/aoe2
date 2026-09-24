@@ -26,6 +26,9 @@ var _saved_flags: Dictionary = {}
 var _saved_selection: Array = []
 
 static func install(root: Node, state: MatchState, minimum: float, maximum: float, default_view := 0) -> void:
+	install_rect(root, state, Vector2(minimum, minimum), Vector2(maximum, maximum), default_view)
+
+static func install_rect(root: Node, state: MatchState, minimum: Vector2, maximum: Vector2, default_view := 0) -> void:
 	if root == null or not root.is_inside_tree():
 		return
 	if root.has_meta("fog_holder"):
@@ -38,7 +41,7 @@ static func install(root: Node, state: MatchState, minimum: float, maximum: floa
 	holder.entities = root.get_node("Entities")
 	holder.base_view = default_view
 	holder.view_team = default_view
-	holder.fog.setup(minimum, maximum)
+	holder.fog.setup_rect(minimum, maximum)
 	state.fog_enabled = true
 	state.fog = holder.fog
 	root.set_meta("fog_holder", holder)
@@ -167,8 +170,8 @@ func _create_overlay() -> void:
 	_overlay.polygon = PackedVector2Array([Vector2(-100000,-100000), Vector2(100000,-100000), Vector2(100000,100000), Vector2(-100000,100000)])
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://scripts/presentation/fog_overlay.gdshader")
-	material.set_shader_parameter("logical_min", Vector2.ONE*fog.map_min)
-	material.set_shader_parameter("logical_span", fog.map_max-fog.map_min)
+	material.set_shader_parameter("logical_min", fog.map_origin)
+	material.set_shader_parameter("logical_span", fog.map_end-fog.map_origin)
 	_overlay.material = material
 	get_parent().add_child(_overlay)
 
@@ -331,5 +334,5 @@ func _update_stats() -> void:
 		visible_count += int(value != 0)
 	for value in fog.explored[view_team]:
 		explored_count += int(value != 0)
-	var total := float(fog.side * fog.side)
+	var total := float(fog.grid_size.x * fog.grid_size.y)
 	_stats.text = "可见 %.1f%%  已探索 %.1f%%\n视野源 %d  更新 %.2f ms" % [visible_count*100/total, explored_count*100/total, fog.source_counts[view_team], fog.elapsed_ms]

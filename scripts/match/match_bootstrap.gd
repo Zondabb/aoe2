@@ -21,18 +21,29 @@ const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const GROUND_MIN := -60
 const GROUND_MAX := 60
 const GROUND_STEP := 8
+const MapLoaderScript := preload("res://scripts/world/map_loader.gd")
+const MapDataScript := preload("res://scripts/world/map_data.gd")
 
 var match_state := MatchState.new()
 var player_civ: CivDef
 var ai_civ: CivDef
+var map_bounds := Rect2(-60, -60, 120, 120)
+var map_data: Dictionary = {}
 
 func _ready() -> void:
 	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
 	player_civ = _civ_for_id(GameSession.player_civ_id)
-	ai_civ = _opposite_civ(player_civ)
-	GameSession.ai_civ_id = ai_civ.id
+	ai_civ = _civ_for_id(GameSession.ai_civ_id)
+	map_data = GameSession.match_map_data.duplicate(true)
+	if not map_data.is_empty():
+		var errors := MapDataScript.validate(map_data)
+		if not errors.is_empty():
+			GameSession.menu_notice = "地图无法启动：" + "；".join(errors)
+			get_tree().call_deferred("change_scene_to_file", "res://scenes/civ_select.tscn")
+			return
+		map_bounds = MapDataScript.bounds(map_data)
 	_setup_ground()
 	_setup_nav()
 	_setup_vision()
@@ -45,7 +56,7 @@ func _ready() -> void:
 func _setup_nav() -> void:
 	var holder := NavServiceHolderScript.new()
 	holder.name = "NavService"
-	holder.setup(GROUND_MIN, GROUND_MAX, 1.0)
+	holder.setup_rect(Vector2i(map_bounds.position), Vector2i(map_bounds.end))
 	var match_root := get_parent()
 	if match_root != null:
 		# Must defer: Bootstrap._ready runs while Match is still adding children,
@@ -68,7 +79,7 @@ func _finish_setup() -> void:
 	if vision_holder != null:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
-	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, Enums.Team.PLAYER)
+	FogHolder.install_rect(get_parent(), match_state, map_bounds.position, map_bounds.end, Enums.Team.PLAYER)
 
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()
@@ -91,14 +102,24 @@ func _setup_debug_overlay() -> void:
 
 func _focus_camera_on_player_base() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D
-	if camera != null and camera.has_method("configure_for_map"):
-		camera.call("configure_for_map", GROUND_MIN, GROUND_MAX, Vector2(-40.0, -40.0))
-	elif camera != null and camera.has_method("focus_on"):
-		camera.call("focus_on", Vector2(-40.0, -40.0))
+	var focus := Vector2(-40, -40)
+	if not map_data.is_empty():
+		focus = map_bounds.get_center()
+		for record in map_data.entities:
+			if record.get("team") == "player":
+				focus = MapDataScript.position_of(record)
+				if record.get("building_id") == "town_center":
+					break
+	if camera != null:
+		camera.call("set_map_bounds", map_bounds.position, map_bounds.end)
+		camera.call("focus_on", focus)
 
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D
 	if ground == null:
+		return
+	if not map_data.is_empty():
+		MapLoaderScript.setup_ground(map_data, ground)
 		return
 	for child in ground.get_children():
 		child.free()
@@ -127,6 +148,9 @@ func _setup_ground() -> void:
 func _spawn_entities() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D
 	if entities == null or entities.get_child_count() > 0:
+		return
+	if not map_data.is_empty():
+		MapLoaderScript.spawn_entities(map_data, entities, match_state, false, {Enums.Team.PLAYER: player_civ, Enums.Team.AI: ai_civ})
 		return
 
 	_spawn_base(
@@ -192,9 +216,6 @@ func _spawn_base(
 func _civ_for_id(civ_id: StringName) -> CivDef:
 	return TEUTONS_CIV if civ_id == &"teutons" else CHINESE_CIV
 
-func _opposite_civ(civ: CivDef) -> CivDef:
-	return CHINESE_CIV if civ.id == &"teutons" else TEUTONS_CIV
-
 func _spawn_resource(
 	parent: Node2D,
 	node_name: String,
@@ -251,6 +272,15 @@ func _setup_ai_gateway() -> void:
 		return
 	var entities := match_root.get_node_or_null("Entities") as Node2D
 	if entities == null:
+		return
+	if GameSession.match_ai_mode != "gateway":
+		var local_ai := match_root.get_node_or_null("AiController")
+		if local_ai != null:
+			if GameSession.match_ai_mode == "local":
+				local_ai.setup(match_state, entities, ai_civ, Enums.Team.AI, Enums.Team.PLAYER, "AI", null, false)
+				local_ai.set_process(true)
+			else:
+				local_ai.stop()
 		return
 	var existing := match_root.get_node_or_null("AiGateway")
 	if existing != null:

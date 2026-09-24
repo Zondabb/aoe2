@@ -2,7 +2,7 @@ shader_type canvas_item;
 render_mode unshaded;
 uniform sampler2D fog_mask : filter_nearest, repeat_disable;
 uniform vec2 logical_min;
-uniform float logical_span;
+uniform vec2 logical_span;
 varying vec2 world_pixel;
 void vertex() {
 	world_pixel = VERTEX;
