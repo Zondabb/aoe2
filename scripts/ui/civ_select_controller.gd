@@ -5,6 +5,7 @@ const Data := preload("res://scripts/world/map_data.gd")
 const Preview := preload("res://scripts/ui/map_preview.gd")
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const HttpClient := preload("res://scripts/ai_gateway/http_ai_client.gd")
+const OnlineLobby := preload("res://scripts/ui/online_lobby.gd")
 const MAIN_ART := preload("res://assets/ui/menu/main_background.jpg")
 const SETUP_ART := preload("res://assets/ui/menu/setup_background.jpg")
 const CIV_IDS := [&"chinese", &"teutons"]
@@ -18,6 +19,7 @@ var _background: TextureRect
 var _shade: ColorRect
 var _main: Control
 var _setup: Control
+var _online: Control
 var _map_choice: OptionButton
 var _player_choice: OptionButton
 var _enemy_choice: OptionButton
@@ -36,11 +38,19 @@ var _embedded_check: CheckBox
 var _busy: Control
 
 func _ready() -> void:
+	var return_to_lobby := GameSession.online_return_to_lobby
+	GameSession.online_return_to_lobby = false
+	_reset_online_session()
 	_build_ui()
 	_refresh_maps()
 	show_main()
+	if return_to_lobby:
+		_multiplayer_pressed()
 	if not GameSession.menu_notice.is_empty():
-		_main_status.text = GameSession.menu_notice
+		if return_to_lobby:
+			_online.show_status(GameSession.menu_notice)
+		else:
+			_main_status.text = GameSession.menu_notice
 		GameSession.menu_notice = ""
 	resized.connect(_layout)
 	_layout()
@@ -119,8 +129,8 @@ func _build_ui() -> void:
 	panel.add_theme_stylebox_override("panel", skin)
 	_label(panel, "Heading", "开始你的征程", Rect2(38, 25, 350, 40), 26, true)
 	_button(panel, "SinglePlayer", "单机游戏", Rect2(38, 92, 354, 62), show_single_player)
-	_button(panel, "Multiplayer", "联网匹配  ·  尚未开放", Rect2(38, 170, 354, 62), _multiplayer_pressed)
-	_main_status = _label(panel, "Status", "选择单机游戏，创建一场对局。", Rect2(38, 250, 354, 76), 15, true)
+	_button(panel, "Multiplayer", "联机对战", Rect2(38, 170, 354, 62), _multiplayer_pressed)
+	_main_status = _label(panel, "Status", "选择单机游戏，或联机匹配另一位玩家。", Rect2(38, 250, 354, 76), 15, true)
 	_button(panel, "MapEditor", "地图编辑器", Rect2(38, 338, 169, 42), func(): get_tree().change_scene_to_file("res://scenes/editor/map_editor.tscn"))
 	_button(panel, "Quit", "退出游戏", Rect2(223, 338, 169, 42), func(): get_tree().quit())
 	_button(_main, "CombatArena", "战斗测试场", Rect2(100, 634, 150, 40), func(): get_tree().change_scene_to_file("res://scenes/combat_arena.tscn"))
@@ -188,6 +198,8 @@ func _build_ui() -> void:
 	_embedded_check.text = "连接失败时允许使用内嵌 AI 服务"
 	_embedded_check.button_pressed = GameSession.ai_use_local_embedded
 	options.add_child(_embedded_check)
+	_online = _rect(OnlineLobby.new(), _design, "OnlinePage", Rect2(0, 0, 1280, 720))
+	_online.back_requested.connect(show_main)
 	_busy = _rect(Control.new(), _design, "BusyBlocker", Rect2(0, 0, 1280, 720))
 	_busy.mouse_filter = Control.MOUSE_FILTER_STOP
 	_busy.visible = false
@@ -198,13 +210,16 @@ func show_main() -> void:
 	page = "main"
 	_main.show()
 	_setup.hide()
+	_online.hide()
 	_background.texture = MAIN_ART
 	_shade.show()
 
 func show_single_player() -> void:
 	if starting: return
+	_reset_online_session()
 	page = "single"
 	_main.hide()
+	_online.hide()
 	_setup.show()
 	_background.texture = SETUP_ART
 	_shade.hide()
@@ -212,7 +227,21 @@ func show_single_player() -> void:
 	_start.grab_focus()
 
 func _multiplayer_pressed() -> void:
-	_main_status.text = "联网匹配尚未实现，暂时无法进入。请先选择单机游戏。"
+	if starting: return
+	page = "online"
+	_main.hide()
+	_setup.hide()
+	_online.show()
+	_background.texture = SETUP_ART
+	_shade.hide()
+	_online.focus_start()
+
+func _reset_online_session() -> void:
+	var network := get_node_or_null("/root/NetworkSession")
+	if network != null and network.state != "idle":
+		network.leave()
+	GameSession.online_active = false
+	GameSession.online_team = 0
 
 func _update_civ_description() -> void:
 	_civ_info.text = "诸葛弩 · 经济发展\n村民训练更快；默认地图额外一名村民。" if _player_choice.selected == 0 else "条顿武士 · 坚实防御\n建筑生命值提高，近战单位护甲增加。"
@@ -301,6 +330,7 @@ func _map_selected(_index: int) -> void:
 
 func _start_game() -> void:
 	if starting or page != "single": return
+	_reset_online_session()
 	# Revalidate immediately before launch; a saved file may have changed on disk.
 	_map_selected(_map_choice.selected)
 	if not map_error.is_empty(): return
@@ -340,6 +370,10 @@ func _set_starting(value: bool) -> void:
 	if value: get_viewport().gui_release_focus()
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE and page == "single" and not starting:
-		show_main()
-		get_viewport().set_input_as_handled()
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE and not starting:
+		if page == "single":
+			show_main()
+			get_viewport().set_input_as_handled()
+		elif page == "online":
+			_online.go_back()
+			get_viewport().set_input_as_handled()

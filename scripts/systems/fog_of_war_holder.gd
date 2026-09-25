@@ -191,6 +191,8 @@ func _sync_texture() -> void:
 		_texture.update(data)
 
 func set_view(team: int) -> void:
+	if get_parent().get_meta("online_match", false) and team != base_view:
+		return
 	if team != ALL and team not in Enums.Team.values():
 		return
 	view_team = team
@@ -205,6 +207,8 @@ func set_view(team: int) -> void:
 	_choices.select(team + 1)
 
 func set_debug_mode(enabled: bool) -> void:
+	if enabled and get_parent().get_meta("online_match", false):
+		return
 	if debug_mode == enabled:
 		return
 	debug_mode = enabled

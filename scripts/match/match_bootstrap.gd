@@ -34,6 +34,10 @@ func _ready() -> void:
 	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
+	if GameSession.online_active:
+		match_state.frozen = true
+		get_parent().set_meta("online_match", true)
+	get_parent().set_meta("local_team", GameSession.local_team())
 	player_civ = _civ_for_id(GameSession.player_civ_id)
 	ai_civ = _civ_for_id(GameSession.ai_civ_id)
 	map_data = GameSession.match_map_data.duplicate(true)
@@ -79,7 +83,12 @@ func _finish_setup() -> void:
 	if vision_holder != null:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
-	FogHolder.install_rect(get_parent(), match_state, map_bounds.position, map_bounds.end, Enums.Team.PLAYER)
+	FogHolder.install_rect(get_parent(), match_state, map_bounds.position, map_bounds.end, GameSession.local_team())
+	if GameSession.online_active:
+		var network := load("res://scripts/network/network_match.gd").new() as Node
+		network.name = "NetworkMatch"
+		get_parent().add_child(network)
+		network.setup(self)
 
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()
@@ -103,6 +112,8 @@ func _setup_debug_overlay() -> void:
 func _focus_camera_on_player_base() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D
 	var focus := Vector2(-40, -40)
+	if GameSession.online_active and GameSession.local_team() == Enums.Team.AI:
+		focus = Vector2(40, 40)
 	if not map_data.is_empty():
 		focus = map_bounds.get_center()
 		for record in map_data.entities:
@@ -146,6 +157,8 @@ func _setup_ground() -> void:
 		lx += GROUND_STEP
 
 func _spawn_entities() -> void:
+	if GameSession.online_active and GameSession.local_team() != Enums.Team.PLAYER:
+		return
 	var entities := get_node_or_null("../Entities") as Node2D
 	if entities == null or entities.get_child_count() > 0:
 		return
@@ -261,14 +274,21 @@ func _setup_building_controls() -> void:
 		or hud == null
 	):
 		return
+	var local_civ := player_civ if GameSession.local_team() == Enums.Team.PLAYER else ai_civ
 	build_system.call(
-		"setup", camera, entities, selection, match_state, player_civ
+		"setup", camera, entities, selection, match_state, local_civ
 	)
-	hud.call("setup", match_state, player_civ, build_system, selection)
+	hud.call("setup", match_state, local_civ, build_system, selection)
 
 func _setup_ai_gateway() -> void:
 	var match_root := get_parent()
 	if match_root == null:
+		return
+	if GameSession.online_active:
+		var local_ai := match_root.get_node_or_null("AiController")
+		if local_ai != null:
+			local_ai.stop()
+			local_ai.queue_free()
 		return
 	var entities := match_root.get_node_or_null("Entities") as Node2D
 	if entities == null:

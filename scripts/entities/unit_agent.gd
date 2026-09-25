@@ -122,6 +122,8 @@ func _ready() -> void:
 
 
 func register_population() -> void:
+	if has_meta("network_replica"):
+		return
 	if match_state != null and def != null and not _population_registered:
 		match_state.register_pop(team, def.population, 0)
 		_population_registered = true
@@ -141,6 +143,8 @@ func set_vision_radius(radius: float) -> void:
 	vision_radius_override = maxf(0.0, radius)
 
 func _physics_process(delta: float) -> void:
+	if has_meta("network_replica"):
+		return
 	if def == null:
 		return
 	if match_state != null and match_state.frozen:
@@ -1585,6 +1589,35 @@ func _exit_tree() -> void:
 	if _population_registered and match_state != null and def != null:
 		match_state.register_pop(team, -def.population, 0)
 		_population_registered = false
+
+
+## Network playback updates presentation without issuing orders or simulating hits.
+func network_presentation() -> Dictionary:
+	var sprite := get_node_or_null("Billboard") as AnimatedSprite2D
+	return {
+		"facing": _facing_dir, "flip": _facing_flip,
+		"animation": String(sprite.animation) if sprite != null else "",
+		"frame": sprite.frame if sprite != null else 0,
+		"combat_action": String(_combat_action), "gather_state": _gather_state,
+	}
+
+
+func apply_network_presentation(data: Dictionary) -> void:
+	_sync_visual()
+	_facing_dir = int(data.get("facing", 0))
+	_facing_flip = bool(data.get("flip", false))
+	_combat_action = StringName(data.get("combat_action", ""))
+	_gather_state = String(data.get("gather_state", ""))
+	var sprite := get_node_or_null("Billboard") as AnimatedSprite2D
+	var animation := StringName(data.get("animation", ""))
+	if sprite != null and sprite.sprite_frames != null and sprite.sprite_frames.has_animation(animation):
+		sprite.stop()
+		sprite.animation = animation
+		sprite.frame = clampi(int(data.get("frame", 0)), 0, sprite.sprite_frames.get_frame_count(animation) - 1)
+		sprite.flip_h = _facing_flip
+		_apply_billboard_player_color(sprite, animation)
+		_apply_billboard_hotspot(sprite, animation, sprite.frame)
+	_refresh_world_hp_bar()
 
 
 func _get_vision_service() -> Object:

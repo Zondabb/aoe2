@@ -1,6 +1,8 @@
 class_name SelectionController2D
 extends Control
 
+const PlayerCommands := preload("res://scripts/input/player_commands.gd")
+
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 signal selection_changed(selected: Array)
@@ -143,13 +145,13 @@ func _issue_move(target: Vector2) -> void:
 		if not is_instance_valid(unit):
 			_selected.erase(unit)
 			continue
-		if unit.get("team") == Enums.Team.PLAYER and unit.has_method("command_move"):
+		if unit.get("team") == PlayerCommands.local_team(self) and unit.has_method("command_move"):
 			movers.append(unit)
 	if movers.is_empty():
 		return
 	for index in movers.size():
 		var slot := formation_offset(index, movers.size(), FORMATION_SPACING)
-		movers[index].call("command_move", target + slot)
+		PlayerCommands.unit_order(self, movers[index], "move", target + slot)
 	_show_move_marker(target)
 
 
@@ -199,12 +201,12 @@ func _issue_gather(resource: Node2D) -> void:
 			continue
 		var unit_def := unit.get("def") as UnitDef
 		if (
-			unit.get("team") == Enums.Team.PLAYER
+			unit.get("team") == PlayerCommands.local_team(self)
 			and unit_def != null
 			and unit_def.id == &"villager"
 			and unit.has_method("command_gather")
 		):
-			unit.call("command_gather", resource)
+			PlayerCommands.unit_order(self, unit, "gather", resource)
 
 func _issue_build(building: Node2D) -> void:
 	if read_only or FogAccess.local_read_only(self):
@@ -215,12 +217,12 @@ func _issue_build(building: Node2D) -> void:
 			continue
 		var unit_def := unit.get("def") as UnitDef
 		if (
-			unit.get("team") == Enums.Team.PLAYER
+			unit.get("team") == PlayerCommands.local_team(self)
 			and unit_def != null
 			and unit_def.id == &"villager"
 			and unit.has_method("command_build")
 		):
-			unit.call("command_build", building)
+			PlayerCommands.unit_order(self, unit, "build", building)
 
 func _issue_attack(target: Node2D) -> void:
 	if read_only or FogAccess.local_read_only(self):
@@ -230,11 +232,11 @@ func _issue_attack(target: Node2D) -> void:
 			_selected.erase(unit)
 			continue
 		if (
-			unit.get("team") == Enums.Team.PLAYER
-			and target.get("team") != Enums.Team.PLAYER
+			unit.get("team") == PlayerCommands.local_team(self)
+			and target.get("team") != PlayerCommands.local_team(self)
 			and unit.has_method("command_attack")
 		):
-			unit.call("command_attack", target)
+			PlayerCommands.unit_order(self, unit, "attack", target)
 
 func _enemy_at_screen(screen_position: Vector2) -> Node2D:
 	var canvas_pos := _viewport_to_canvas(screen_position)
@@ -247,7 +249,7 @@ func _enemy_at_screen(screen_position: Vector2) -> Node2D:
 		var enemy := node as Node2D
 		if (
 			enemy == null
-			or enemy.get("team") == Enums.Team.PLAYER
+			or enemy.get("team") == PlayerCommands.local_team(self)
 			or enemy.get("is_placement_ghost") == true
 			or enemy.is_queued_for_deletion()
 		):
@@ -280,7 +282,7 @@ func _unfinished_building_at_screen(screen_position: Vector2) -> Node2D:
 		var building := node as Node2D
 		if (
 			building == null
-			or building.get("team") != Enums.Team.PLAYER
+			or building.get("team") != PlayerCommands.local_team(self)
 			or bool(building.get("is_complete"))
 		):
 			continue
@@ -294,7 +296,7 @@ func _player_units() -> Array[Node2D]:
 	var result: Array[Node2D] = []
 	for node in get_tree().get_nodes_in_group("units"):
 		var unit := node as Node2D
-		if unit != null and unit.get("team") == Enums.Team.PLAYER:
+		if unit != null and unit.get("team") == PlayerCommands.local_team(self):
 			result.append(unit)
 	return result
 
@@ -318,7 +320,7 @@ func _player_selectables() -> Array[Node2D]:
 	var result := _player_units()
 	for node in get_tree().get_nodes_in_group("buildings"):
 		var building := node as Node2D
-		if building != null and building.get("team") == Enums.Team.PLAYER:
+		if building != null and building.get("team") == PlayerCommands.local_team(self):
 			result.append(building)
 	for node in get_tree().get_nodes_in_group("resource_nodes"):
 		var resource := node as Node2D

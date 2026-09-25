@@ -63,6 +63,8 @@ func _ready() -> void:
 		EntityRegistryScript.register(self)
 
 func _physics_process(delta: float) -> void:
+	if has_meta("network_replica"):
+		return
 	if match_state != null and match_state.frozen:
 		return
 	if not is_complete or train_queue.is_empty():
@@ -202,6 +204,7 @@ func _complete_construction() -> void:
 	is_complete = true
 	if (
 		not _population_cap_registered
+		and not has_meta("network_replica")
 		and match_state != null
 		and def != null
 		and def.population_provided != 0

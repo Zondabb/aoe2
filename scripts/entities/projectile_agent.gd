@@ -19,6 +19,7 @@ var sim_pos := Vector2.ZERO
 var aim_pos := Vector2.ZERO
 var attacker_def: UnitDef
 var attacker: Node = null
+var match_state: MatchState
 var team: Enums.Team = Enums.Team.PLAYER
 var _consumed := false
 var _origin := Vector2.ZERO
@@ -40,6 +41,8 @@ func setup(
 	aim_pos = impact_aim
 	attacker_def = attacker_unit_def
 	attacker = attacker_node
+	if attacker != null and is_instance_valid(attacker):
+		match_state = attacker.get("match_state") as MatchState
 	team = attacker_team
 	_total_distance = _origin.distance_to(aim_pos)
 	_traveled = 0.0
@@ -50,6 +53,8 @@ func setup(
 	_sync_visual(0.0)
 
 func _physics_process(delta: float) -> void:
+	if has_meta("network_replica") or (match_state != null and match_state.frozen):
+		return
 	if _consumed:
 		return
 	var step := ARROW_SPEED * delta
@@ -62,6 +67,21 @@ func _physics_process(delta: float) -> void:
 	var t := _flight_progress()
 	sim_pos = _origin.lerp(aim_pos, t)
 	_sync_visual(t)
+
+
+func network_presentation() -> Dictionary:
+	return {"origin": [_origin.x, _origin.y], "aim": [aim_pos.x, aim_pos.y], "traveled": _traveled}
+
+
+func apply_network_presentation(data: Dictionary) -> void:
+	var origin: Array = data.get("origin", [0.0, 0.0])
+	var aim: Array = data.get("aim", [0.0, 0.0])
+	_origin = Vector2(float(origin[0]), float(origin[1]))
+	aim_pos = Vector2(float(aim[0]), float(aim[1]))
+	_total_distance = _origin.distance_to(aim_pos)
+	_traveled = float(data.get("traveled", 0.0))
+	_clock_hours = _compute_clock_hours()
+	_sync_visual(_flight_progress())
 
 func _flight_progress() -> float:
 	if _total_distance <= 0.0001:

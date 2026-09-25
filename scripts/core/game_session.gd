@@ -9,6 +9,13 @@ var match_map_data: Dictionary = {}
 var selected_map_path := ""
 var match_ai_mode := "gateway"
 var menu_notice := ""
+## Online matches keep world teams stable; this client's team can be either side.
+var online_active := false
+var online_team := 0
+var online_server_url := "ws://127.0.0.1:8001/ws"
+var online_player_name := "玩家"
+var online_civ_id: StringName = &"chinese"
+var online_return_to_lobby := false
 ## AI HTTP 服务根地址；空则使用内嵌 LocalAiServer 默认端口。
 var ai_service_url := ""
 ## Chat Completions 完整 URL；空则由 service_url 拼接 /v1/chat/completions。
@@ -34,3 +41,6 @@ var ai_llm_base_url := ""
 
 func _ready() -> void:
 	GameSettingsScript.apply_from_config()
+
+func local_team() -> int:
+	return online_team if online_active else Enums.Team.PLAYER

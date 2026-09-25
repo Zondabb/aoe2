@@ -1,6 +1,8 @@
 class_name BuildSystem
 extends Node
 
+const PlayerCommands := preload("res://scripts/input/player_commands.gd")
+
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 signal placement_changed(active: bool)
@@ -24,7 +26,7 @@ static func can_place(
 	var candidate_half := footprint * 0.5
 	for value in existing_buildings:
 		var building := value as Node2D
-		if building == null:
+		if building == null or building.is_queued_for_deletion() or building.get("is_placement_ghost") == true:
 			continue
 		var building_def := building.get("def") as BuildingDef
 		var existing_footprint := (
@@ -93,7 +95,7 @@ func begin_placement(building_def: BuildingDef) -> bool:
 		or match_state == null
 		or _selected_builders().is_empty()
 		or not match_state.can_afford(
-			Enums.Team.PLAYER,
+			PlayerCommands.local_team(self),
 			building_def.cost_food,
 			building_def.cost_wood,
 			building_def.cost_gold
@@ -103,7 +105,7 @@ func begin_placement(building_def: BuildingDef) -> bool:
 	cancel_placement()
 	_ghost = BUILDING_VIEW.instantiate() as Node2D
 	_ghost.name = "%sFoundation" % String(building_def.id).to_pascal_case()
-	_ghost.set("team", Enums.Team.PLAYER)
+	_ghost.set("team", PlayerCommands.local_team(self))
 	_ghost.set("def", building_def)
 	_ghost.set("civ", civ)
 	_ghost.set("match_state", match_state)
@@ -126,8 +128,19 @@ func confirm_placement() -> bool:
 	if builders.is_empty():
 		return false
 	var building_def := _ghost.get("def") as BuildingDef
+	if PlayerCommands.is_online(self):
+		var pos: Vector2 = _ghost.get("sim_pos")
+		var accepted := PlayerCommands.submit(self, {
+			"op": "place_building",
+			"building_def_id": String(building_def.id),
+			"builder_id": PlayerCommands.entity_id(self, builders[0]),
+			"pos": [pos.x, pos.y],
+		})
+		if accepted:
+			cancel_placement()
+		return accepted
 	if not match_state.spend(
-		Enums.Team.PLAYER,
+		PlayerCommands.local_team(self),
 		building_def.cost_food,
 		building_def.cost_wood,
 		building_def.cost_gold
@@ -159,7 +172,7 @@ func _selected_builders() -> Array[Node2D]:
 	for unit in _selection.call("get_selected_units"):
 		var unit_def := unit.get("def") as UnitDef
 		if (
-			unit.get("team") == Enums.Team.PLAYER
+			unit.get("team") == PlayerCommands.local_team(self)
 			and unit_def != null
 			and unit_def.id == &"villager"
 		):
@@ -170,7 +183,7 @@ func _update_placement_validity() -> void:
 	if _ghost == null:
 		return
 	placement_reason = ""
-	if match_state.fog_enabled and (match_state.fog == null or not match_state.fog.footprint_visible(Enums.Team.PLAYER, _ghost.get("sim_pos"), _ghost.get("def").footprint, true)):
+	if match_state.fog_enabled and (match_state.fog == null or not match_state.fog.footprint_visible(PlayerCommands.local_team(self), _ghost.get("sim_pos"), _ghost.get("def").footprint, true)):
 		_placement_valid = false
 		placement_reason = "need_vision"
 		_ghost.call("set_ghost_visual", false)
@@ -186,7 +199,7 @@ func _update_placement_validity() -> void:
 			existing
 		)
 		and match_state.can_afford(
-			Enums.Team.PLAYER,
+			PlayerCommands.local_team(self),
 			(_ghost.get("def") as BuildingDef).cost_food,
 			(_ghost.get("def") as BuildingDef).cost_wood,
 			(_ghost.get("def") as BuildingDef).cost_gold

@@ -1,6 +1,8 @@
 class_name HudController
 extends Control
 
+const PlayerCommands := preload("res://scripts/input/player_commands.gd")
+
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
@@ -105,6 +107,8 @@ func setup(
 		match_state.winner_decided.connect(_on_winner_decided)
 	if _return_button != null and not _return_button.pressed.is_connected(_return_to_civ_select):
 		_return_button.pressed.connect(_return_to_civ_select)
+	if _return_button != null and PlayerCommands.is_online(self):
+		_return_button.text = "返回联机大厅"
 	if _stable_button != null:
 		_stable_button.visible = _civ_allows_stable()
 	_on_selection_changed([])
@@ -269,7 +273,7 @@ func _refresh_entity_details(focus: Node2D, total_count: int) -> void:
 	_queue_label.text = ""
 	_count_label.text = "已选择 %d 个单位" % total_count if total_count > 1 else ""
 	if total_count == 1 and focus.get("team") != null:
-		_count_label.text = "己方" if focus.get("team") == Enums.Team.PLAYER else "对手"
+		_count_label.text = "己方" if focus.get("team") == PlayerCommands.local_team(self) else "对手"
 	if definition is UnitDef:
 		_stats_label.text = "攻击 %d    护甲 %d / %d    射程 %.1f" % [definition.attack, focus.melee_armor, focus.pierce_armor, definition.attack_range]
 		if focus.get("carry_amount") != null and focus.carry_amount > 0:
@@ -296,7 +300,7 @@ func _refresh_status_label(focus: Node2D, units: Array) -> void:
 		elif _command_page != "root":
 			_status_label.text = "%s：选择建筑，再在地图上放置。Esc 返回。" % ("经济建筑" if _command_page == "economy" else "军事建筑")
 		else:
-			_status_label.text = "右键移动、采集或攻击；B 经济建筑 / V 军事建筑。" if not units.is_empty() and units[0].get("team") == Enums.Team.PLAYER and units[0].get("def").id == &"villager" else "右键下达指令。" if not units.is_empty() and units[0].get("team") == Enums.Team.PLAYER else ""
+			_status_label.text = "右键移动、采集或攻击；B 经济建筑 / V 军事建筑。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) and units[0].get("def").id == &"villager" else "右键下达指令。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) else ""
 		return
 	if focus == null:
 		_status_label.text = ""
@@ -483,7 +487,7 @@ func _rebuild_command_grid() -> void:
 	var has_player_villager := false
 	var has_player_units := false
 	for unit in units:
-		if not is_instance_valid(unit) or unit.get("team") != Enums.Team.PLAYER:
+		if not is_instance_valid(unit) or unit.get("team") != PlayerCommands.local_team(self):
 			continue
 		has_player_units = true
 		var unit_def := unit.get("def") as UnitDef
@@ -497,7 +501,7 @@ func _rebuild_command_grid() -> void:
 			_add_build_commands()
 	if has_player_units and _command_page == "root":
 		_add_command_button(9, "stop", "停止", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_STOP, KEY_S, _stop_selected_units)
-	if is_instance_valid(_selected_building) and _selected_building.get("team") == Enums.Team.PLAYER and bool(_selected_building.get("is_complete")):
+	if is_instance_valid(_selected_building) and _selected_building.get("team") == PlayerCommands.local_team(self) and bool(_selected_building.get("is_complete")):
 		var slot := 0
 		for unit_def in _selected_building.call("get_trainable_units"):
 			_add_command_button(slot, "train_%s" % unit_def.id, "训练 %s" % UiCatalogScript.unit_display_name(unit_def.id), UiCatalogScript.ICONS_UNITS_BASE, UiCatalogScript.unit_icon_frame(unit_def.id), UiCatalogScript.unit_train_hotkey(unit_def.id), _enqueue_train.bind(unit_def), "unit_def", unit_def)
@@ -595,7 +599,7 @@ func _select_town_center() -> bool:
 		return false
 	for building in get_tree().get_nodes_in_group("buildings"):
 		var definition := building.get("def") as BuildingDef
-		if building.get("team") != Enums.Team.PLAYER or definition == null or definition.id != &"town_center" or building.is_queued_for_deletion():
+		if building.get("team") != PlayerCommands.local_team(self) or definition == null or definition.id != &"town_center" or building.is_queued_for_deletion():
 			continue
 		selection.call("_clear_selection", false)
 		selection.call("_add_selection", building)
@@ -611,26 +615,33 @@ func _stop_selected_units() -> void:
 	if selection == null:
 		return
 	for unit in selection.call("get_selected_units"):
-		if unit.get("team") == Enums.Team.PLAYER and unit.has_method("command_stop"):
-			unit.call("command_stop")
+		if unit.get("team") == PlayerCommands.local_team(self) and unit.has_method("command_stop"):
+			PlayerCommands.unit_order(self, unit, "stop")
 
 func _enqueue_train(unit_def: UnitDef) -> void:
 	if not _can_enqueue(unit_def):
 		return
 	if _selected_building != null and is_instance_valid(_selected_building):
-		_selected_building.call("enqueue_train", unit_def)
+		if PlayerCommands.is_online(self):
+			PlayerCommands.submit(self, {
+				"op": "train",
+				"building_id": PlayerCommands.entity_id(self, _selected_building),
+				"unit_def_id": String(unit_def.id),
+			})
+		else:
+			_selected_building.call("enqueue_train", unit_def)
 
 func _can_enqueue(unit_def: UnitDef) -> bool:
 	return (
 		_commands_enabled()
 		and _selected_building != null
 		and is_instance_valid(_selected_building)
-		and _selected_building.get("team") == Enums.Team.PLAYER
+		and _selected_building.get("team") == PlayerCommands.local_team(self)
 		and bool(_selected_building.get("is_complete"))
 		and (_selected_building.get("train_queue") as Array).is_empty()
 		and match_state != null
 		and match_state.winner == -1
-		and match_state.can_train(Enums.Team.PLAYER, unit_def)
+		and match_state.can_train(PlayerCommands.local_team(self), unit_def)
 	)
 
 func _refresh_command_grid_states() -> void:
@@ -668,11 +679,11 @@ func _refresh_command_grid_states() -> void:
 func _refresh() -> void:
 	if match_state == null or match_state.resources.is_empty():
 		return
-	var food := match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD)
-	var wood := match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.WOOD)
-	var gold := match_state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.GOLD)
-	var pop_used := int(match_state.population[Enums.Team.PLAYER])
-	var pop_cap := int(match_state.population_cap[Enums.Team.PLAYER])
+	var food := match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.FOOD)
+	var wood := match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.WOOD)
+	var gold := match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.GOLD)
+	var pop_used := int(match_state.population[PlayerCommands.local_team(self)])
+	var pop_cap := int(match_state.population_cap[PlayerCommands.local_team(self)])
 	if _wood_digits != null and wood != _shown_wood:
 		_shown_wood = wood
 		_wood_digits.set_number(wood)
@@ -698,12 +709,12 @@ func _can_build(building_def: BuildingDef) -> bool:
 	if not _commands_enabled() or selection == null or (building_def == STABLE and not _civ_allows_stable()):
 		return false
 	for unit in selection.call("get_selected_units"):
-		if not is_instance_valid(unit) or unit.get("team") != Enums.Team.PLAYER:
+		if not is_instance_valid(unit) or unit.get("team") != PlayerCommands.local_team(self):
 			continue
 		var unit_def := unit.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"villager":
 			return match_state.can_afford(
-				Enums.Team.PLAYER,
+				PlayerCommands.local_team(self),
 				building_def.cost_food,
 				building_def.cost_wood,
 				building_def.cost_gold
@@ -714,7 +725,7 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 	if _result_panel != null:
 		_result_panel.visible = true
 	if _result_label != null:
-		_result_label.text = "胜利" if winning_team == Enums.Team.PLAYER else "失败"
+		_result_label.text = "胜利" if winning_team == PlayerCommands.local_team(self) else "失败"
 	if selection != null:
 		selection.set_process_unhandled_input(false)
 	if build_system != null:
@@ -741,5 +752,23 @@ func _match_root() -> Node:
 		node = node.get_parent()
 	return get_parent()
 
+func show_network_result(message: String) -> void:
+	if _result_panel != null:
+		_result_panel.visible = true
+	if _result_label != null:
+		_result_label.custom_minimum_size.x = minf(560, maxf(280, size.x - 64))
+		_result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_result_label.add_theme_font_size_override("font_size", 24)
+		_result_label.text = message
+	if selection != null:
+		selection.read_only = true
+	if build_system != null:
+		build_system.cancel_placement()
+	_refresh()
+
 func _return_to_civ_select() -> void:
+	if PlayerCommands.is_online(self):
+		NetworkSession.leave()
+		GameSession.online_active = false
+		GameSession.online_return_to_lobby = true
 	get_tree().change_scene_to_file("res://scenes/civ_select.tscn")

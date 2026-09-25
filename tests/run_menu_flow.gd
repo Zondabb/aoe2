@@ -64,8 +64,11 @@ func _run() -> void:
 	await _capture("main")
 	_click(menu.get_node("Design/MainPage/MenuPanel/Multiplayer"))
 	await _settle()
-	check(menu.page == "main" and not menu._setup.visible and current_scene == menu, "unimplemented multiplayer cannot enter another page")
-	check("尚未实现" in menu._main_status.text, "multiplayer explains unavailable state")
+	check(menu.page == "online" and not menu._setup.visible and current_scene == menu, "multiplayer opens its own lobby")
+	check(menu._online.visible and not menu._main.visible, "online lobby replaces main menu")
+	_click(menu.get_node("Design/OnlinePage/Back"))
+	await _settle()
+	check(menu.page == "main", "online lobby back returns to main menu")
 	_click(menu.get_node("Design/MainPage/MenuPanel/SinglePlayer"))
 	await _settle()
 	check(menu.page == "single" and not menu._main.visible, "single player opens level two")
@@ -93,7 +96,7 @@ func _run() -> void:
 	menu.show_single_player()
 	check(menu.map_paths[menu._map_choice.selected] == "res://data/maps/editor_demo.json", "back and reopen retains map selection")
 	# Invalid, removed, and empty maps must never transition into the game.
-	var bad_path := "user://menu-invalid.json"
+	var bad_path := "res://.godot/menu-test-invalid.json"
 	var file := FileAccess.open(bad_path, FileAccess.WRITE)
 	file.store_string("{ invalid")
 	file.close()
@@ -101,7 +104,7 @@ func _run() -> void:
 	check(menu._start.disabled and not menu.map_error.is_empty(), "malformed map disables start with error")
 	menu._start_game()
 	check(current_scene == menu, "invalid map cannot launch even by direct action")
-	var empty_path := "user://menu-empty.json"
+	var empty_path := "res://.godot/menu-test-empty.json"
 	check(Loader.save_file(Data.create(), empty_path).is_empty(), "create no-player fixture")
 	menu.select_map_file(empty_path)
 	check(menu._start.disabled, "map without any player object cannot launch")
@@ -114,7 +117,7 @@ func _run() -> void:
 		record.pos[0] += 500
 		record.pos[1] -= 800
 	data.display_name = "地图".repeat(60)
-	var path := "user://menu-custom.json"
+	var path := "res://.godot/menu-test-custom.json"
 	check(Loader.save_file(data, path).is_empty(), "create translated map fixture")
 	menu.select_map_file(path)
 	check(not menu._start.disabled, "valid translated map can launch")
