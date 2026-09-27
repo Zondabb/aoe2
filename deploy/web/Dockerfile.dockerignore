@@ -1,0 +1,9 @@
+# Keep the build context limited to the static release and this Docker setup.
+**
+!deploy/
+!deploy/web/
+!deploy/web/nginx.conf
+!deploy/web/Dockerfile
+!dist/
+!dist/web/
+!dist/web/**

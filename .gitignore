@@ -1,6 +1,9 @@
 # Miscellaneous project folder file
 # Godot will recreate imported assets on first open.
 .godot/
+dist/
+/web/
+ai_service_python/token.txt
 
 # Local SLP export config / raw dumps (never commit full game tree)
 tools/slp_export/config.json
