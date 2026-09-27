@@ -11,6 +11,7 @@ max_hp = 2400
 melee_armor = 3
 pierce_armor = 5
 footprint = Vector2(4, 4)
+blocks_movement = false
 cost_food = 0
 cost_wood = 0
 cost_gold = 0

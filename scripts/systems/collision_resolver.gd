@@ -130,12 +130,14 @@ static func segment_hits_box(from: Vector2, to: Vector2, half: Vector2) -> bool:
 static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 	if blocker == null:
 		return Vector2.ZERO
+	var building_def := blocker.get("def") as BuildingDef
+	if building_def != null and not building_def.blocks_movement:
+		return Vector2.ZERO
 	var half_variant: Variant = blocker.get("block_half")
 	if half_variant is Vector2:
 		var half := half_variant as Vector2
 		if half.x > 0.0 and half.y > 0.0:
 			return half + Vector2(radius, radius)
-	var building_def := blocker.get("def") as BuildingDef
 	if building_def != null:
 		var civ := blocker.get("civ") as CivDef
 		var civ_id: StringName = civ.id if civ != null else &""

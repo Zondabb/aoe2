@@ -1,6 +1,7 @@
 extends RefCounted
 
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
+const TOWN_CENTER := preload("res://data/buildings/town_center.tres")
 
 class FakeBlocker extends Object:
 	var sim_pos := Vector2.ZERO
@@ -26,6 +27,7 @@ class FakeUnit extends Object:
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
+	_test_town_center_passage(failures)
 	var nav := NavGridServiceScript.new()
 	nav.setup(-20, 20, 1.0)
 
@@ -177,3 +179,33 @@ func run() -> Array[String]:
 	for fixture in [wall, incomplete, complete, pillar, house, wall2, blocker_unit]:
 		fixture.free()
 	return failures
+
+func _test_town_center_passage(failures: Array[String]) -> void:
+	var nav := NavGridServiceScript.new()
+	nav.setup(-20, 20)
+	var town_center := BuildingStub.new()
+	town_center.def = TOWN_CENTER
+	# Explicit rebuilds must honor the definition even when a cached box remains.
+	town_center.block_half = Vector2(2, 2)
+	for complete in [false, true]:
+		town_center.is_complete = complete
+		if NavGridServiceScript._building_blocks_nav(town_center):
+			failures.append("town center should not enter the scene's navigation blockers")
+		nav.rebuild_from_blockers([town_center])
+		for radius in [0.35, 1.3]:
+			if not nav.is_world_walkable_with_radius(Vector2.ZERO, radius):
+				failures.append("town center interior should be walkable for all unit sizes")
+			if not nav.is_segment_walkable(Vector2(-5, 0), Vector2(5, 0), radius):
+				failures.append("navigation should allow a direct route through the town center")
+			var path := nav.find_path(Vector2(-5, 0), Vector2.ZERO, radius)
+			if path.is_empty() or path[-1].distance_to(Vector2.ZERO) > 0.01:
+				failures.append("navigation should retain destinations inside the town center")
+	var house := BuildingStub.new()
+	house.def = load("res://data/buildings/house.tres")
+	if not NavGridServiceScript._building_blocks_nav(house):
+		failures.append("ordinary buildings must retain movement blocking")
+	nav.rebuild_from_blockers([house])
+	if not nav.is_world_solid(Vector2.ZERO):
+		failures.append("ordinary buildings must still occupy the navigation grid")
+	house.free()
+	town_center.free()

@@ -353,7 +353,10 @@ static func _building_blocks_nav(building: Object) -> bool:
 		return false
 	if building.get("is_placement_ghost") == true:
 		return false
-	# 地基与完工建筑均挡路，与 CollisionResolver 一致
+	var building_def := building.get("def") as BuildingDef
+	if building_def != null:
+		return building_def.blocks_movement
+	# 地基与完工建筑均挡路，与 CollisionResolver 一致。
 	return building.get("def") != null
 
 
@@ -539,11 +542,13 @@ func _index_of(cell: Vector2i) -> int:
 
 
 func _blocker_half(blocker: Object) -> Vector2:
+	var building_def := blocker.get("def") as BuildingDef
+	if building_def != null and not building_def.blocks_movement:
+		return Vector2.ZERO
 	if blocker.get("block_half") is Vector2:
 		var half := blocker.get("block_half") as Vector2
 		if half.x > 0.0 and half.y > 0.0:
 			return half
-	var building_def := blocker.get("def") as BuildingDef
 	if building_def != null:
 		var civ := blocker.get("civ") as CivDef
 		var civ_id: StringName = civ.id if civ != null else &""

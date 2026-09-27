@@ -4,6 +4,8 @@ extends Resource
 @export var id: StringName
 @export var max_hp: int
 @export var footprint: Vector2
+## Movement can pass beneath an open building while its placement footprint stays intact.
+@export var blocks_movement := true
 @export var vision_radius := 16.0
 @export var construction_vision_radius := 2.0
 @export var melee_armor: int = 0

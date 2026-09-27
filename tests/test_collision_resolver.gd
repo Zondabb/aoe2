@@ -1,16 +1,20 @@
 extends RefCounted
 
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const LocalAvoidanceScript := preload("res://scripts/systems/local_avoidance.gd")
+const TOWN_CENTER := preload("res://data/buildings/town_center.tres")
 
 class _TestBody extends RefCounted:
 	var def: Resource
 	var sim_pos: Vector2
 	var team: Enums.Team = Enums.Team.PLAYER
 	var order: Enums.OrderType = Enums.OrderType.MOVE
+	var block_half := Vector2.ZERO
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_building_blocks_movement(failures)
+	_test_town_center_allows_movement(failures)
 	_test_building_sideways_slide_allowed(failures)
 	_test_building_can_move_away(failures)
 	_test_unit_overlap_blocks(failures)
@@ -20,6 +24,29 @@ func run() -> Array[String]:
 	_test_can_approach_until_separation_zone(failures)
 	_test_map_bounds_clamp(failures)
 	return failures
+
+func _test_town_center_allows_movement(failures: Array[String]) -> void:
+	var town_center := _make_building(Vector2.ZERO)
+	town_center.def = TOWN_CENTER
+	# A cached positive footprint must not override the definition's open passage.
+	town_center.block_half = Vector2(2, 2)
+	for radius in [0.35, 1.3]:
+		var unit := _make_unit(Vector2(-5, 0), radius)
+		for direction in [Vector2.RIGHT, Vector2.DOWN, Vector2.ONE.normalized()]:
+			var from: Vector2 = direction * -5.0
+			var to: Vector2 = direction * 5.0
+			var crossed := CollisionResolverScript.resolve_move(unit, from, to, [], [town_center])
+			if not crossed.is_equal_approx(to):
+				failures.append("town center should allow crossing for radius %s" % radius)
+			var entered := CollisionResolverScript.resolve_move(unit, from, Vector2.ZERO, [], [town_center])
+			if not entered.is_equal_approx(Vector2.ZERO):
+				failures.append("town center center should be a valid movement destination")
+		unit.sim_pos = Vector2(-3, 0)
+		var next := LocalAvoidanceScript.step(unit, Vector2(4, 0), Vector2(4, 0), 0.25, [], [town_center])
+		if not next.is_equal_approx(Vector2(-2, 0)):
+			failures.append("local avoidance should not steer away from an open town center")
+	if TOWN_CENTER.footprint != Vector2(4, 4):
+		failures.append("town center movement must preserve its placement footprint")
 
 func _make_unit(pos: Vector2, radius: float = 0.35) -> Object:
 	var u := _TestBody.new()

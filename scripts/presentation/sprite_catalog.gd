@@ -5,9 +5,10 @@ extends RefCounted
 
 const PLAYER_COLOR_SHADER := preload("res://shaders/player_color.gdshader")
 const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
+enum SpriteLayer { ALL, SOLID, SHADOW }
 
-## Cached resources are read-only after creation. Materials are keyed by both
-## sheet and player, so changing one entity never mutates another entity's color.
+## Cached resources are read-only after creation. Materials are keyed by sheet,
+## player and render layer, so entities never mutate each other's color/shadows.
 static var _meta_cache: Dictionary = {}
 static var _texture_cache: Dictionary = {}
 static var _player_color_cache: Dictionary = {}
@@ -341,10 +342,10 @@ static func player_color_is_valid(base: String) -> bool:
 	return bool(_player_color_data(base).get("valid", false))
 
 
-static func player_color_material(base: String, color_id: int) -> ShaderMaterial:
+static func player_color_material(base: String, color_id: int, sprite_layer: int = SpriteLayer.ALL) -> ShaderMaterial:
 	if not TeamColorCatalogScript.is_valid_color_id(color_id):
 		return null
-	var key := "%s#%d" % [base, color_id]
+	var key := "%s#%d#%d" % [base, color_id, sprite_layer]
 	if _player_material_cache.has(key):
 		return _player_material_cache[key] as ShaderMaterial
 	var data := _player_color_data(base)
@@ -356,11 +357,12 @@ static func player_color_material(base: String, color_id: int) -> ShaderMaterial
 	material.set_shader_parameter("player_palette", data["palette"])
 	material.set_shader_parameter("source_player", data["source_player"])
 	material.set_shader_parameter("target_player", color_id)
+	material.set_shader_parameter("sprite_layer", sprite_layer)
 	_player_material_cache[key] = material
 	return material
 
 
-static func apply_player_color(sprite: CanvasItem, base: String, color_id: int) -> bool:
+static func apply_player_color(sprite: CanvasItem, base: String, color_id: int, sprite_layer: int = SpriteLayer.ALL) -> bool:
 	## True also covers explicitly colorless sheets, which need no ShaderMaterial.
 	## False means the caller must show its colored Body instead of baked colors.
 	if sprite == null:
@@ -372,7 +374,7 @@ static func apply_player_color(sprite: CanvasItem, base: String, color_id: int) 
 		sprite.material = null
 		return false
 	sprite.use_parent_material = false
-	sprite.material = player_color_material(base, color_id)
+	sprite.material = player_color_material(base, color_id, sprite_layer)
 	return true
 
 
@@ -679,6 +681,8 @@ static func pathfinding_footprint_for_building(
 ) -> Vector2:
 	if def == null:
 		return Vector2(2.0, 2.0)
+	if not def.blocks_movement:
+		return Vector2.ZERO
 	var side := maxf(def.footprint.x, def.footprint.y) * BUILDING_PATHFINDING_PADDING
 	return Vector2(side, side)
 
@@ -727,11 +731,15 @@ static func ensure_ground_shadow_2d(parent: Node2D, radius_px: float) -> void:
 		return
 	var shadow := parent.get_node_or_null("GroundShadow") as Polygon2D
 	if shadow == null:
+		var previous := parent.get_node_or_null("GroundShadow")
+		if previous != null:
+			parent.remove_child(previous)
+			previous.free()
 		shadow = Polygon2D.new()
 		shadow.name = "GroundShadow"
-		shadow.z_index = -1
 		parent.add_child(shadow)
 		parent.move_child(shadow, 0)
+	shadow.z_index = -1
 	shadow.polygon = _ellipse_points(radius_px * 1.15, radius_px * 0.55, 24)
 	shadow.color = Color(0.0, 0.0, 0.0, 0.35)
 	shadow.visible = true

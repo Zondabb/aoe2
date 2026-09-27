@@ -12,6 +12,9 @@ const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
+# Keep the entity origin/footprint unchanged; only its artwork covers walkers.
+const TOWN_CENTER_SOLID_Z := 1
+const TOWN_CENTER_SHADOW_Z := -3
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: BuildingDef
@@ -181,6 +184,9 @@ func _apply_ghost_tint(valid: bool) -> void:
 	var billboard := get_node_or_null("Billboard") as CanvasItem
 	if _use_billboard and billboard != null:
 		billboard.modulate = tint
+		var shadow := get_node_or_null("GroundShadow") as Sprite2D
+		if shadow != null:
+			shadow.modulate = tint
 		return
 	var body := get_node_or_null("Body") as CanvasItem
 	if body == null:
@@ -286,8 +292,15 @@ func _configure_visuals() -> void:
 	if def != null:
 		SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
 	var has_sprite_shadow := bool(meta.get("includes_shadow", false))
+	var layered_town_center := def != null and def.id == &"town_center"
+	if billboard != null:
+		billboard.z_index = TOWN_CENTER_SOLID_Z if layered_town_center else 0
+	if body != null:
+		body.z_index = TOWN_CENTER_SOLID_Z if layered_town_center else 0
 	var ground_shadow := get_node_or_null("GroundShadow") as CanvasItem
-	if has_sprite_shadow:
+	if layered_town_center and has_sprite_shadow and _use_billboard:
+		_configure_sprite_shadow(billboard)
+	elif has_sprite_shadow:
 		if ground_shadow != null:
 			ground_shadow.visible = false
 	else:
@@ -295,7 +308,27 @@ func _configure_visuals() -> void:
 		if def != null:
 			shadow_radius = maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 0.4
 		SpriteCatalogScript.ensure_ground_shadow_2d(self, shadow_radius)
+		if layered_town_center:
+			(get_node("GroundShadow") as CanvasItem).z_index = TOWN_CENTER_SHADOW_Z
 	_apply_team_color()
+
+func _configure_sprite_shadow(billboard: Sprite2D) -> void:
+	var shadow := get_node_or_null("GroundShadow") as Sprite2D
+	if shadow == null:
+		var previous := get_node_or_null("GroundShadow")
+		if previous != null:
+			remove_child(previous)
+			previous.free()
+		shadow = Sprite2D.new()
+		shadow.name = "GroundShadow"
+		add_child(shadow)
+	shadow.texture = billboard.texture
+	shadow.transform = billboard.transform
+	shadow.centered = billboard.centered
+	shadow.offset = billboard.offset
+	shadow.texture_filter = billboard.texture_filter
+	shadow.z_index = TOWN_CENTER_SHADOW_Z
+	shadow.visible = true
 
 func _sync_block_half() -> void:
 	if def == null:
@@ -310,9 +343,14 @@ func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as CanvasItem
 	var billboard := get_node_or_null("Billboard") as Sprite2D
 	if not _sprite_sheet_base.is_empty() and billboard != null:
-		_use_billboard = SpriteCatalogScript.apply_player_color(billboard, _sprite_sheet_base, color_id)
+		var layer := SpriteCatalogScript.SpriteLayer.SOLID if def != null and def.id == &"town_center" else SpriteCatalogScript.SpriteLayer.ALL
+		_use_billboard = SpriteCatalogScript.apply_player_color(billboard, _sprite_sheet_base, color_id, layer)
 		billboard.modulate = Color.WHITE
 		billboard.visible = _use_billboard
+	var shadow := get_node_or_null("GroundShadow") as Sprite2D
+	if shadow != null:
+		shadow.visible = _use_billboard and SpriteCatalogScript.apply_player_color(shadow, _sprite_sheet_base, color_id, SpriteCatalogScript.SpriteLayer.SHADOW)
+		shadow.modulate = Color.WHITE
 	if body != null:
 		body.visible = not _use_billboard
 		body.modulate = TeamColorCatalogScript.fallback_color(color_id)

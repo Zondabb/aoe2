@@ -7,6 +7,9 @@ uniform sampler2D player_mask : filter_nearest, repeat_disable;
 uniform sampler2D player_palette : source_color, filter_nearest, repeat_disable;
 uniform int source_player : hint_range(1, 8) = 3;
 uniform int target_player : hint_range(1, 8) = 1;
+// 0 = full sprite, 1 = solid artwork, 2 = ground shadow only.
+// SLP shadow opcodes export translucent black; opaque black is solid artwork.
+uniform int sprite_layer : hint_range(0, 2) = 0;
 
 varying vec4 sprite_modulate;
 
@@ -18,6 +21,10 @@ void vertex() {
 
 void fragment() {
 	vec4 base = texture(TEXTURE, UV);
+	bool shadow_pixel = base.a > 0.0 && base.a < 0.999 && all(lessThan(base.rgb, vec3(0.001)));
+	if ((sprite_layer == 1 && shadow_pixel) || (sprite_layer == 2 && !shadow_pixel)) {
+		discard;
+	}
 	// AtlasTexture supplies coordinates in the underlying sheet, including
 	// flip_h. The equally sized mask must use those exact same UV coordinates.
 	vec2 mask = texture(player_mask, UV).rg;
