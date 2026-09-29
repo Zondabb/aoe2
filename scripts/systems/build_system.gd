@@ -1,6 +1,8 @@
 class_name BuildSystem
 extends Node
 
+const Catalog := preload("res://scripts/data/game_catalog.gd")
+
 const PlayerCommands := preload("res://scripts/input/player_commands.gd")
 
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
@@ -89,6 +91,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func begin_placement(building_def: BuildingDef) -> bool:
 	if FogAccess.local_read_only(self):
 		return false
+	if not Catalog.building_reason(match_state, PlayerCommands.local_team(self), civ, building_def, _entities).is_empty(): return false
 	if (
 		building_def == null
 		or _entities == null
@@ -98,12 +101,13 @@ func begin_placement(building_def: BuildingDef) -> bool:
 			PlayerCommands.local_team(self),
 			building_def.cost_food,
 			building_def.cost_wood,
-			building_def.cost_gold
+			building_def.cost_gold, building_def.cost_stone
 		)
 	):
 		return false
 	cancel_placement()
 	_ghost = BUILDING_VIEW.instantiate() as Node2D
+	if building_def.id == &"farm": _ghost.set_script(load("res://scripts/entities/farm_agent.gd"))
 	_ghost.name = "%sFoundation" % String(building_def.id).to_pascal_case()
 	_ghost.set("team", PlayerCommands.local_team(self))
 	_ghost.set("def", building_def)
@@ -143,7 +147,7 @@ func confirm_placement() -> bool:
 		PlayerCommands.local_team(self),
 		building_def.cost_food,
 		building_def.cost_wood,
-		building_def.cost_gold
+		building_def.cost_gold, building_def.cost_stone
 	):
 		_update_placement_validity()
 		return false
@@ -182,7 +186,11 @@ func _selected_builders() -> Array[Node2D]:
 func _update_placement_validity() -> void:
 	if _ghost == null:
 		return
-	placement_reason = ""
+	placement_reason = Catalog.building_reason(match_state, PlayerCommands.local_team(self), civ, _ghost.get("def"), _entities)
+	if not placement_reason.is_empty():
+		_placement_valid = false
+		_ghost.call("set_ghost_visual", false)
+		return
 	if match_state.fog_enabled and (match_state.fog == null or not match_state.fog.footprint_visible(PlayerCommands.local_team(self), _ghost.get("sim_pos"), _ghost.get("def").footprint, true)):
 		_placement_valid = false
 		placement_reason = "need_vision"
@@ -202,7 +210,7 @@ func _update_placement_validity() -> void:
 			PlayerCommands.local_team(self),
 			(_ghost.get("def") as BuildingDef).cost_food,
 			(_ghost.get("def") as BuildingDef).cost_wood,
-			(_ghost.get("def") as BuildingDef).cost_gold
+			(_ghost.get("def") as BuildingDef).cost_gold, (_ghost.get("def") as BuildingDef).cost_stone
 		)
 	)
 	_ghost.call("set_ghost_visual", _placement_valid)

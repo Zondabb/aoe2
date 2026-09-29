@@ -2,6 +2,8 @@ class_name UiCatalog
 extends RefCounted
 
 ## Shared panel skin v1; swap path later for civ variants.
+const Catalog := preload("res://scripts/data/game_catalog.gd")
+
 const PANEL_GAME_BASE := "res://assets/sprites/ui/panel_game"
 const PANEL_DESIGN_WIDTH := 1280.0
 const PANEL_DESIGN_HEIGHT := 1024.0
@@ -124,6 +126,8 @@ static func panel_resource_slots() -> Array:
 	return PANEL_TOP_RESOURCE_SLOTS
 
 static func unit_icon_frame(unit_id: StringName) -> int:
+	var record := Catalog.unit_record(unit_id)
+	if not record.is_empty(): return int(record.get("icon_id", 0))
 	match unit_id:
 		&"villager":
 			return FRAME_UNIT_VILLAGER
@@ -139,6 +143,7 @@ static func unit_icon_frame(unit_id: StringName) -> int:
 			return 0
 
 static func unit_display_name(unit_id: StringName) -> String:
+	if not Catalog.unit_record(unit_id).is_empty(): return Catalog.display_name(unit_id)
 	match unit_id:
 		&"villager": return "村民"
 		&"archer": return "弓箭手"

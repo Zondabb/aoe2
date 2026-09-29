@@ -1,0 +1,1145 @@
+{
+  "source_sha256": "28b50786d62cc956679bf56b42b272ec04eb93642268e997484dbc63bb24e6cb",
+  "units": {
+    "militia": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "attack": 4,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "villager": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 50
+      },
+      "attack": 3,
+      "train_at": "town_center",
+      "population": 1
+    },
+    "archer": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "attack": 4,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "spearman": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "attack": 3,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "scout_cavalry": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 80
+      },
+      "attack": 3,
+      "train_at": "stable",
+      "population": 1
+    },
+    "trade_cart": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100,
+        "gold": 50
+      },
+      "attack": 0,
+      "train_at": "market",
+      "population": 1
+    },
+    "skirmisher": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 25,
+        "wood": 35
+      },
+      "attack": 2,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "man_at_arms": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "attack": 6,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "battering_ram": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "attack": 2,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "chu_ko_nu": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 35
+      },
+      "attack": 8,
+      "train_at": "castle",
+      "population": 1
+    },
+    "camel": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "food": 55,
+        "gold": 60
+      },
+      "attack": 5,
+      "train_at": "stable",
+      "population": 1
+    },
+    "cavalry_archer": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 70
+      },
+      "attack": 6,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "knight": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "attack": 10,
+      "train_at": "stable",
+      "population": 1
+    },
+    "mangonel": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "attack": 40,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "monk": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "gold": 100
+      },
+      "attack": 0,
+      "train_at": "monastery",
+      "population": 1
+    },
+    "petard": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 80,
+        "gold": 20
+      },
+      "attack": 25,
+      "train_at": "castle",
+      "population": 1
+    },
+    "scorpion": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 75,
+        "gold": 75
+      },
+      "attack": 12,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "teutonic_knight": {
+      "required_age": 2,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 85,
+        "gold": 40
+      },
+      "attack": 12,
+      "train_at": "castle",
+      "population": 1
+    },
+    "crossbowman": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "attack": 5,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "elite_skirmisher": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 25,
+        "wood": 35
+      },
+      "attack": 3,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "pikeman": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "attack": 4,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "light_cavalry": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "food": 80
+      },
+      "attack": 7,
+      "train_at": "stable",
+      "population": 1
+    },
+    "long_swordsman": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "attack": 9,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "bombard_cannon": {
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "wood": 225,
+        "gold": 225
+      },
+      "attack": 40,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "hand_cannoneer": {
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 45,
+        "gold": 50
+      },
+      "attack": 17,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "trebuchet": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 200,
+        "gold": 200
+      },
+      "attack": 200,
+      "train_at": "castle",
+      "population": 1
+    },
+    "arbalest": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "attack": 6,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "capped_ram": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "attack": 3,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "heavy_camel": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "food": 55,
+        "gold": 60
+      },
+      "attack": 7,
+      "train_at": "stable",
+      "population": 1
+    },
+    "heavy_cavalry_archer": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 70
+      },
+      "attack": 7,
+      "train_at": "archery_range",
+      "population": 1
+    },
+    "paladin": {
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "attack": 14,
+      "train_at": "stable",
+      "population": 1
+    },
+    "champion": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "attack": 13,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "halberdier": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "attack": 6,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "two_handed_swordsman": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "attack": 11,
+      "train_at": "barracks",
+      "population": 1
+    },
+    "heavy_scorpion": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 75,
+        "gold": 75
+      },
+      "attack": 16,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "onager": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "attack": 50,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "cavalier": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "attack": 12,
+      "train_at": "stable",
+      "population": 1
+    },
+    "siege_ram": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "attack": 4,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "siege_onager": {
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "attack": 75,
+      "train_at": "siege_workshop",
+      "population": 1
+    },
+    "elite_chu_ko_nu": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 35
+      },
+      "attack": 8,
+      "train_at": "castle",
+      "population": 1
+    },
+    "elite_teutonic_knight": {
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 85,
+        "gold": 40
+      },
+      "attack": 17,
+      "train_at": "castle",
+      "population": 1
+    }
+  },
+  "buildings": {
+    "barracks": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "farm": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 60
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "required_buildings": [
+        "mill"
+      ],
+      "required_techs": []
+    },
+    "house": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 30
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "mill": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "mining_camp": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "town_center": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 275,
+        "stone": 100
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "lumber_camp": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "palisade_wall": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 2
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "outpost": {
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 25,
+        "stone": 10
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "archery_range": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "required_buildings": [
+        "barracks"
+      ],
+      "required_techs": []
+    },
+    "blacksmith": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 150
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "gate": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 30
+      },
+      "footprint": [
+        4.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "market": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "required_buildings": [
+        "mill"
+      ],
+      "required_techs": []
+    },
+    "stable": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "required_buildings": [
+        "barracks"
+      ],
+      "required_techs": []
+    },
+    "stone_wall": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 5
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "watch_tower": {
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 125,
+        "wood": 25
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "monastery": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "castle": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 650
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "siege_workshop": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 200
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "required_buildings": [
+        "blacksmith"
+      ],
+      "required_techs": []
+    },
+    "university": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 200
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    },
+    "fortified_wall": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 5
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": [
+        "fortified_wall"
+      ]
+    },
+    "guard_tower": {
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 125,
+        "wood": 25
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": [
+        "guard_tower"
+      ]
+    },
+    "keep": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 125,
+        "wood": 25
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": [
+        "keep"
+      ]
+    },
+    "bombard_tower": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "gold": 100,
+        "stone": 125
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "required_buildings": [],
+      "required_techs": [
+        "bombard_tower"
+      ]
+    },
+    "wonder": {
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 1000,
+        "gold": 1000,
+        "stone": 1000
+      },
+      "footprint": [
+        5.0,
+        5.0
+      ],
+      "required_buildings": [],
+      "required_techs": []
+    }
+  },
+  "technologies": {
+    "chemistry": {
+      "cost": {
+        "food": 300,
+        "gold": 200
+      }
+    },
+    "keep": {
+      "cost": {
+        "food": 500,
+        "wood": 350
+      }
+    },
+    "bombard_tower": {
+      "cost": {
+        "food": 800,
+        "wood": 400
+      }
+    },
+    "capped_ram": {
+      "cost": {
+        "food": 300
+      }
+    },
+    "elite_skirmisher": {
+      "cost": {
+        "wood": 250,
+        "gold": 160
+      }
+    },
+    "crossbowman": {
+      "cost": {
+        "food": 125,
+        "gold": 75
+      }
+    },
+    "guard_tower": {
+      "cost": {
+        "food": 100,
+        "wood": 250
+      }
+    },
+    "fortified_wall": {
+      "cost": {
+        "food": 200,
+        "wood": 100
+      }
+    },
+    "pikeman": {
+      "cost": {
+        "food": 215,
+        "gold": 90
+      }
+    },
+    "long_swordsman": {
+      "cost": {
+        "food": 200,
+        "gold": 65
+      }
+    },
+    "cavalier": {
+      "cost": {
+        "food": 300,
+        "gold": 300
+      }
+    },
+    "two_handed_swordsman": {
+      "cost": {
+        "food": 300,
+        "gold": 100
+      }
+    },
+    "heavy_cav_archer": {
+      "cost": {
+        "food": 900,
+        "gold": 500
+      }
+    },
+    "man_at_arms": {
+      "cost": {
+        "food": 100,
+        "gold": 40
+      }
+    },
+    "heavy_camel": {
+      "cost": {
+        "food": 325,
+        "gold": 360
+      }
+    },
+    "arbalest": {
+      "cost": {
+        "food": 350,
+        "gold": 300
+      }
+    },
+    "heavy_scorpion": {
+      "cost": {
+        "food": 1000,
+        "wood": 1100
+      }
+    },
+    "light_cavalry": {
+      "cost": {
+        "food": 150,
+        "gold": 50
+      }
+    },
+    "siege_ram": {
+      "cost": {
+        "food": 1000
+      }
+    },
+    "onager": {
+      "cost": {
+        "food": 800,
+        "gold": 500
+      }
+    },
+    "champion": {
+      "cost": {
+        "food": 750,
+        "gold": 350
+      }
+    },
+    "paladin": {
+      "cost": {
+        "food": 1300,
+        "gold": 750
+      }
+    },
+    "siege_onager": {
+      "cost": {
+        "food": 1450,
+        "gold": 1000
+      }
+    },
+    "elite_chu_ko_nu": {
+      "cost": {
+        "food": 950,
+        "gold": 950
+      }
+    },
+    "elite_teutonic_knight": {
+      "cost": {
+        "food": 1200,
+        "gold": 600
+      }
+    },
+    "halberdier": {
+      "cost": {
+        "food": 300,
+        "gold": 600
+      }
+    }
+  }
+}

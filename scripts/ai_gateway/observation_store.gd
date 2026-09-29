@@ -24,6 +24,7 @@ func apply_to_blackboard(blackboard: AiBlackboard, team: Enums.Team, enemy_team:
 	blackboard.food = int(economy.get("food", 0))
 	blackboard.wood = int(economy.get("wood", 0))
 	blackboard.gold = int(economy.get("gold", 0))
+	blackboard.stone = int(economy.get("stone", 0))
 	blackboard.pop_used = int(economy.get("pop_used", 0))
 	blackboard.pop_cap = int(economy.get("pop_cap", 0))
 	blackboard.villager_count = int(derived.get("villager_count", 0))
@@ -49,6 +50,8 @@ func apply_to_blackboard(blackboard: AiBlackboard, team: Enums.Team, enemy_team:
 			"building":
 				if int(entity.get("team")) == int(team):
 					blackboard.team_buildings.append(entity)
+				if snapshot.get("def_id") == "farm" and snapshot.get("is_complete",false) and float(snapshot.get("amount",0)) > 0:
+					blackboard.resource_nodes.append(entity)
 			"unit":
 				if int(entity.get("team")) != int(team):
 					continue

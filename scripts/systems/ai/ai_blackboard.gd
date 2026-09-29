@@ -19,6 +19,7 @@ var enemy_team: Enums.Team = Enums.Team.PLAYER
 var food := 0
 var wood := 0
 var gold := 0
+var stone := 0
 var pop_used := 0
 var pop_cap := 0
 
@@ -69,6 +70,7 @@ func refresh(
 	food = match_state.get_resource(team, Enums.ResourceType.FOOD)
 	wood = match_state.get_resource(team, Enums.ResourceType.WOOD)
 	gold = match_state.get_resource(team, Enums.ResourceType.GOLD)
+	stone = match_state.get_resource(team, Enums.ResourceType.STONE)
 	pop_used = int(match_state.population.get(team, 0))
 	pop_cap = int(match_state.population_cap.get(team, 0))
 
@@ -77,8 +79,8 @@ func refresh(
 			continue
 		# 资源：有 extract() 即 ResourceNode，全局可见供采集分配。
 		if node.has_method("extract"):
-			resource_nodes.append(node as Node2D)
-			continue
+			if not node is BuildingAgent or node.is_complete: resource_nodes.append(node as Node2D)
+			if not node is BuildingAgent: continue
 		if node.get("def") is BuildingDef:
 			var building := node as Node2D
 			var building_def := building.get("def") as BuildingDef

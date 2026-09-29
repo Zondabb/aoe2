@@ -1,6 +1,11 @@
 class_name HudController
 extends Control
 
+const Catalog := preload("res://scripts/data/game_catalog.gd")
+const GRID_KEYS := [KEY_Q,KEY_W,KEY_E,KEY_R,KEY_T,KEY_A,KEY_S,KEY_D,KEY_F,KEY_G,KEY_Z,KEY_X]
+var _command_offset := 0
+var _age_label: Label
+
 const PlayerCommands := preload("res://scripts/input/player_commands.gd")
 
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
@@ -111,6 +116,21 @@ func setup(
 		_return_button.text = "返回联机大厅"
 	if _stable_button != null:
 		_stable_button.visible = _civ_allows_stable()
+	if match_state != null and match_state.progression_enabled:
+		if _age_label == null:
+			_age_label = Label.new()
+			_age_label.name = "AgeLabel"
+			_age_label.position = Vector2(405, 2)
+			_age_label.size = Vector2(160,28)
+			_age_label.z_index = 50
+			_age_label.add_theme_color_override("font_outline_color",Color.BLACK)
+			_age_label.add_theme_constant_override("outline_size",5)
+			_age_label.add_theme_font_size_override("font_size", 15)
+			_age_label.add_theme_color_override("font_color", Color("f1d395"))
+			_age_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			add_child(_age_label)
+		if not match_state.age_changed.is_connected(_on_progression_changed): match_state.age_changed.connect(_on_progression_changed)
+		if not match_state.technology_changed.is_connected(_on_progression_changed): match_state.technology_changed.connect(_on_progression_changed)
 	_on_selection_changed([])
 	_refresh()
 	if match_state.winner != -1:
@@ -198,9 +218,11 @@ func _request_build(building_def: BuildingDef) -> void:
 		build_system.call("begin_placement", building_def)
 
 func _civ_allows_stable() -> bool:
+	if match_state != null and match_state.progression_enabled: return true
 	return civ != null and Enums.BuildingType.STABLE in civ.allowed_buildings
 
 func _on_selection_changed(_selected: Array) -> void:
+	_command_offset = 0
 	_command_page = "root"
 	_disconnect_selected_building()
 	if selection == null:
@@ -279,10 +301,16 @@ func _refresh_entity_details(focus: Node2D, total_count: int) -> void:
 		if focus.get("carry_amount") != null and focus.carry_amount > 0:
 			_queue_label.text = "携带资源 %d / %d" % [focus.carry_amount, focus.carry_capacity]
 	elif definition is BuildingDef:
-		_stats_label.text = "护甲 %d / %d    人口上限 +%d" % [definition.melee_armor, definition.pierce_armor, definition.population_provided]
+		_stats_label.text = "护甲 %d / %d    人口上限 +%d" % [focus.melee_armor, focus.pierce_armor, definition.population_provided]
 		var training: Array = focus.get("train_queue")
 		if not focus.is_complete:
 			_queue_label.text = "建造中  %d%%" % (100 * focus.build_progress / maxf(definition.build_time, 0.01))
+		elif focus.is_age_researching():
+			var job: Dictionary = match_state.age_progression.progress_for(focus.team)
+			_queue_label.text = "升级%s  %d%%" % [Catalog.AGE_NAMES[job.target_age], 100 * float(job.progress)]
+		elif focus.is_technology_researching():
+			var job: Dictionary = match_state.technology_progression.progress_for(focus)
+			_queue_label.text = "研究%s  %d%%" % [Catalog.display_name(job.technology_id), 100 * float(job.progress)]
 		elif not training.is_empty():
 			var trainee: UnitDef = training[0]
 			_queue_label.text = "训练 %s  %d%%" % [UiCatalogScript.unit_display_name(trainee.id), 100 * focus.train_progress / maxf(trainee.train_time, 0.01)]
@@ -370,6 +398,7 @@ func _entity_display_name(entity: Node2D) -> String:
 	return entity.name
 
 func _building_display_name(building_def: BuildingDef) -> String:
+	if not building_def.display_name.is_empty(): return building_def.display_name
 	match building_def.id:
 		&"town_center":
 			return "城镇中心"
@@ -398,6 +427,8 @@ func _resource_display_name(resource_type: int) -> String:
 			return "树木"
 		Enums.ResourceType.GOLD:
 			return "金矿"
+		Enums.ResourceType.STONE:
+			return "石矿"
 		_:
 			return "资源"
 
@@ -409,7 +440,7 @@ func _entity_max_hp(entity: Node2D) -> float:
 	if building_def != null:
 		var entity_civ := entity.get("civ") as CivDef
 		var hp_multiplier := entity_civ.building_hp_mul if entity_civ != null else 1.0
-		return float(building_def.max_hp) * hp_multiplier
+		return entity._max_hp() if entity.has_method("_max_hp") else float(building_def.max_hp) * hp_multiplier
 	if entity.is_in_group("resource_nodes"):
 		return maxf(float(entity.get("amount")), 1.0)
 	return 0.0
@@ -429,11 +460,15 @@ func _entity_portrait(entity: Node2D) -> Texture2D:
 		)
 	var building_def := entity.get("def") as BuildingDef
 	if building_def != null:
+		if match_state != null and match_state.progression_enabled and entity.get("civ") != null:
+			var base := Catalog.building_sheet(building_def.id, entity.civ.id, match_state.age_of(entity.team))
+			if not base.is_empty(): return UiCatalogScript.atlas_frame(base,0)
 		var frame := _building_icon_frame(building_def)
 		return UiCatalogScript.atlas_frame(UiCatalogScript.ICONS_BUILDINGS_BASE, frame)
 	return null
 
 func _building_icon_frame(building_def: BuildingDef) -> int:
+	if building_def.icon_id >= 0: return building_def.icon_id
 	match building_def.id:
 		&"town_center":
 			return UiCatalogScript.FRAME_BUILD_TOWN_CENTER
@@ -465,6 +500,7 @@ func _set_command_page(page: String) -> void:
 	if not _commands_enabled() or page not in ["root", "economy", "military"]:
 		return
 	_command_page = page
+	_command_offset = 0
 	# A page button may still be delivering its pressed signal.
 	call_deferred("_rebuild_command_grid")
 
@@ -502,13 +538,30 @@ func _rebuild_command_grid() -> void:
 	if has_player_units and _command_page == "root":
 		_add_command_button(9, "stop", "停止", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_STOP, KEY_S, _stop_selected_units)
 	if is_instance_valid(_selected_building) and _selected_building.get("team") == PlayerCommands.local_team(self) and bool(_selected_building.get("is_complete")):
-		var slot := 0
-		for unit_def in _selected_building.call("get_trainable_units"):
-			_add_command_button(slot, "train_%s" % unit_def.id, "训练 %s" % UiCatalogScript.unit_display_name(unit_def.id), UiCatalogScript.ICONS_UNITS_BASE, UiCatalogScript.unit_icon_frame(unit_def.id), UiCatalogScript.unit_train_hotkey(unit_def.id), _enqueue_train.bind(unit_def), "unit_def", unit_def)
-			slot += 1
+		if match_state.progression_enabled:
+			_add_production_commands()
+		else:
+			var slot := 0
+			for unit_def in _selected_building.call("get_trainable_units"):
+				_add_command_button(slot, "train_%s" % unit_def.id, "训练 %s" % UiCatalogScript.unit_display_name(unit_def.id), UiCatalogScript.ICONS_UNITS_BASE, UiCatalogScript.unit_icon_frame(unit_def.id), UiCatalogScript.unit_train_hotkey(unit_def.id), _enqueue_train.bind(unit_def), "unit_def", unit_def)
+				slot += 1
 	_refresh_command_grid_states()
 
 func _add_build_commands() -> void:
+	if match_state.progression_enabled:
+		var economic := ["house","mill","mining_camp","lumber_camp","farm","market","blacksmith","town_center","monastery","university","wonder"]
+		var ids: Array = economic if _command_page == "economy" else ["barracks","archery_range","stable","siege_workshop","castle","outpost","palisade_wall","stone_wall","gate","watch_tower","guard_tower","fortified_wall","keep","bombard_tower"]
+		var keys := [KEY_E,KEY_I,KEY_G,KEY_Z,KEY_F,KEY_M,KEY_S,KEY_C,KEY_Y,KEY_U,KEY_O] if _command_page == "economy" else [KEY_B,KEY_A,KEY_L,KEY_W,KEY_C,KEY_O,KEY_P,KEY_T,KEY_G,KEY_Q,KEY_R,KEY_F,KEY_K,KEY_D]
+		var available: Array = []
+		for id in ids:
+			var d := Catalog.get_building(id)
+			if d != null and (d.civilizations.is_empty() or civ.id in d.civilizations): available.append(d)
+		for i in mini(12, available.size()-_command_offset):
+			var d: BuildingDef = available[_command_offset+i]
+			_add_command_button(i, "build_%s" % d.id, _building_display_name(d), UiCatalogScript.ICONS_BUILDINGS_BASE, _building_icon_frame(d), keys[ids.find(String(d.id))], _request_build.bind(d), "building_def", d)
+		_add_pagination(available.size(), true)
+		_add_command_button(14, "back", "返回单位指令", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_BACK, KEY_ESCAPE, _set_command_page.bind("root"))
+		return
 	var entries: Array = []
 	if _command_page == "economy":
 		entries = [[HOUSE, KEY_E], [MILL, KEY_I], [MINING_CAMP, KEY_G], [LUMBER_CAMP, KEY_Z]]
@@ -553,7 +606,7 @@ func _add_command_button(slot: int, command_id: String, label: String, icon_base
 	icon.offset_bottom = -3
 	var key_label := Label.new()
 	key_label.name = "Hotkey"
-	key_label.text = "Esc" if hotkey == KEY_ESCAPE else OS.get_keycode_string(hotkey)
+	key_label.text = "Esc" if hotkey == KEY_ESCAPE else "PgUp" if hotkey == KEY_PAGEUP else "PgDn" if hotkey == KEY_PAGEDOWN else OS.get_keycode_string(hotkey)
 	key_label.add_theme_font_size_override("font_size", 10)
 	key_label.add_theme_color_override("font_color", Color("fff0b3"))
 	key_label.add_theme_color_override("font_outline_color", Color.BLACK)
@@ -638,6 +691,8 @@ func _can_enqueue(unit_def: UnitDef) -> bool:
 		and is_instance_valid(_selected_building)
 		and _selected_building.get("team") == PlayerCommands.local_team(self)
 		and bool(_selected_building.get("is_complete"))
+		and not _selected_building.is_age_researching()
+		and not _selected_building.is_technology_researching()
 		and (_selected_building.get("train_queue") as Array).is_empty()
 		and match_state != null
 		and match_state.winner == -1
@@ -658,12 +713,20 @@ func _refresh_command_grid_states() -> void:
 			definition = button.get_meta("building_def")
 			button.disabled = not _can_build(definition)
 			if button.disabled:
-				reason = "资源不足或当前无法建造"
+				reason = Catalog.building_reason(match_state, PlayerCommands.local_team(self), civ, definition, _match_root().get_node("Entities"))
 		elif button.has_meta("unit_def"):
 			definition = button.get_meta("unit_def")
 			button.disabled = not _can_enqueue(definition)
 			if button.disabled:
 				reason = "正在训练" if is_instance_valid(_selected_building) and not _selected_building.train_queue.is_empty() else "资源或人口空间不足"
+		elif button.has_meta("age_upgrade"):
+			var target_age := match_state.age_of(PlayerCommands.local_team(self)) + 1
+			reason = match_state.age_progression.blocked_reason(_selected_building) if is_instance_valid(match_state.age_progression) else "正在初始化对局"
+			button.disabled = not reason.is_empty() or not _commands_enabled()
+			button.set_meta("label", "升级" + Catalog.AGE_NAMES[mini(target_age,3)])
+		elif button.has_meta("technology_id"):
+			reason = match_state.technology_progression.blocked_reason(_selected_building, button.get_meta("technology_id")) if is_instance_valid(match_state.technology_progression) else "正在初始化对局"
+			button.disabled = not reason.is_empty() or not _commands_enabled()
 		var hotkey: Key = button.get_meta("hotkey")
 		button.tooltip_text = "%s [%s]" % [button.get_meta("label"), "Esc" if hotkey == KEY_ESCAPE else OS.get_keycode_string(hotkey)]
 		if definition != null:
@@ -671,7 +734,14 @@ func _refresh_command_grid_states() -> void:
 			if definition.cost_wood > 0: costs.append("木材 %d" % definition.cost_wood)
 			if definition.cost_food > 0: costs.append("食物 %d" % definition.cost_food)
 			if definition.cost_gold > 0: costs.append("黄金 %d" % definition.cost_gold)
+			if definition.cost_stone > 0: costs.append("石料 %d" % definition.cost_stone)
 			button.tooltip_text += "\n" + "  ".join(costs)
+		if button.has_meta("age_upgrade"):
+			var req: Dictionary = preload("res://scripts/systems/age_progression.gd").requirements_for(match_state.age_of(PlayerCommands.local_team(self))+1)
+			button.tooltip_text += "\n食物 %d  黄金 %d  时间 %d 秒" % [req.get("food",0),req.get("gold",0),req.get("duration",0)]
+		elif button.has_meta("technology_id"):
+			var tech: Dictionary = Catalog.technologies()[button.get_meta("technology_id")]
+			button.tooltip_text += "\n食物 %d  木材 %d  黄金 %d  时间 %d 秒" % [tech.cost.get("food",0),tech.cost.get("wood",0),tech.cost.get("gold",0),tech.get("time",0)]
 		if not reason.is_empty():
 			button.tooltip_text += "\n" + reason
 		button.get_node("Icon").modulate = Color(0.4, 0.4, 0.4, 0.8) if button.disabled else Color.WHITE
@@ -694,7 +764,10 @@ func _refresh() -> void:
 		_shown_gold = gold
 		_gold_digits.set_number(gold)
 	if _stone_digits != null:
-		_stone_digits.set_number(0)
+		_stone_digits.set_number(match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.STONE))
+	if _age_label != null:
+		_age_label.text = Catalog.AGE_NAMES[match_state.age_of(PlayerCommands.local_team(self))]
+		_age_label.position.x = 405 * UiCatalogScript.panel_scale_for_width(size.x)
 	if _pop_digits != null and (pop_used != _shown_pop_used or pop_cap != _shown_pop_cap):
 		_shown_pop_used = pop_used
 		_shown_pop_cap = pop_cap
@@ -713,6 +786,7 @@ func _can_build(building_def: BuildingDef) -> bool:
 			continue
 		var unit_def := unit.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"villager":
+			if match_state.progression_enabled: return Catalog.building_reason(match_state, PlayerCommands.local_team(self), civ, building_def, _match_root().get_node("Entities")).is_empty()
 			return match_state.can_afford(
 				PlayerCommands.local_team(self),
 				building_def.cost_food,
@@ -772,3 +846,47 @@ func _return_to_civ_select() -> void:
 		GameSession.online_active = false
 		GameSession.online_return_to_lobby = true
 	get_tree().change_scene_to_file("res://scenes/civ_select.tscn")
+
+func _on_progression_changed(_team: int, _value: Variant) -> void:
+	_command_offset = 0
+	call_deferred("_rebuild_command_grid")
+
+func _page_commands(delta: int) -> void:
+	_command_offset = maxi(0, _command_offset + delta * 12)
+	call_deferred("_rebuild_command_grid")
+
+func _add_pagination(count: int, building_page := false) -> void:
+	if _command_offset > 0:
+		_add_command_button(13, "previous", "上一页", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_BACK, KEY_PAGEUP, _page_commands.bind(-1))
+	if _command_offset + 12 < count:
+		_add_command_button(12 if building_page else 14, "next", "下一页", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_ECONOMY, KEY_PAGEDOWN, _page_commands.bind(1))
+
+func _add_production_commands() -> void:
+	var entries: Array = []
+	for unit_def in _selected_building.get_trainable_units(): entries.append({"unit":unit_def})
+	if match_state.technology_progression != null:
+		for id in match_state.technology_progression.available(_selected_building): entries.append({"technology":id})
+	_command_offset = mini(_command_offset, maxi(0, (entries.size()-1)/12) * 12)
+	for i in mini(12, entries.size()-_command_offset):
+		var entry: Dictionary = entries[i+_command_offset]
+		if entry.has("unit"):
+			var u: UnitDef = entry.unit
+			_add_command_button(i,"train_%s" % u.id,"训练 " + u.display_name,UiCatalogScript.ICONS_UNITS_BASE,u.icon_id,KEY_C if u.id == &"villager" else GRID_KEYS[i],_enqueue_train.bind(u),"unit_def",u)
+		else:
+			var id: String = entry.technology
+			var tech: Dictionary = Catalog.technologies()[id]
+			_add_command_button(i,"research_"+id,"研究 "+tech.display_name,"res://assets/sprites/ui/icons_technologies",int(tech.get("icon_id",0)),GRID_KEYS[i],_research_technology.bind(id),"technology_id",id)
+	_add_pagination(entries.size())
+	if _selected_building.def.id == &"town_center" and match_state.age_of(_selected_building.team) < 3:
+		if _selected_building.is_age_researching():
+			_add_command_button(10,"cancel_age","取消时代升级",UiCatalogScript.ICONS_COMMANDS_BASE,UiCatalogScript.FRAME_STOP,KEY_U,_research_age.bind(true))
+		else:
+			_add_command_button(10,"research_age","升级时代","res://assets/sprites/ui/icons_technologies",30+match_state.age_of(_selected_building.team),KEY_U,_research_age.bind(false),"age_upgrade",true)
+	if _selected_building.is_technology_researching():
+		_add_command_button(12,"cancel_technology","取消研究",UiCatalogScript.ICONS_COMMANDS_BASE,UiCatalogScript.FRAME_STOP,KEY_ESCAPE,_research_technology.bind("",true))
+
+func _research_age(cancel: bool) -> void:
+	if is_instance_valid(_selected_building): PlayerCommands.research_age(self,_selected_building,cancel)
+
+func _research_technology(id: String, cancel := false) -> void:
+	if is_instance_valid(_selected_building): PlayerCommands.research_technology(self,_selected_building,id,cancel)

@@ -161,6 +161,148 @@ Classic AoE unit SLPs store **5 authored facings** (frame counts like 50/60/75 d
 IDs sourced from the openage AoC SLP list and verified present under
 `_common/drs/graphics/`.
 
+## Chinese / Teutons land catalog and four ages
+
+`import_civilizations.py` is the separate DAT-driven importer for the playable
+Chinese and Teutons land roster. It imports original names, costs, base
+attributes, training/research locations, civilization restrictions, upgrade
+links and graphics. The existing `regenerate_all.py` priority-sheet workflow
+does not replace this catalog import.
+
+The current checked-in source is HD `empires2_x1_p1.dat`, `VER 5.7`:
+41 unit definitions, 25 building definitions and 26 research definitions.
+Counts include upgraded forms and exclude navy, heroes and scenario objects.
+Age research has its own `ages` section. These are local HD values, not current
+Definitive Edition balance data. See the Chinese
+[gameplay and implementation guide](../../docs/civilizations_and_ages.md).
+
+### Dependencies and command
+
+In addition to this directory's `requirements.txt`, provide an `openage` source
+checkout whose DAT reader supports HD. `--openage` is the source root containing
+the Python `openage/` package, not the outer workspace or virtual environment.
+The parser imports the Python reader directly; it does not need a built openage
+game executable. Use the Python environment in which openage's reader
+dependencies are available.
+
+Run from the Godot repository root:
+
+```powershell
+# Install this exporter's dependencies into the selected Python environment.
+python -m pip install -r tools/slp_export/requirements.txt
+
+python tools/slp_export/import_civilizations.py `
+  --openage "D:/Users/jiangzw/workspace/openage_workspace/openage" `
+  --resources "D:/BaiduNetdiskDownload/gaoqingban2/gaoqingban2/resources"
+```
+
+`--resources` can be omitted to use `aoe2_resources` from the usual tool config.
+The importer requires the local English and Chinese UTF-8 language files as
+well as the DAT and graphics. It reads the original installation without
+modifying it. It writes the following project files:
+
+| Output | Contents |
+| --- | --- |
+| `data/civilization_catalog.json` | Formatted UTF-8 catalog, DAT SHA-256 and original source IDs |
+| `assets/sprites/civilizations/g<graphic_id>_anim.*` | Unit animation atlases, hotspots, frame/direction metadata and player masks |
+| `assets/sprites/civilizations/g<graphic_id>_static.*` | Building/resource graphic composites and metadata |
+| `assets/sprites/civilizations/farm_ground.*` | Original farm terrain texture projected onto the isometric ground plane |
+| `assets/sprites/civilizations/import_report.json` | All graphics referenced by the current import, including reused cache entries and missing SLP layer IDs |
+| `assets/sprites/ui/icons_technologies.*` | Original research icon sheet, SLP 50729 |
+
+The catalog also references the existing unit/building icon sheets and shared
+player palette. Keep those outputs from the regular exporter. Once converted,
+the game runs entirely from its JSON and PNG assets; Python, openage and the
+original installation are not runtime dependencies.
+
+For a data-only inspection, write to a separate output so the playable catalog's
+graphic references remain intact:
+
+```powershell
+python tools/slp_export/import_civilizations.py `
+  --openage "D:/Users/jiangzw/workspace/openage_workspace/openage" `
+  --catalog-only --catalog ".godot/civilization_catalog.preview.json"
+```
+
+`--catalog-only` skips all graphic export and does **not** preserve old sprite
+references in its output. The importer rejects data-only writes to the default
+playable catalog; use a separate `--catalog` output as shown above. A full
+import writes its catalog only after graphic export succeeds, so an export
+failure does not replace the previous catalog with incomplete references.
+
+### Parsing and composition rules
+
+- DAT is raw-deflate compressed. The importer requires the openage reader to
+  consume the entire decompressed file; the current input is 5,634,431 bytes.
+  A different or unsupported version should fail at import, rather than produce
+  a partially read catalog.
+- Chinese is source civilization ID 6, Teutons ID 4. Availability follows each
+  civilization's disabled technologies, research dependencies and actual
+  `UNIT_ENABLED` effects. Tree connection fields must be interpreted as
+  research IDs, not effect-bundle indices. For example, a display-tree entry
+  alone must not accidentally enable Bombard Cannon for Chinese.
+- `dat.graphics` is compacted: look graphics up by `graphic_id`, never by list
+  offset. `original_graphics.py` composites the main graphic and its direct
+  delta layers, preserving offsets and placing terrain/shadows below solid
+  artwork. Recursing into delta layers would incorrectly include damage/fire
+  overlays.
+- Each graphic ID is exported once and referenced by multiple units, buildings
+  or ages where appropriate. Unit actions include idle, walk, attack and death
+  when the source provides them. Frame counts and original authored directions
+  are retained in the metadata. Spare SLP frames after complete direction groups
+  are excluded from playback; `source_frame_count` preserves their original count.
+- Town Center uses original gameplay record 109, build-cost record 621 and the
+  corresponding multi-part building graphic. Its new-construction requirement
+  is Castle Age. Trebuchet movement uses the packed source, while idle/attack
+  artwork and combat attributes use the unpacked source.
+- Farm's transparent SLP overlay is replaced by a projection of the original
+  `g_fm1_00_color.png` farm terrain texture. Stone's graphic is read from Gaia's
+  stone resource definition.
+- The generated catalog retains original attack/armor-class arrays for future
+  use, but the current runtime does not implement every original combat effect
+  or technology modifier. Consult the gameplay guide's scope section before
+  treating catalog presence as full mechanic support.
+
+### Incremental output and validation
+
+The graphic exporter reuses a graphic when its destination JSON, atlas and any
+declared player-color mask already exist.
+It does not automatically invalidate that cache after a source DAT/SLP or
+exporter change, and it does not remove obsolete files. To regenerate a changed
+graphic, first move aside that graphic's generated atlas, metadata and mask,
+then run the full importer again. Keep backups or inspect the diff before
+discarding previous outputs. A data-only run cannot refresh the artwork.
+
+`import_report.json` lists every graphic referenced by the current import once,
+including cached outputs; the `cached` field identifies reuse. Per-sheet JSON contains `layers` and
+`missing_slp_ids` for detailed inspection. A missing optional layer is recorded
+while usable layers can still be exported. A graphic with no usable layers
+fails, except for the explicit farm-terrain fallback. Check missing-layer
+reports visually instead of assuming a successful process means every original
+layer was present.
+
+After import, allow Godot to import new PNGs, then run the relevant checks:
+
+```powershell
+python -m pytest tools/slp_export/tests -q
+godot --headless --path . --editor --quit
+godot --headless --path . --script tests/run_age_progression.gd
+python ai_service_python/tools/export_land_catalog.py
+```
+
+Use your local Godot console executable if `godot` is not on `PATH`. The age
+test validates catalog asset references and gameplay integration; it does not
+establish visual equivalence for every animation or complete original-game
+mechanics. Rendered age/HUD inspection is available with:
+
+```powershell
+godot --path . --script tests/run_age_progression.gd -- --render
+```
+
+Screenshots are written to `.godot/age-research.png` and `.godot/age-progression.png`.
+The AI export command above refreshes the gameplay-only catalog shipped with the
+standalone Python AI service; its regression test checks parity with the game catalog.
+
 ## Placeholders / limits
 
 - SLP palette entries (including index 0, black) are opaque; only skip/outline commands and row bounds create transparent regions. Treating index 0 as transparent removes dark roof and interior details.

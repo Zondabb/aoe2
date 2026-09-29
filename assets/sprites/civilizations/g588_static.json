@@ -1,0 +1,44 @@
+{
+  "key": "g588_static",
+  "graphic_id": 588,
+  "slp_id": 4534,
+  "source": "AoE2 HD DAT graphic + SLP",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 441,
+  "frame_h": 321,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "hotspots": [
+    {
+      "x": 405,
+      "y": 300
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "includes_shadow": true,
+  "layers": [
+    {
+      "graphic_id": 586,
+      "slp_id": 4682,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "graphic_id": 588,
+      "slp_id": 4534,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "graphic_id": 587,
+      "slp_id": 1828,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "missing_slp_ids": []
+}

@@ -2,15 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aoe2-rts.local/protocol/ai_v2_chat.schema.json",
   "title": "AoE2 RTS AI Protocol v2 Chat Completions (draft)",
-  "description": "Non-streaming Chat Completions contract between Godot agent and AI service. v1 tick remains frozen.",
+  "description": "Non-streaming Chat Completions contract between Godot agent and AI service, including the optional v1 land progression extension.",
   "oneOf": [
-    { "$ref": "#/$defs/chat_completion_request" },
-    { "$ref": "#/$defs/chat_completion_response" }
+    {
+      "$ref": "#/$defs/chat_completion_request"
+    },
+    {
+      "$ref": "#/$defs/chat_completion_response"
+    }
   ],
   "$defs": {
     "vec2": {
       "type": "array",
-      "items": { "type": "number" },
+      "items": {
+        "type": "number"
+      },
       "minItems": 2,
       "maxItems": 2
     },
@@ -24,56 +30,104 @@
         "move",
         "attack",
         "stop",
-        "noop"
+        "noop",
+        "research_age",
+        "cancel_research_age",
+        "research_technology",
+        "cancel_technology"
       ]
     },
     "chat_message": {
       "type": "object",
-      "required": ["role"],
+      "required": [
+        "role"
+      ],
       "properties": {
         "role": {
           "type": "string",
-          "enum": ["system", "user", "assistant", "tool"]
+          "enum": [
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ]
         },
-        "content": { "type": ["string", "null"] },
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tool_calls": {
           "type": "array",
-          "items": { "$ref": "#/$defs/tool_call" }
+          "items": {
+            "$ref": "#/$defs/tool_call"
+          }
         }
       },
       "additionalProperties": true
     },
     "tool_function": {
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "properties": {
-        "name": { "$ref": "#/$defs/tool_name" },
-        "description": { "type": "string" },
-        "parameters": { "type": "object" }
+        "name": {
+          "$ref": "#/$defs/tool_name"
+        },
+        "description": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object"
+        }
       },
       "additionalProperties": true
     },
     "tool": {
       "type": "object",
-      "required": ["type", "function"],
+      "required": [
+        "type",
+        "function"
+      ],
       "properties": {
-        "type": { "const": "function" },
-        "function": { "$ref": "#/$defs/tool_function" }
+        "type": {
+          "const": "function"
+        },
+        "function": {
+          "$ref": "#/$defs/tool_function"
+        }
       },
       "additionalProperties": true
     },
     "tool_call": {
       "type": "object",
-      "required": ["id", "type", "function"],
+      "required": [
+        "id",
+        "type",
+        "function"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "type": { "const": "function" },
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "const": "function"
+        },
         "function": {
           "type": "object",
-          "required": ["name", "arguments"],
+          "required": [
+            "name",
+            "arguments"
+          ],
           "properties": {
-            "name": { "type": "string" },
-            "arguments": { "type": "string" }
+            "name": {
+              "type": "string"
+            },
+            "arguments": {
+              "type": "string"
+            }
           }
         }
       },
@@ -82,78 +136,149 @@
     "chat_metadata": {
       "type": "object",
       "properties": {
-        "protocol_version": { "type": "integer", "const": 2 },
-        "match_id": { "type": "string" },
-        "team": { "type": "integer" },
-        "tick": { "type": "integer" },
-        "time_sec": { "type": "number" },
-        "profile_id": { "type": "string" },
-        "enemy_team": { "type": "integer" },
-        "team_label": { "type": "string" }
+        "protocol_version": {
+          "type": "integer",
+          "const": 2
+        },
+        "match_id": {
+          "type": "string"
+        },
+        "team": {
+          "type": "integer"
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "time_sec": {
+          "type": "number"
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "enemy_team": {
+          "type": "integer"
+        },
+        "team_label": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
     "chat_completion_request": {
       "type": "object",
-      "required": ["messages"],
+      "required": [
+        "messages"
+      ],
       "properties": {
-        "model": { "type": "string" },
-        "stream": { "type": "boolean" },
-        "temperature": { "type": "number" },
-        "max_tokens": { "type": "integer" },
+        "model": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "boolean"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
         "messages": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/chat_message" }
+          "items": {
+            "$ref": "#/$defs/chat_message"
+          }
         },
         "tools": {
           "type": "array",
-          "items": { "$ref": "#/$defs/tool" }
+          "items": {
+            "$ref": "#/$defs/tool"
+          }
         },
         "tool_choice": {
-          "type": ["string", "object"]
+          "type": [
+            "string",
+            "object"
+          ]
         },
-        "metadata": { "$ref": "#/$defs/chat_metadata" },
-        "observation": { "type": "object" },
-        "events": { "type": "array" }
+        "metadata": {
+          "$ref": "#/$defs/chat_metadata"
+        },
+        "observation": {
+          "type": "object"
+        },
+        "events": {
+          "type": "array"
+        }
       },
       "additionalProperties": true
     },
     "chat_completion_choice": {
       "type": "object",
-      "required": ["index", "message"],
+      "required": [
+        "index",
+        "message"
+      ],
       "properties": {
-        "index": { "type": "integer" },
+        "index": {
+          "type": "integer"
+        },
         "finish_reason": {
           "type": "string",
-          "enum": ["stop", "tool_calls", "length"]
+          "enum": [
+            "stop",
+            "tool_calls",
+            "length"
+          ]
         },
-        "message": { "$ref": "#/$defs/chat_message" }
+        "message": {
+          "$ref": "#/$defs/chat_message"
+        }
       },
       "additionalProperties": true
     },
     "chat_completion_response": {
       "type": "object",
-      "required": ["id", "object", "choices"],
+      "required": [
+        "id",
+        "object",
+        "choices"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "object": { "const": "chat.completion" },
-        "model": { "type": "string" },
+        "id": {
+          "type": "string"
+        },
+        "object": {
+          "const": "chat.completion"
+        },
+        "model": {
+          "type": "string"
+        },
         "choices": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/chat_completion_choice" }
+          "items": {
+            "$ref": "#/$defs/chat_completion_choice"
+          }
         },
         "usage": {
           "type": "object",
           "properties": {
-            "prompt_tokens": { "type": "integer" },
-            "completion_tokens": { "type": "integer" },
-            "total_tokens": { "type": "integer" }
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "total_tokens": {
+              "type": "integer"
+            }
           },
           "additionalProperties": true
         },
-        "debug": { "type": "array" }
+        "debug": {
+          "type": "array"
+        }
       },
       "additionalProperties": true
     }

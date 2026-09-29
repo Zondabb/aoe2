@@ -1,6 +1,7 @@
 class_name AiBuildManager
 extends RefCounted
 
+const Catalog := preload("res://scripts/data/game_catalog.gd")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
 const BARRACKS: BuildingDef = preload("res://data/buildings/barracks.tres")
@@ -25,13 +26,16 @@ func ensure_house_if_pop_blocked(ctx: AiRunContext, unit_def: UnitDef) -> void:
 		ctx.team, unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold
 	):
 		return
-	if ctx.match_state.can_train(ctx.team, unit_def):
+	if int(ctx.match_state.population[ctx.team]) + int(ctx.match_state.population_reserved[ctx.team]) + unit_def.population <= int(ctx.match_state.population_cap[ctx.team]):
 		return
 	ensure_building(ctx, HOUSE)
 
 
 func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
+	if ctx.match_state.progression_enabled and building_def != null: building_def = Catalog.get_building(building_def.id)
 	if building_def == null:
+		return false
+	if not Catalog.building_reason(ctx.match_state, ctx.team, ctx.civ, building_def, ctx.entities).is_empty():
 		return false
 	if building_def.id != &"house" and AiEntityQueriesScript.has_building(
 		ctx.blackboard.team_buildings, building_def.id
@@ -46,11 +50,15 @@ func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
 		building_def.cost_food,
 		building_def.cost_wood,
 		building_def.cost_gold,
+		building_def.cost_stone,
 	):
 		return false
 	var builder := AiEntityQueriesScript.idle_villager(ctx.blackboard.team_villagers)
 	if builder == null:
-		builder = AiEntityQueriesScript.any_villager(ctx.blackboard.team_villagers)
+		for candidate in ctx.blackboard.team_villagers:
+			if candidate.get("order") != Enums.OrderType.BUILD:
+				builder = candidate
+				break
 	if builder == null:
 		return false
 	var town_center := AiEntityQueriesScript.find_town_center(ctx.blackboard.team_buildings)
@@ -68,6 +76,7 @@ func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
 		building_def.cost_food,
 		building_def.cost_wood,
 		building_def.cost_gold,
+		building_def.cost_stone,
 	):
 		return false
 	var foundation := BUILDING_VIEW.instantiate() as Node2D
@@ -108,17 +117,10 @@ func _ensure_military_buildings(ctx: AiRunContext) -> void:
 	ensure_building(ctx, ARCHERY_RANGE)
 	if ctx.civ != null and ctx.civ.id == &"teutons":
 		ensure_building(ctx, STABLE)
+	if ctx.match_state.progression_enabled and ctx.match_state.age_of(ctx.team) >= 2:
+		ensure_building(ctx, Catalog.get_building("castle"))
+		ensure_building(ctx, Catalog.get_building("siege_workshop"))
 
 
 func _def_for_id(building_id: StringName) -> BuildingDef:
-	match building_id:
-		&"house":
-			return HOUSE
-		&"barracks":
-			return BARRACKS
-		&"archery_range":
-			return ARCHERY_RANGE
-		&"stable":
-			return STABLE
-		_:
-			return null
+	return Catalog.get_building(String(building_id))

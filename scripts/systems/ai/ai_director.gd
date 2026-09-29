@@ -34,6 +34,7 @@ var _tick_accum := 0.0
 var _next_build_slot := 0
 var _blackboard: AiBlackboard
 var _ctx: AiRunContext
+var _progression := preload("res://scripts/systems/ai/ai_progression_manager.gd").new()
 var _economy := AiEconomyManagerScript.new()
 var _build := AiBuildManagerScript.new()
 var _production := AiProductionManagerScript.new()
@@ -103,6 +104,7 @@ func evaluate() -> void:
 
 	_economy.assign_builders(_ctx)
 	_economy.assign_gatherers(_ctx)
+	_progression.tick(_ctx, _build)
 
 	match director_phase:
 		Phase.ECO:
@@ -112,6 +114,7 @@ func evaluate() -> void:
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
 		Phase.ATTACK:
+			if match_state.progression_enabled: _build.tick(_ctx)
 			_production.tick(_ctx, _build)
 			_army.rally(_ctx)
 			_combat.tick_army(_ctx)
@@ -142,6 +145,7 @@ func evaluate_capture(tick: int) -> Dictionary:
 
 	_economy.assign_builders(_ctx)
 	_economy.assign_gatherers(_ctx)
+	_progression.tick(_ctx, _build)
 
 	match director_phase:
 		Phase.ECO:
@@ -151,6 +155,7 @@ func evaluate_capture(tick: int) -> Dictionary:
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
 		Phase.ATTACK:
+			if match_state.progression_enabled: _build.tick(_ctx)
 			_production.tick(_ctx, _build)
 			_army.rally(_ctx)
 			_combat.tick_army(_ctx)
@@ -179,6 +184,7 @@ func evaluate_from_observation(tick: int, observation: Dictionary) -> Dictionary
 
 	_economy.assign_builders(_ctx)
 	_economy.assign_gatherers(_ctx)
+	_progression.tick(_ctx, _build)
 
 	match director_phase:
 		Phase.ECO:
@@ -188,6 +194,7 @@ func evaluate_from_observation(tick: int, observation: Dictionary) -> Dictionary
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
 		Phase.ATTACK:
+			if match_state.progression_enabled: _build.tick(_ctx)
 			_production.tick(_ctx, _build)
 			_army.rally(_ctx)
 			_combat.tick_army(_ctx)

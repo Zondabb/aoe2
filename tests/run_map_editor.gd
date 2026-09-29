@@ -50,7 +50,7 @@ func _run() -> void:
 	var villager: Node2D = editor._nodes[villager_id]
 	check(villager.process_mode == Node.PROCESS_MODE_DISABLED and editor.state.frozen, "editor disables simulation")
 	check(editor.state.population[Enums.Team.PLAYER] == 1, "population reflects placed units")
-	check(editor._nav.nav.is_world_solid(Vector2(-12, -6)), "buildings block editor navigation")
+	check(not editor._nav.nav.is_world_solid(Vector2(-12, -6)), "town center retains its walkable passage in editor navigation")
 	check(editor._nav.nav.is_world_solid(Vector2(-5, -5)), "trees block editor navigation")
 	editor._x.value = 3
 	editor._z.value = 2
@@ -184,7 +184,7 @@ func _test_validation() -> void:
 	var count := 0
 	for kind in ["building", "unit", "resource"]:
 		for id in Catalog.ids(kind):
-			var entry := Catalog.make_record(kind, id, Vector2(-45 + count * 6, 0))
+			var entry := Catalog.make_record(kind, id, Vector2(-45 + (count % 12) * 8, -40 + floori(count / 12.0) * 8))
 			entry.id = "catalog_%d" % count
 			full_catalog.entities.append(entry)
 			count += 1

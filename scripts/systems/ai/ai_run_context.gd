@@ -141,3 +141,17 @@ func _push_command(cmd: Dictionary) -> void:
 	cmd["command_id"] = "c_%d_%d" % [capture_tick, _command_seq]
 	_command_seq += 1
 	pending_commands.append(cmd)
+
+
+func issue_age_upgrade(building: Node2D) -> bool:
+	if capture_commands:
+		_push_command({"op": "research_age", "building_id": EntityRegistryScript.id_of(building)})
+		return true
+	return bool(building.call("start_age_upgrade"))
+
+
+func issue_technology(building: Node2D, technology_id: String) -> bool:
+	if capture_commands:
+		_push_command({"op": "research_technology", "building_id": EntityRegistryScript.id_of(building), "technology_id": technology_id})
+		return true
+	return bool(match_state.technology_progression.start_research(building, technology_id))

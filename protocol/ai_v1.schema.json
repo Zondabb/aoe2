@@ -4,10 +4,18 @@
   "title": "AoE2 RTS AI Protocol v1",
   "description": "HTTP JSON contract between Godot game and external AI service.",
   "oneOf": [
-    { "$ref": "#/$defs/tick_request" },
-    { "$ref": "#/$defs/tick_response" },
-    { "$ref": "#/$defs/tick_batch_request" },
-    { "$ref": "#/$defs/tick_batch_response" }
+    {
+      "$ref": "#/$defs/tick_request"
+    },
+    {
+      "$ref": "#/$defs/tick_response"
+    },
+    {
+      "$ref": "#/$defs/tick_batch_request"
+    },
+    {
+      "$ref": "#/$defs/tick_batch_response"
+    }
   ],
   "$defs": {
     "protocol_version": {
@@ -16,19 +24,41 @@
     },
     "vec2": {
       "type": "array",
-      "items": { "type": "number" },
+      "items": {
+        "type": "number"
+      },
       "minItems": 2,
       "maxItems": 2
     },
     "economy": {
       "type": "object",
-      "required": ["food", "wood", "gold", "pop_used", "pop_cap"],
+      "required": [
+        "food",
+        "wood",
+        "gold",
+        "pop_used",
+        "pop_cap"
+      ],
       "properties": {
-        "food": { "type": "integer" },
-        "wood": { "type": "integer" },
-        "gold": { "type": "integer" },
-        "pop_used": { "type": "integer" },
-        "pop_cap": { "type": "integer" }
+        "food": {
+          "type": "integer"
+        },
+        "wood": {
+          "type": "integer"
+        },
+        "gold": {
+          "type": "integer"
+        },
+        "pop_used": {
+          "type": "integer"
+        },
+        "pop_cap": {
+          "type": "integer"
+        },
+        "stone": {
+          "type": "integer",
+          "default": 0
+        }
       },
       "additionalProperties": false
     },
@@ -45,39 +75,107 @@
         "incomplete_buildings"
       ],
       "properties": {
-        "own_tc_id": { "type": "integer" },
-        "own_tc_pos": { "$ref": "#/$defs/vec2" },
-        "enemy_tc_id": { "type": "integer" },
-        "enemy_tc_pos": { "$ref": "#/$defs/vec2" },
-        "threat_near_base": { "type": "boolean" },
-        "villager_count": { "type": "integer" },
-        "military_count": { "type": "integer" },
-        "incomplete_buildings": { "type": "integer" },
-        "match_time_sec": { "type": "number" }
+        "own_tc_id": {
+          "type": "integer"
+        },
+        "own_tc_pos": {
+          "$ref": "#/$defs/vec2"
+        },
+        "enemy_tc_id": {
+          "type": "integer"
+        },
+        "enemy_tc_pos": {
+          "$ref": "#/$defs/vec2"
+        },
+        "threat_near_base": {
+          "type": "boolean"
+        },
+        "villager_count": {
+          "type": "integer"
+        },
+        "military_count": {
+          "type": "integer"
+        },
+        "incomplete_buildings": {
+          "type": "integer"
+        },
+        "match_time_sec": {
+          "type": "number"
+        }
       },
       "additionalProperties": true
     },
     "entity_unit": {
       "type": "object",
-      "required": ["id", "kind", "def_id", "team", "pos", "hp", "max_hp", "order"],
+      "required": [
+        "id",
+        "kind",
+        "def_id",
+        "team",
+        "pos",
+        "hp",
+        "max_hp",
+        "order"
+      ],
       "properties": {
-        "id": { "type": "integer" },
-        "kind": { "const": "unit" },
-        "def_id": { "type": "string" },
-        "team": { "type": "integer" },
-        "pos": { "$ref": "#/$defs/vec2" },
-        "hp": { "type": "number" },
-        "max_hp": { "type": "number" },
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "const": "unit"
+        },
+        "def_id": {
+          "type": "string"
+        },
+        "team": {
+          "type": "integer"
+        },
+        "pos": {
+          "$ref": "#/$defs/vec2"
+        },
+        "hp": {
+          "type": "number"
+        },
+        "max_hp": {
+          "type": "number"
+        },
         "order": {
           "type": "string",
-          "enum": ["NONE", "MOVE", "GATHER", "BUILD", "ATTACK"]
+          "enum": [
+            "NONE",
+            "MOVE",
+            "GATHER",
+            "BUILD",
+            "ATTACK"
+          ]
         },
-        "gather_state": { "type": "string" },
-        "carry_type": { "type": ["string", "null"] },
-        "carry_amount": { "type": "number" },
-        "stuck_frames": { "type": "integer" },
-        "last_resource_id": { "type": ["integer", "null"] },
-        "target_id": { "type": ["integer", "null"] }
+        "gather_state": {
+          "type": "string"
+        },
+        "carry_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "carry_amount": {
+          "type": "number"
+        },
+        "stuck_frames": {
+          "type": "integer"
+        },
+        "last_resource_id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "target_id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
       },
       "additionalProperties": false
     },
@@ -96,58 +194,161 @@
         "train_queue_empty"
       ],
       "properties": {
-        "id": { "type": "integer" },
-        "kind": { "const": "building" },
-        "def_id": { "type": "string" },
-        "team": { "type": "integer" },
-        "pos": { "$ref": "#/$defs/vec2" },
-        "hp": { "type": "number" },
-        "max_hp": { "type": "number" },
-        "is_complete": { "type": "boolean" },
-        "build_progress": { "type": "number" },
-        "train_queue_empty": { "type": "boolean" }
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "const": "building"
+        },
+        "def_id": {
+          "type": "string"
+        },
+        "team": {
+          "type": "integer"
+        },
+        "pos": {
+          "$ref": "#/$defs/vec2"
+        },
+        "hp": {
+          "type": "number"
+        },
+        "max_hp": {
+          "type": "number"
+        },
+        "is_complete": {
+          "type": "boolean"
+        },
+        "build_progress": {
+          "type": "number"
+        },
+        "train_queue_empty": {
+          "type": "boolean"
+        },
+        "trainable": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "age_upgrade_reason": {
+          "type": "string"
+        },
+        "technologies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "reason"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "resource_type": {
+          "type": "string",
+          "enum": [
+            "FOOD"
+          ]
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "is_researching": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     },
     "entity_resource": {
       "type": "object",
-      "required": ["id", "kind", "resource_type", "pos", "amount"],
+      "required": [
+        "id",
+        "kind",
+        "resource_type",
+        "pos",
+        "amount"
+      ],
       "properties": {
-        "id": { "type": "integer" },
-        "kind": { "const": "resource" },
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "const": "resource"
+        },
         "resource_type": {
           "type": "string",
-          "enum": ["FOOD", "WOOD", "GOLD", "UNKNOWN"]
+          "enum": [
+            "FOOD",
+            "WOOD",
+            "GOLD",
+            "STONE",
+            "UNKNOWN"
+          ]
         },
-        "pos": { "$ref": "#/$defs/vec2" },
-        "amount": { "type": "number" }
+        "pos": {
+          "$ref": "#/$defs/vec2"
+        },
+        "amount": {
+          "type": "number"
+        }
       },
       "additionalProperties": false
     },
     "observation": {
       "type": "object",
-      "required": ["economy", "derived", "entities"],
+      "required": [
+        "economy",
+        "derived",
+        "entities"
+      ],
       "properties": {
-        "economy": { "$ref": "#/$defs/economy" },
-        "derived": { "$ref": "#/$defs/derived" },
+        "economy": {
+          "$ref": "#/$defs/economy"
+        },
+        "derived": {
+          "$ref": "#/$defs/derived"
+        },
         "entities": {
           "type": "array",
           "items": {
             "oneOf": [
-              { "$ref": "#/$defs/entity_unit" },
-              { "$ref": "#/$defs/entity_building" },
-              { "$ref": "#/$defs/entity_resource" }
+              {
+                "$ref": "#/$defs/entity_unit"
+              },
+              {
+                "$ref": "#/$defs/entity_building"
+              },
+              {
+                "$ref": "#/$defs/entity_resource"
+              }
             ]
           }
+        },
+        "progression": {
+          "$ref": "#/$defs/progression"
         }
       },
       "additionalProperties": false
     },
     "event": {
       "type": "object",
-      "required": ["seq", "type"],
+      "required": [
+        "seq",
+        "type"
+      ],
       "properties": {
-        "seq": { "type": "integer" },
+        "seq": {
+          "type": "integer"
+        },
         "type": {
           "type": "string",
           "enum": [
@@ -160,18 +361,31 @@
             "unit_order_finished"
           ]
         },
-        "entity_id": { "type": "integer" },
-        "entity": { "type": "object" },
-        "resource_type": { "type": "string" },
-        "reason": { "type": "string" }
+        "entity_id": {
+          "type": "integer"
+        },
+        "entity": {
+          "type": "object"
+        },
+        "resource_type": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
     "command": {
       "type": "object",
-      "required": ["command_id", "op"],
+      "required": [
+        "command_id",
+        "op"
+      ],
       "properties": {
-        "command_id": { "type": "string" },
+        "command_id": {
+          "type": "string"
+        },
         "op": {
           "type": "string",
           "enum": [
@@ -182,16 +396,37 @@
             "attack",
             "place_building",
             "train",
-            "noop"
+            "noop",
+            "research_age",
+            "cancel_research_age",
+            "research_technology",
+            "cancel_technology"
           ]
         },
-        "unit_id": { "type": "integer" },
-        "building_id": { "type": "integer" },
-        "target_id": { "type": "integer" },
-        "building_def_id": { "type": "string" },
-        "unit_def_id": { "type": "string" },
-        "pos": { "$ref": "#/$defs/vec2" },
-        "builder_id": { "type": "integer" }
+        "unit_id": {
+          "type": "integer"
+        },
+        "building_id": {
+          "type": "integer"
+        },
+        "target_id": {
+          "type": "integer"
+        },
+        "building_def_id": {
+          "type": "string"
+        },
+        "unit_def_id": {
+          "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/vec2"
+        },
+        "builder_id": {
+          "type": "integer"
+        },
+        "technology_id": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
@@ -206,42 +441,85 @@
         "observation"
       ],
       "properties": {
-        "protocol_version": { "$ref": "#/$defs/protocol_version" },
-        "match_id": { "type": "string" },
-        "team": { "type": "integer" },
-        "team_label": { "type": "string" },
-        "tick": { "type": "integer" },
-        "time_sec": { "type": "number" },
-        "profile_id": { "type": "string" },
-        "enemy_team": { "type": "integer" },
+        "protocol_version": {
+          "$ref": "#/$defs/protocol_version"
+        },
+        "match_id": {
+          "type": "string"
+        },
+        "team": {
+          "type": "integer"
+        },
+        "team_label": {
+          "type": "string"
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "time_sec": {
+          "type": "number"
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "enemy_team": {
+          "type": "integer"
+        },
         "events": {
           "type": "array",
-          "items": { "$ref": "#/$defs/event" }
+          "items": {
+            "$ref": "#/$defs/event"
+          }
         },
-        "observation": { "$ref": "#/$defs/observation" }
+        "observation": {
+          "$ref": "#/$defs/observation"
+        }
       },
       "additionalProperties": false
     },
     "tick_response": {
       "type": "object",
-      "required": ["protocol_version", "match_id", "team", "for_tick", "commands"],
+      "required": [
+        "protocol_version",
+        "match_id",
+        "team",
+        "for_tick",
+        "commands"
+      ],
       "properties": {
-        "protocol_version": { "$ref": "#/$defs/protocol_version" },
-        "match_id": { "type": "string" },
-        "team": { "type": "integer" },
-        "for_tick": { "type": "integer" },
+        "protocol_version": {
+          "$ref": "#/$defs/protocol_version"
+        },
+        "match_id": {
+          "type": "string"
+        },
+        "team": {
+          "type": "integer"
+        },
+        "for_tick": {
+          "type": "integer"
+        },
         "commands": {
           "type": "array",
-          "items": { "$ref": "#/$defs/command" }
+          "items": {
+            "$ref": "#/$defs/command"
+          }
         },
         "debug": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["category", "message"],
+            "required": [
+              "category",
+              "message"
+            ],
             "properties": {
-              "category": { "type": "string" },
-              "message": { "type": "string" }
+              "category": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
             }
           }
         }
@@ -250,27 +528,56 @@
     },
     "tick_batch_request": {
       "type": "object",
-      "required": ["protocol_version", "match_id", "requests"],
+      "required": [
+        "protocol_version",
+        "match_id",
+        "requests"
+      ],
       "properties": {
-        "protocol_version": { "$ref": "#/$defs/protocol_version" },
-        "match_id": { "type": "string" },
+        "protocol_version": {
+          "$ref": "#/$defs/protocol_version"
+        },
+        "match_id": {
+          "type": "string"
+        },
         "requests": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["team", "tick", "time_sec", "observation"],
+            "required": [
+              "team",
+              "tick",
+              "time_sec",
+              "observation"
+            ],
             "properties": {
-              "team": { "type": "integer" },
-              "team_label": { "type": "string" },
-              "tick": { "type": "integer" },
-              "time_sec": { "type": "number" },
-              "profile_id": { "type": "string" },
-              "enemy_team": { "type": "integer" },
+              "team": {
+                "type": "integer"
+              },
+              "team_label": {
+                "type": "string"
+              },
+              "tick": {
+                "type": "integer"
+              },
+              "time_sec": {
+                "type": "number"
+              },
+              "profile_id": {
+                "type": "string"
+              },
+              "enemy_team": {
+                "type": "integer"
+              },
               "events": {
                 "type": "array",
-                "items": { "$ref": "#/$defs/event" }
+                "items": {
+                  "$ref": "#/$defs/event"
+                }
               },
-              "observation": { "$ref": "#/$defs/observation" }
+              "observation": {
+                "$ref": "#/$defs/observation"
+              }
             },
             "additionalProperties": false
           }
@@ -280,13 +587,75 @@
     },
     "tick_batch_response": {
       "type": "object",
-      "required": ["protocol_version", "match_id", "responses"],
+      "required": [
+        "protocol_version",
+        "match_id",
+        "responses"
+      ],
       "properties": {
-        "protocol_version": { "$ref": "#/$defs/protocol_version" },
-        "match_id": { "type": "string" },
+        "protocol_version": {
+          "$ref": "#/$defs/protocol_version"
+        },
+        "match_id": {
+          "type": "string"
+        },
         "responses": {
           "type": "array",
-          "items": { "$ref": "#/$defs/tick_response" }
+          "items": {
+            "$ref": "#/$defs/tick_response"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "progression": {
+      "type": "object",
+      "required": [
+        "age"
+      ],
+      "properties": {
+        "age": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "researched_technologies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "age_research": {
+          "type": "object",
+          "properties": {
+            "from_age": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "target_age": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
+            },
+            "elapsed": {
+              "type": "number",
+              "minimum": 0
+            },
+            "duration": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "progress": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "building_id": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

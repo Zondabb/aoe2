@@ -37,7 +37,7 @@ func assign_gatherers(ctx: AiRunContext) -> void:
 	var needs_work := _villagers_needing_gather(ctx)
 	if needs_work.is_empty():
 		return
-	if ctx.phase <= 0:
+	if ctx.phase <= 0 and not ctx.match_state.progression_enabled:
 		_assign_opening_gatherers(ctx, needs_work)
 	else:
 		_assign_balanced_gatherers(ctx, needs_work)
@@ -86,6 +86,10 @@ func _assign_opening_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> v
 
 func _assign_balanced_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> void:
 	var ratios := ctx.profile.ratios_for_phase(ctx.phase)
+	if ctx.match_state.progression_enabled:
+		ratios = {Enums.ResourceType.FOOD: 0.5, Enums.ResourceType.WOOD: 0.3, Enums.ResourceType.GOLD: 0.1, Enums.ResourceType.STONE: 0.1}
+		if ctx.match_state.age_of(ctx.team) >= 1:
+			ratios = {Enums.ResourceType.FOOD: 0.4, Enums.ResourceType.WOOD: 0.25, Enums.ResourceType.GOLD: 0.25, Enums.ResourceType.STONE: 0.1}
 	var counts := _count_active_gatherers(ctx)
 	var assigned := _total_gather_count(counts)
 	var base_pos := ctx.blackboard.own_tc_pos
@@ -139,6 +143,7 @@ func _count_active_gatherers(ctx: AiRunContext) -> Dictionary:
 		Enums.ResourceType.FOOD: 0,
 		Enums.ResourceType.WOOD: 0,
 		Enums.ResourceType.GOLD: 0,
+		Enums.ResourceType.STONE: 0,
 	}
 	for villager in ctx.blackboard.team_villagers:
 		if villager.get("order") != Enums.OrderType.GATHER:
@@ -157,6 +162,7 @@ func _total_gather_count(counts: Dictionary) -> int:
 		int(counts[Enums.ResourceType.FOOD])
 		+ int(counts[Enums.ResourceType.WOOD])
 		+ int(counts[Enums.ResourceType.GOLD])
+		+ int(counts[Enums.ResourceType.STONE])
 	)
 
 
@@ -187,5 +193,7 @@ func _resource_name(resource_type: int) -> String:
 			return "wood"
 		Enums.ResourceType.GOLD:
 			return "gold"
+		Enums.ResourceType.STONE:
+			return "stone"
 		_:
 			return "resource"

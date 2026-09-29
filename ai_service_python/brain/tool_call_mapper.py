@@ -8,6 +8,10 @@ from protocol.models import Command, CommandOp
 TOOL_NAMES: tuple[str, ...] = (
     "gather",
     "train",
+    "research_age",
+    "cancel_research_age",
+    "research_technology",
+    "cancel_technology",
     "place_building",
     "build",
     "move",
@@ -23,6 +27,7 @@ _ARG_KEYS = (
     "target_id",
     "building_def_id",
     "unit_def_id",
+    "technology_id",
     "pos",
     "builder_id",
 )
@@ -30,6 +35,10 @@ _ARG_KEYS = (
 _TOOL_DESCRIPTIONS: dict[str, str] = {
     "gather": "Send a villager to gather a resource node.",
     "train": "Queue a unit at a completed building.",
+    "research_age": "Research the next age at an idle town center whose age_upgrade_reason is empty.",
+    "cancel_research_age": "Cancel the town center's age research and refund its cost.",
+    "research_technology": "Research an available technology whose observed reason is empty.",
+    "cancel_technology": "Cancel a building's technology research and refund its cost.",
     "place_building": "Place a building foundation at pos.",
     "build": "Send a villager to construct a foundation.",
     "move": "Move a unit to pos.",
@@ -39,6 +48,14 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
 }
 
 _TOOL_PROPERTIES: dict[str, dict[str, Any]] = {
+    "research_age": {"building_id": {"type": "integer"}, "command_id": {"type": "string"}},
+    "cancel_research_age": {"building_id": {"type": "integer"}, "command_id": {"type": "string"}},
+    "research_technology": {
+        "building_id": {"type": "integer"},
+        "technology_id": {"type": "string"},
+        "command_id": {"type": "string"},
+    },
+    "cancel_technology": {"building_id": {"type": "integer"}, "command_id": {"type": "string"}},
     "gather": {
         "unit_id": {"type": "integer"},
         "target_id": {"type": "integer"},

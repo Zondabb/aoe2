@@ -118,6 +118,8 @@ func _test_train_button_click_survives(failures: Array[String]) -> void:
 	building.set("match_state", state)
 	building.set("is_complete", true)
 	root.add_child(building)
+	# This suite runs from SceneTree._initialize, before normal ready notifications.
+	building.call("_ready")
 	mock.building = building
 	hud.setup(state, civ, null, mock)
 	var grid := hud.get_node("%CommandGrid") as GridContainer

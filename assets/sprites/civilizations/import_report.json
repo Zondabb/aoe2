@@ -1,0 +1,1792 @@
+[
+  {
+    "graphic_id": 1102,
+    "path": "res://assets/sprites/civilizations/g1102_anim",
+    "frames": 30,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1106,
+    "path": "res://assets/sprites/civilizations/g1106_anim",
+    "frames": 60,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1096,
+    "path": "res://assets/sprites/civilizations/g1096_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1099,
+    "path": "res://assets/sprites/civilizations/g1099_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1284,
+    "path": "res://assets/sprites/civilizations/g1284_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1288,
+    "path": "res://assets/sprites/civilizations/g1288_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1278,
+    "path": "res://assets/sprites/civilizations/g1278_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1281,
+    "path": "res://assets/sprites/civilizations/g1281_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 633,
+    "path": "res://assets/sprites/civilizations/g633_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": false
+  },
+  {
+    "graphic_id": 637,
+    "path": "res://assets/sprites/civilizations/g637_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 627,
+    "path": "res://assets/sprites/civilizations/g627_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 630,
+    "path": "res://assets/sprites/civilizations/g630_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1063,
+    "path": "res://assets/sprites/civilizations/g1063_anim",
+    "frames": 45,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1067,
+    "path": "res://assets/sprites/civilizations/g1067_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1057,
+    "path": "res://assets/sprites/civilizations/g1057_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1060,
+    "path": "res://assets/sprites/civilizations/g1060_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1972,
+    "path": "res://assets/sprites/civilizations/g1972_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1976,
+    "path": "res://assets/sprites/civilizations/g1976_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1966,
+    "path": "res://assets/sprites/civilizations/g1966_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1969,
+    "path": "res://assets/sprites/civilizations/g1969_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1141,
+    "path": "res://assets/sprites/civilizations/g1141_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1681,
+    "path": "res://assets/sprites/civilizations/g1681_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1138,
+    "path": "res://assets/sprites/civilizations/g1138_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1401,
+    "path": "res://assets/sprites/civilizations/g1401_anim",
+    "frames": 40,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1405,
+    "path": "res://assets/sprites/civilizations/g1405_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1395,
+    "path": "res://assets/sprites/civilizations/g1395_anim",
+    "frames": 60,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1398,
+    "path": "res://assets/sprites/civilizations/g1398_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1115,
+    "path": "res://assets/sprites/civilizations/g1115_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1119,
+    "path": "res://assets/sprites/civilizations/g1119_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1109,
+    "path": "res://assets/sprites/civilizations/g1109_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1112,
+    "path": "res://assets/sprites/civilizations/g1112_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 686,
+    "path": "res://assets/sprites/civilizations/g686_anim",
+    "frames": 5,
+    "missing_slp_ids": [
+      177,
+      178
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 690,
+    "path": "res://assets/sprites/civilizations/g690_anim",
+    "frames": 75,
+    "missing_slp_ids": [
+      182
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 680,
+    "path": "res://assets/sprites/civilizations/g680_anim",
+    "frames": 75,
+    "missing_slp_ids": [
+      172
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 683,
+    "path": "res://assets/sprites/civilizations/g683_anim",
+    "frames": 60,
+    "missing_slp_ids": [
+      174,
+      175
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 725,
+    "path": "res://assets/sprites/civilizations/g725_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 729,
+    "path": "res://assets/sprites/civilizations/g729_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 719,
+    "path": "res://assets/sprites/civilizations/g719_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 722,
+    "path": "res://assets/sprites/civilizations/g722_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 946,
+    "path": "res://assets/sprites/civilizations/g946_anim",
+    "frames": 25,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 950,
+    "path": "res://assets/sprites/civilizations/g950_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 940,
+    "path": "res://assets/sprites/civilizations/g940_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 943,
+    "path": "res://assets/sprites/civilizations/g943_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 751,
+    "path": "res://assets/sprites/civilizations/g751_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 755,
+    "path": "res://assets/sprites/civilizations/g755_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 745,
+    "path": "res://assets/sprites/civilizations/g745_anim",
+    "frames": 65,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 748,
+    "path": "res://assets/sprites/civilizations/g748_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 933,
+    "path": "res://assets/sprites/civilizations/g933_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 937,
+    "path": "res://assets/sprites/civilizations/g937_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 927,
+    "path": "res://assets/sprites/civilizations/g927_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 930,
+    "path": "res://assets/sprites/civilizations/g930_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 985,
+    "path": "res://assets/sprites/civilizations/g985_anim",
+    "frames": 5,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 989,
+    "path": "res://assets/sprites/civilizations/g989_anim",
+    "frames": 50,
+    "missing_slp_ids": [
+      725
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 979,
+    "path": "res://assets/sprites/civilizations/g979_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 982,
+    "path": "res://assets/sprites/civilizations/g982_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 998,
+    "path": "res://assets/sprites/civilizations/g998_anim",
+    "frames": 30,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1002,
+    "path": "res://assets/sprites/civilizations/g1002_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 992,
+    "path": "res://assets/sprites/civilizations/g992_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 995,
+    "path": "res://assets/sprites/civilizations/g995_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 4408,
+    "path": "res://assets/sprites/civilizations/g4408_anim",
+    "frames": 45,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 4409,
+    "path": "res://assets/sprites/civilizations/g4409_anim",
+    "frames": 60,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 5461,
+    "path": "res://assets/sprites/civilizations/g5461_anim",
+    "frames": 40,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1076,
+    "path": "res://assets/sprites/civilizations/g1076_anim",
+    "frames": 5,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1080,
+    "path": "res://assets/sprites/civilizations/g1080_anim",
+    "frames": 50,
+    "missing_slp_ids": [
+      945
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 1070,
+    "path": "res://assets/sprites/civilizations/g1070_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1073,
+    "path": "res://assets/sprites/civilizations/g1073_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1167,
+    "path": "res://assets/sprites/civilizations/g1167_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1171,
+    "path": "res://assets/sprites/civilizations/g1171_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1161,
+    "path": "res://assets/sprites/civilizations/g1161_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1164,
+    "path": "res://assets/sprites/civilizations/g1164_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 699,
+    "path": "res://assets/sprites/civilizations/g699_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 703,
+    "path": "res://assets/sprites/civilizations/g703_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 693,
+    "path": "res://assets/sprites/civilizations/g693_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 696,
+    "path": "res://assets/sprites/civilizations/g696_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 881,
+    "path": "res://assets/sprites/civilizations/g881_anim",
+    "frames": 45,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 885,
+    "path": "res://assets/sprites/civilizations/g885_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 875,
+    "path": "res://assets/sprites/civilizations/g875_anim",
+    "frames": 60,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 878,
+    "path": "res://assets/sprites/civilizations/g878_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2649,
+    "path": "res://assets/sprites/civilizations/g2649_anim",
+    "frames": 40,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2653,
+    "path": "res://assets/sprites/civilizations/g2653_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2643,
+    "path": "res://assets/sprites/civilizations/g2643_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2646,
+    "path": "res://assets/sprites/civilizations/g2646_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2804,
+    "path": "res://assets/sprites/civilizations/g2804_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2808,
+    "path": "res://assets/sprites/civilizations/g2808_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2798,
+    "path": "res://assets/sprites/civilizations/g2798_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2801,
+    "path": "res://assets/sprites/civilizations/g2801_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1154,
+    "path": "res://assets/sprites/civilizations/g1154_anim",
+    "frames": 30,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1158,
+    "path": "res://assets/sprites/civilizations/g1158_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1148,
+    "path": "res://assets/sprites/civilizations/g1148_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1151,
+    "path": "res://assets/sprites/civilizations/g1151_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 660,
+    "path": "res://assets/sprites/civilizations/g660_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 664,
+    "path": "res://assets/sprites/civilizations/g664_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 654,
+    "path": "res://assets/sprites/civilizations/g654_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 657,
+    "path": "res://assets/sprites/civilizations/g657_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 855,
+    "path": "res://assets/sprites/civilizations/g855_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 859,
+    "path": "res://assets/sprites/civilizations/g859_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 849,
+    "path": "res://assets/sprites/civilizations/g849_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 852,
+    "path": "res://assets/sprites/civilizations/g852_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1180,
+    "path": "res://assets/sprites/civilizations/g1180_anim",
+    "frames": 5,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2281,
+    "path": "res://assets/sprites/civilizations/g2281_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1174,
+    "path": "res://assets/sprites/civilizations/g1174_anim",
+    "frames": 110,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 5434,
+    "path": "res://assets/sprites/civilizations/g5434_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2584,
+    "path": "res://assets/sprites/civilizations/g2584_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2588,
+    "path": "res://assets/sprites/civilizations/g2588_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2578,
+    "path": "res://assets/sprites/civilizations/g2578_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2581,
+    "path": "res://assets/sprites/civilizations/g2581_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1773,
+    "path": "res://assets/sprites/civilizations/g1773_anim",
+    "frames": 5,
+    "missing_slp_ids": [
+      1687,
+      1688
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 1777,
+    "path": "res://assets/sprites/civilizations/g1777_anim",
+    "frames": 75,
+    "missing_slp_ids": [
+      1692
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 1767,
+    "path": "res://assets/sprites/civilizations/g1767_anim",
+    "frames": 75,
+    "missing_slp_ids": [
+      1682
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 1770,
+    "path": "res://assets/sprites/civilizations/g1770_anim",
+    "frames": 50,
+    "missing_slp_ids": [
+      1684,
+      1685
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2610,
+    "path": "res://assets/sprites/civilizations/g2610_anim",
+    "frames": 30,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2614,
+    "path": "res://assets/sprites/civilizations/g2614_anim",
+    "frames": 60,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2604,
+    "path": "res://assets/sprites/civilizations/g2604_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2607,
+    "path": "res://assets/sprites/civilizations/g2607_anim",
+    "frames": 55,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3413,
+    "path": "res://assets/sprites/civilizations/g3413_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3417,
+    "path": "res://assets/sprites/civilizations/g3417_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3407,
+    "path": "res://assets/sprites/civilizations/g3407_anim",
+    "frames": 65,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3410,
+    "path": "res://assets/sprites/civilizations/g3410_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2889,
+    "path": "res://assets/sprites/civilizations/g2889_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2893,
+    "path": "res://assets/sprites/civilizations/g2893_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2883,
+    "path": "res://assets/sprites/civilizations/g2883_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2886,
+    "path": "res://assets/sprites/civilizations/g2886_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2902,
+    "path": "res://assets/sprites/civilizations/g2902_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2906,
+    "path": "res://assets/sprites/civilizations/g2906_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2896,
+    "path": "res://assets/sprites/civilizations/g2896_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2899,
+    "path": "res://assets/sprites/civilizations/g2899_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2623,
+    "path": "res://assets/sprites/civilizations/g2623_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2627,
+    "path": "res://assets/sprites/civilizations/g2627_anim",
+    "frames": 75,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2617,
+    "path": "res://assets/sprites/civilizations/g2617_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2620,
+    "path": "res://assets/sprites/civilizations/g2620_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2636,
+    "path": "res://assets/sprites/civilizations/g2636_anim",
+    "frames": 30,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2640,
+    "path": "res://assets/sprites/civilizations/g2640_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2630,
+    "path": "res://assets/sprites/civilizations/g2630_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2633,
+    "path": "res://assets/sprites/civilizations/g2633_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2777,
+    "path": "res://assets/sprites/civilizations/g2777_anim",
+    "frames": 5,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2781,
+    "path": "res://assets/sprites/civilizations/g2781_anim",
+    "frames": 50,
+    "missing_slp_ids": [
+      2822
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2771,
+    "path": "res://assets/sprites/civilizations/g2771_anim",
+    "frames": 40,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2774,
+    "path": "res://assets/sprites/civilizations/g2774_anim",
+    "frames": 40,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2819,
+    "path": "res://assets/sprites/civilizations/g2819_anim",
+    "frames": 5,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2822,
+    "path": "res://assets/sprites/civilizations/g2822_anim",
+    "frames": 50,
+    "missing_slp_ids": [
+      3025
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2813,
+    "path": "res://assets/sprites/civilizations/g2813_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2816,
+    "path": "res://assets/sprites/civilizations/g2816_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1050,
+    "path": "res://assets/sprites/civilizations/g1050_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1054,
+    "path": "res://assets/sprites/civilizations/g1054_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1044,
+    "path": "res://assets/sprites/civilizations/g1044_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 1047,
+    "path": "res://assets/sprites/civilizations/g1047_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2831,
+    "path": "res://assets/sprites/civilizations/g2831_anim",
+    "frames": 5,
+    "missing_slp_ids": [
+      3033,
+      3034
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2835,
+    "path": "res://assets/sprites/civilizations/g2835_anim",
+    "frames": 75,
+    "missing_slp_ids": [
+      3038
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2825,
+    "path": "res://assets/sprites/civilizations/g2825_anim",
+    "frames": 75,
+    "missing_slp_ids": [
+      3028
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2828,
+    "path": "res://assets/sprites/civilizations/g2828_anim",
+    "frames": 50,
+    "missing_slp_ids": [
+      3030,
+      3031
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3165,
+    "path": "res://assets/sprites/civilizations/g3165_anim",
+    "frames": 5,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3169,
+    "path": "res://assets/sprites/civilizations/g3169_anim",
+    "frames": 50,
+    "missing_slp_ids": [
+      3562
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3159,
+    "path": "res://assets/sprites/civilizations/g3159_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3162,
+    "path": "res://assets/sprites/civilizations/g3162_anim",
+    "frames": 50,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2575,
+    "path": "res://assets/sprites/civilizations/g2575_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 91,
+    "path": "res://assets/sprites/civilizations/g91_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      123,
+      127
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 103,
+    "path": "res://assets/sprites/civilizations/g103_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      135,
+      139
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 90,
+    "path": "res://assets/sprites/civilizations/g90_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      122,
+      126
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 102,
+    "path": "res://assets/sprites/civilizations/g102_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      134,
+      138
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 255,
+    "path": "res://assets/sprites/civilizations/farm_ground",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": false
+  },
+  {
+    "graphic_id": 2197,
+    "path": "res://assets/sprites/civilizations/g2197_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2221,
+      2222
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2207,
+    "path": "res://assets/sprites/civilizations/g2207_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2225,
+      2229
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2221,
+    "path": "res://assets/sprites/civilizations/g2221_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2237,
+      2241
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2206,
+    "path": "res://assets/sprites/civilizations/g2206_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2224,
+      2228
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2220,
+    "path": "res://assets/sprites/civilizations/g2220_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2236,
+      2240
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3124,
+    "path": "res://assets/sprites/civilizations/g3124_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      3481
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 366,
+    "path": "res://assets/sprites/civilizations/g366_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      731
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 378,
+    "path": "res://assets/sprites/civilizations/g378_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2516,
+      743
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 365,
+    "path": "res://assets/sprites/civilizations/g365_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 377,
+    "path": "res://assets/sprites/civilizations/g377_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3131,
+    "path": "res://assets/sprites/civilizations/g3131_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      3489,
+      3485
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3130,
+    "path": "res://assets/sprites/civilizations/g3130_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      3488,
+      3484
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3345,
+    "path": "res://assets/sprites/civilizations/g3345_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      -1,
+      890
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3347,
+    "path": "res://assets/sprites/civilizations/g3347_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2220,
+      897
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3351,
+    "path": "res://assets/sprites/civilizations/g3351_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2220,
+      909
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3355,
+    "path": "res://assets/sprites/civilizations/g3355_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2220
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3346,
+    "path": "res://assets/sprites/civilizations/g3346_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2219,
+      896
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3350,
+    "path": "res://assets/sprites/civilizations/g3350_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2219,
+      908
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3354,
+    "path": "res://assets/sprites/civilizations/g3354_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2219
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3116,
+    "path": "res://assets/sprites/civilizations/g3116_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      3501,
+      3497
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3115,
+    "path": "res://assets/sprites/civilizations/g3115_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      3500,
+      3496
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 588,
+    "path": "res://assets/sprites/civilizations/g588_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3223,
+    "path": "res://assets/sprites/civilizations/g3223_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 10,
+    "path": "res://assets/sprites/civilizations/g10_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      14,
+      18
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 22,
+    "path": "res://assets/sprites/civilizations/g22_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      26,
+      30
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 9,
+    "path": "res://assets/sprites/civilizations/g9_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      13,
+      17
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 21,
+    "path": "res://assets/sprites/civilizations/g21_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      25,
+      29
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 51,
+    "path": "res://assets/sprites/civilizations/g51_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2220,
+      83
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 63,
+    "path": "res://assets/sprites/civilizations/g63_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      95
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 50,
+    "path": "res://assets/sprites/civilizations/g50_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2219,
+      82
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 62,
+    "path": "res://assets/sprites/civilizations/g62_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      94
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2537,
+    "path": "res://assets/sprites/civilizations/g2537_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2220,
+      1923
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2536,
+    "path": "res://assets/sprites/civilizations/g2536_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2219,
+      1922
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2266,
+    "path": "res://assets/sprites/civilizations/g2266_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2268,
+      2272
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 409,
+    "path": "res://assets/sprites/civilizations/g409_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      810,
+      814
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3432,
+    "path": "res://assets/sprites/civilizations/g3432_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2265,
+    "path": "res://assets/sprites/civilizations/g2265_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2267,
+      2271
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 408,
+    "path": "res://assets/sprites/civilizations/g408_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      809,
+      813
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3431,
+    "path": "res://assets/sprites/civilizations/g3431_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 511,
+    "path": "res://assets/sprites/civilizations/g511_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      999,
+      1003
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 523,
+    "path": "res://assets/sprites/civilizations/g523_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      1011,
+      1015
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 510,
+    "path": "res://assets/sprites/civilizations/g510_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      998,
+      1002
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 522,
+    "path": "res://assets/sprites/civilizations/g522_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      1010,
+      1014
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2022,
+    "path": "res://assets/sprites/civilizations/g2022_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2220
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2021,
+    "path": "res://assets/sprites/civilizations/g2021_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2219
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 4200,
+    "path": "res://assets/sprites/civilizations/g4200_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 4199,
+    "path": "res://assets/sprites/civilizations/g4199_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 148,
+    "path": "res://assets/sprites/civilizations/g148_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      271,
+      275
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 147,
+    "path": "res://assets/sprites/civilizations/g147_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      270,
+      274
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 172,
+    "path": "res://assets/sprites/civilizations/g172_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      299
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 171,
+    "path": "res://assets/sprites/civilizations/g171_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      298
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 487,
+    "path": "res://assets/sprites/civilizations/g487_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      948,
+      952
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 486,
+    "path": "res://assets/sprites/civilizations/g486_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      947,
+      951
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 567,
+    "path": "res://assets/sprites/civilizations/g567_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      1357
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 579,
+    "path": "res://assets/sprites/civilizations/g579_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      1369
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 566,
+    "path": "res://assets/sprites/civilizations/g566_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      1356
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 578,
+    "path": "res://assets/sprites/civilizations/g578_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      1368
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2034,
+    "path": "res://assets/sprites/civilizations/g2034_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2220
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2033,
+    "path": "res://assets/sprites/civilizations/g2033_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      2219
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 2530,
+    "path": "res://assets/sprites/civilizations/g2530_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2529,
+    "path": "res://assets/sprites/civilizations/g2529_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2405,
+    "path": "res://assets/sprites/civilizations/g2405_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2404,
+    "path": "res://assets/sprites/civilizations/g2404_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2413,
+    "path": "res://assets/sprites/civilizations/g2413_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 2412,
+    "path": "res://assets/sprites/civilizations/g2412_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  },
+  {
+    "graphic_id": 3080,
+    "path": "res://assets/sprites/civilizations/g3080_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      3520,
+      3533
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 3097,
+    "path": "res://assets/sprites/civilizations/g3097_static",
+    "frames": 1,
+    "missing_slp_ids": [
+      3531
+    ],
+    "cached": true
+  },
+  {
+    "graphic_id": 1592,
+    "path": "res://assets/sprites/civilizations/g1592_static",
+    "frames": 1,
+    "missing_slp_ids": [],
+    "cached": true
+  }
+]

@@ -1,0 +1,132 @@
+{
+  "key": "g946_anim",
+  "graphic_id": 946,
+  "slp_id": 682,
+  "source": "AoE2 HD DAT graphic + SLP",
+  "cols": 5,
+  "rows": 5,
+  "frame_w": 83,
+  "frame_h": 90,
+  "frame_count": 25,
+  "directions": 5,
+  "frames_per_direction": 5,
+  "hotspots": [
+    {
+      "x": 44,
+      "y": 65
+    },
+    {
+      "x": 43,
+      "y": 65
+    },
+    {
+      "x": 43,
+      "y": 66
+    },
+    {
+      "x": 43,
+      "y": 66
+    },
+    {
+      "x": 43,
+      "y": 65
+    },
+    {
+      "x": 51,
+      "y": 71
+    },
+    {
+      "x": 51,
+      "y": 70
+    },
+    {
+      "x": 49,
+      "y": 70
+    },
+    {
+      "x": 49,
+      "y": 70
+    },
+    {
+      "x": 50,
+      "y": 70
+    },
+    {
+      "x": 55,
+      "y": 82
+    },
+    {
+      "x": 55,
+      "y": 82
+    },
+    {
+      "x": 55,
+      "y": 82
+    },
+    {
+      "x": 55,
+      "y": 82
+    },
+    {
+      "x": 56,
+      "y": 82
+    },
+    {
+      "x": 53,
+      "y": 77
+    },
+    {
+      "x": 52,
+      "y": 77
+    },
+    {
+      "x": 53,
+      "y": 77
+    },
+    {
+      "x": 53,
+      "y": 77
+    },
+    {
+      "x": 53,
+      "y": 77
+    },
+    {
+      "x": 45,
+      "y": 75
+    },
+    {
+      "x": 45,
+      "y": 75
+    },
+    {
+      "x": 46,
+      "y": 76
+    },
+    {
+      "x": 46,
+      "y": 76
+    },
+    {
+      "x": 45,
+      "y": 75
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "g946_anim_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "includes_shadow": false,
+  "layers": [
+    {
+      "graphic_id": 946,
+      "slp_id": 682,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "missing_slp_ids": []
+}

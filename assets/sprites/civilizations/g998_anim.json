@@ -1,0 +1,152 @@
+{
+  "key": "g998_anim",
+  "graphic_id": 998,
+  "slp_id": 774,
+  "source": "AoE2 HD DAT graphic + SLP",
+  "cols": 6,
+  "rows": 5,
+  "frame_w": 32,
+  "frame_h": 52,
+  "frame_count": 30,
+  "directions": 5,
+  "frames_per_direction": 6,
+  "hotspots": [
+    {
+      "x": 17,
+      "y": 44
+    },
+    {
+      "x": 16,
+      "y": 44
+    },
+    {
+      "x": 15,
+      "y": 44
+    },
+    {
+      "x": 14,
+      "y": 44
+    },
+    {
+      "x": 16,
+      "y": 44
+    },
+    {
+      "x": 17,
+      "y": 44
+    },
+    {
+      "x": 22,
+      "y": 42
+    },
+    {
+      "x": 22,
+      "y": 42
+    },
+    {
+      "x": 22,
+      "y": 42
+    },
+    {
+      "x": 22,
+      "y": 42
+    },
+    {
+      "x": 23,
+      "y": 42
+    },
+    {
+      "x": 22,
+      "y": 42
+    },
+    {
+      "x": 22,
+      "y": 47
+    },
+    {
+      "x": 20,
+      "y": 46
+    },
+    {
+      "x": 20,
+      "y": 45
+    },
+    {
+      "x": 20,
+      "y": 45
+    },
+    {
+      "x": 20,
+      "y": 46
+    },
+    {
+      "x": 20,
+      "y": 46
+    },
+    {
+      "x": 22,
+      "y": 46
+    },
+    {
+      "x": 21,
+      "y": 46
+    },
+    {
+      "x": 21,
+      "y": 46
+    },
+    {
+      "x": 21,
+      "y": 46
+    },
+    {
+      "x": 22,
+      "y": 46
+    },
+    {
+      "x": 23,
+      "y": 46
+    },
+    {
+      "x": 16,
+      "y": 47
+    },
+    {
+      "x": 18,
+      "y": 47
+    },
+    {
+      "x": 20,
+      "y": 47
+    },
+    {
+      "x": 20,
+      "y": 47
+    },
+    {
+      "x": 19,
+      "y": 47
+    },
+    {
+      "x": 17,
+      "y": 47
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "g998_anim_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "includes_shadow": false,
+  "layers": [
+    {
+      "graphic_id": 998,
+      "slp_id": 774,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "missing_slp_ids": []
+}

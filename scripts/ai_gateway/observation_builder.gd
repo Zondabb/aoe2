@@ -26,6 +26,8 @@ static func build(
 	if match_state == null or entities == null:
 		return observation
 
+	if match_state.progression_enabled:
+		observation["progression"] = {"age":match_state.age_of(team),"researched_technologies":match_state.researched_technologies.get(team,{}),"age_research":match_state.age_progression.progress_for(team) if match_state.age_progression != null else {}}
 	var derived := {
 		"own_tc_id": -1,
 		"own_tc_pos": [0.0, 0.0],
@@ -49,7 +51,7 @@ static func build(
 			continue
 		if not FogAccess.state_can_see(match_state, team, entity):
 			continue
-		if entity.has_method("extract"):
+		if entity.has_method("extract") and not entity.get("def") is BuildingDef:
 			if not match_state.fog_enabled and vision != null and not _resource_visible(entity, observers, vision):
 				continue
 			var resource_id := EntityRegistryScript.register(entity)
@@ -134,6 +136,8 @@ static func serialize_entity(entity: Node2D, entity_id: int = -1) -> Dictionary:
 			_fill_resource(snapshot, entity)
 		"building":
 			_fill_building(snapshot, entity)
+			if entity.has_method("extract"):
+				_fill_resource(snapshot, entity)
 		"unit":
 			_fill_unit(snapshot, entity)
 	return snapshot
@@ -152,6 +156,7 @@ static func _build_economy(match_state: MatchState, team: Enums.Team) -> Diction
 		"food": match_state.get_resource(team, Enums.ResourceType.FOOD),
 		"wood": match_state.get_resource(team, Enums.ResourceType.WOOD),
 		"gold": match_state.get_resource(team, Enums.ResourceType.GOLD),
+		"stone": match_state.get_resource(team, Enums.ResourceType.STONE),
 		"pop_used": int(match_state.population.get(team, 0)),
 		"pop_cap": int(match_state.population_cap.get(team, 0)),
 	}
@@ -173,6 +178,14 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["build_progress"] = float(entity.get("build_progress"))
 	var train_queue: Array = entity.get("train_queue") as Array
 	snapshot["train_queue_empty"] = train_queue.is_empty()
+	var state: MatchState = entity.get("match_state")
+	if state != null and state.progression_enabled:
+		snapshot["is_researching"] = entity.is_age_researching() or entity.is_technology_researching()
+		snapshot["trainable"] = entity.get_trainable_units().map(func(u): return String(u.id))
+		if state.age_progression != null and entity.get("def").id == &"town_center":
+			snapshot["age_upgrade_reason"] = state.age_progression.blocked_reason(entity)
+		if state.technology_progression != null:
+			snapshot["technologies"] = state.technology_progression.available(entity).map(func(id): return {"id":id,"reason":state.technology_progression.blocked_reason(entity,id)})
 
 
 static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
@@ -230,7 +243,7 @@ static func _building_max_hp(entity: Node2D) -> float:
 		return maxf(float(entity.get("hp")), 1.0)
 	var entity_civ := entity.get("civ") as CivDef
 	var hp_multiplier := entity_civ.building_hp_mul if entity_civ != null else 1.0
-	return float(building_def.max_hp) * hp_multiplier
+	return entity._max_hp() if entity.has_method("_max_hp") else float(building_def.max_hp) * hp_multiplier
 
 
 static func _vision_service(from_node: Node = null) -> VisionServiceScript:

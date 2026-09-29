@@ -21,6 +21,10 @@ const TOWN_CENTER_SHADOW_Z := -3
 @export var civ: CivDef
 @export var accepts_all_resources := false
 @export var accepted_resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
+var amount := 175.0
+var resource_type := Enums.ResourceType.FOOD
+var gather_rate := 4.0
+
 var match_state: MatchState
 var sim_pos := Vector2.ZERO
 var hp := 0.0
@@ -38,8 +42,12 @@ var _ghost_visual_valid: Variant = null
 var _use_billboard := false
 var _sprite_sheet_base := ""
 var block_half := Vector2.ONE
+var _visual_age := 0
 
 func _ready() -> void:
+	_visual_age = match_state.age_of(team) if match_state != null else 0
+	if match_state != null and not match_state.age_changed.is_connected(_on_age_changed):
+		match_state.age_changed.connect(_on_age_changed)
 	if match_state != null and not match_state.team_color_changed.is_connected(_on_team_color_changed):
 		match_state.team_color_changed.connect(_on_team_color_changed)
 	if sim_pos == Vector2.ZERO:
@@ -49,8 +57,8 @@ func _ready() -> void:
 		_register_groups()
 	if def != null:
 		accepted_resource_type = def.drop_off
-		melee_armor = float(def.melee_armor)
-		pierce_armor = float(def.pierce_armor)
+		melee_armor = float(_age_attributes().get("melee_armor",def.melee_armor))
+		pierce_armor = float(_age_attributes().get("pierce_armor",def.pierce_armor))
 		_configure_visuals()
 		_sync_block_half()
 		if _construction_started and def.build_time > 0.0:
@@ -82,7 +90,7 @@ func _physics_process(delta: float) -> void:
 			train_queue_changed.emit()
 
 func accepts_resource(resource_type: Enums.ResourceType) -> bool:
-	return accepts_all_resources or accepted_resource_type == resource_type
+	return accepts_all_resources or accepted_resource_type == resource_type or (def != null and def.id == &"mining_camp" and resource_type == Enums.ResourceType.STONE)
 
 func start_construction() -> void:
 	_construction_started = true
@@ -107,6 +115,8 @@ func take_damage(amount: float, _source: Node = null) -> void:
 	hp = maxf(0.0, hp - amount)
 	if hp > 0.0:
 		return
+	cancel_age_upgrade()
+	cancel_technology()
 	destroyed.emit(self)
 	if def != null and def.id == &"town_center" and match_state != null:
 		var winning_team := (
@@ -119,20 +129,28 @@ func _max_hp() -> float:
 	if def == null:
 		return 0.0
 	var hp_multiplier := civ.building_hp_mul if civ != null else 1.0
-	return float(def.max_hp) * hp_multiplier
+	return float(_age_attributes().get("hp",def.max_hp)) * hp_multiplier
 
 func enqueue_train(unit_def: UnitDef) -> bool:
+	# Resolve by catalog ID: old maps may hold a .tres instance of the same unit.
+	unit_def = trainable_definition(unit_def.id) if unit_def != null else null
 	if (
 		not is_complete
 		or unit_def == null
+		or hp <= 0.0
+		or is_placement_ghost
+		or has_meta("network_replica")
 		or not train_queue.is_empty()
+		or is_age_researching()
+		or is_technology_researching()
 		or unit_def not in get_trainable_units()
 		or match_state == null
-		or not match_state.can_train(team, unit_def)
+		or match_state.frozen
+		or not match_state.can_train(team, unit_def, civ.id if civ != null else &"")
 	):
 		return false
 	if not match_state.spend(
-		team, unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold
+		team, unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold, unit_def.cost_stone
 	):
 		return false
 	train_queue.append(unit_def)
@@ -143,9 +161,47 @@ func enqueue_train(unit_def: UnitDef) -> bool:
 	train_queue_changed.emit()
 	return true
 
+func trainable_definition(unit_id: StringName) -> UnitDef:
+	for candidate in get_trainable_units():
+		if candidate.id == unit_id:
+			return candidate
+	return null
+
+func apply_definition_upgrade(upgraded: BuildingDef) -> void:
+	if upgraded == null or def == null: return
+	var ratio := hp / maxf(_max_hp(), 1.0)
+	def = upgraded
+	hp = _max_hp() * ratio
+	var attributes := _age_attributes()
+	melee_armor = int(attributes.get("melee_armor", def.melee_armor))
+	pierce_armor = int(attributes.get("pierce_armor", def.pierce_armor))
+	_configure_visuals()
+
 func get_trainable_units() -> Array[UnitDef]:
 	var result: Array[UnitDef] = []
 	if def == null:
+		return result
+	if match_state != null and match_state.progression_enabled:
+		var candidates: Array[UnitDef] = []
+		candidates.assign(match_state.unit_catalog if not match_state.unit_catalog.is_empty() else def.trainable)
+		if match_state.unit_catalog.is_empty() and civ != null and civ.unique_unit != null and def.id == &"castle":
+			candidates.append(civ.unique_unit)
+		var civilization_id: StringName = civ.id if civ != null else &""
+		for candidate in candidates:
+			if candidate.train_at != def.id:
+				continue
+			if not match_state.unit_unlocked(team, candidate, civilization_id):
+				continue
+			if civ != null and candidate == civ.unique_unit and def.id != &"castle":
+				continue
+			result.append(candidate)
+		var replaced: Array[StringName] = []
+		for candidate in result:
+			if candidate.upgrades_from != &"":
+				replaced.append(candidate.upgrades_from)
+		for index in range(result.size() - 1, -1, -1):
+			if result[index].id in replaced:
+				result.remove_at(index)
 		return result
 	result.assign(def.trainable)
 	if (
@@ -157,6 +213,34 @@ func get_trainable_units() -> Array[UnitDef]:
 	):
 		result.append(civ.unique_unit)
 	return result
+
+
+func is_age_researching() -> bool:
+	return match_state != null and is_instance_valid(match_state.age_progression) \
+		and match_state.age_progression.is_building_researching(self)
+
+
+func start_age_upgrade() -> bool:
+	return match_state != null and is_instance_valid(match_state.age_progression) \
+		and match_state.age_progression.start_advance(self)
+
+
+func cancel_age_upgrade() -> bool:
+	return is_age_researching() and match_state.age_progression.cancel_advance(team)
+
+
+func is_technology_researching() -> bool:
+	return match_state != null and is_instance_valid(match_state.technology_progression) \
+		and match_state.technology_progression.is_researching(self)
+
+
+func start_technology(technology_id: StringName) -> bool:
+	return match_state != null and is_instance_valid(match_state.technology_progression) \
+		and match_state.technology_progression.start_research(self, technology_id)
+
+
+func cancel_technology() -> bool:
+	return is_technology_researching() and match_state.technology_progression.cancel_research(self)
 
 func set_selected(selected: bool) -> void:
 	_ensure_selection_footprint()
@@ -208,6 +292,7 @@ func _complete_construction() -> void:
 		return
 	var was_incomplete := not is_complete
 	is_complete = true
+	if def != null and def.id == &"farm": add_to_group("resource_nodes")
 	if (
 		not _population_cap_registered
 		and not has_meta("network_replica")
@@ -262,7 +347,7 @@ func _configure_visuals() -> void:
 	var base := ""
 	var meta := {}
 	if def != null:
-		base = SpriteCatalogScript.building_sheet_base(def.id, civ_id)
+		base = SpriteCatalogScript.building_sheet_base(def.id, civ_id, match_state.age_of(team) if match_state != null and match_state.progression_enabled else -1)
 	if billboard != null and SpriteCatalogScript.sheet_paths_exist(base):
 		meta = SpriteCatalogScript.load_meta(base)
 		var texture := SpriteCatalogScript.load_texture(base)
@@ -369,11 +454,14 @@ func _sync_visual() -> void:
 
 func _register_groups() -> void:
 	add_to_group("buildings")
+	if def != null and def.id == &"farm" and is_complete: add_to_group("resource_nodes")
 	if accepts_all_resources or (def != null and def.has_drop_off):
 		add_to_group("drop_off_buildings")
 	_vision_register()
 
 func _exit_tree() -> void:
+	cancel_age_upgrade()
+	cancel_technology()
 	EntityRegistryScript.unregister(self, "removed")
 	_vision_unregister()
 	if _reserved_population != 0 and match_state != null:
@@ -411,3 +499,19 @@ func _vision_unregister() -> void:
 	var vision := _get_vision_service()
 	if vision != null and vision.has_method("unregister"):
 		vision.call("unregister", self)
+
+func _on_age_changed(changed_team: int, age: int) -> void:
+	if team == changed_team:
+		var old_max := float(_age_attributes(_visual_age).get("hp",def.max_hp)) * (civ.building_hp_mul if civ != null else 1.0)
+		if not has_meta("network_replica"): hp = hp / maxf(old_max,1) * _max_hp()
+		_visual_age = age
+		var attributes := _age_attributes()
+		melee_armor = float(attributes.get("melee_armor",def.melee_armor))
+		pierce_armor = float(attributes.get("pierce_armor",def.pierce_armor))
+		_configure_visuals()
+
+func _age_attributes(age := -1) -> Dictionary:
+	if match_state == null or not match_state.progression_enabled or def == null: return {}
+	var era := match_state.age_of(team) if age < 0 else age
+	var record: Dictionary = GameCatalog.building_record(def.id)
+	return record.get("age_variants",{}).get(["dark","feudal","castle","imperial"][era],{})

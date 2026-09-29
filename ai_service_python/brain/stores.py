@@ -7,6 +7,7 @@ from typing import Any
 FOOD = 0
 WOOD = 1
 GOLD = 2
+STONE = 3
 
 ORDER_NONE = "NONE"
 ORDER_GATHER = "GATHER"
@@ -31,6 +32,8 @@ class Blackboard:
     food: int = 0
     wood: int = 0
     gold: int = 0
+    stone: int = 0
+    progression: dict[str, Any] = field(default_factory=dict)
     pop_used: int = 0
     pop_cap: int = 0
     villager_count: int = 0
@@ -69,11 +72,13 @@ class ObservationStore:
         self.economy: dict[str, Any] = {}
         self.derived: dict[str, Any] = {}
         self.entities: list[dict[str, Any]] = []
+        self.progression: dict[str, Any] = {}
 
     def load_from_dict(self, observation: dict[str, Any]) -> None:
         self.economy = observation.get("economy", {})
         self.derived = observation.get("derived", {})
         self.entities = observation.get("entities", [])
+        self.progression = observation.get("progression") or {}
 
     def apply_to_blackboard(
         self, blackboard: Blackboard, team: int, enemy_team: int
@@ -84,6 +89,8 @@ class ObservationStore:
         blackboard.food = int(self.economy.get("food", 0))
         blackboard.wood = int(self.economy.get("wood", 0))
         blackboard.gold = int(self.economy.get("gold", 0))
+        blackboard.stone = int(self.economy.get("stone", 0))
+        blackboard.progression = self.progression
         blackboard.pop_used = int(self.economy.get("pop_used", 0))
         blackboard.pop_cap = int(self.economy.get("pop_cap", 0))
         blackboard.villager_count = int(self.derived.get("villager_count", 0))
@@ -116,6 +123,8 @@ class ObservationStore:
                 blackboard.all_buildings.append(snapshot)
                 if int(snapshot.get("team", -1)) == team:
                     blackboard.team_buildings.append(snapshot)
+                    if snapshot.get("def_id") == "farm" and snapshot.get("is_complete") and float(snapshot.get("amount", 0)) > 0:
+                        blackboard.resource_nodes.append(snapshot)
                 continue
             if kind == "unit":
                 if int(snapshot.get("team", -1)) != team:
@@ -146,6 +155,8 @@ def resource_type_from_name(name: str) -> int:
             return WOOD
         case "GOLD":
             return GOLD
+        case "STONE":
+            return STONE
         case _:
             return FOOD
 
@@ -158,5 +169,7 @@ def resource_name(resource_type: int) -> str:
             return "wood"
         case 2:
             return "gold"
+        case 3:
+            return "stone"
         case _:
             return "resource"

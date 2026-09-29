@@ -316,6 +316,7 @@ func command_build(building: Node2D) -> void:
 	_unit_log("order", "BUILD target=%s" % building.name)
 
 func command_attack(target: Node) -> void:
+	if def != null and def.attack <= 0: return
 	if not FogAccess.can_see(self, target):
 		return
 	var target_2d := target as Node2D
@@ -1648,3 +1649,17 @@ func _vision_sync_position() -> void:
 	var vision := _get_vision_service()
 	if vision != null and vision.has_method("sync_position"):
 		vision.call("sync_position", self)
+
+## Change a researched unit line without resetting its orders or registering population again.
+func apply_definition_upgrade(value: UnitDef) -> void:
+	if value == null or def == value: return
+	var ratio := hp / maxf(_max_hp,1)
+	def = value
+	_max_hp = float(value.max_hp)
+	hp = _max_hp * ratio
+	melee_armor = value.melee_armor + (civ.melee_armor_bonus if civ != null and not value.is_ranged else 0)
+	pierce_armor = value.pierce_armor
+	_sprite_metas.clear()
+	_player_color_sheet = ""
+	_setup_presentation()
+	_refresh_world_hp_bar()

@@ -1,6 +1,8 @@
 class_name AiProductionManager
 extends RefCounted
 
+const Catalog := preload("res://scripts/data/game_catalog.gd")
+const Progression := preload("res://scripts/systems/ai/ai_progression_manager.gd")
 const VILLAGER: UnitDef = preload("res://data/units/villager.tres")
 const SWORDSMAN: UnitDef = preload("res://data/units/swordsman.tres")
 const ARCHER: UnitDef = preload("res://data/units/archer.tres")
@@ -9,6 +11,11 @@ const AiEntityQueriesScript := preload("res://scripts/systems/ai/ai_entity_queri
 
 
 func tick(ctx: AiRunContext, build_manager: AiBuildManager) -> void:
+	if ctx.match_state.progression_enabled:
+		_train_villagers(ctx, build_manager)
+		ensure_house(ctx, build_manager, VILLAGER)
+		_train_available_army(ctx)
+		return
 	if ctx.phase <= 0:  # ECO
 		_train_villagers(ctx, build_manager)
 		ensure_house(ctx, build_manager, VILLAGER)
@@ -71,9 +78,15 @@ func ensure_house(ctx: AiRunContext, build_manager: AiBuildManager, unit_def: Un
 func _try_enqueue(ctx: AiRunContext, building: Node2D, unit_def: UnitDef) -> bool:
 	if building == null or unit_def == null:
 		return false
+	unit_def = building.call("trainable_definition", unit_def.id)
+	if unit_def == null: return false
 	if not bool(building.get("is_complete")):
 		return false
 	if not (building.get("train_queue") as Array).is_empty():
+		return false
+	if bool(building.call("is_age_researching")) or bool(building.call("is_technology_researching")):
+		return false
+	if unit_def not in building.call("get_trainable_units") or not ctx.match_state.can_train(ctx.team, unit_def) or Progression.reserves_for_age(ctx, unit_def):
 		return false
 	return ctx.issue_train(building, unit_def)
 
@@ -81,20 +94,9 @@ func _try_enqueue(ctx: AiRunContext, building: Node2D, unit_def: UnitDef) -> boo
 func _find_building_for_unit(ctx: AiRunContext, unit_def: UnitDef) -> Node2D:
 	if unit_def == null:
 		return null
-	if unit_def.id == &"teutonic_knight":
-		return AiEntityQueriesScript.find_complete_building(
-			ctx.blackboard.team_buildings, &"stable"
-		)
-	if unit_def.id == &"chu_ko_nu" or unit_def.id == &"archer":
-		return AiEntityQueriesScript.find_complete_building(
-			ctx.blackboard.team_buildings, &"archery_range"
-		)
-	if unit_def.id == &"swordsman":
-		return AiEntityQueriesScript.find_complete_building(
-			ctx.blackboard.team_buildings, &"barracks"
-		)
-	if unit_def.id == &"villager":
-		return AiEntityQueriesScript.find_town_center(ctx.blackboard.team_buildings)
+	for building in ctx.blackboard.team_buildings:
+		if bool(building.get("is_complete")) and building.call("trainable_definition", unit_def.id) != null:
+			return building
 	return null
 
 
@@ -114,16 +116,22 @@ func _count_unit_id(ctx: AiRunContext, unit_id: StringName) -> int:
 
 
 func _unit_def_for_id(unit_id: StringName) -> UnitDef:
-	match unit_id:
-		&"villager":
-			return VILLAGER
-		&"swordsman":
-			return SWORDSMAN
-		&"archer":
-			return ARCHER
-		&"chu_ko_nu":
-			return load("res://data/units/chu_ko_nu.tres") as UnitDef
-		&"teutonic_knight":
-			return load("res://data/units/teutonic_knight.tres") as UnitDef
-		_:
-			return null
+	return Catalog.get_unit(String(unit_id))
+
+
+func _train_available_army(ctx: AiRunContext) -> void:
+	# get_trainable_units applies civilization, age, and researched upgrade lines.
+	for building in ctx.blackboard.team_buildings:
+		var available: Array = building.call("get_trainable_units")
+		var best: UnitDef
+		for definition: UnitDef in available:
+			if definition.id == &"villager" or definition.attack <= 0:
+				continue
+			if ctx.profile.unique_unit_priority and definition.id in [&"chu_ko_nu", &"elite_chu_ko_nu", &"teutonic_knight", &"elite_teutonic_knight"]:
+				best = definition
+				break
+			if best == null or definition.required_age > best.required_age or (definition.required_age == best.required_age and _count_unit_id(ctx, definition.id) < _count_unit_id(ctx, best.id)):
+				best = definition
+		if best != null and _try_enqueue(ctx, building, best):
+			ctx.log_decision("PROD", "训练 %s" % best.id)
+			return

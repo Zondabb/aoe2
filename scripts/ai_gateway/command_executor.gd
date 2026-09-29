@@ -40,6 +40,14 @@ static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary
 			executed = _exec_place_building(cmd, ctx)
 		AiProtocolScript.OP_TRAIN:
 			executed = _exec_train(cmd, ctx)
+		AiProtocolScript.OP_RESEARCH_AGE:
+			executed = bool(EntityRegistryScript.resolve(int(cmd.building_id)).call("start_age_upgrade"))
+		AiProtocolScript.OP_CANCEL_AGE:
+			executed = bool(EntityRegistryScript.resolve(int(cmd.building_id)).call("cancel_age_upgrade"))
+		AiProtocolScript.OP_RESEARCH_TECHNOLOGY:
+			executed = bool(ctx.match_state.technology_progression.start_research(EntityRegistryScript.resolve(int(cmd.building_id)), String(cmd.technology_id)))
+		AiProtocolScript.OP_CANCEL_TECHNOLOGY:
+			executed = bool(ctx.match_state.technology_progression.cancel_research(EntityRegistryScript.resolve(int(cmd.building_id))))
 		_:
 			return _result(false, "unsupported_op")
 

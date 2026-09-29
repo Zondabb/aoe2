@@ -19,7 +19,7 @@ static func resource_blocks_pathfinding(type: Enums.ResourceType) -> bool:
 	match type:
 		Enums.ResourceType.FOOD:
 			return false
-		Enums.ResourceType.WOOD, Enums.ResourceType.GOLD:
+		Enums.ResourceType.WOOD, Enums.ResourceType.GOLD, Enums.ResourceType.STONE:
 			return true
 		_:
 			return true
@@ -31,7 +31,7 @@ static func pathfinding_footprint(type: Enums.ResourceType) -> Vector2:
 	match type:
 		Enums.ResourceType.WOOD:
 			return Vector2(1.2, 1.2)
-		Enums.ResourceType.GOLD:
+		Enums.ResourceType.GOLD, Enums.ResourceType.STONE:
 			return Vector2(2.0, 2.0)
 		_:
 			return Vector2.ZERO
@@ -40,7 +40,7 @@ static func selection_footprint(type: Enums.ResourceType) -> Vector2:
 	match type:
 		Enums.ResourceType.WOOD:
 			return Vector2(1.2, 1.2)
-		Enums.ResourceType.GOLD:
+		Enums.ResourceType.GOLD, Enums.ResourceType.STONE:
 			return Vector2(2.0, 2.0)
 		Enums.ResourceType.FOOD:
 			return Vector2(0.8, 0.8)

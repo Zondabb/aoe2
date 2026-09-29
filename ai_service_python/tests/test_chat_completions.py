@@ -85,6 +85,10 @@ def test_commands_map_to_tool_calls() -> None:
         "attack",
         "stop",
         "noop",
+        "research_age",
+        "cancel_research_age",
+        "research_technology",
+        "cancel_technology",
     }
 
 

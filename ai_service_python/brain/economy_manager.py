@@ -20,6 +20,7 @@ from brain.stores import (
     ORDER_NONE,
     PHASE_ECO,
     STUCK_GATHER_FRAMES,
+    STONE,
     WOOD,
     Blackboard,
     resource_name,
@@ -69,7 +70,7 @@ class EconomyManager:
         needs_work = self._villagers_needing_gather(blackboard)
         if not needs_work:
             return
-        if phase <= PHASE_ECO:
+        if phase <= PHASE_ECO and not blackboard.progression:
             self._assign_opening_gatherers(ctx, blackboard, needs_work)
         else:
             self._assign_balanced_gatherers(ctx, blackboard, profile, phase, needs_work)
@@ -122,6 +123,8 @@ class EconomyManager:
         villagers: list[dict[str, Any]],
     ) -> None:
         ratios = profile.ratios_for_phase(phase)
+        if blackboard.progression:
+            ratios = {FOOD: 0.5, WOOD: 0.3, GOLD: 0.1, STONE: 0.1} if int(blackboard.progression.get("age", 0)) == 0 else {FOOD: 0.4, WOOD: 0.25, GOLD: 0.25, STONE: 0.1}
         counts = self._count_active_gatherers(blackboard)
         assigned = _total_gather_count(counts)
         base_pos = blackboard.own_tc_pos
@@ -187,7 +190,7 @@ def _pick_gather_target(
 
 
 def _total_gather_count(counts: dict[int, int]) -> int:
-    return counts.get(FOOD, 0) + counts.get(WOOD, 0) + counts.get(GOLD, 0)
+    return sum(counts.values())
 
 
 def _underfilled_resource_type(

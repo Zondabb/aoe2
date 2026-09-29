@@ -10,6 +10,7 @@ const _ARG_KEYS := [
 	"target_id",
 	"building_def_id",
 	"unit_def_id",
+	"technology_id",
 	"pos",
 	"builder_id",
 ]

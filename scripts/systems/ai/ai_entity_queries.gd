@@ -226,11 +226,17 @@ static func next_build_position(
 		Vector2(4.0, 10.0),
 		Vector2(12.0, 2.0),
 	]
+	# A four-age base outgrows the opening slots. Expand toward the map center.
+	for radius in range(14, 39, 4):
+		for offset in range(0, radius + 1, 4):
+			offsets.append(Vector2(radius, offset))
+			offsets.append(Vector2(offset, radius))
 	for index in offsets.size():
 		var slot := (build_slot + index) % offsets.size()
 		var candidate: Vector2 = origin + offsets[slot] * side
 		var fog := FogAccess.for_node(town_center)
-		if fog != null and not fog.footprint_visible(town_center.get("team"), candidate, building_def.footprint, true):
+		var state: MatchState = town_center.get("match_state")
+		if state != null and state.fog_enabled and fog != null and not fog.footprint_visible(town_center.get("team"), candidate, building_def.footprint, true):
 			continue
 		if BuildSystemScript.can_place(building_def.footprint, candidate, existing):
 			return candidate

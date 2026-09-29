@@ -21,9 +21,19 @@ extends Resource
 @export var cost_food: int
 @export var cost_wood: int
 @export var cost_gold: int
+@export var cost_stone: int
 @export var train_time: float
 @export var population: int
 @export var is_ranged: bool
+@export_group("Technology tree")
+@export var required_age: Enums.Age = Enums.Age.DARK
+## An empty list makes the unit available to every civilization.
+@export var civilizations: Array[StringName] = []
+@export var train_at: StringName
+@export var required_technology: StringName
+@export var upgrades_from: StringName
+@export var source_id: int = -1
+@export var icon_id: int = -1
 
 
 func resolved_preferred_attack_range() -> float:

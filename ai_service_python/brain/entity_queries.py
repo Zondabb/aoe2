@@ -6,6 +6,14 @@ from typing import Any
 from brain.stores import resource_type_from_name
 
 
+def _is_resource(entity: dict[str, Any]) -> bool:
+    return entity.get("kind") == "resource" or (
+        entity.get("kind") == "building"
+        and entity.get("def_id") == "farm"
+        and bool(entity.get("is_complete"))
+    )
+
+
 def _pos(entity: dict[str, Any]) -> tuple[float, float]:
     pos = entity.get("pos", [0.0, 0.0])
     return float(pos[0]), float(pos[1])
@@ -37,7 +45,7 @@ def nearest_resource(
     nearest: dict[str, Any] | None = None
     nearest_distance = math.inf
     for node in nodes:
-        if node.get("kind") != "resource":
+        if not _is_resource(node):
             continue
         if resource_type_from_name(str(node.get("resource_type", ""))) != resource_type:
             continue
@@ -57,7 +65,7 @@ def nearest_any_resource(
     nearest: dict[str, Any] | None = None
     nearest_distance = math.inf
     for node in nodes:
-        if node.get("kind") != "resource":
+        if not _is_resource(node):
             continue
         if float(node.get("amount", 0.0)) <= 0.0:
             continue
@@ -82,7 +90,7 @@ def nearest_resource_near_base(
     nearest_distance = math.inf
     max_sq = max_radius * max_radius
     for node in nodes:
-        if node.get("kind") != "resource":
+        if not _is_resource(node):
             continue
         if resource_type_from_name(str(node.get("resource_type", ""))) != resource_type:
             continue
@@ -111,7 +119,7 @@ def nearest_any_resource_near_base(
     nearest_distance = math.inf
     max_sq = max_radius * max_radius
     for node in nodes:
-        if node.get("kind") != "resource":
+        if not _is_resource(node):
             continue
         if float(node.get("amount", 0.0)) <= 0.0:
             continue

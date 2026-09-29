@@ -2,32 +2,25 @@ class_name MapCatalog
 extends RefCounted
 
 ## Explicit resource catalog: map files contain IDs, never executable resource paths.
-const BUILDINGS := {
-	"town_center": preload("res://data/buildings/town_center.tres"),
-	"house": preload("res://data/buildings/house.tres"),
-	"barracks": preload("res://data/buildings/barracks.tres"),
-	"archery_range": preload("res://data/buildings/archery_range.tres"),
-	"stable": preload("res://data/buildings/stable.tres"),
-	"mill": preload("res://data/buildings/mill.tres"),
-	"lumber_camp": preload("res://data/buildings/lumber_camp.tres"),
-	"mining_camp": preload("res://data/buildings/mining_camp.tres"),
-}
-const UNITS := {
-	"villager": preload("res://data/units/villager.tres"),
-	"swordsman": preload("res://data/units/swordsman.tres"),
-	"archer": preload("res://data/units/archer.tres"),
-	"chu_ko_nu": preload("res://data/units/chu_ko_nu.tres"),
-	"teutonic_knight": preload("res://data/units/teutonic_knight.tres"),
-}
-const RESOURCES := {"food": Enums.ResourceType.FOOD, "wood": Enums.ResourceType.WOOD, "gold": Enums.ResourceType.GOLD}
-const NAMES := {
+const GameCatalogScript := preload("res://scripts/data/game_catalog.gd")
+static var BUILDINGS: Dictionary = GameCatalogScript.buildings()
+static var UNITS: Dictionary = GameCatalogScript.units()
+const RESOURCES := {"food": Enums.ResourceType.FOOD, "wood": Enums.ResourceType.WOOD, "gold": Enums.ResourceType.GOLD, "stone": Enums.ResourceType.STONE}
+static var NAMES: Dictionary = _names()
+
+static func _names() -> Dictionary:
+	var result := {
 	"town_center": "城镇中心", "house": "房屋", "barracks": "兵营",
 	"archery_range": "靶场", "stable": "马厩", "mill": "磨坊",
 	"lumber_camp": "伐木场", "mining_camp": "采矿场",
 	"villager": "村民", "swordsman": "剑士", "archer": "弓箭手",
 	"chu_ko_nu": "诸葛弩", "teutonic_knight": "条顿武士",
 	"food": "浆果 / 食物", "wood": "橡树 / 木材", "gold": "金矿",
-}
+	}
+	for key in BUILDINGS: result[key] = BUILDINGS[key].display_name
+	for key in UNITS: result[key] = UNITS[key].display_name
+	result["stone"] = "石矿"
+	return result
 
 static func ids(kind: String) -> Array:
 	match kind:

@@ -1,0 +1,152 @@
+{
+  "key": "g2610_anim",
+  "graphic_id": 2610,
+  "slp_id": 2768,
+  "source": "AoE2 HD DAT graphic + SLP",
+  "cols": 6,
+  "rows": 5,
+  "frame_w": 83,
+  "frame_h": 92,
+  "frame_count": 30,
+  "directions": 5,
+  "frames_per_direction": 6,
+  "hotspots": [
+    {
+      "x": 42,
+      "y": 67
+    },
+    {
+      "x": 42,
+      "y": 67
+    },
+    {
+      "x": 41,
+      "y": 67
+    },
+    {
+      "x": 41,
+      "y": 67
+    },
+    {
+      "x": 42,
+      "y": 67
+    },
+    {
+      "x": 42,
+      "y": 67
+    },
+    {
+      "x": 51,
+      "y": 73
+    },
+    {
+      "x": 50,
+      "y": 73
+    },
+    {
+      "x": 49,
+      "y": 73
+    },
+    {
+      "x": 49,
+      "y": 73
+    },
+    {
+      "x": 50,
+      "y": 73
+    },
+    {
+      "x": 50,
+      "y": 73
+    },
+    {
+      "x": 55,
+      "y": 83
+    },
+    {
+      "x": 54,
+      "y": 83
+    },
+    {
+      "x": 54,
+      "y": 83
+    },
+    {
+      "x": 54,
+      "y": 83
+    },
+    {
+      "x": 54,
+      "y": 83
+    },
+    {
+      "x": 55,
+      "y": 83
+    },
+    {
+      "x": 50,
+      "y": 80
+    },
+    {
+      "x": 50,
+      "y": 80
+    },
+    {
+      "x": 49,
+      "y": 80
+    },
+    {
+      "x": 49,
+      "y": 80
+    },
+    {
+      "x": 49,
+      "y": 80
+    },
+    {
+      "x": 50,
+      "y": 80
+    },
+    {
+      "x": 44,
+      "y": 78
+    },
+    {
+      "x": 44,
+      "y": 77
+    },
+    {
+      "x": 44,
+      "y": 77
+    },
+    {
+      "x": 44,
+      "y": 76
+    },
+    {
+      "x": 44,
+      "y": 77
+    },
+    {
+      "x": 44,
+      "y": 77
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "g2610_anim_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "includes_shadow": false,
+  "layers": [
+    {
+      "graphic_id": 2610,
+      "slp_id": 2768,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "missing_slp_ids": []
+}

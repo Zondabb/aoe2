@@ -3,6 +3,10 @@ extends Node
 
 const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
 
+const Catalog := preload("res://scripts/data/game_catalog.gd")
+const AgeService := preload("res://scripts/systems/age_progression.gd")
+const TechnologyService := preload("res://scripts/systems/technology_progression.gd")
+
 const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
@@ -40,6 +44,9 @@ func _ready() -> void:
 	get_parent().set_meta("local_team", GameSession.local_team())
 	player_civ = _civ_for_id(GameSession.player_civ_id)
 	ai_civ = _civ_for_id(GameSession.ai_civ_id)
+	match_state.progression_enabled = true
+	match_state.team_civilizations = {0:player_civ.id, 1:ai_civ.id}
+	match_state.unit_catalog.assign(Catalog.units().values())
 	map_data = GameSession.match_map_data.duplicate(true)
 	if not map_data.is_empty():
 		var errors := MapDataScript.validate(map_data)
@@ -76,6 +83,18 @@ func _setup_vision() -> void:
 		match_root.call_deferred("add_child", holder)
 
 func _finish_setup() -> void:
+	var age := AgeService.new()
+	age.name = "AgeProgression"
+	get_parent().add_child(age)
+	age.setup(match_state, get_node("../Entities"))
+	var tech := TechnologyService.new()
+	tech.name = "TechnologyProgression"
+	get_parent().add_child(tech)
+	tech.setup(match_state, get_node("../Entities"))
+	var support: Node = load("res://scripts/systems/land_support.gd").new()
+	support.name = "LandSupport"
+	get_parent().add_child(support)
+	support.setup(match_state, get_node("../Entities"))
 	var nav_holder := get_tree().get_first_node_in_group("nav_service") as NavServiceHolderScript
 	if nav_holder != null:
 		nav_holder.rebuild_from_scene()
@@ -186,7 +205,7 @@ func _spawn_base(
 	var town_center := BUILDING_VIEW.instantiate() as Node2D
 	town_center.name = "%sTownCenter" % prefix
 	town_center.set("team", team)
-	town_center.set("def", TOWN_CENTER_DEF)
+	town_center.set("def", Catalog.get_building(&"town_center"))
 	town_center.set("civ", civ)
 	town_center.set("match_state", match_state)
 	town_center.set("accepts_all_resources", true)
@@ -204,7 +223,7 @@ func _spawn_base(
 		var villager := UNIT_VIEW.instantiate() as Node2D
 		villager.name = "%sVillager%d" % [prefix, index + 1]
 		villager.set("team", team)
-		villager.set("def", VILLAGER_DEF)
+		villager.set("def", Catalog.get_unit(&"villager"))
 		villager.set("civ", civ)
 		villager.set("match_state", match_state)
 		villager.set("sim_pos", origin + villager_offsets[index] * direction)
@@ -226,6 +245,9 @@ func _spawn_base(
 		Color(0.92, 0.72, 0.12)
 	)
 
+	_spawn_resource(entities, "%sStoneMine" % prefix, Enums.ResourceType.STONE,
+		origin + Vector2(-6.0, 9.0) * direction, Color("adada5"))
+
 func _civ_for_id(civ_id: StringName) -> CivDef:
 	return TEUTONS_CIV if civ_id == &"teutons" else CHINESE_CIV
 
@@ -239,7 +261,7 @@ func _spawn_resource(
 	var resource := ResourceNodeScript.new()
 	resource.name = node_name
 	resource.resource_type = resource_type
-	resource.amount = 200.0
+	resource.amount = 3000.0
 	resource.gather_rate = 4.0
 	resource.sim_pos = spawn_position
 	resource.add_child(_make_marker(color))

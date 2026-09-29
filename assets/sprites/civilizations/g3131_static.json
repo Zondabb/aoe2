@@ -1,0 +1,39 @@
+{
+  "key": "g3131_static",
+  "graphic_id": 3131,
+  "slp_id": 3489,
+  "source": "AoE2 HD DAT graphic + SLP",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 168,
+  "frame_h": 143,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "hotspots": [
+    {
+      "x": 83,
+      "y": 102
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "g3131_static_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "includes_shadow": false,
+  "layers": [
+    {
+      "graphic_id": 3135,
+      "slp_id": 3493,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "missing_slp_ids": [
+    3489,
+    3485
+  ]
+}

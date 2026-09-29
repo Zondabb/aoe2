@@ -4,6 +4,7 @@ extends Node
 ## net_id is independent of process-local EntityRegistry IDs.
 signal status_changed(message: String)
 
+const Catalog := preload("res://scripts/data/game_catalog.gd")
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
 const Protocol := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const Executor := preload("res://scripts/ai_gateway/command_executor.gd")
@@ -108,6 +109,8 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		"move": ["unit_id"], "stop": ["unit_id"], "gather": ["unit_id", "target_id"],
 		"build": ["unit_id", "building_id"], "attack": ["unit_id", "target_id"],
 		"train": ["building_id"], "place_building": ["builder_id"],
+		"research_age": ["building_id"], "cancel_research_age": ["building_id"],
+		"research_technology": ["building_id"], "cancel_technology": ["building_id"],
 	}
 	if not required.has(op):
 		return false
@@ -143,13 +146,8 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		var definition := Protocol.building_def_for_id(command.building_def_id)
 		if definition == null:
 			return false
-		# Match the human command panel: town centers cannot be placed for free.
-		var build_types := {"house": Enums.BuildingType.HOUSE, "barracks": Enums.BuildingType.BARRACKS,
-			"archery_range": Enums.BuildingType.ARCHERY_RANGE, "stable": Enums.BuildingType.STABLE,
-			"mill": Enums.BuildingType.MILL, "lumber_camp": Enums.BuildingType.LUMBER_CAMP,
-			"mining_camp": Enums.BuildingType.MINING_CAMP}
 		var civilization := _civs.get(sender_team) as CivDef
-		if not build_types.has(command.building_def_id) or civilization == null or build_types[command.building_def_id] not in civilization.allowed_buildings:
+		if civilization == null or not Catalog.building_reason(match_state, sender_team, civilization, definition, entities).is_empty():
 			return false
 		var pos := _vec(command.pos)
 		if not map_bounds.encloses(Rect2(pos - definition.footprint * 0.5, definition.footprint)):
@@ -159,6 +157,10 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if command.get("unit_def_id") is not String:
 			return false
 		translated["unit_def_id"] = command.unit_def_id
+	if op == "research_technology":
+		if command.get("technology_id") is not String or String(command.technology_id).length() > 128:
+			return false
+		translated["technology_id"] = command.technology_id
 	var context := Context.new()
 	context.match_state = match_state
 	context.entities = entities
@@ -236,13 +238,31 @@ func capture_snapshot() -> Dictionary:
 					var queue: Array = []
 					for definition in entity.get("train_queue"):
 						queue.append(String(definition.id))
-					record.merge({"complete": entity.get("is_complete"), "build_progress": entity.get("build_progress"), "train_progress": entity.get("train_progress"), "train_queue": queue, "accepts_all": entity.get("accepts_all_resources")})
+					record.merge({"complete": entity.get("is_complete"), "build_progress": entity.get("build_progress"), "train_progress": entity.get("train_progress"), "train_queue": queue, "accepts_all": entity.get("accepts_all_resources"), "farm_food": entity.get("amount")})
 		records.append(record)
 	var economies: Array = []
 	for side in [0, 1]:
 		var stock: Dictionary = match_state.resources[side]
-		economies.append({"food": stock[0], "wood": stock[1], "gold": stock[2], "population": match_state.population[side], "cap": match_state.population_cap[side], "reserved": match_state.population_reserved[side]})
-	return {"entities": records, "economies": economies, "winner": match_state.winner}
+		economies.append({"food": stock[0], "wood": stock[1], "gold": stock[2], "stone": stock.get(3, 0), "population": match_state.population[side], "cap": match_state.population_cap[side], "reserved": match_state.population_reserved[side]})
+	var research: Array = []
+	var technologies: Array = []
+	for side in [0, 1]:
+		research.append(match_state.age_progression.progress_for(side) if match_state.age_progression != null else {})
+		technologies.append(match_state.researched_technologies.get(side, {}).duplicate())
+	var technology_research: Array = []
+	if match_state.technology_progression != null:
+		for entity in entities.get_children():
+			if entity is BuildingAgent:
+				var progress: Dictionary = match_state.technology_progression.progress_for(entity)
+				if not progress.is_empty():
+					progress = progress.duplicate(true)
+					progress["building_id"] = entity_id(entity)
+					progress["team"] = int(entity.get("team"))
+					technology_research.append(progress)
+	return {"entities": records, "economies": economies, "winner": match_state.winner,
+		"progression": {"enabled": match_state.progression_enabled, "ages": [match_state.age_of(0), match_state.age_of(1)],
+		"research": research, "technologies": technologies, "technology_research": technology_research}}
+
 
 
 func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
@@ -254,6 +274,8 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 		return false
 	if not _valid_enum(snapshot.get("winner", -1), -1, 1):
 		return false
+	if snapshot.has("progression") and not _valid_progression(snapshot.progression):
+		return false
 	var seen: Dictionary = {}
 	for record in snapshot.entities:
 		if record is not Dictionary or not _valid_record(record) or seen.has(int(record.id)):
@@ -262,11 +284,13 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 		if existing != null:
 			if _entity_kind(existing) != record.kind:
 				return false
-			if record.kind in ["unit", "building"] and (String(existing.get("def").id) != record.def or int(existing.get("team")) != int(record.team)):
+			if record.kind in ["unit", "building"] and (not Catalog.is_upgrade(String(existing.get("def").id), record.def) or int(existing.get("team")) != int(record.team)):
 				return false
 		seen[int(record.id)] = true
 	for economy in snapshot.economies:
 		if economy is not Dictionary:
+			return false
+		if economy.has("stone") and (not _finite_number(economy.stone) or float(economy.stone) < 0):
 			return false
 		for key in ["food", "wood", "gold", "population", "cap", "reserved"]:
 			if not _finite_number(economy.get(key)) or float(economy[key]) < 0:
@@ -288,10 +312,22 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 				stale.free()
 	for side in [0, 1]:
 		var economy: Dictionary = snapshot.economies[side]
-		match_state.resources[side] = {0: int(economy.food), 1: int(economy.wood), 2: int(economy.gold)}
+		match_state.resources[side] = {0: int(economy.food), 1: int(economy.wood), 2: int(economy.gold), 3: int(economy.get("stone", 0))}
 		match_state.population[side] = int(economy.population)
 		match_state.population_cap[side] = int(economy.cap)
 		match_state.population_reserved[side] = int(economy.reserved)
+	if snapshot.has("progression"):
+		var progression: Dictionary = snapshot.progression
+		match_state.progression_enabled = bool(progression.enabled)
+		for side in [0, 1]:
+			match_state.set_age(side, int(progression.ages[side]))
+			var changed: bool = match_state.researched_technologies[side] != progression.technologies[side]
+			match_state.researched_technologies[side] = progression.technologies[side].duplicate()
+			if changed: match_state.technology_changed.emit(side, &"")
+		if match_state.age_progression != null:
+			match_state.age_progression.apply_network_state(progression.research)
+		if match_state.technology_progression != null:
+			match_state.technology_progression.apply_network_state(progression.technology_research)
 	_last_snapshot_sequence = sequence
 	_snapshot_wait = 0.0
 	if match_state.fog != null:
@@ -310,6 +346,7 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 			entity.set("def", Protocol.unit_def_for_id(String(record.def)))
 		"building":
 			entity = BUILDING_VIEW.instantiate()
+			if record.def == "farm": entity.set_script(load("res://scripts/entities/farm_agent.gd"))
 			entity.set("def", Protocol.building_def_for_id(String(record.def)))
 			entity.set("accepts_all_resources", bool(record.get("accepts_all", false)))
 		"resource":
@@ -335,6 +372,10 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 
 
 func _apply_record(entity: Node2D, record: Dictionary) -> void:
+	if entity is UnitAgent and String(entity.def.id) != record.def:
+		entity.apply_definition_upgrade(Catalog.get_unit(record.def))
+	elif entity is BuildingAgent and String(entity.def.id) != record.def:
+		entity.apply_definition_upgrade(Catalog.get_building(record.def))
 	entity.set("sim_pos", _vec(record.pos))
 	if record.kind == "resource":
 		entity.set("amount", float(record.amount))
@@ -354,6 +395,7 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 			entity.set("is_complete", bool(record.complete))
 			entity.set("build_progress", float(record.build_progress))
 			entity.set("train_progress", float(record.train_progress))
+			entity.set("amount", float(record.get("farm_food",175.0)))
 			var queue: Array[UnitDef] = []
 			for id in record.train_queue:
 				var definition := Protocol.unit_def_for_id(String(id))
@@ -370,7 +412,7 @@ func _valid_record(record: Dictionary) -> bool:
 	if kind not in ["unit", "building", "resource", "projectile"]:
 		return false
 	if kind == "resource":
-		return _valid_enum(record.get("resource_type"), 0, 2) and _finite_number(record.get("amount")) and _finite_number(record.get("gather_rate"))
+		return _valid_enum(record.get("resource_type"), 0, 3) and _finite_number(record.get("amount")) and _finite_number(record.get("gather_rate"))
 	if not _valid_enum(record.get("team"), 0, 1):
 		return false
 	if kind == "projectile":
@@ -379,7 +421,7 @@ func _valid_record(record: Dictionary) -> bool:
 	if record.get("def") is not String or not _finite_number(record.get("hp")):
 		return false
 	if kind == "unit":
-		if Protocol.unit_def_for_id(record.def) == null or not _valid_enum(record.get("order"), 0, 4) or not _valid_enum(record.get("carry_type"), -1, 2) or not _finite_number(record.get("carry_amount")):
+		if Protocol.unit_def_for_id(record.def) == null or not _valid_enum(record.get("order"), 0, 4) or not _valid_enum(record.get("carry_type"), -1, 3) or not _finite_number(record.get("carry_amount")):
 			return false
 		var visual: Variant = record.get("presentation")
 		if visual is not Dictionary or not _valid_enum(visual.get("facing"), 0, 31) or not _valid_enum(visual.get("frame"), 0, 10000) or visual.get("flip") is not bool:
@@ -391,6 +433,8 @@ func _valid_record(record: Dictionary) -> bool:
 	if Protocol.building_def_for_id(record.def) == null or record.get("complete") is not bool or not _finite_number(record.get("build_progress")) or not _finite_number(record.get("train_progress")) or record.get("train_queue") is not Array:
 		return false
 	if record.train_queue.size() > 1:
+		return false
+	if record.has("farm_food") and (not _finite_number(record.farm_food) or float(record.farm_food) < 0.0):
 		return false
 	for id in record.train_queue:
 		if id is not String or Protocol.unit_def_for_id(id) == null:
@@ -511,3 +555,44 @@ func _set_status(message: String) -> void:
 func _exit_tree() -> void:
 	if session != null and is_instance_valid(session):
 		session.call("leave")
+
+
+func _valid_progression(value: Variant) -> bool:
+	if value is not Dictionary or value.get("enabled") is not bool:
+		return false
+	for field in ["ages", "research", "technologies"]:
+		if value.get(field) is not Array or value[field].size() != 2:
+			return false
+	for age in value.ages:
+		if not _valid_enum(age, 0, 3):
+			return false
+	for research in value.research:
+		if research is not Dictionary:
+			return false
+		if research.is_empty():
+			continue
+		if not _valid_id(research.get("building_id")) or not _valid_enum(research.get("target_age"), 1, 3) or not _valid_enum(research.get("from_age"), 0, 2):
+			return false
+		if not _valid_research_progress(research):
+			return false
+	for technologies in value.technologies:
+		if technologies is not Dictionary or technologies.size() > 256:
+			return false
+		for technology_id in technologies:
+			if technology_id is not String or not Catalog.techs().has(technology_id) or technologies[technology_id] != true:
+				return false
+	if value.get("technology_research") is not Array or value.technology_research.size() > MAX_ENTITIES:
+		return false
+	for research in value.technology_research:
+		if research is not Dictionary or not _valid_id(research.get("building_id")) or not _valid_enum(research.get("team"), 0, 1):
+			return false
+		if research.get("technology_id") is not String or not Catalog.techs().has(research.technology_id) or not _valid_research_progress(research):
+			return false
+	return true
+
+
+func _valid_research_progress(research: Dictionary) -> bool:
+	for field in ["elapsed", "duration", "progress"]:
+		if not _finite_number(research.get(field)) or float(research[field]) < 0:
+			return false
+	return float(research.duration) > 0 and float(research.elapsed) <= float(research.duration) and float(research.progress) <= 1.0

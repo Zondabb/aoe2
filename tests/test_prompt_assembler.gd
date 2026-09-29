@@ -20,6 +20,10 @@ func _test_tool_catalog_names(failures: Array[String]) -> void:
 		"move",
 		"attack",
 		"stop",
+		"research_age",
+		"cancel_research_age",
+		"research_technology",
+		"cancel_technology",
 		"noop",
 	]
 	if AiToolCatalogScript.TOOL_NAMES != expected:

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 PROTOCOL_VERSION = 1
 
-ResourceTypeName = Literal["FOOD", "WOOD", "GOLD", "UNKNOWN"]
+ResourceTypeName = Literal["FOOD", "WOOD", "GOLD", "STONE", "UNKNOWN"]
 OrderName = Literal["NONE", "MOVE", "GATHER", "BUILD", "ATTACK"]
 CommandOp = Literal[
     "move",
@@ -16,6 +16,10 @@ CommandOp = Literal[
     "attack",
     "place_building",
     "train",
+    "research_age",
+    "cancel_research_age",
+    "research_technology",
+    "cancel_technology",
     "noop",
 ]
 
@@ -24,6 +28,7 @@ class Economy(BaseModel):
     food: int
     wood: int
     gold: int
+    stone: int = 0
     pop_used: int
     pop_cap: int
 
@@ -68,6 +73,12 @@ class EntityBuilding(BaseModel):
     is_complete: bool
     build_progress: float = 0.0
     train_queue_empty: bool = True
+    is_researching: bool = False
+    trainable: list[str] | None = None
+    age_upgrade_reason: str | None = None
+    technologies: list[dict[str, str]] = Field(default_factory=list)
+    resource_type: Literal["FOOD"] | None = None
+    amount: float | None = None
 
 
 class EntityResource(BaseModel):
@@ -81,10 +92,17 @@ class EntityResource(BaseModel):
 EntitySnapshot = EntityUnit | EntityBuilding | EntityResource
 
 
+class Progression(BaseModel):
+    age: int = Field(ge=0, le=3)
+    researched_technologies: dict[str, bool] = Field(default_factory=dict)
+    age_research: dict[str, Any] = Field(default_factory=dict)
+
+
 class Observation(BaseModel):
     economy: Economy
     derived: Derived
     entities: list[dict[str, Any]]
+    progression: Progression | None = None
 
 
 class GameEvent(BaseModel):
@@ -104,6 +122,7 @@ class Command(BaseModel):
     target_id: int | None = None
     building_def_id: str | None = None
     unit_def_id: str | None = None
+    technology_id: str | None = None
     pos: list[float] | None = None
     builder_id: int | None = None
 

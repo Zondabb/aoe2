@@ -2,6 +2,7 @@ class_name BuildingDef
 extends Resource
 
 @export var id: StringName
+@export var display_name: String
 @export var max_hp: int
 @export var footprint: Vector2
 ## Movement can pass beneath an open building while its placement footprint stays intact.
@@ -13,8 +14,15 @@ extends Resource
 @export var cost_food: int
 @export var cost_wood: int
 @export var cost_gold: int
+@export var cost_stone: int
 @export var build_time: float
 @export var population_provided: int
 @export var trainable: Array[UnitDef] = []
 @export var has_drop_off: bool
 @export var drop_off: Enums.ResourceType = Enums.ResourceType.FOOD
+@export_group("Technology tree")
+@export var required_age: Enums.Age = Enums.Age.DARK
+@export var prerequisites: Array[StringName] = []
+@export var civilizations: Array[StringName] = []
+@export var source_id: int = -1
+@export var icon_id: int = -1

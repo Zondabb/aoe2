@@ -7,6 +7,7 @@ from brain.build_manager import BuildManager
 from brain.combat_manager import CombatManager
 from brain.command_builder import CommandContext
 from brain.economy_manager import EconomyManager
+from brain.land_progression import LandProgression
 from brain.production_manager import ProductionManager
 from brain.profile_loader import CivAiProfile, profile_for_id
 from brain.stores import (
@@ -31,6 +32,7 @@ class AiDirector:
         self._previous_phase = PHASE_ECO
         self._next_build_slot = 0
         self._economy = EconomyManager()
+        self._land_progression = LandProgression()
         self._build = BuildManager()
         self._production = ProductionManager()
         self._army = ArmyManager()
@@ -67,7 +69,15 @@ class AiDirector:
         self._economy.assign_builders(ctx, self._blackboard)
         self._economy.assign_gatherers(ctx, self._blackboard, self.profile, self.phase)
 
-        if self.phase == PHASE_ECO:
+        if self._blackboard.progression:
+            self._land_progression.tick(ctx, self._blackboard, self.profile)
+            if self.phase in (PHASE_ATTACK, PHASE_DEFEND):
+                if self.phase == PHASE_DEFEND:
+                    self._army.rally_to_base(ctx, self._blackboard, self.profile)
+                else:
+                    self._army.rally(ctx, self._blackboard, self.profile)
+                self._combat.tick_army(ctx, self._blackboard, self.profile, enemy_team)
+        elif self.phase == PHASE_ECO:
             self._build.tick(ctx, self._blackboard, self.profile, self.profile_id, self.phase)
             self._production.tick(
                 ctx,

@@ -3,6 +3,7 @@ extends RefCounted
 
 ## HTTP AI 协议常量与枚举字符串映射（protocol_version: 1）。
 
+const Catalog := preload("res://scripts/data/game_catalog.gd")
 const PROTOCOL_VERSION := 1
 const META_ENTITY_ID := &"entity_id"
 
@@ -14,6 +15,10 @@ const OP_ATTACK := &"attack"
 const OP_PLACE_BUILDING := &"place_building"
 const OP_TRAIN := &"train"
 const OP_NOOP := &"noop"
+const OP_RESEARCH_AGE := &"research_age"
+const OP_CANCEL_AGE := &"cancel_research_age"
+const OP_RESEARCH_TECHNOLOGY := &"research_technology"
+const OP_CANCEL_TECHNOLOGY := &"cancel_technology"
 
 const EVENT_MATCH_STARTED := &"match_started"
 const EVENT_MATCH_ENDED := &"match_ended"
@@ -48,6 +53,8 @@ static func resource_type_name(resource_type: Enums.ResourceType) -> String:
 			return "WOOD"
 		Enums.ResourceType.GOLD:
 			return "GOLD"
+		Enums.ResourceType.STONE:
+			return "STONE"
 		_:
 			return "UNKNOWN"
 
@@ -55,10 +62,10 @@ static func resource_type_name(resource_type: Enums.ResourceType) -> String:
 static func entity_kind(entity: Node2D) -> String:
 	if entity == null:
 		return "unknown"
-	if entity.has_method("extract"):
-		return "resource"
 	if entity.get("def") is BuildingDef:
 		return "building"
+	if entity.has_method("extract"):
+		return "resource"
 	if entity.get("def") is UnitDef:
 		return "unit"
 	return "unknown"
@@ -118,6 +125,14 @@ static func op_from_string(value: String) -> StringName:
 			return OP_TRAIN
 		"noop":
 			return OP_NOOP
+		"research_age":
+			return OP_RESEARCH_AGE
+		"cancel_research_age":
+			return OP_CANCEL_AGE
+		"research_technology":
+			return OP_RESEARCH_TECHNOLOGY
+		"cancel_technology":
+			return OP_CANCEL_TECHNOLOGY
 		_:
 			return &""
 
@@ -132,38 +147,8 @@ static func array_to_vec2(value: Variant) -> Variant:
 
 
 static func building_def_for_id(building_def_id: String) -> BuildingDef:
-	match StringName(building_def_id):
-		&"house":
-			return load("res://data/buildings/house.tres") as BuildingDef
-		&"town_center":
-			return load("res://data/buildings/town_center.tres") as BuildingDef
-		&"barracks":
-			return load("res://data/buildings/barracks.tres") as BuildingDef
-		&"archery_range":
-			return load("res://data/buildings/archery_range.tres") as BuildingDef
-		&"stable":
-			return load("res://data/buildings/stable.tres") as BuildingDef
-		&"mill":
-			return load("res://data/buildings/mill.tres") as BuildingDef
-		&"lumber_camp":
-			return load("res://data/buildings/lumber_camp.tres") as BuildingDef
-		&"mining_camp":
-			return load("res://data/buildings/mining_camp.tres") as BuildingDef
-		_:
-			return null
+	return Catalog.get_building(building_def_id)
 
 
 static func unit_def_for_id(unit_def_id: String) -> UnitDef:
-	match StringName(unit_def_id):
-		&"villager":
-			return load("res://data/units/villager.tres") as UnitDef
-		&"swordsman":
-			return load("res://data/units/swordsman.tres") as UnitDef
-		&"archer":
-			return load("res://data/units/archer.tres") as UnitDef
-		&"chu_ko_nu":
-			return load("res://data/units/chu_ko_nu.tres") as UnitDef
-		&"teutonic_knight":
-			return load("res://data/units/teutonic_knight.tres") as UnitDef
-		_:
-			return null
+	return Catalog.get_unit(unit_def_id)

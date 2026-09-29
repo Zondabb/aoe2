@@ -60,6 +60,7 @@ func _test_eco_assigns_gather_and_trains(failures: Array[String]) -> void:
 	town_center.set("accepts_all_resources", true)
 	town_center.set("sim_pos", Vector2(40.0, 40.0))
 	entities.add_child(town_center)
+	town_center.call("_ready")
 
 	var villagers: Array[Node2D] = []
 	for index in 3:
@@ -278,9 +279,18 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 	scene_root.get_node("Bootstrap").call("_ready")
 	var bootstrap := scene_root.get_node("Bootstrap")
 	var state := bootstrap.get("match_state") as MatchState
+	# Legacy AI smoke test excludes era research; the asynchronous
+	# run_progression_ai.gd suite exercises the complete four-age simulation.
+	state.progression_enabled = false
 	# Synchronous economic acceleration bypasses scene physics; fog has a dedicated suite.
 	state.fog_enabled = false
 	var entities := scene_root.get_node("Entities") as Node2D
+	for entity in entities.get_children():
+		if entity.get("def") is BuildingDef:
+			entity.def = load("res://data/buildings/%s.tres" % entity.def.id)
+		elif entity.get("def") is UnitDef:
+			entity.def = load("res://data/units/%s.tres" % entity.def.id)
+		entity.call("_ready")
 	var ai := AI_CONTROLLER.new()
 	scene_root.add_child(ai)
 	ai.setup(state, entities, TEUTONS, Enums.Team.AI, Enums.Team.PLAYER)

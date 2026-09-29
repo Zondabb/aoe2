@@ -1,0 +1,20 @@
+{
+  "key": "farm_ground",
+  "source": "g_fm1_00_color.png",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 384,
+  "frame_h": 192,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "hotspots": [
+    {
+      "x": 192,
+      "y": 96
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  }
+}

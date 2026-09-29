@@ -3,6 +3,8 @@ extends RefCounted
 
 ## Paths and helpers for exported AoE2 sprite sheets under assets/sprites/.
 
+const ImportedCatalog := preload("res://scripts/data/game_catalog.gd")
+
 const PLAYER_COLOR_SHADER := preload("res://shaders/player_color.gdshader")
 const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
 enum SpriteLayer { ALL, SOLID, SHADOW }
@@ -155,7 +157,8 @@ static func quantize_xz_facing(velocity: Variant) -> Dictionary:
 
 
 static func unit_sheet_base(unit_id: StringName) -> String:
-	return String(UNIT_SHEETS.get(unit_id, ""))
+	var imported := ImportedCatalog.unit_sheet(unit_id, &"walk")
+	return imported if not imported.is_empty() else String(UNIT_SHEETS.get(unit_id, ""))
 
 
 static func projectile_sheet_base() -> String:
@@ -220,13 +223,18 @@ static func projectile_frame_for_flight(clock_hours: float, sequence_step: int) 
 
 
 static func combat_sheet_base(unit_id: StringName, action: StringName) -> String:
+	var imported := ImportedCatalog.unit_sheet(unit_id, action)
+	if not imported.is_empty(): return imported
 	if not UNIT_COMBAT_SHEETS.has(unit_id):
 		return ""
 	var by_action: Dictionary = UNIT_COMBAT_SHEETS[unit_id]
 	return String(by_action.get(action, ""))
 
 
-static func building_sheet_base(building_id: StringName, civ_id: StringName) -> String:
+static func building_sheet_base(building_id: StringName, civ_id: StringName, age := -1) -> String:
+	if age >= 0:
+		var imported := ImportedCatalog.building_sheet(building_id, civ_id, age)
+		if not imported.is_empty(): return imported
 	if not BUILDING_SHEETS.has(building_id):
 		return ""
 	var by_civ: Dictionary = BUILDING_SHEETS[building_id]
@@ -236,6 +244,7 @@ static func building_sheet_base(building_id: StringName, civ_id: StringName) -> 
 
 
 static func resource_sheet_base(resource_type: int) -> String:
+	if resource_type == Enums.ResourceType.STONE: return ImportedCatalog.data().get("resource_sprites", {}).get("stone", "")
 	return String(RESOURCE_SHEETS.get(resource_type, ""))
 
 
@@ -504,9 +513,10 @@ static func append_unit_combat_frames(
 	frames: SpriteFrames, unit_id: StringName
 ) -> Dictionary:
 	var metas := {}
-	if not UNIT_COMBAT_SHEETS.has(unit_id):
-		return metas
-	var by_action: Dictionary = UNIT_COMBAT_SHEETS[unit_id]
+	var by_action: Dictionary = UNIT_COMBAT_SHEETS.get(unit_id, {}).duplicate()
+	for action in [&"attack", &"die"]:
+		var imported := ImportedCatalog.unit_sheet(unit_id, action)
+		if not imported.is_empty(): by_action[action] = imported
 	for action: StringName in by_action:
 		var base := String(by_action[action])
 		if not sheet_paths_exist(base):

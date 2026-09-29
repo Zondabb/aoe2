@@ -1,0 +1,55 @@
+{
+  "key": "g2831_anim",
+  "graphic_id": 2831,
+  "slp_id": 3035,
+  "source": "AoE2 HD DAT graphic + SLP",
+  "cols": 3,
+  "rows": 2,
+  "frame_w": 107,
+  "frame_h": 92,
+  "frame_count": 5,
+  "directions": 5,
+  "frames_per_direction": 1,
+  "hotspots": [
+    {
+      "x": 55,
+      "y": 64
+    },
+    {
+      "x": 52,
+      "y": 69
+    },
+    {
+      "x": 57,
+      "y": 75
+    },
+    {
+      "x": 50,
+      "y": 66
+    },
+    {
+      "x": 54,
+      "y": 66
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "g2831_anim_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "includes_shadow": false,
+  "layers": [
+    {
+      "graphic_id": 2831,
+      "slp_id": 3035,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "missing_slp_ids": [
+    3033,
+    3034
+  ]
+}

@@ -48,3 +48,22 @@ static func unit_order(source: Node, unit: Node2D, op: String, target: Variant =
 		unit.call("command_stop")
 	else:
 		unit.call("command_" + op, target)
+
+
+static func research_age(source: Node, building: Node2D, cancel: bool = false) -> bool:
+	if not is_instance_valid(building):
+		return false
+	if is_online(source):
+		return submit(source, {"op": "cancel_research_age" if cancel else "research_age", "building_id": entity_id(source, building)})
+	return bool(building.call("cancel_age_upgrade" if cancel else "start_age_upgrade"))
+
+
+static func research_technology(source: Node, building: Node2D, technology_id: String, cancel: bool = false) -> bool:
+	if not is_instance_valid(building):
+		return false
+	if is_online(source):
+		return submit(source, {"op": "cancel_technology" if cancel else "research_technology", "building_id": entity_id(source, building), "technology_id": technology_id})
+	var state := building.get("match_state") as MatchState
+	if state == null or state.technology_progression == null:
+		return false
+	return bool(state.technology_progression.cancel_research(building)) if cancel else bool(state.technology_progression.start_research(building, technology_id))

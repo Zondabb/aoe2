@@ -72,8 +72,8 @@ func run() -> Array[String]:
 	var entities := scene_root.get_node("Entities") as Node2D
 	if not entities.y_sort_enabled:
 		failures.append("Entities root should enable y_sort for iso depth")
-	if entities.get_child_count() != 15:
-		failures.append("bootstrap should spawn both bases with Chinese extra villager")
+	if entities.get_child_count() != 17:
+		failures.append("bootstrap should spawn both bases, Chinese extra villager, and stone deposits")
 	else:
 		var unit := entities.get_node("PlayerVillager1")
 		unit.call("_ready")
@@ -134,8 +134,8 @@ func run() -> Array[String]:
 		if not unit.position.is_equal_approx(IsoMathScript.world_to_screen(unit.get("sim_pos"))):
 			failures.append("unit Node2D position should stay synced to iso screen coords")
 		var stable_button := hud.find_child("StableButton", true, false) as Button
-		if stable_button == null or stable_button.visible:
-			failures.append("Chinese HUD should hide the stable build button")
+		if stable_button == null or not stable_button.visible:
+			failures.append("Chinese HUD should expose the original Chinese stable")
 		for drop_button_name in ["MillButton", "LumberButton", "MiningButton"]:
 			if hud.find_child(drop_button_name, true, false) == null:
 				failures.append("HUD should expose %s for drop-off buildings" % drop_button_name)

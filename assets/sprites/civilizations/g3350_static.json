@@ -1,0 +1,81 @@
+{
+  "key": "g3350_static",
+  "graphic_id": 3350,
+  "slp_id": 2219,
+  "source": "AoE2 HD DAT graphic + SLP",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 389,
+  "frame_h": 240,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "hotspots": [
+    {
+      "x": 196,
+      "y": 193
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "g3350_static_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "includes_shadow": true,
+  "layers": [
+    {
+      "graphic_id": 448,
+      "slp_id": 904,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "graphic_id": 456,
+      "slp_id": 912,
+      "x": 0,
+      "y": -48
+    },
+    {
+      "graphic_id": 3262,
+      "slp_id": 3617,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "graphic_id": 5491,
+      "slp_id": 4633,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "graphic_id": 3258,
+      "slp_id": 3613,
+      "x": 0,
+      "y": 24
+    },
+    {
+      "graphic_id": 5487,
+      "slp_id": 4629,
+      "x": 0,
+      "y": 24
+    },
+    {
+      "graphic_id": 3254,
+      "slp_id": 3609,
+      "x": 0,
+      "y": 48
+    },
+    {
+      "graphic_id": 5483,
+      "slp_id": 4625,
+      "x": 0,
+      "y": 48
+    }
+  ],
+  "missing_slp_ids": [
+    2219,
+    908
+  ]
+}

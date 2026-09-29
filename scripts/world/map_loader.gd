@@ -50,6 +50,7 @@ static func spawn_entity(record: Dictionary, parent: Node2D, state: MatchState, 
 	match record.type:
 		"building":
 			entity = BUILDING_VIEW.instantiate()
+			if id == "farm": entity.set_script(load("res://scripts/entities/farm_agent.gd"))
 			entity.set("def", Catalog.BUILDINGS[id])
 			entity.set("accepts_all_resources", id == "town_center")
 		"unit":

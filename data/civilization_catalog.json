@@ -1,0 +1,5128 @@
+{
+  "schema_version": 1,
+  "source": {
+    "edition": "Age of Empires II HD / The Conquerors base data",
+    "dat": "resources/_common/dat/empires2_x1_p1.dat",
+    "dat_version": "VER 5.7",
+    "sha256": "28b50786d62cc956679bf56b42b272ec04eb93642268e997484dbc63bb24e6cb",
+    "decompressed_bytes": 5634431,
+    "scope": "Chinese and Teutons standard land units and buildings; no navy, heroes or scenario objects",
+    "attributes": "DAT base attributes before technologies and civilization bonuses"
+  },
+  "ages": {
+    "dark": {
+      "source_id": 104,
+      "level": 0,
+      "display_name": "黑暗时代",
+      "cost": {},
+      "time": 0,
+      "icon_id": -1
+    },
+    "feudal": {
+      "source_id": 101,
+      "level": 1,
+      "display_name": "封建时代",
+      "cost": {
+        "food": 500
+      },
+      "time": 130,
+      "icon_id": 30
+    },
+    "castle": {
+      "source_id": 102,
+      "level": 2,
+      "display_name": "城堡时代",
+      "cost": {
+        "food": 800,
+        "gold": 200
+      },
+      "time": 160,
+      "icon_id": 31
+    },
+    "imperial": {
+      "source_id": 103,
+      "level": 3,
+      "display_name": "帝王时代",
+      "cost": {
+        "food": 1000,
+        "gold": 800
+      },
+      "time": 190,
+      "icon_id": 32
+    }
+  },
+  "civilizations": {
+    "chinese": {
+      "source_id": 6,
+      "display_name": "中国",
+      "icon_set": 3,
+      "disabled_tech_ids": [
+        12,
+        15,
+        54,
+        85,
+        188,
+        230,
+        246,
+        265,
+        291,
+        293,
+        294,
+        320,
+        331,
+        338,
+        356,
+        376,
+        377,
+        379,
+        428,
+        433,
+        434,
+        436,
+        439
+      ]
+    },
+    "teutons": {
+      "source_id": 4,
+      "display_name": "条顿",
+      "icon_set": 1,
+      "disabled_tech_ids": [
+        39,
+        51,
+        111,
+        174,
+        182,
+        201,
+        218,
+        235,
+        236,
+        237,
+        254,
+        255,
+        291,
+        293,
+        294,
+        331,
+        338,
+        356,
+        373,
+        375,
+        376,
+        407,
+        428,
+        433,
+        434,
+        436,
+        437,
+        441
+      ]
+    }
+  },
+  "units": {
+    "militia": {
+      "source_id": 74,
+      "display_name": "民兵",
+      "display_name_en": "Militia",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 40,
+      "attack": 4,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "sight": 4.0,
+      "icon_id": 8,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 0,
+        "BUILDINGS": 0,
+        "UNITS_MELEE": 4,
+        "CAVALRY": 0
+      },
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1102_anim",
+        "walk": "res://assets/sprites/civilizations/g1106_anim",
+        "attack": "res://assets/sprites/civilizations/g1096_anim",
+        "die": "res://assets/sprites/civilizations/g1099_anim"
+      },
+      "train_at": "barracks",
+      "speed": 0.9,
+      "train_time": 21,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 4.0
+    },
+    "villager": {
+      "source_id": 83,
+      "display_name": "村民",
+      "display_name_en": "Villager",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 50
+      },
+      "hp": 25,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 4.0,
+      "icon_id": 15,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 3,
+        "UNITS_MELEE": 3,
+        "STONE_DEFENSES": 6
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "CIVILIAN",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1284_anim",
+        "walk": "res://assets/sprites/civilizations/g1288_anim",
+        "attack": "res://assets/sprites/civilizations/g1278_anim",
+        "die": "res://assets/sprites/civilizations/g1281_anim"
+      },
+      "train_at": "town_center",
+      "speed": 0.8,
+      "train_time": 25,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 4.0
+    },
+    "archer": {
+      "source_id": 4,
+      "display_name": "步弓手",
+      "display_name_en": "Archer",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "hp": 30,
+      "attack": 4,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 6.0,
+      "icon_id": 17,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 4,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g633_anim",
+        "walk": "res://assets/sprites/civilizations/g637_anim",
+        "attack": "res://assets/sprites/civilizations/g627_anim",
+        "die": "res://assets/sprites/civilizations/g630_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 0.96,
+      "train_time": 35,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "spearman": {
+      "source_id": 93,
+      "display_name": "长矛兵",
+      "display_name_en": "Spearman",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "hp": 45,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 4.0,
+      "icon_id": 31,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 1,
+        "BUILDINGS": 1,
+        "WAR_ELEPHANT": 15,
+        "UNITS_MELEE": 3,
+        "CAVALRY": 15,
+        "SHIPS_CAMELS_SABOTEURS": 7
+      },
+      "source_armors": {
+        "SPEARMEN": 0,
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1063_anim",
+        "walk": "res://assets/sprites/civilizations/g1067_anim",
+        "attack": "res://assets/sprites/civilizations/g1057_anim",
+        "die": "res://assets/sprites/civilizations/g1060_anim"
+      },
+      "train_at": "barracks",
+      "speed": 1.0,
+      "train_time": 22,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 4.0
+    },
+    "scout_cavalry": {
+      "source_id": 448,
+      "display_name": "斥候骑兵",
+      "display_name_en": "Scout Cavalry",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 80
+      },
+      "hp": 45,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 2,
+      "sight": 4.0,
+      "icon_id": 64,
+      "attack_type": "melee",
+      "source_attacks": {
+        "MONKS": 6,
+        "UNITS_MELEE": 3
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_class": "SCOUT_CAVALRY",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1972_anim",
+        "walk": "res://assets/sprites/civilizations/g1976_anim",
+        "attack": "res://assets/sprites/civilizations/g1966_anim",
+        "die": "res://assets/sprites/civilizations/g1969_anim"
+      },
+      "train_at": "stable",
+      "speed": 1.2,
+      "train_time": 30,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 4.0
+    },
+    "trade_cart": {
+      "source_id": 128,
+      "display_name": "贸易车",
+      "display_name_en": "Trade Cart",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100,
+        "gold": 50
+      },
+      "hp": 70,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 7.0,
+      "icon_id": 34,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "TRADE_CART",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1141_anim",
+        "walk": "res://assets/sprites/civilizations/g1681_anim",
+        "die": "res://assets/sprites/civilizations/g1138_anim"
+      },
+      "train_at": "market",
+      "speed": 1.0,
+      "train_time": 51,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 7.0
+    },
+    "skirmisher": {
+      "source_id": 7,
+      "display_name": "掷矛手",
+      "display_name_en": "Skirmisher",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 25,
+        "wood": 35
+      },
+      "hp": 30,
+      "attack": 2,
+      "attack_range": 4.0,
+      "min_range": 1.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 3,
+      "sight": 6.0,
+      "icon_id": 20,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "ARCHERS": 3,
+        "UNITS_PIERCE": 2,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 3
+      },
+      "source_class": "ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1401_anim",
+        "walk": "res://assets/sprites/civilizations/g1405_anim",
+        "attack": "res://assets/sprites/civilizations/g1395_anim",
+        "die": "res://assets/sprites/civilizations/g1398_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 0.96,
+      "train_time": 22,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "man_at_arms": {
+      "source_id": 75,
+      "display_name": "剑士",
+      "display_name_en": "Man-at-Arms",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 45,
+      "attack": 6,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "sight": 4.0,
+      "icon_id": 10,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 2,
+        "BUILDINGS": 1,
+        "UNITS_MELEE": 6,
+        "CAVALRY": 0
+      },
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1115_anim",
+        "walk": "res://assets/sprites/civilizations/g1119_anim",
+        "attack": "res://assets/sprites/civilizations/g1109_anim",
+        "die": "res://assets/sprites/civilizations/g1112_anim"
+      },
+      "train_at": "barracks",
+      "speed": 0.9,
+      "train_time": 21,
+      "population": 1,
+      "required_techs": [
+        "man_at_arms"
+      ],
+      "upgrade_from": "militia",
+      "required_technology": "man_at_arms",
+      "upgrades_from": "militia",
+      "vision": 4.0
+    },
+    "battering_ram": {
+      "source_id": 35,
+      "display_name": "轻型冲车",
+      "display_name_en": "Battering Ram",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "hp": 175,
+      "attack": 2,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": -3,
+      "pierce_armor": 180,
+      "sight": 3.0,
+      "icon_id": 74,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 125,
+        "UNITS_MELEE": 2,
+        "SIEGE_WEAPONS": 40
+      },
+      "source_armors": {
+        "UNITS_MELEE": -3,
+        "UNITS_PIERCE": 180,
+        "RAMS": 0,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SIEGE_WEAPON",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g686_anim",
+        "walk": "res://assets/sprites/civilizations/g690_anim",
+        "attack": "res://assets/sprites/civilizations/g680_anim",
+        "die": "res://assets/sprites/civilizations/g683_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.5,
+      "train_time": 36,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 3.0
+    },
+    "chu_ko_nu": {
+      "source_id": 73,
+      "display_name": "诸葛弩",
+      "display_name_en": "Chu Ko Nu",
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 35
+      },
+      "hp": 45,
+      "attack": 8,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 6.0,
+      "icon_id": 36,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 8,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0,
+        "UNIQUE_UNITS": 0
+      },
+      "source_class": "ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g725_anim",
+        "walk": "res://assets/sprites/civilizations/g729_anim",
+        "attack": "res://assets/sprites/civilizations/g719_anim",
+        "die": "res://assets/sprites/civilizations/g722_anim"
+      },
+      "train_at": "castle",
+      "speed": 0.96,
+      "train_time": 19,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "camel": {
+      "source_id": 329,
+      "display_name": "骆驼兵",
+      "display_name_en": "Camel",
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "food": 55,
+        "gold": 60
+      },
+      "hp": 100,
+      "attack": 5,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 4.0,
+      "icon_id": 78,
+      "attack_type": "melee",
+      "source_attacks": {
+        "UNITS_MELEE": 5,
+        "CAVALRY": 10,
+        "SHIPS_CAMELS_SABOTEURS": 5
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0,
+        "SHIPS_CAMELS_SABOTEURS": 0
+      },
+      "source_class": "CAVALRY",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g946_anim",
+        "walk": "res://assets/sprites/civilizations/g950_anim",
+        "attack": "res://assets/sprites/civilizations/g940_anim",
+        "die": "res://assets/sprites/civilizations/g943_anim"
+      },
+      "train_at": "stable",
+      "speed": 1.45,
+      "train_time": 22,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 4.0
+    },
+    "cavalry_archer": {
+      "source_id": 39,
+      "display_name": "骑射手",
+      "display_name_en": "Cavalry Archer",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 70
+      },
+      "hp": 50,
+      "attack": 6,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 5.0,
+      "icon_id": 19,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 6,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "CAVALRY_ARCHER": 0,
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "CAVALRY_ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g751_anim",
+        "walk": "res://assets/sprites/civilizations/g755_anim",
+        "attack": "res://assets/sprites/civilizations/g745_anim",
+        "die": "res://assets/sprites/civilizations/g748_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 1.4,
+      "train_time": 34,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 5.0
+    },
+    "knight": {
+      "source_id": 38,
+      "display_name": "骑士",
+      "display_name_en": "Knight",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "hp": 100,
+      "attack": 10,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 1.8,
+      "melee_armor": 2,
+      "pierce_armor": 2,
+      "sight": 4.0,
+      "icon_id": 1,
+      "attack_type": "melee",
+      "source_attacks": {
+        "UNITS_MELEE": 10,
+        "ARCHERS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_class": "CAVALRY",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g933_anim",
+        "walk": "res://assets/sprites/civilizations/g937_anim",
+        "attack": "res://assets/sprites/civilizations/g927_anim",
+        "die": "res://assets/sprites/civilizations/g930_anim"
+      },
+      "train_at": "stable",
+      "speed": 1.35,
+      "train_time": 30,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 4.0
+    },
+    "mangonel": {
+      "source_id": 280,
+      "display_name": "轻型投石车",
+      "display_name_en": "Mangonel",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "hp": 50,
+      "attack": 40,
+      "attack_range": 7.0,
+      "min_range": 3.0,
+      "cooldown": 6.0,
+      "melee_armor": 0,
+      "pierce_armor": 6,
+      "sight": 9.0,
+      "icon_id": 27,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 35,
+        "UNITS_MELEE": 40,
+        "SIEGE_WEAPONS": 12
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 6,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SIEGE_WEAPON",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g985_anim",
+        "walk": "res://assets/sprites/civilizations/g989_anim",
+        "attack": "res://assets/sprites/civilizations/g979_anim",
+        "die": "res://assets/sprites/civilizations/g982_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.6,
+      "train_time": 46,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 9.0
+    },
+    "monk": {
+      "source_id": 125,
+      "display_name": "僧侣",
+      "display_name_en": "Monk",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "gold": 100
+      },
+      "hp": 30,
+      "attack": 0,
+      "attack_range": 9.0,
+      "min_range": 0.0,
+      "cooldown": 1.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 11.0,
+      "icon_id": 33,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "MONKS": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "PRIEST",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g998_anim",
+        "walk": "res://assets/sprites/civilizations/g1002_anim",
+        "attack": "res://assets/sprites/civilizations/g992_anim",
+        "die": "res://assets/sprites/civilizations/g995_anim"
+      },
+      "train_at": "monastery",
+      "speed": 0.7,
+      "train_time": 51,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 11.0
+    },
+    "petard": {
+      "source_id": 440,
+      "display_name": "爆破兵",
+      "display_name_en": "Petard",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 80,
+        "gold": 20
+      },
+      "hp": 50,
+      "attack": 25,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": 0,
+      "pierce_armor": 2,
+      "sight": 4.0,
+      "icon_id": 113,
+      "attack_type": "melee",
+      "source_attacks": {
+        "CASTLE": 100,
+        "BUILDINGS_NO_PORT": 500,
+        "UNITS_MELEE": 25,
+        "SIEGE_WEAPONS": 60,
+        "WALLS_GATES": 900
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_class": "PETARD",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g4408_anim",
+        "walk": "res://assets/sprites/civilizations/g4409_anim",
+        "attack": "res://assets/sprites/civilizations/g5461_anim",
+        "die": "res://assets/sprites/civilizations/g5461_anim"
+      },
+      "train_at": "castle",
+      "speed": 0.8,
+      "train_time": 25,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 4.0
+    },
+    "scorpion": {
+      "source_id": 279,
+      "display_name": "弩炮",
+      "display_name_en": "Scorpion",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 75,
+        "gold": 75
+      },
+      "hp": 40,
+      "attack": 12,
+      "attack_range": 7.0,
+      "min_range": 2.0,
+      "cooldown": 3.6,
+      "melee_armor": 0,
+      "pierce_armor": 6,
+      "sight": 9.0,
+      "icon_id": 80,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 2,
+        "WAR_ELEPHANT": 6,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 12,
+        "RAMS": 1
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 6,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SCORPION",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1076_anim",
+        "walk": "res://assets/sprites/civilizations/g1080_anim",
+        "attack": "res://assets/sprites/civilizations/g1070_anim",
+        "die": "res://assets/sprites/civilizations/g1073_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.65,
+      "train_time": 30,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 9.0
+    },
+    "teutonic_knight": {
+      "source_id": 25,
+      "display_name": "条顿武士",
+      "display_name_en": "Teutonic Knight",
+      "required_age": 2,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 85,
+        "gold": 40
+      },
+      "hp": 70,
+      "attack": 12,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 5,
+      "pierce_armor": 2,
+      "sight": 3.0,
+      "icon_id": 45,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 4,
+        "BUILDINGS": 4,
+        "UNITS_MELEE": 12
+      },
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 5,
+        "UNITS_PIERCE": 2,
+        "UNIQUE_UNITS": 0
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1167_anim",
+        "walk": "res://assets/sprites/civilizations/g1171_anim",
+        "attack": "res://assets/sprites/civilizations/g1161_anim",
+        "die": "res://assets/sprites/civilizations/g1164_anim"
+      },
+      "train_at": "castle",
+      "speed": 0.65,
+      "train_time": 12,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 3.0
+    },
+    "crossbowman": {
+      "source_id": 24,
+      "display_name": "弩手",
+      "display_name_en": "Crossbowman",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "hp": 35,
+      "attack": 5,
+      "attack_range": 5.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 7.0,
+      "icon_id": 18,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 5,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g699_anim",
+        "walk": "res://assets/sprites/civilizations/g703_anim",
+        "attack": "res://assets/sprites/civilizations/g693_anim",
+        "die": "res://assets/sprites/civilizations/g696_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 0.96,
+      "train_time": 27,
+      "population": 1,
+      "required_techs": [
+        "crossbowman"
+      ],
+      "upgrade_from": "archer",
+      "required_technology": "crossbowman",
+      "upgrades_from": "archer",
+      "vision": 7.0
+    },
+    "elite_skirmisher": {
+      "source_id": 6,
+      "display_name": "精锐掷矛手",
+      "display_name_en": "Elite Skirmisher",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 25,
+        "wood": 35
+      },
+      "hp": 35,
+      "attack": 3,
+      "attack_range": 5.0,
+      "min_range": 1.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 4,
+      "sight": 7.0,
+      "icon_id": 21,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "CAVALRY_ARCHER": 2,
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "ARCHERS": 4,
+        "UNITS_PIERCE": 3,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 4
+      },
+      "source_class": "ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g881_anim",
+        "walk": "res://assets/sprites/civilizations/g885_anim",
+        "attack": "res://assets/sprites/civilizations/g875_anim",
+        "die": "res://assets/sprites/civilizations/g878_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 0.96,
+      "train_time": 22,
+      "population": 1,
+      "required_techs": [
+        "elite_skirmisher"
+      ],
+      "upgrade_from": "skirmisher",
+      "required_technology": "elite_skirmisher",
+      "upgrades_from": "skirmisher",
+      "vision": 7.0
+    },
+    "pikeman": {
+      "source_id": 358,
+      "display_name": "长枪兵",
+      "display_name_en": "Pikeman",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "hp": 55,
+      "attack": 4,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 4.0,
+      "icon_id": 11,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 1,
+        "BUILDINGS": 1,
+        "WAR_ELEPHANT": 25,
+        "UNITS_MELEE": 4,
+        "CAVALRY": 22,
+        "SHIPS_CAMELS_SABOTEURS": 11
+      },
+      "source_armors": {
+        "SPEARMEN": 0,
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2649_anim",
+        "walk": "res://assets/sprites/civilizations/g2653_anim",
+        "attack": "res://assets/sprites/civilizations/g2643_anim",
+        "die": "res://assets/sprites/civilizations/g2646_anim"
+      },
+      "train_at": "barracks",
+      "speed": 1.0,
+      "train_time": 22,
+      "population": 1,
+      "required_techs": [
+        "pikeman"
+      ],
+      "upgrade_from": "spearman",
+      "required_technology": "pikeman",
+      "upgrades_from": "spearman",
+      "vision": 4.0
+    },
+    "light_cavalry": {
+      "source_id": 546,
+      "display_name": "轻骑兵",
+      "display_name_en": "Light Cavalry",
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "food": 80
+      },
+      "hp": 60,
+      "attack": 7,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 2,
+      "sight": 4.0,
+      "icon_id": 91,
+      "attack_type": "melee",
+      "source_attacks": {
+        "MONKS": 10,
+        "UNITS_MELEE": 7
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_class": "CAVALRY",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2804_anim",
+        "walk": "res://assets/sprites/civilizations/g2808_anim",
+        "attack": "res://assets/sprites/civilizations/g2798_anim",
+        "die": "res://assets/sprites/civilizations/g2801_anim"
+      },
+      "train_at": "stable",
+      "speed": 1.5,
+      "train_time": 30,
+      "population": 1,
+      "required_techs": [
+        "light_cavalry"
+      ],
+      "upgrade_from": "scout_cavalry",
+      "required_technology": "light_cavalry",
+      "upgrades_from": "scout_cavalry",
+      "vision": 4.0
+    },
+    "long_swordsman": {
+      "source_id": 77,
+      "display_name": "长剑士",
+      "display_name_en": "Long Swordsman",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 55,
+      "attack": 9,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "sight": 4.0,
+      "icon_id": 13,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 4,
+        "BUILDINGS": 2,
+        "UNITS_MELEE": 9,
+        "CAVALRY": 0
+      },
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1154_anim",
+        "walk": "res://assets/sprites/civilizations/g1158_anim",
+        "attack": "res://assets/sprites/civilizations/g1148_anim",
+        "die": "res://assets/sprites/civilizations/g1151_anim"
+      },
+      "train_at": "barracks",
+      "speed": 0.9,
+      "train_time": 21,
+      "population": 1,
+      "required_techs": [
+        "long_swordsman"
+      ],
+      "upgrade_from": "man_at_arms",
+      "required_technology": "long_swordsman",
+      "upgrades_from": "man_at_arms",
+      "vision": 4.0
+    },
+    "bombard_cannon": {
+      "source_id": 36,
+      "display_name": "手推炮",
+      "display_name_en": "Bombard Cannon",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "wood": 225,
+        "gold": 225
+      },
+      "hp": 80,
+      "attack": 40,
+      "attack_range": 12.0,
+      "min_range": 5.0,
+      "cooldown": 6.5,
+      "melee_armor": 2,
+      "pierce_armor": 5,
+      "sight": 14.0,
+      "icon_id": 30,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 200,
+        "SHIPS_CAMELS_SABOTEURS": 40,
+        "UNITS_MELEE": 40,
+        "SIEGE_WEAPONS": 20,
+        "STONE_DEFENSES": 40
+      },
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 5,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SIEGE_WEAPON",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g660_anim",
+        "walk": "res://assets/sprites/civilizations/g664_anim",
+        "attack": "res://assets/sprites/civilizations/g654_anim",
+        "die": "res://assets/sprites/civilizations/g657_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.7,
+      "train_time": 56,
+      "population": 1,
+      "required_techs": [
+        "chemistry"
+      ],
+      "upgrade_from": "",
+      "required_technology": "chemistry",
+      "upgrades_from": "",
+      "vision": 14.0
+    },
+    "hand_cannoneer": {
+      "source_id": 5,
+      "display_name": "火枪手",
+      "display_name_en": "Hand Cannoneer",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 45,
+        "gold": 50
+      },
+      "hp": 35,
+      "attack": 17,
+      "attack_range": 7.0,
+      "min_range": 0.0,
+      "cooldown": 3.45,
+      "melee_armor": 1,
+      "pierce_armor": 0,
+      "sight": 9.0,
+      "icon_id": 22,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 1,
+        "BUILDINGS_NO_PORT": 0,
+        "INFANTRY": 10,
+        "UNITS_PIERCE": 17,
+        "RAMS": 2
+      },
+      "source_armors": {
+        "UNITS_MELEE": 1,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "HAND_CANNONEER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g855_anim",
+        "walk": "res://assets/sprites/civilizations/g859_anim",
+        "attack": "res://assets/sprites/civilizations/g849_anim",
+        "die": "res://assets/sprites/civilizations/g852_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 0.96,
+      "train_time": 34,
+      "population": 1,
+      "required_techs": [
+        "chemistry"
+      ],
+      "upgrade_from": "",
+      "required_technology": "chemistry",
+      "upgrades_from": "",
+      "vision": 9.0
+    },
+    "trebuchet": {
+      "source_id": 331,
+      "display_name": "巨型投石机",
+      "display_name_en": "Trebuchet (Packed)",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 200,
+        "gold": 200
+      },
+      "hp": 150,
+      "attack": 200,
+      "attack_range": 16.0,
+      "min_range": 4.0,
+      "cooldown": 10.0,
+      "melee_armor": 2,
+      "pierce_armor": 8,
+      "sight": 18.0,
+      "icon_id": 29,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 250,
+        "UNITS_PIERCE": 200
+      },
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 8,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "PACKED_SIEGE_UNITS",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1180_anim",
+        "walk": "res://assets/sprites/civilizations/g2281_anim",
+        "attack": "res://assets/sprites/civilizations/g1174_anim",
+        "die": "res://assets/sprites/civilizations/g5434_anim"
+      },
+      "train_at": "castle",
+      "speed": 0.8,
+      "train_time": 50,
+      "population": 1,
+      "required_techs": [],
+      "upgrade_from": "",
+      "combat_source_id": 42,
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 18.0
+    },
+    "arbalest": {
+      "source_id": 492,
+      "display_name": "劲弩手",
+      "display_name_en": "Arbalest",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "hp": 40,
+      "attack": 6,
+      "attack_range": 5.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 7.0,
+      "icon_id": 90,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 6,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2584_anim",
+        "walk": "res://assets/sprites/civilizations/g2588_anim",
+        "attack": "res://assets/sprites/civilizations/g2578_anim",
+        "die": "res://assets/sprites/civilizations/g2581_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 0.96,
+      "train_time": 27,
+      "population": 1,
+      "required_techs": [
+        "arbalest"
+      ],
+      "upgrade_from": "crossbowman",
+      "required_technology": "arbalest",
+      "upgrades_from": "crossbowman",
+      "vision": 7.0
+    },
+    "capped_ram": {
+      "source_id": 422,
+      "display_name": "中型冲车",
+      "display_name_en": "Capped Ram",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "hp": 200,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": -3,
+      "pierce_armor": 190,
+      "sight": 3.0,
+      "icon_id": 63,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 150,
+        "UNITS_MELEE": 3,
+        "SIEGE_WEAPONS": 50
+      },
+      "source_armors": {
+        "UNITS_MELEE": -3,
+        "UNITS_PIERCE": 190,
+        "RAMS": 1,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SIEGE_WEAPON",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1773_anim",
+        "walk": "res://assets/sprites/civilizations/g1777_anim",
+        "attack": "res://assets/sprites/civilizations/g1767_anim",
+        "die": "res://assets/sprites/civilizations/g1770_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.5,
+      "train_time": 36,
+      "population": 1,
+      "required_techs": [
+        "capped_ram"
+      ],
+      "upgrade_from": "battering_ram",
+      "required_technology": "capped_ram",
+      "upgrades_from": "battering_ram",
+      "vision": 3.0
+    },
+    "heavy_camel": {
+      "source_id": 330,
+      "display_name": "重装骆驼兵",
+      "display_name_en": "Heavy Camel",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "food": 55,
+        "gold": 60
+      },
+      "hp": 120,
+      "attack": 7,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 5.0,
+      "icon_id": 79,
+      "attack_type": "melee",
+      "source_attacks": {
+        "UNITS_MELEE": 7,
+        "CAVALRY": 18,
+        "SHIPS_CAMELS_SABOTEURS": 9
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0,
+        "SHIPS_CAMELS_SABOTEURS": 0
+      },
+      "source_class": "CAVALRY",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2610_anim",
+        "walk": "res://assets/sprites/civilizations/g2614_anim",
+        "attack": "res://assets/sprites/civilizations/g2604_anim",
+        "die": "res://assets/sprites/civilizations/g2607_anim"
+      },
+      "train_at": "stable",
+      "speed": 1.45,
+      "train_time": 22,
+      "population": 1,
+      "required_techs": [
+        "heavy_camel"
+      ],
+      "upgrade_from": "camel",
+      "required_technology": "heavy_camel",
+      "upgrades_from": "camel",
+      "vision": 5.0
+    },
+    "heavy_cavalry_archer": {
+      "source_id": 474,
+      "display_name": "重装骑射手",
+      "display_name_en": "Heavy Cavalry Archer",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 70
+      },
+      "hp": 60,
+      "attack": 7,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 1,
+      "pierce_armor": 0,
+      "sight": 6.0,
+      "icon_id": 71,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 7,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "CAVALRY_ARCHER": 0,
+        "UNITS_MELEE": 1,
+        "ARCHERS": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "CAVALRY_ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g3413_anim",
+        "walk": "res://assets/sprites/civilizations/g3417_anim",
+        "attack": "res://assets/sprites/civilizations/g3407_anim",
+        "die": "res://assets/sprites/civilizations/g3410_anim"
+      },
+      "train_at": "archery_range",
+      "speed": 1.4,
+      "train_time": 27,
+      "population": 1,
+      "required_techs": [
+        "heavy_cav_archer"
+      ],
+      "upgrade_from": "cavalry_archer",
+      "required_technology": "heavy_cav_archer",
+      "upgrades_from": "cavalry_archer",
+      "vision": 6.0
+    },
+    "paladin": {
+      "source_id": 569,
+      "display_name": "游侠",
+      "display_name_en": "Paladin",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "hp": 160,
+      "attack": 14,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 1.9,
+      "melee_armor": 2,
+      "pierce_armor": 3,
+      "sight": 5.0,
+      "icon_id": 2,
+      "attack_type": "melee",
+      "source_attacks": {
+        "UNITS_MELEE": 14,
+        "ARCHERS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 3
+      },
+      "source_class": "CAVALRY",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2889_anim",
+        "walk": "res://assets/sprites/civilizations/g2893_anim",
+        "attack": "res://assets/sprites/civilizations/g2883_anim",
+        "die": "res://assets/sprites/civilizations/g2886_anim"
+      },
+      "train_at": "stable",
+      "speed": 1.35,
+      "train_time": 30,
+      "population": 1,
+      "required_techs": [
+        "paladin"
+      ],
+      "upgrade_from": "cavalier",
+      "required_technology": "paladin",
+      "upgrades_from": "cavalier",
+      "vision": 5.0
+    },
+    "champion": {
+      "source_id": 567,
+      "display_name": "冠军剑士",
+      "display_name_en": "Champion",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 70,
+      "attack": 13,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 1,
+      "pierce_armor": 1,
+      "sight": 5.0,
+      "icon_id": 72,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 6,
+        "BUILDINGS": 3,
+        "UNITS_MELEE": 13,
+        "CAVALRY": 0
+      },
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 1
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2902_anim",
+        "walk": "res://assets/sprites/civilizations/g2906_anim",
+        "attack": "res://assets/sprites/civilizations/g2896_anim",
+        "die": "res://assets/sprites/civilizations/g2899_anim"
+      },
+      "train_at": "barracks",
+      "speed": 0.9,
+      "train_time": 21,
+      "population": 1,
+      "required_techs": [
+        "champion"
+      ],
+      "upgrade_from": "two_handed_swordsman",
+      "required_technology": "champion",
+      "upgrades_from": "two_handed_swordsman",
+      "vision": 5.0
+    },
+    "halberdier": {
+      "source_id": 359,
+      "display_name": "长戟兵",
+      "display_name_en": "Halberdier",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "hp": 60,
+      "attack": 6,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 4.0,
+      "icon_id": 104,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 1,
+        "BUILDINGS": 1,
+        "WAR_ELEPHANT": 28,
+        "UNITS_MELEE": 6,
+        "CAVALRY": 32,
+        "SHIPS_CAMELS_SABOTEURS": 16
+      },
+      "source_armors": {
+        "SPEARMEN": 0,
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2623_anim",
+        "walk": "res://assets/sprites/civilizations/g2627_anim",
+        "attack": "res://assets/sprites/civilizations/g2617_anim",
+        "die": "res://assets/sprites/civilizations/g2620_anim"
+      },
+      "train_at": "barracks",
+      "speed": 1.0,
+      "train_time": 22,
+      "population": 1,
+      "required_techs": [
+        "halberdier"
+      ],
+      "upgrade_from": "pikeman",
+      "required_technology": "halberdier",
+      "upgrades_from": "pikeman",
+      "vision": 4.0
+    },
+    "two_handed_swordsman": {
+      "source_id": 473,
+      "display_name": "双手剑士",
+      "display_name_en": "Two-Handed Swordsman",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 60,
+      "attack": 11,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "sight": 5.0,
+      "icon_id": 12,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 6,
+        "BUILDINGS": 3,
+        "UNITS_MELEE": 11,
+        "CAVALRY": 0
+      },
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2636_anim",
+        "walk": "res://assets/sprites/civilizations/g2640_anim",
+        "attack": "res://assets/sprites/civilizations/g2630_anim",
+        "die": "res://assets/sprites/civilizations/g2633_anim"
+      },
+      "train_at": "barracks",
+      "speed": 0.9,
+      "train_time": 21,
+      "population": 1,
+      "required_techs": [
+        "two_handed_swordsman"
+      ],
+      "upgrade_from": "long_swordsman",
+      "required_technology": "two_handed_swordsman",
+      "upgrades_from": "long_swordsman",
+      "vision": 5.0
+    },
+    "heavy_scorpion": {
+      "source_id": 542,
+      "display_name": "重型弩炮",
+      "display_name_en": "Heavy Scorpion",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 75,
+        "gold": 75
+      },
+      "hp": 50,
+      "attack": 16,
+      "attack_range": 7.0,
+      "min_range": 2.0,
+      "cooldown": 3.6,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 9.0,
+      "icon_id": 89,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 4,
+        "WAR_ELEPHANT": 8,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 16,
+        "RAMS": 2
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SCORPION",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2777_anim",
+        "walk": "res://assets/sprites/civilizations/g2781_anim",
+        "attack": "res://assets/sprites/civilizations/g2771_anim",
+        "die": "res://assets/sprites/civilizations/g2774_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.65,
+      "train_time": 30,
+      "population": 1,
+      "required_techs": [
+        "heavy_scorpion"
+      ],
+      "upgrade_from": "scorpion",
+      "required_technology": "heavy_scorpion",
+      "upgrades_from": "scorpion",
+      "vision": 9.0
+    },
+    "onager": {
+      "source_id": 550,
+      "display_name": "中型投石车",
+      "display_name_en": "Onager",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "hp": 60,
+      "attack": 50,
+      "attack_range": 8.0,
+      "min_range": 3.0,
+      "cooldown": 6.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 10.0,
+      "icon_id": 101,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 45,
+        "UNITS_MELEE": 50,
+        "SIEGE_WEAPONS": 12
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SIEGE_WEAPON",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2819_anim",
+        "walk": "res://assets/sprites/civilizations/g2822_anim",
+        "attack": "res://assets/sprites/civilizations/g2813_anim",
+        "die": "res://assets/sprites/civilizations/g2816_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.6,
+      "train_time": 46,
+      "population": 1,
+      "required_techs": [
+        "onager"
+      ],
+      "upgrade_from": "mangonel",
+      "required_technology": "onager",
+      "upgrades_from": "mangonel",
+      "vision": 10.0
+    },
+    "cavalier": {
+      "source_id": 283,
+      "display_name": "重装骑士",
+      "display_name_en": "Cavalier",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "hp": 120,
+      "attack": 12,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 1.8,
+      "melee_armor": 2,
+      "pierce_armor": 2,
+      "sight": 4.0,
+      "icon_id": 49,
+      "attack_type": "melee",
+      "source_attacks": {
+        "UNITS_MELEE": 12,
+        "ARCHERS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_class": "CAVALRY",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1050_anim",
+        "walk": "res://assets/sprites/civilizations/g1054_anim",
+        "attack": "res://assets/sprites/civilizations/g1044_anim",
+        "die": "res://assets/sprites/civilizations/g1047_anim"
+      },
+      "train_at": "stable",
+      "speed": 1.35,
+      "train_time": 30,
+      "population": 1,
+      "required_techs": [
+        "cavalier"
+      ],
+      "upgrade_from": "knight",
+      "required_technology": "cavalier",
+      "upgrades_from": "knight",
+      "vision": 4.0
+    },
+    "siege_ram": {
+      "source_id": 548,
+      "display_name": "重型冲车",
+      "display_name_en": "Siege Ram",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "hp": 270,
+      "attack": 4,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": -3,
+      "pierce_armor": 195,
+      "sight": 3.0,
+      "icon_id": 73,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 200,
+        "UNITS_MELEE": 4,
+        "SIEGE_WEAPONS": 65
+      },
+      "source_armors": {
+        "UNITS_MELEE": -3,
+        "UNITS_PIERCE": 195,
+        "RAMS": 2,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SIEGE_WEAPON",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g2831_anim",
+        "walk": "res://assets/sprites/civilizations/g2835_anim",
+        "attack": "res://assets/sprites/civilizations/g2825_anim",
+        "die": "res://assets/sprites/civilizations/g2828_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.6,
+      "train_time": 36,
+      "population": 1,
+      "required_techs": [
+        "siege_ram"
+      ],
+      "upgrade_from": "capped_ram",
+      "required_technology": "siege_ram",
+      "upgrades_from": "capped_ram",
+      "vision": 3.0
+    },
+    "siege_onager": {
+      "source_id": 588,
+      "display_name": "重型投石车",
+      "display_name_en": "Siege Onager",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "hp": 70,
+      "attack": 75,
+      "attack_range": 8.0,
+      "min_range": 3.0,
+      "cooldown": 6.0,
+      "melee_armor": 0,
+      "pierce_armor": 8,
+      "sight": 10.0,
+      "icon_id": 102,
+      "attack_type": "melee",
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 60,
+        "UNITS_MELEE": 75,
+        "SIEGE_WEAPONS": 12
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 8,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_class": "SIEGE_WEAPON",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g3165_anim",
+        "walk": "res://assets/sprites/civilizations/g3169_anim",
+        "attack": "res://assets/sprites/civilizations/g3159_anim",
+        "die": "res://assets/sprites/civilizations/g3162_anim"
+      },
+      "train_at": "siege_workshop",
+      "speed": 0.6,
+      "train_time": 46,
+      "population": 1,
+      "required_techs": [
+        "siege_onager"
+      ],
+      "upgrade_from": "onager",
+      "required_technology": "siege_onager",
+      "upgrades_from": "onager",
+      "vision": 10.0
+    },
+    "elite_chu_ko_nu": {
+      "source_id": 559,
+      "display_name": "精锐诸葛弩",
+      "display_name_en": "Elite Chu Ko Nu",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "cost": {
+        "wood": 40,
+        "gold": 35
+      },
+      "hp": 50,
+      "attack": 8,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 6.0,
+      "icon_id": 36,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 8,
+        "RAMS": 0
+      },
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0,
+        "UNIQUE_UNITS": 0
+      },
+      "source_class": "ARCHER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g725_anim",
+        "walk": "res://assets/sprites/civilizations/g729_anim",
+        "attack": "res://assets/sprites/civilizations/g719_anim",
+        "die": "res://assets/sprites/civilizations/g722_anim"
+      },
+      "train_at": "castle",
+      "speed": 0.96,
+      "train_time": 13,
+      "population": 1,
+      "required_techs": [
+        "elite_chu_ko_nu"
+      ],
+      "upgrade_from": "chu_ko_nu",
+      "required_technology": "elite_chu_ko_nu",
+      "upgrades_from": "chu_ko_nu",
+      "vision": 6.0
+    },
+    "elite_teutonic_knight": {
+      "source_id": 554,
+      "display_name": "精锐条顿武士",
+      "display_name_en": "Elite Teutonic Knight",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "cost": {
+        "food": 85,
+        "gold": 40
+      },
+      "hp": 100,
+      "attack": 17,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 10,
+      "pierce_armor": 2,
+      "sight": 5.0,
+      "icon_id": 45,
+      "attack_type": "melee",
+      "source_attacks": {
+        "EAGLE_WARRIOR": 4,
+        "BUILDINGS": 4,
+        "UNITS_MELEE": 17
+      },
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 10,
+        "UNITS_PIERCE": 2,
+        "UNIQUE_UNITS": 0
+      },
+      "source_class": "SOLDIER",
+      "sprites": {
+        "idle": "res://assets/sprites/civilizations/g1167_anim",
+        "walk": "res://assets/sprites/civilizations/g1171_anim",
+        "attack": "res://assets/sprites/civilizations/g1161_anim",
+        "die": "res://assets/sprites/civilizations/g1164_anim"
+      },
+      "train_at": "castle",
+      "speed": 0.65,
+      "train_time": 12,
+      "population": 1,
+      "required_techs": [
+        "elite_teutonic_knight"
+      ],
+      "upgrade_from": "teutonic_knight",
+      "required_technology": "elite_teutonic_knight",
+      "upgrades_from": "teutonic_knight",
+      "vision": 5.0
+    }
+  },
+  "buildings": {
+    "barracks": {
+      "source_id": 12,
+      "display_name": "兵营",
+      "display_name_en": "Barracks",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "hp": 1200,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 6.0,
+      "icon_id": 2,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2575_static",
+          "1": "res://assets/sprites/civilizations/g91_static",
+          "2": "res://assets/sprites/civilizations/g103_static",
+          "3": "res://assets/sprites/civilizations/g103_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2575_static",
+          "1": "res://assets/sprites/civilizations/g90_static",
+          "2": "res://assets/sprites/civilizations/g102_static",
+          "3": "res://assets/sprites/civilizations/g102_static"
+        }
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "population_provided": 0,
+      "build_time": 50,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 12,
+          "hp": 1200,
+          "melee_armor": 0,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 498,
+          "hp": 1500,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 132,
+          "hp": 1800,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 20,
+          "hp": 2100,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "farm": {
+      "source_id": 50,
+      "display_name": "农田",
+      "display_name_en": "Farm",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 60
+      },
+      "hp": 480,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 1.0,
+      "icon_id": 35,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "FARM",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/farm_ground",
+          "1": "res://assets/sprites/civilizations/farm_ground",
+          "2": "res://assets/sprites/civilizations/farm_ground",
+          "3": "res://assets/sprites/civilizations/farm_ground"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/farm_ground",
+          "1": "res://assets/sprites/civilizations/farm_ground",
+          "2": "res://assets/sprites/civilizations/farm_ground",
+          "3": "res://assets/sprites/civilizations/farm_ground"
+        }
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "population_provided": 0,
+      "build_time": 15,
+      "required_buildings": [
+        "mill"
+      ],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 50,
+          "hp": 480,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        },
+        "feudal": {
+          "source_id": 50,
+          "hp": 480,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        },
+        "castle": {
+          "source_id": 50,
+          "hp": 480,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        },
+        "imperial": {
+          "source_id": 50,
+          "hp": 480,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 1.0
+    },
+    "house": {
+      "source_id": 70,
+      "display_name": "房屋",
+      "display_name_en": "House",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 30
+      },
+      "hp": 900,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 2.0,
+      "icon_id": 34,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2197_static",
+          "1": "res://assets/sprites/civilizations/g2207_static",
+          "2": "res://assets/sprites/civilizations/g2221_static",
+          "3": "res://assets/sprites/civilizations/g2221_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2197_static",
+          "1": "res://assets/sprites/civilizations/g2206_static",
+          "2": "res://assets/sprites/civilizations/g2220_static",
+          "3": "res://assets/sprites/civilizations/g2220_static"
+        }
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "population_provided": 5,
+      "build_time": 25,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 70,
+          "hp": 900,
+          "melee_armor": 0,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 463,
+          "hp": 900,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 464,
+          "hp": 900,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 465,
+          "hp": 900,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 2.0
+    },
+    "mill": {
+      "source_id": 68,
+      "display_name": "磨坊",
+      "display_name_en": "Mill",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100
+      },
+      "hp": 1000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 6.0,
+      "icon_id": 19,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g3124_static",
+          "1": "res://assets/sprites/civilizations/g366_static",
+          "2": "res://assets/sprites/civilizations/g378_static",
+          "3": "res://assets/sprites/civilizations/g378_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g3124_static",
+          "1": "res://assets/sprites/civilizations/g365_static",
+          "2": "res://assets/sprites/civilizations/g377_static",
+          "3": "res://assets/sprites/civilizations/g377_static"
+        }
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "population_provided": 0,
+      "build_time": 35,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 68,
+          "hp": 1000,
+          "melee_armor": 0,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 129,
+          "hp": 1000,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 130,
+          "hp": 1000,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 131,
+          "hp": 1000,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "mining_camp": {
+      "source_id": 584,
+      "display_name": "采矿场",
+      "display_name_en": "Mining Camp",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100
+      },
+      "hp": 1000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 6.0,
+      "icon_id": 39,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g3131_static",
+          "1": "res://assets/sprites/civilizations/g3131_static",
+          "2": "res://assets/sprites/civilizations/g3131_static",
+          "3": "res://assets/sprites/civilizations/g3131_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g3130_static",
+          "1": "res://assets/sprites/civilizations/g3130_static",
+          "2": "res://assets/sprites/civilizations/g3130_static",
+          "3": "res://assets/sprites/civilizations/g3130_static"
+        }
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "population_provided": 0,
+      "build_time": 35,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 584,
+          "hp": 1000,
+          "melee_armor": 0,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 585,
+          "hp": 1000,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 586,
+          "hp": 1000,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 587,
+          "hp": 1000,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "town_center": {
+      "source_id": 109,
+      "display_name": "城镇中心",
+      "display_name_en": "Town Center",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 275,
+        "stone": 100
+      },
+      "hp": 2400,
+      "attack": 5,
+      "attack_range": 6.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 3,
+      "pierce_armor": 5,
+      "sight": 8.0,
+      "icon_id": 28,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "UNITS_PIERCE": 5
+      },
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 5
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g3345_static",
+          "1": "res://assets/sprites/civilizations/g3347_static",
+          "2": "res://assets/sprites/civilizations/g3351_static",
+          "3": "res://assets/sprites/civilizations/g3355_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g3345_static",
+          "1": "res://assets/sprites/civilizations/g3346_static",
+          "2": "res://assets/sprites/civilizations/g3350_static",
+          "3": "res://assets/sprites/civilizations/g3354_static"
+        }
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "population_provided": 5,
+      "build_time": 100,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 109,
+          "hp": 2400,
+          "melee_armor": 3,
+          "pierce_armor": 5
+        },
+        "feudal": {
+          "source_id": 71,
+          "hp": 2400,
+          "melee_armor": 4,
+          "pierce_armor": 6
+        },
+        "castle": {
+          "source_id": 141,
+          "hp": 2400,
+          "melee_armor": 5,
+          "pierce_armor": 7
+        },
+        "imperial": {
+          "source_id": 142,
+          "hp": 2400,
+          "melee_armor": 6,
+          "pierce_armor": 8
+        }
+      },
+      "construction_cost": {
+        "wood": 275,
+        "stone": 100
+      },
+      "construction_age": 2,
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 8.0
+    },
+    "lumber_camp": {
+      "source_id": 562,
+      "display_name": "伐木场",
+      "display_name_en": "Lumber Camp",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 100
+      },
+      "hp": 1000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 6.0,
+      "icon_id": 40,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g3116_static",
+          "1": "res://assets/sprites/civilizations/g3116_static",
+          "2": "res://assets/sprites/civilizations/g3116_static",
+          "3": "res://assets/sprites/civilizations/g3116_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g3115_static",
+          "1": "res://assets/sprites/civilizations/g3115_static",
+          "2": "res://assets/sprites/civilizations/g3115_static",
+          "3": "res://assets/sprites/civilizations/g3115_static"
+        }
+      },
+      "footprint": [
+        2.0,
+        2.0
+      ],
+      "population_provided": 0,
+      "build_time": 35,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 562,
+          "hp": 1000,
+          "melee_armor": 0,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 563,
+          "hp": 1000,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 564,
+          "hp": 1000,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 565,
+          "hp": 1000,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "palisade_wall": {
+      "source_id": 72,
+      "display_name": "木栅栏",
+      "display_name_en": "Palisade Wall",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 2
+      },
+      "hp": 250,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 2,
+      "pierce_armor": 5,
+      "sight": 2.0,
+      "icon_id": 30,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 5,
+        "WALLS_GATES": 0
+      },
+      "source_class": "WALLS",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g588_static",
+          "1": "res://assets/sprites/civilizations/g588_static",
+          "2": "res://assets/sprites/civilizations/g588_static",
+          "3": "res://assets/sprites/civilizations/g588_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g588_static",
+          "1": "res://assets/sprites/civilizations/g588_static",
+          "2": "res://assets/sprites/civilizations/g588_static",
+          "3": "res://assets/sprites/civilizations/g588_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 5,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 72,
+          "hp": 250,
+          "melee_armor": 2,
+          "pierce_armor": 5
+        },
+        "feudal": {
+          "source_id": 72,
+          "hp": 250,
+          "melee_armor": 2,
+          "pierce_armor": 5
+        },
+        "castle": {
+          "source_id": 72,
+          "hp": 250,
+          "melee_armor": 2,
+          "pierce_armor": 5
+        },
+        "imperial": {
+          "source_id": 72,
+          "hp": 250,
+          "melee_armor": 2,
+          "pierce_armor": 5
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 2.0
+    },
+    "outpost": {
+      "source_id": 598,
+      "display_name": "哨站",
+      "display_name_en": "Outpost",
+      "required_age": 0,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 25,
+        "stone": 10
+      },
+      "hp": 500,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "sight": 6.0,
+      "icon_id": 38,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g3223_static",
+          "1": "res://assets/sprites/civilizations/g3223_static",
+          "2": "res://assets/sprites/civilizations/g3223_static",
+          "3": "res://assets/sprites/civilizations/g3223_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g3223_static",
+          "1": "res://assets/sprites/civilizations/g3223_static",
+          "2": "res://assets/sprites/civilizations/g3223_static",
+          "3": "res://assets/sprites/civilizations/g3223_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 15,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 598,
+          "hp": 500,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        },
+        "feudal": {
+          "source_id": 598,
+          "hp": 500,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        },
+        "castle": {
+          "source_id": 598,
+          "hp": 500,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        },
+        "imperial": {
+          "source_id": 598,
+          "hp": 500,
+          "melee_armor": 0,
+          "pierce_armor": 0
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "archery_range": {
+      "source_id": 87,
+      "display_name": "靶场",
+      "display_name_en": "Archery Range",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "hp": 1500,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 1,
+      "pierce_armor": 8,
+      "sight": 6.0,
+      "icon_id": 0,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 8
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g10_static",
+          "1": "res://assets/sprites/civilizations/g10_static",
+          "2": "res://assets/sprites/civilizations/g22_static",
+          "3": "res://assets/sprites/civilizations/g22_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g9_static",
+          "1": "res://assets/sprites/civilizations/g9_static",
+          "2": "res://assets/sprites/civilizations/g21_static",
+          "3": "res://assets/sprites/civilizations/g21_static"
+        }
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "population_provided": 0,
+      "build_time": 50,
+      "required_buildings": [
+        "barracks"
+      ],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 87,
+          "hp": 1500,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "feudal": {
+          "source_id": 87,
+          "hp": 1500,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 10,
+          "hp": 1800,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 14,
+          "hp": 2100,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "blacksmith": {
+      "source_id": 103,
+      "display_name": "铁匠铺",
+      "display_name_en": "Blacksmith",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 150
+      },
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 6.0,
+      "icon_id": 4,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g51_static",
+          "1": "res://assets/sprites/civilizations/g51_static",
+          "2": "res://assets/sprites/civilizations/g63_static",
+          "3": "res://assets/sprites/civilizations/g63_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g50_static",
+          "1": "res://assets/sprites/civilizations/g50_static",
+          "2": "res://assets/sprites/civilizations/g62_static",
+          "3": "res://assets/sprites/civilizations/g62_static"
+        }
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "population_provided": 0,
+      "build_time": 40,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 103,
+          "hp": 2100,
+          "melee_armor": 0,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 105,
+          "hp": 2100,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 18,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 19,
+          "hp": 2100,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "gate": {
+      "source_id": 487,
+      "display_name": "城门",
+      "display_name_en": "Gate",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 30
+      },
+      "hp": 2750,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 10,
+      "pierce_armor": 10,
+      "sight": 6.0,
+      "icon_id": 36,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 20,
+        "UNITS_MELEE": 10,
+        "UNITS_PIERCE": 10,
+        "STONE_DEFENSES": 0,
+        "WALLS_GATES": 0
+      },
+      "source_class": "GATES",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2537_static",
+          "1": "res://assets/sprites/civilizations/g2537_static",
+          "2": "res://assets/sprites/civilizations/g2537_static",
+          "3": "res://assets/sprites/civilizations/g2537_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2536_static",
+          "1": "res://assets/sprites/civilizations/g2536_static",
+          "2": "res://assets/sprites/civilizations/g2536_static",
+          "3": "res://assets/sprites/civilizations/g2536_static"
+        }
+      },
+      "footprint": [
+        4.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 30,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 487,
+          "hp": 2750,
+          "melee_armor": 10,
+          "pierce_armor": 10
+        },
+        "feudal": {
+          "source_id": 487,
+          "hp": 2750,
+          "melee_armor": 10,
+          "pierce_armor": 10
+        },
+        "castle": {
+          "source_id": 487,
+          "hp": 2750,
+          "melee_armor": 10,
+          "pierce_armor": 10
+        },
+        "imperial": {
+          "source_id": 487,
+          "hp": 2750,
+          "melee_armor": 10,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "market": {
+      "source_id": 84,
+      "display_name": "市场",
+      "display_name_en": "Market",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 1,
+      "pierce_armor": 8,
+      "sight": 6.0,
+      "icon_id": 16,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 8
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2266_static",
+          "1": "res://assets/sprites/civilizations/g2266_static",
+          "2": "res://assets/sprites/civilizations/g409_static",
+          "3": "res://assets/sprites/civilizations/g3432_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2265_static",
+          "1": "res://assets/sprites/civilizations/g2265_static",
+          "2": "res://assets/sprites/civilizations/g408_static",
+          "3": "res://assets/sprites/civilizations/g3431_static"
+        }
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "population_provided": 0,
+      "build_time": 60,
+      "required_buildings": [
+        "mill"
+      ],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 84,
+          "hp": 2100,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "feudal": {
+          "source_id": 84,
+          "hp": 2100,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 116,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 137,
+          "hp": 2100,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "stable": {
+      "source_id": 101,
+      "display_name": "马厩",
+      "display_name_en": "Stable",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "hp": 1500,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 1,
+      "pierce_armor": 8,
+      "sight": 6.0,
+      "icon_id": 23,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 8
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g511_static",
+          "1": "res://assets/sprites/civilizations/g511_static",
+          "2": "res://assets/sprites/civilizations/g523_static",
+          "3": "res://assets/sprites/civilizations/g523_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g510_static",
+          "1": "res://assets/sprites/civilizations/g510_static",
+          "2": "res://assets/sprites/civilizations/g522_static",
+          "3": "res://assets/sprites/civilizations/g522_static"
+        }
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "population_provided": 0,
+      "build_time": 50,
+      "required_buildings": [
+        "barracks"
+      ],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 101,
+          "hp": 1500,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "feudal": {
+          "source_id": 101,
+          "hp": 1500,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 86,
+          "hp": 1800,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 153,
+          "hp": 2100,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "stone_wall": {
+      "source_id": 117,
+      "display_name": "石墙",
+      "display_name_en": "Stone Wall",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 5
+      },
+      "hp": 1800,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 8,
+      "pierce_armor": 10,
+      "sight": 2.0,
+      "icon_id": 31,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 16,
+        "UNITS_MELEE": 8,
+        "UNITS_PIERCE": 10,
+        "STONE_DEFENSES": 0,
+        "WALLS_GATES": 0
+      },
+      "source_class": "WALLS",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2022_static",
+          "1": "res://assets/sprites/civilizations/g2022_static",
+          "2": "res://assets/sprites/civilizations/g2022_static",
+          "3": "res://assets/sprites/civilizations/g2022_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2021_static",
+          "1": "res://assets/sprites/civilizations/g2021_static",
+          "2": "res://assets/sprites/civilizations/g2021_static",
+          "3": "res://assets/sprites/civilizations/g2021_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 8,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 117,
+          "hp": 1800,
+          "melee_armor": 8,
+          "pierce_armor": 10
+        },
+        "feudal": {
+          "source_id": 117,
+          "hp": 1800,
+          "melee_armor": 8,
+          "pierce_armor": 10
+        },
+        "castle": {
+          "source_id": 117,
+          "hp": 1800,
+          "melee_armor": 8,
+          "pierce_armor": 10
+        },
+        "imperial": {
+          "source_id": 117,
+          "hp": 1800,
+          "melee_armor": 8,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 2.0
+    },
+    "watch_tower": {
+      "source_id": 79,
+      "display_name": "瞭望箭塔",
+      "display_name_en": "Watch Tower",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 125,
+        "wood": 25
+      },
+      "hp": 1020,
+      "attack": 5,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 1,
+      "pierce_armor": 7,
+      "sight": 10.0,
+      "icon_id": 25,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS_NO_PORT": 0,
+        "SHIPS_CAMELS_SABOTEURS": 7,
+        "UNITS_PIERCE": 5
+      },
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 7,
+        "STONE_DEFENSES": 0
+      },
+      "source_class": "TOWER",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g4200_static",
+          "1": "res://assets/sprites/civilizations/g4200_static",
+          "2": "res://assets/sprites/civilizations/g4200_static",
+          "3": "res://assets/sprites/civilizations/g4200_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g4199_static",
+          "1": "res://assets/sprites/civilizations/g4199_static",
+          "2": "res://assets/sprites/civilizations/g4199_static",
+          "3": "res://assets/sprites/civilizations/g4199_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 80,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 79,
+          "hp": 1020,
+          "melee_armor": 1,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 79,
+          "hp": 1020,
+          "melee_armor": 1,
+          "pierce_armor": 7
+        },
+        "castle": {
+          "source_id": 79,
+          "hp": 1020,
+          "melee_armor": 1,
+          "pierce_armor": 7
+        },
+        "imperial": {
+          "source_id": 79,
+          "hp": 1020,
+          "melee_armor": 1,
+          "pierce_armor": 7
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 10.0
+    },
+    "monastery": {
+      "source_id": 104,
+      "display_name": "修道院",
+      "display_name_en": "Monastery",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 175
+      },
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "sight": 6.0,
+      "icon_id": 10,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g148_static",
+          "1": "res://assets/sprites/civilizations/g148_static",
+          "2": "res://assets/sprites/civilizations/g148_static",
+          "3": "res://assets/sprites/civilizations/g148_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g147_static",
+          "1": "res://assets/sprites/civilizations/g147_static",
+          "2": "res://assets/sprites/civilizations/g147_static",
+          "3": "res://assets/sprites/civilizations/g147_static"
+        }
+      },
+      "footprint": [
+        3.0,
+        3.0
+      ],
+      "population_provided": 0,
+      "build_time": 40,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 104,
+          "hp": 2100,
+          "melee_armor": 0,
+          "pierce_armor": 7
+        },
+        "feudal": {
+          "source_id": 30,
+          "hp": 2100,
+          "melee_armor": 1,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 31,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 32,
+          "hp": 2100,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "castle": {
+      "source_id": 82,
+      "display_name": "城堡",
+      "display_name_en": "Castle",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 650
+      },
+      "hp": 4800,
+      "attack": 11,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 8,
+      "pierce_armor": 11,
+      "sight": 10.0,
+      "icon_id": 7,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "SHIPS_CAMELS_SABOTEURS": 0,
+        "UNITS_PIERCE": 11
+      },
+      "source_armors": {
+        "CASTLE": 0,
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 8,
+        "UNITS_MELEE": 8,
+        "UNITS_PIERCE": 11
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g172_static",
+          "1": "res://assets/sprites/civilizations/g172_static",
+          "2": "res://assets/sprites/civilizations/g172_static",
+          "3": "res://assets/sprites/civilizations/g172_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g171_static",
+          "1": "res://assets/sprites/civilizations/g171_static",
+          "2": "res://assets/sprites/civilizations/g171_static",
+          "3": "res://assets/sprites/civilizations/g171_static"
+        }
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "population_provided": 20,
+      "build_time": 200,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 82,
+          "hp": 4800,
+          "melee_armor": 8,
+          "pierce_armor": 11
+        },
+        "feudal": {
+          "source_id": 82,
+          "hp": 4800,
+          "melee_armor": 8,
+          "pierce_armor": 11
+        },
+        "castle": {
+          "source_id": 82,
+          "hp": 4800,
+          "melee_armor": 8,
+          "pierce_armor": 11
+        },
+        "imperial": {
+          "source_id": 82,
+          "hp": 4800,
+          "melee_armor": 8,
+          "pierce_armor": 11
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 10.0
+    },
+    "siege_workshop": {
+      "source_id": 49,
+      "display_name": "攻城武器厂",
+      "display_name_en": "Siege Workshop",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 200
+      },
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 2,
+      "pierce_armor": 9,
+      "sight": 6.0,
+      "icon_id": 22,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 9
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g487_static",
+          "1": "res://assets/sprites/civilizations/g487_static",
+          "2": "res://assets/sprites/civilizations/g487_static",
+          "3": "res://assets/sprites/civilizations/g487_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g486_static",
+          "1": "res://assets/sprites/civilizations/g486_static",
+          "2": "res://assets/sprites/civilizations/g486_static",
+          "3": "res://assets/sprites/civilizations/g486_static"
+        }
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "population_provided": 0,
+      "build_time": 40,
+      "required_buildings": [
+        "blacksmith"
+      ],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 49,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "feudal": {
+          "source_id": 49,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "castle": {
+          "source_id": 49,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 49,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "university": {
+      "source_id": 209,
+      "display_name": "大学",
+      "display_name_en": "University",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 200
+      },
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 2,
+      "pierce_armor": 9,
+      "sight": 6.0,
+      "icon_id": 32,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 9
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g567_static",
+          "1": "res://assets/sprites/civilizations/g567_static",
+          "2": "res://assets/sprites/civilizations/g567_static",
+          "3": "res://assets/sprites/civilizations/g579_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g566_static",
+          "1": "res://assets/sprites/civilizations/g566_static",
+          "2": "res://assets/sprites/civilizations/g566_static",
+          "3": "res://assets/sprites/civilizations/g578_static"
+        }
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ],
+      "population_provided": 0,
+      "build_time": 60,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 209,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "feudal": {
+          "source_id": 209,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "castle": {
+          "source_id": 209,
+          "hp": 2100,
+          "melee_armor": 2,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 210,
+          "hp": 2100,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 6.0
+    },
+    "fortified_wall": {
+      "source_id": 155,
+      "display_name": "垛墙",
+      "display_name_en": "Fortified Wall",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 5
+      },
+      "hp": 3000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 12,
+      "pierce_armor": 12,
+      "sight": 2.0,
+      "icon_id": 31,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 24,
+        "UNITS_MELEE": 12,
+        "UNITS_PIERCE": 12,
+        "STONE_DEFENSES": 0,
+        "WALLS_GATES": 0
+      },
+      "source_class": "WALLS",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2034_static",
+          "1": "res://assets/sprites/civilizations/g2034_static",
+          "2": "res://assets/sprites/civilizations/g2034_static",
+          "3": "res://assets/sprites/civilizations/g2034_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2033_static",
+          "1": "res://assets/sprites/civilizations/g2033_static",
+          "2": "res://assets/sprites/civilizations/g2033_static",
+          "3": "res://assets/sprites/civilizations/g2033_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 8,
+      "required_buildings": [],
+      "required_techs": [
+        "fortified_wall"
+      ],
+      "age_variants": {
+        "dark": {
+          "source_id": 155,
+          "hp": 3000,
+          "melee_armor": 12,
+          "pierce_armor": 12
+        },
+        "feudal": {
+          "source_id": 155,
+          "hp": 3000,
+          "melee_armor": 12,
+          "pierce_armor": 12
+        },
+        "castle": {
+          "source_id": 155,
+          "hp": 3000,
+          "melee_armor": 12,
+          "pierce_armor": 12
+        },
+        "imperial": {
+          "source_id": 155,
+          "hp": 3000,
+          "melee_armor": 12,
+          "pierce_armor": 12
+        }
+      },
+      "required_technology": "fortified_wall",
+      "upgrades_from": "",
+      "vision": 2.0
+    },
+    "guard_tower": {
+      "source_id": 234,
+      "display_name": "警戒箭塔",
+      "display_name_en": "Guard Tower",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 125,
+        "wood": 25
+      },
+      "hp": 1500,
+      "attack": 6,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 2,
+      "pierce_armor": 8,
+      "sight": 10.0,
+      "icon_id": 25,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS_NO_PORT": 0,
+        "SHIPS_CAMELS_SABOTEURS": 9,
+        "UNITS_PIERCE": 6
+      },
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 8,
+        "STONE_DEFENSES": 0
+      },
+      "source_class": "TOWER",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2530_static",
+          "1": "res://assets/sprites/civilizations/g2530_static",
+          "2": "res://assets/sprites/civilizations/g2530_static",
+          "3": "res://assets/sprites/civilizations/g2530_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2529_static",
+          "1": "res://assets/sprites/civilizations/g2529_static",
+          "2": "res://assets/sprites/civilizations/g2529_static",
+          "3": "res://assets/sprites/civilizations/g2529_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 80,
+      "required_buildings": [],
+      "required_techs": [
+        "guard_tower"
+      ],
+      "age_variants": {
+        "dark": {
+          "source_id": 234,
+          "hp": 1500,
+          "melee_armor": 2,
+          "pierce_armor": 8
+        },
+        "feudal": {
+          "source_id": 234,
+          "hp": 1500,
+          "melee_armor": 2,
+          "pierce_armor": 8
+        },
+        "castle": {
+          "source_id": 234,
+          "hp": 1500,
+          "melee_armor": 2,
+          "pierce_armor": 8
+        },
+        "imperial": {
+          "source_id": 234,
+          "hp": 1500,
+          "melee_armor": 2,
+          "pierce_armor": 8
+        }
+      },
+      "required_technology": "guard_tower",
+      "upgrades_from": "",
+      "vision": 10.0
+    },
+    "keep": {
+      "source_id": 235,
+      "display_name": "大型箭塔",
+      "display_name_en": "Keep",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "stone": 125,
+        "wood": 25
+      },
+      "hp": 2250,
+      "attack": 7,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 3,
+      "pierce_armor": 9,
+      "sight": 10.0,
+      "icon_id": 26,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS_NO_PORT": 0,
+        "SHIPS_CAMELS_SABOTEURS": 10,
+        "UNITS_PIERCE": 7
+      },
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 9,
+        "STONE_DEFENSES": 0
+      },
+      "source_class": "TOWER",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2405_static",
+          "1": "res://assets/sprites/civilizations/g2405_static",
+          "2": "res://assets/sprites/civilizations/g2405_static",
+          "3": "res://assets/sprites/civilizations/g2405_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2404_static",
+          "1": "res://assets/sprites/civilizations/g2404_static",
+          "2": "res://assets/sprites/civilizations/g2404_static",
+          "3": "res://assets/sprites/civilizations/g2404_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 80,
+      "required_buildings": [],
+      "required_techs": [
+        "keep"
+      ],
+      "age_variants": {
+        "dark": {
+          "source_id": 235,
+          "hp": 2250,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        },
+        "feudal": {
+          "source_id": 235,
+          "hp": 2250,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        },
+        "castle": {
+          "source_id": 235,
+          "hp": 2250,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 235,
+          "hp": 2250,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        }
+      },
+      "required_technology": "keep",
+      "upgrades_from": "",
+      "vision": 10.0
+    },
+    "bombard_tower": {
+      "source_id": 236,
+      "display_name": "炮塔",
+      "display_name_en": "Bombard Tower",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "gold": 100,
+        "stone": 125
+      },
+      "hp": 2220,
+      "attack": 120,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 6.0,
+      "melee_armor": 3,
+      "pierce_armor": 9,
+      "sight": 10.0,
+      "icon_id": 42,
+      "attack_type": "pierce",
+      "source_attacks": {
+        "SHIPS_CAMELS_SABOTEURS": 40,
+        "UNITS_PIERCE": 120
+      },
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 9,
+        "STONE_DEFENSES": 0
+      },
+      "source_class": "TOWER",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g2413_static",
+          "1": "res://assets/sprites/civilizations/g2413_static",
+          "2": "res://assets/sprites/civilizations/g2413_static",
+          "3": "res://assets/sprites/civilizations/g2413_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g2412_static",
+          "1": "res://assets/sprites/civilizations/g2412_static",
+          "2": "res://assets/sprites/civilizations/g2412_static",
+          "3": "res://assets/sprites/civilizations/g2412_static"
+        }
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "population_provided": 0,
+      "build_time": 80,
+      "required_buildings": [],
+      "required_techs": [
+        "bombard_tower"
+      ],
+      "age_variants": {
+        "dark": {
+          "source_id": 236,
+          "hp": 2220,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        },
+        "feudal": {
+          "source_id": 236,
+          "hp": 2220,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        },
+        "castle": {
+          "source_id": 236,
+          "hp": 2220,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        },
+        "imperial": {
+          "source_id": 236,
+          "hp": 2220,
+          "melee_armor": 3,
+          "pierce_armor": 9
+        }
+      },
+      "required_technology": "bombard_tower",
+      "upgrades_from": "",
+      "vision": 10.0
+    },
+    "wonder": {
+      "source_id": 276,
+      "display_name": "世界奇观",
+      "display_name_en": "Wonder",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "cost": {
+        "wood": 1000,
+        "gold": 1000,
+        "stone": 1000
+      },
+      "hp": 4800,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 3,
+      "pierce_armor": 10,
+      "sight": 8.0,
+      "icon_id": 37,
+      "attack_type": "melee",
+      "source_attacks": {},
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 10
+      },
+      "source_class": "BUILDING",
+      "sprites": {
+        "chinese": {
+          "0": "res://assets/sprites/civilizations/g3080_static",
+          "1": "res://assets/sprites/civilizations/g3080_static",
+          "2": "res://assets/sprites/civilizations/g3080_static",
+          "3": "res://assets/sprites/civilizations/g3080_static"
+        },
+        "teutons": {
+          "0": "res://assets/sprites/civilizations/g3097_static",
+          "1": "res://assets/sprites/civilizations/g3097_static",
+          "2": "res://assets/sprites/civilizations/g3097_static",
+          "3": "res://assets/sprites/civilizations/g3097_static"
+        }
+      },
+      "footprint": [
+        5.0,
+        5.0
+      ],
+      "population_provided": 0,
+      "build_time": 3500,
+      "required_buildings": [],
+      "required_techs": [],
+      "age_variants": {
+        "dark": {
+          "source_id": 276,
+          "hp": 4800,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        },
+        "feudal": {
+          "source_id": 276,
+          "hp": 4800,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        },
+        "castle": {
+          "source_id": 276,
+          "hp": 4800,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        },
+        "imperial": {
+          "source_id": 276,
+          "hp": 4800,
+          "melee_armor": 3,
+          "pierce_armor": 10
+        }
+      },
+      "required_technology": "",
+      "upgrades_from": "",
+      "vision": 8.0
+    }
+  },
+  "techs": {
+    "chemistry": {
+      "source_id": 47,
+      "display_name": "化学",
+      "from": "",
+      "to": "",
+      "upgrades": [],
+      "cost": {
+        "food": 300,
+        "gold": 200
+      },
+      "time": 100,
+      "research_at": "university",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 12,
+      "required_tech_ids": [
+        103
+      ],
+      "prerequisite_technology": ""
+    },
+    "keep": {
+      "source_id": 63,
+      "display_name": "大型箭塔",
+      "from": "watch_tower",
+      "to": "keep",
+      "upgrades": [
+        {
+          "from": "watch_tower",
+          "to": "keep"
+        }
+      ],
+      "cost": {
+        "food": 500,
+        "wood": 350
+      },
+      "time": 75,
+      "research_at": "university",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 16,
+      "required_tech_ids": [
+        103,
+        140
+      ],
+      "prerequisite_technology": "guard_tower"
+    },
+    "bombard_tower": {
+      "source_id": 64,
+      "display_name": "炮塔",
+      "from": "",
+      "to": "",
+      "upgrades": [],
+      "cost": {
+        "food": 800,
+        "wood": 400
+      },
+      "time": 60,
+      "research_at": "university",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 47,
+      "required_tech_ids": [
+        103,
+        47,
+        285
+      ],
+      "prerequisite_technology": "chemistry"
+    },
+    "capped_ram": {
+      "source_id": 96,
+      "display_name": "中型冲车",
+      "from": "battering_ram",
+      "to": "capped_ram",
+      "upgrades": [
+        {
+          "from": "battering_ram",
+          "to": "capped_ram"
+        }
+      ],
+      "cost": {
+        "food": 300
+      },
+      "time": 50,
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 27,
+      "required_tech_ids": [
+        103
+      ],
+      "prerequisite_technology": ""
+    },
+    "elite_skirmisher": {
+      "source_id": 98,
+      "display_name": "精锐掷矛手",
+      "from": "skirmisher",
+      "to": "elite_skirmisher",
+      "upgrades": [
+        {
+          "from": "skirmisher",
+          "to": "elite_skirmisher"
+        }
+      ],
+      "cost": {
+        "wood": 250,
+        "gold": 160
+      },
+      "time": 50,
+      "research_at": "archery_range",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 28,
+      "required_tech_ids": [
+        102
+      ],
+      "prerequisite_technology": ""
+    },
+    "crossbowman": {
+      "source_id": 100,
+      "display_name": "弩手",
+      "from": "archer",
+      "to": "crossbowman",
+      "upgrades": [
+        {
+          "from": "archer",
+          "to": "crossbowman"
+        }
+      ],
+      "cost": {
+        "food": 125,
+        "gold": 75
+      },
+      "time": 35,
+      "research_at": "archery_range",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 29,
+      "required_tech_ids": [
+        102,
+        132
+      ],
+      "prerequisite_technology": ""
+    },
+    "guard_tower": {
+      "source_id": 140,
+      "display_name": "警戒箭塔",
+      "from": "watch_tower",
+      "to": "guard_tower",
+      "upgrades": [
+        {
+          "from": "watch_tower",
+          "to": "guard_tower"
+        }
+      ],
+      "cost": {
+        "food": 100,
+        "wood": 250
+      },
+      "time": 30,
+      "research_at": "university",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 76,
+      "required_tech_ids": [
+        102,
+        127
+      ],
+      "prerequisite_technology": ""
+    },
+    "fortified_wall": {
+      "source_id": 194,
+      "display_name": "垛墙",
+      "from": "stone_wall",
+      "to": "fortified_wall",
+      "upgrades": [
+        {
+          "from": "stone_wall",
+          "to": "fortified_wall"
+        }
+      ],
+      "cost": {
+        "food": 200,
+        "wood": 100
+      },
+      "time": 50,
+      "research_at": "university",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 46,
+      "required_tech_ids": [
+        102
+      ],
+      "prerequisite_technology": ""
+    },
+    "pikeman": {
+      "source_id": 197,
+      "display_name": "长枪兵",
+      "from": "spearman",
+      "to": "pikeman",
+      "upgrades": [
+        {
+          "from": "spearman",
+          "to": "pikeman"
+        }
+      ],
+      "cost": {
+        "food": 215,
+        "gold": 90
+      },
+      "time": 45,
+      "research_at": "barracks",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 36,
+      "required_tech_ids": [
+        102,
+        87
+      ],
+      "prerequisite_technology": ""
+    },
+    "long_swordsman": {
+      "source_id": 207,
+      "display_name": "长剑士",
+      "from": "man_at_arms",
+      "to": "long_swordsman",
+      "upgrades": [
+        {
+          "from": "militia",
+          "to": "long_swordsman"
+        },
+        {
+          "from": "man_at_arms",
+          "to": "long_swordsman"
+        }
+      ],
+      "cost": {
+        "food": 200,
+        "gold": 65
+      },
+      "time": 45,
+      "research_at": "barracks",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 48,
+      "required_tech_ids": [
+        102,
+        222
+      ],
+      "prerequisite_technology": "man_at_arms"
+    },
+    "cavalier": {
+      "source_id": 209,
+      "display_name": "重装骑士",
+      "from": "knight",
+      "to": "cavalier",
+      "upgrades": [
+        {
+          "from": "knight",
+          "to": "cavalier"
+        }
+      ],
+      "cost": {
+        "food": 300,
+        "gold": 300
+      },
+      "time": 100,
+      "research_at": "stable",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 78,
+      "required_tech_ids": [
+        103,
+        166
+      ],
+      "prerequisite_technology": ""
+    },
+    "two_handed_swordsman": {
+      "source_id": 217,
+      "display_name": "双手剑士",
+      "from": "long_swordsman",
+      "to": "two_handed_swordsman",
+      "upgrades": [
+        {
+          "from": "militia",
+          "to": "two_handed_swordsman"
+        },
+        {
+          "from": "man_at_arms",
+          "to": "two_handed_swordsman"
+        },
+        {
+          "from": "long_swordsman",
+          "to": "two_handed_swordsman"
+        }
+      ],
+      "cost": {
+        "food": 300,
+        "gold": 100
+      },
+      "time": 75,
+      "research_at": "barracks",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 53,
+      "required_tech_ids": [
+        103,
+        207
+      ],
+      "prerequisite_technology": "long_swordsman"
+    },
+    "heavy_cav_archer": {
+      "source_id": 218,
+      "display_name": "重装骑射手",
+      "from": "cavalry_archer",
+      "to": "heavy_cavalry_archer",
+      "upgrades": [
+        {
+          "from": "cavalry_archer",
+          "to": "heavy_cavalry_archer"
+        }
+      ],
+      "cost": {
+        "food": 900,
+        "gold": 500
+      },
+      "time": 50,
+      "research_at": "archery_range",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "icon_id": 52,
+      "required_tech_ids": [
+        103
+      ],
+      "prerequisite_technology": ""
+    },
+    "man_at_arms": {
+      "source_id": 222,
+      "display_name": "剑士",
+      "from": "militia",
+      "to": "man_at_arms",
+      "upgrades": [
+        {
+          "from": "militia",
+          "to": "man_at_arms"
+        }
+      ],
+      "cost": {
+        "food": 100,
+        "gold": 40
+      },
+      "time": 40,
+      "research_at": "barracks",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 85,
+      "required_tech_ids": [
+        101
+      ],
+      "prerequisite_technology": ""
+    },
+    "heavy_camel": {
+      "source_id": 236,
+      "display_name": "重装骆驼兵",
+      "from": "camel",
+      "to": "heavy_camel",
+      "upgrades": [
+        {
+          "from": "camel",
+          "to": "heavy_camel"
+        }
+      ],
+      "cost": {
+        "food": 325,
+        "gold": 360
+      },
+      "time": 125,
+      "research_at": "stable",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "icon_id": 55,
+      "required_tech_ids": [
+        103
+      ],
+      "prerequisite_technology": ""
+    },
+    "arbalest": {
+      "source_id": 237,
+      "display_name": "劲弩手",
+      "from": "crossbowman",
+      "to": "arbalest",
+      "upgrades": [
+        {
+          "from": "archer",
+          "to": "arbalest"
+        },
+        {
+          "from": "crossbowman",
+          "to": "arbalest"
+        }
+      ],
+      "cost": {
+        "food": 350,
+        "gold": 300
+      },
+      "time": 50,
+      "research_at": "archery_range",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "icon_id": 54,
+      "required_tech_ids": [
+        103,
+        100
+      ],
+      "prerequisite_technology": "crossbowman"
+    },
+    "heavy_scorpion": {
+      "source_id": 239,
+      "display_name": "重型弩炮",
+      "from": "scorpion",
+      "to": "heavy_scorpion",
+      "upgrades": [
+        {
+          "from": "scorpion",
+          "to": "heavy_scorpion"
+        }
+      ],
+      "cost": {
+        "food": 1000,
+        "wood": 1100
+      },
+      "time": 50,
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 38,
+      "required_tech_ids": [
+        103,
+        94
+      ],
+      "prerequisite_technology": ""
+    },
+    "light_cavalry": {
+      "source_id": 254,
+      "display_name": "轻骑兵",
+      "from": "scout_cavalry",
+      "to": "light_cavalry",
+      "upgrades": [
+        {
+          "from": "scout_cavalry",
+          "to": "light_cavalry"
+        }
+      ],
+      "cost": {
+        "food": 150,
+        "gold": 50
+      },
+      "time": 45,
+      "research_at": "stable",
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "icon_id": 43,
+      "required_tech_ids": [
+        102
+      ],
+      "prerequisite_technology": ""
+    },
+    "siege_ram": {
+      "source_id": 255,
+      "display_name": "重型冲车",
+      "from": "capped_ram",
+      "to": "siege_ram",
+      "upgrades": [
+        {
+          "from": "battering_ram",
+          "to": "siege_ram"
+        },
+        {
+          "from": "capped_ram",
+          "to": "siege_ram"
+        }
+      ],
+      "cost": {
+        "food": 1000
+      },
+      "time": 75,
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "icon_id": 86,
+      "required_tech_ids": [
+        103,
+        96
+      ],
+      "prerequisite_technology": "capped_ram"
+    },
+    "onager": {
+      "source_id": 257,
+      "display_name": "中型投石车",
+      "from": "mangonel",
+      "to": "onager",
+      "upgrades": [
+        {
+          "from": "mangonel",
+          "to": "onager"
+        }
+      ],
+      "cost": {
+        "food": 800,
+        "gold": 500
+      },
+      "time": 75,
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 57,
+      "required_tech_ids": [
+        103
+      ],
+      "prerequisite_technology": ""
+    },
+    "champion": {
+      "source_id": 264,
+      "display_name": "冠军剑士",
+      "from": "two_handed_swordsman",
+      "to": "champion",
+      "upgrades": [
+        {
+          "from": "militia",
+          "to": "champion"
+        },
+        {
+          "from": "man_at_arms",
+          "to": "champion"
+        },
+        {
+          "from": "two_handed_swordsman",
+          "to": "champion"
+        },
+        {
+          "from": "long_swordsman",
+          "to": "champion"
+        }
+      ],
+      "cost": {
+        "food": 750,
+        "gold": 350
+      },
+      "time": 100,
+      "research_at": "barracks",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 44,
+      "required_tech_ids": [
+        103,
+        217
+      ],
+      "prerequisite_technology": "two_handed_swordsman"
+    },
+    "paladin": {
+      "source_id": 265,
+      "display_name": "游侠",
+      "from": "knight",
+      "to": "paladin",
+      "upgrades": [
+        {
+          "from": "knight",
+          "to": "paladin"
+        }
+      ],
+      "cost": {
+        "food": 1300,
+        "gold": 750
+      },
+      "time": 170,
+      "research_at": "stable",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "icon_id": 45,
+      "required_tech_ids": [
+        103,
+        209
+      ],
+      "prerequisite_technology": "cavalier"
+    },
+    "siege_onager": {
+      "source_id": 320,
+      "display_name": "重型投石车",
+      "from": "onager",
+      "to": "siege_onager",
+      "upgrades": [
+        {
+          "from": "mangonel",
+          "to": "siege_onager"
+        },
+        {
+          "from": "onager",
+          "to": "siege_onager"
+        }
+      ],
+      "cost": {
+        "food": 1450,
+        "gold": 1000
+      },
+      "time": 150,
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "icon_id": 96,
+      "required_tech_ids": [
+        103,
+        257
+      ],
+      "prerequisite_technology": "onager"
+    },
+    "elite_chu_ko_nu": {
+      "source_id": 362,
+      "display_name": "精锐诸葛弩",
+      "from": "chu_ko_nu",
+      "to": "elite_chu_ko_nu",
+      "upgrades": [
+        {
+          "from": "chu_ko_nu",
+          "to": "elite_chu_ko_nu"
+        }
+      ],
+      "cost": {
+        "food": 950,
+        "gold": 950
+      },
+      "time": 50,
+      "research_at": "castle",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "icon_id": 105,
+      "required_tech_ids": [
+        103,
+        268
+      ],
+      "prerequisite_technology": ""
+    },
+    "elite_teutonic_knight": {
+      "source_id": 364,
+      "display_name": "精锐条顿武士",
+      "from": "teutonic_knight",
+      "to": "elite_teutonic_knight",
+      "upgrades": [
+        {
+          "from": "teutonic_knight",
+          "to": "elite_teutonic_knight"
+        }
+      ],
+      "cost": {
+        "food": 1200,
+        "gold": 600
+      },
+      "time": 50,
+      "research_at": "castle",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "icon_id": 105,
+      "required_tech_ids": [
+        103,
+        276
+      ],
+      "prerequisite_technology": ""
+    },
+    "halberdier": {
+      "source_id": 429,
+      "display_name": "长戟兵",
+      "from": "spearman",
+      "to": "halberdier",
+      "upgrades": [
+        {
+          "from": "spearman",
+          "to": "halberdier"
+        }
+      ],
+      "cost": {
+        "food": 300,
+        "gold": 600
+      },
+      "time": 50,
+      "research_at": "barracks",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "icon_id": 106,
+      "required_tech_ids": [
+        103,
+        197
+      ],
+      "prerequisite_technology": "pikeman"
+    }
+  },
+  "icons": {
+    "units": "res://assets/sprites/ui/icons_units",
+    "buildings": "res://assets/sprites/ui/icons_buildings",
+    "technologies": "res://assets/sprites/ui/icons_technologies"
+  },
+  "resource_sprites": {
+    "stone": "res://assets/sprites/civilizations/g1592_static"
+  }
+}

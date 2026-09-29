@@ -20,6 +20,10 @@ const TOOL_NAMES := [
 	TOOL_MOVE,
 	TOOL_ATTACK,
 	TOOL_STOP,
+	"research_age",
+	"cancel_research_age",
+	"research_technology",
+	"cancel_technology",
 	TOOL_NOOP,
 ]
 
@@ -72,6 +76,10 @@ static func tools_payload() -> Array:
 			"取消单位当前指令。",
 			{"unit_id": {"type": "integer"}},
 		),
+		_fn("research_age", "在空闲城镇中心研究下一个时代，按观测中的条件和成本判断。", {"building_id": {"type": "integer"}}),
+		_fn("cancel_research_age", "取消该城镇中心的时代研究并退款。", {"building_id": {"type": "integer"}}),
+		_fn("research_technology", "研究观测中该建筑可用的兵种升级。", {"building_id": {"type": "integer"}, "technology_id": {"type": "string"}}),
+		_fn("cancel_technology", "取消该建筑的兵种研究。", {"building_id": {"type": "integer"}}),
 		_fn(TOOL_NOOP, "本 tick 不执行任何操作。", {}),
 	]
 

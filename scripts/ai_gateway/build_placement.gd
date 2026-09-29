@@ -20,9 +20,11 @@ static func place_foundation(
 		building_def.cost_food,
 		building_def.cost_wood,
 		building_def.cost_gold,
+		building_def.cost_stone,
 	):
 		return null
 	var foundation := BUILDING_VIEW.instantiate() as Node2D
+	if building_def.id == &"farm": foundation.set_script(load("res://scripts/entities/farm_agent.gd"))
 	if foundation_name.is_empty():
 		foundation.name = "Gateway%sFoundation%d" % [
 			String(building_def.id).to_pascal_case(),
