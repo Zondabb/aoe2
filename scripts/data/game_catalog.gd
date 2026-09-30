@@ -4,6 +4,9 @@ extends RefCounted
 ## Read-only original-game definitions. JSON IDs are data, never resource paths.
 const PATH := "res://data/civilization_catalog.json"
 const AGE_NAMES := ["黑暗时代", "封建时代", "城堡时代", "帝王时代"]
+## Adapt original DAT movement to this project's map scale and pre-import pace.
+## Keep the source catalog intact and preserve relative speeds across unit lines.
+const MOVEMENT_SPEED_SCALE := 4.0
 static var _data: Dictionary = {}
 static var _units: Dictionary = {}
 static var _buildings: Dictionary = {}
@@ -42,7 +45,7 @@ static func units() -> Dictionary:
 		u.preferred_attack_range = u.attack_range * 0.85 if u.is_ranged else 0.0
 		u.melee_armor = int(r.get("melee_armor", 0))
 		u.pierce_armor = int(r.get("pierce_armor", 0))
-		u.move_speed = maxf(0.1, float(r.get("speed", 0.8)))
+		u.move_speed = maxf(0.1, float(r.get("speed", 0.8))) * MOVEMENT_SPEED_SCALE
 		u.footprint_radius = clampf(float(r.get("radius", 0.35)), 0.2, 1.0)
 		u.vision_radius = maxf(4, float(r.get("vision", 6)))
 		u.cost_food = _cost(r, "food")
