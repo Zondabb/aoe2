@@ -135,7 +135,8 @@ func resolved_vision_radius() -> float:
 	if vision_radius_override >= 0.0:
 		return vision_radius_override
 	if def != null:
-		return def.resolved_vision_radius()
+		var age := match_state.age_of(team) if match_state != null and match_state.progression_enabled else Enums.Age.DARK
+		return def.resolved_vision_radius(age)
 	return 8.0
 
 

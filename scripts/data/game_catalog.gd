@@ -47,7 +47,8 @@ static func units() -> Dictionary:
 		u.pierce_armor = int(r.get("pierce_armor", 0))
 		u.move_speed = maxf(0.1, float(r.get("speed", 0.8))) * MOVEMENT_SPEED_SCALE
 		u.footprint_radius = clampf(float(r.get("radius", 0.35)), 0.2, 1.0)
-		u.vision_radius = maxf(4, float(r.get("vision", 6)))
+		u.vision_radius = maxf(0, float(r.get("vision", 6)))
+		u.vision_age_bonus.assign(r.get("vision_age_bonus", []))
 		u.cost_food = _cost(r, "food")
 		u.cost_wood = _cost(r, "wood")
 		u.cost_gold = _cost(r, "gold")
@@ -78,7 +79,8 @@ static func buildings() -> Dictionary:
 		var footprint: Array = r.get("footprint", [3,3])
 		b.footprint = Vector2(footprint[0], footprint[1])
 		b.blocks_movement = key not in ["town_center", "farm", "gate", "palisade_gate"]
-		b.vision_radius = maxf(4, float(r.get("vision", 8)))
+		b.vision_radius = maxf(0, float(r.get("vision", 8)))
+		b.vision_age_bonus.assign(r.get("vision_age_bonus", []))
 		b.melee_armor = int(r.get("melee_armor", 0))
 		b.pierce_armor = int(r.get("pierce_armor", 0))
 		b.cost_food = _cost(r, "food")

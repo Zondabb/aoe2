@@ -5,6 +5,13 @@ const Fog := preload("res://scripts/systems/fog_of_war_service.gd")
 const Iso := preload("res://scripts/presentation/iso_math.gd")
 var failures: Array[String] = []
 
+class SightSource extends RefCounted:
+	var team := 0
+	var hp := 100.0
+	var sim_pos := Vector2.ZERO
+	func resolved_vision_radius() -> float:
+		return 4.0
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -24,7 +31,7 @@ func _run() -> void:
 	world.add_child(ground)
 	var fog := Fog.new()
 	fog.setup(-10,10)
-	# Three exact states, with strict nearest sampling across the boundaries.
+	# Interior states remain exact; only their boundaries are feathered.
 	for y in 20:
 		for x in 20:
 			fog.explored[0][y*20+x] = 255 if x >= 7 else 0
@@ -37,7 +44,7 @@ func _run() -> void:
 	material.shader = preload("res://scripts/presentation/fog_overlay.gdshader")
 	material.set_shader_parameter("fog_mask",texture)
 	material.set_shader_parameter("logical_min",Vector2(-10,-10))
-	material.set_shader_parameter("logical_span",20.0)
+	material.set_shader_parameter("logical_span",Vector2(20,20))
 	overlay.material = material
 	world.add_child(overlay)
 	await process_frame
@@ -48,13 +55,42 @@ func _run() -> void:
 		{"pos":Vector2(0,0),"value":0.4,"name":"explored dim"},
 		{"pos":Vector2(7,0),"value":1.0,"name":"visible full"},
 		{"pos":Vector2(11,0),"value":0.0,"name":"outside map black"},
-		{"pos":Vector2(-3.1,0),"value":0.0,"name":"black boundary must not interpolate"},
 	]:
 		var pixel := Vector2i(world.position + Iso.world_to_screen(sample.pos))
 		var actual := captured.get_pixelv(pixel)
 		if absf(actual.r-sample.value) > 0.02 or absf(actual.g-sample.value) > 0.02:
 			failures.append("%s: got %s" % [sample.name,actual])
-	captured.save_png(ProjectSettings.globalize_path("res://.superpowers/sdd/fog-shader-test.png"))
+	for boundary in [-3.0, 4.0]:
+		var previous := -1.0
+		var transition_samples := 0
+		for i in 41:
+			var point := Vector2(boundary - 2.0 + i * 0.1, 0)
+			var value := captured.get_pixelv(Vector2i(world.position + Iso.world_to_screen(point))).r
+			if value + 0.015 < previous:
+				failures.append("fog feather must not reverse or ring around the boundary")
+			if (boundary < 0 and value > 0.03 and value < 0.37) or (boundary > 0 and value > 0.43 and value < 0.97):
+				transition_samples += 1
+			previous = value
+		if transition_samples < 8:
+			failures.append("fog boundary must contain a continuous soft transition")
+	fog.reset()
+	fog.rebuild([SightSource.new()])
+	var logical_before: PackedByteArray = fog.visible_now[0].duplicate()
+	texture.update(fog.mask_image(0))
+	await process_frame
+	await RenderingServer.frame_post_draw
+	captured = viewport.get_texture().get_image()
+	var feather_pixels := 0
+	for y in captured.get_height():
+		for x in captured.get_width():
+			var value := captured.get_pixel(x,y).r
+			if value > 0.02 and value < 0.98:
+				feather_pixels += 1
+	if feather_pixels < 200:
+		failures.append("circular vision must have a smooth perimeter")
+	if fog.visible_now[0] != logical_before or fog.state_at(0, Vector2(5,0)) != Fog.State.UNEXPLORED:
+		failures.append("visual feathering must not enlarge gameplay visibility")
+	captured.save_png(ProjectSettings.globalize_path("res://.godot/fog-shader-test.png"))
 	viewport.queue_free()
 	await process_frame
 	# Render a real match with explored terrain and normal HUD for visual review.
@@ -75,20 +111,20 @@ func _run() -> void:
 	holder.rebuild_now()
 	var camera := match_scene.get_node("Camera2D") as Camera2D
 	camera.set_process(false)
-	camera.position = Iso.world_to_screen(Vector2(-22,-22))
+	camera.position = Iso.world_to_screen(original) + Vector2(0, 80)
 	camera.zoom = Vector2.ONE*0.75
 	await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://.superpowers/sdd/fog-game-player.png"))
+	root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://.godot/fog-game-player.png"))
 	holder.set_debug_mode(true)
 	holder.set_view(1)
 	await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://.superpowers/sdd/fog-game-ai.png"))
+	root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://.godot/fog-game-ai.png"))
 	holder.set_view(-1)
 	await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://.superpowers/sdd/fog-game-all.png"))
+	root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://.godot/fog-game-all.png"))
 	match_scene.queue_free()
 	await process_frame
 	for failure in failures:

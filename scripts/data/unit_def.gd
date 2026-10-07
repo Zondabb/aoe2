@@ -18,6 +18,8 @@ extends Resource
 @export var footprint_radius: float = 0.42
 ## How far this unit can spot hostiles (sim tiles). Used by VisionService.
 @export var vision_radius: float = 8.0
+## Cumulative original DAT age bonuses, indexed Dark through Imperial.
+@export var vision_age_bonus: Array[float] = []
 @export var cost_food: int
 @export var cost_wood: int
 @export var cost_gold: int
@@ -50,7 +52,6 @@ func resolved_footprint_radius() -> float:
 	return 0.42
 
 
-func resolved_vision_radius() -> float:
-	if vision_radius > 0.0:
-		return vision_radius
-	return 8.0
+func resolved_vision_radius(age: int = Enums.Age.DARK) -> float:
+	var bonus := vision_age_bonus[clampi(age, 0, vision_age_bonus.size() - 1)] if not vision_age_bonus.is_empty() else 0.0
+	return maxf(0.0, vision_radius + bonus)

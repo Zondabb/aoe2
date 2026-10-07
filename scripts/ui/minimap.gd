@@ -30,7 +30,8 @@ var _order_ttl := 0.0
 var _markers_team := -2
 
 func _ready() -> void:
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# Blend the fog terrain between cells; marker visibility still uses fog.can_see.
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	call_deferred("_bind_default")
 
 ## Some standalone arenas share the HUD without calling its economy setup.

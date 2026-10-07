@@ -528,6 +528,15 @@ func _exit_tree() -> void:
 		_population_cap_registered = false
 
 
+func resolved_vision_radius() -> float:
+	if def == null:
+		return 0.0
+	if not is_complete:
+		return def.construction_vision_radius
+	var age := match_state.age_of(team) if match_state != null and match_state.progression_enabled else Enums.Age.DARK
+	return def.resolved_vision_radius(age)
+
+
 func _get_vision_service() -> Object:
 	if not is_inside_tree():
 		return null

@@ -46,6 +46,29 @@ def read_dat(path, openage):
         GenieStructure._read_primitive = primitive
 
 
+def age_vision_bonuses(dat):
+    """Cumulative LOS additions from the four original age technologies.
+
+    DAT attribute 1 is LOS; attribute 23 is search radius and is unrelated.
+    This edition targets unit IDs (including future scout-line upgrades).
+    """
+    totals = {}
+    result = {}
+    for age, tech_id in enumerate([104, 101, 102, 103]):
+        effect_id = dat.researches[tech_id].tech_effect_id
+        for effect in dat.effect_bundles[effect_id].effects:
+            if not effect.type_id.startswith('ATTRIBUTE') or effect.attr_c != 1:
+                continue
+            if effect.type_id != 'ATTRIBUTE_RELSET' or effect.attr_a < 0:
+                raise ValueError('Unsupported age LOS effect; review DAT edition before importing')
+            uid = effect.attr_a
+            totals[uid] = totals.get(uid, 0) + effect.attr_d
+            result.setdefault(uid, [0, 0, 0, 0])
+        for uid, total in totals.items():
+            result[uid][age] = as_num(total)
+    return result
+
+
 def read_strings(resources, language):
     path = resources / language / 'strings/key-value/key-value-strings-utf8.txt'
     return {int(m[1]): m[2] for m in re.finditer(r'^(\d+) "(.*)"$', path.read_text(encoding='utf-8-sig'), re.M)}
@@ -180,11 +203,14 @@ def main():
             r['required_techs']=[x for x in r.get('required_techs',[]) if x in catalog['techs']]
     # Normalize runtime links after the complete filtered tree is available.
     tech_by_source = {r['source_id']:k for k,r in catalog['techs'].items()}
+    vision_bonuses = age_vision_bonuses(dat)
     for group in ['units','buildings']:
         for k,r in catalog[group].items():
             r['required_technology'] = next(iter(r.get('required_techs',[])), '')
             r['upgrades_from'] = r.get('upgrade_from','')
             r['vision'] = r['sight']
+            if r['source_id'] in vision_bonuses:
+                r['vision_age_bonus'] = vision_bonuses[r['source_id']]
     for k,t in catalog['techs'].items():
         required = [tech_by_source[x] for x in t['required_tech_ids'] if x in tech_by_source]
         t['prerequisite_technology'] = required[-1] if required else ''

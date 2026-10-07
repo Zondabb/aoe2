@@ -369,7 +369,13 @@
       "upgrade_from": "",
       "required_technology": "",
       "upgrades_from": "",
-      "vision": 4.0
+      "vision": 4.0,
+      "vision_age_bonus": [
+        0,
+        2.0,
+        4.0,
+        6.0
+      ]
     },
     "trade_cart": {
       "source_id": 128,
@@ -1234,7 +1240,13 @@
       "upgrade_from": "scout_cavalry",
       "required_technology": "light_cavalry",
       "upgrades_from": "scout_cavalry",
-      "vision": 4.0
+      "vision": 4.0,
+      "vision_age_bonus": [
+        0,
+        2.0,
+        4.0,
+        6.0
+      ]
     },
     "long_swordsman": {
       "source_id": 77,
@@ -2984,7 +2996,13 @@
       },
       "required_technology": "",
       "upgrades_from": "",
-      "vision": 6.0
+      "vision": 6.0,
+      "vision_age_bonus": [
+        0,
+        2.0,
+        4.0,
+        6.0
+      ]
     },
     "archery_range": {
       "source_id": 87,

@@ -99,6 +99,8 @@ func set_age(team: int, age: int) -> void:
 	if age_of(team) == age:
 		return
 	team_ages[team] = age
+	if fog != null:
+		fog.dirty = true
 	age_changed.emit(team, age)
 
 func has_technology(team: int, technology_id: StringName) -> bool:
