@@ -41,6 +41,8 @@
 
 选取和点选目标检查当前观察视角；攻击和采集同时按发令单位真实阵营检查。MOVE 可以进入黑色区域。建筑放置先检查整块占地当前可见，再检查真实碰撞和费用；视野不足统一显示“需要视野”，不泄漏隐藏占用情况。
 
+农民送回资源后，即使原矿点离开视野，也保留 GATHER 任务并朝最后已知位置返回；重新看见矿点后继续采集。返回过程不能改发普通 MOVE，否则会清空采集目标，造成只送回一趟金矿或石矿就停止工作。矿点隐藏期间不读取其剩余储量；再次看见且确认耗尽时才结束任务。玩家主动停止或下达其他命令仍可中断采集。
+
 自动战斗仍可配置较大的候选搜索半径，但候选必须同时处于所属阵营视野。目标离开视野后清除实时攻击引用，只移动到最后看见的位置；攻击命中/箭矢释放前再次检查可见性。已经发射的箭矢继续沿固定弹道飞行。
 
 AI observation、旧版黑板与查询、命令校验和生命周期事件均接入同一规则。隐藏城镇中心的 `enemy_tc_id` 保持 -1、`enemy_tc_pos` 保持 `[0,0]`。事件记录发生当时有权接收的阵营，发送前过滤并删除内部标记。隐藏目标和不存在目标统一返回 `target_unavailable`。
@@ -54,11 +56,13 @@ AI observation、旧版黑板与查询、命令校验和生命周期事件均接
 ```powershell
 godot --headless --path . --script res://tests/run_fog_of_war.gd --log-file <绝对日志路径>
 godot --headless --path . --script res://tests/run_age_vision.gd --log-file <绝对日志路径>
+godot --headless --path . --script res://tests/run_mining_cycle.gd --log-file <绝对日志路径>
 godot --path . --rendering-method gl_compatibility --script res://tests/render_fog_of_war.gd --log-file <绝对日志路径>
 godot --headless --path . --script res://tests/run_tests.gd --log-file <绝对日志路径>
 ```
 
 - 专项逻辑测试：73 项检查通过，包括独立距离算法核对圆形并集、地图边界、历史保留、建筑/资源记忆、失去视野后的目标处理、事件过滤、调试只读、G 键、输入框焦点以及六个场景的初始化。
+- 采矿循环测试：43 项检查通过，使用真实导航和原版村民视野，覆盖金矿／石矿、城镇中心／采矿营地、有／无迷雾的至少四趟连续运输、资源守恒、隐藏期间矿点耗尽、主动停止，以及已有经济系统回归。
 - 时代视野测试：114 项检查通过，覆盖全部目录基础值、两队时代隔离、已有单位与新单位、轻骑兵、哨所施工、显隐和目标获取、运行时覆盖值及原有 VisionService / observation 回归。时代进度 615 项、联机时代同步 62 项、小地图 49 项检查通过。
 - 实际 Compatibility GPU 测试：NVIDIA GeForce RTX 2060 / OpenGL 3.3，验证三态内部像素值、两条边界的连续单调过渡、圆形羽化、地图外黑色遮罩以及逻辑视野不被修改。真实对局玩家/AI/全图截图位于 `.godot/fog-game-*.png`，独立圆形遮罩截图位于 `.godot/fog-shader-test.png`。
 - 全量旧测试仍有此前已存在的 4 项断言失败：弓箭手攻击距离、优选攻击距离、箭矢方向数量和每方向帧数。旧 HUD 模拟对象及 observation 测试还存在原有运行报错；迷雾专项场景运行没有这些错误。

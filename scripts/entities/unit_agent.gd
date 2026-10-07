@@ -518,7 +518,11 @@ func _process_gather(delta: float) -> void:
 		_finish_or_drop_off()
 		return
 	if _gather_state in ["to_resource", "gathering"] and match_state != null and match_state.fog_enabled and not FogAccess.can_see(self, _gather_target):
-		command_move(_last_seen_resource_pos)
+		# Returning through fog is still part of the gather order. A MOVE command
+		# clears the resource target and leaves the worker idle after one delivery.
+		# Use only the remembered location until sight returns, never hidden stock.
+		_gather_state = "to_resource"
+		_move_toward(_last_seen_resource_pos, delta)
 		return
 	match _gather_state:
 		"to_resource":
@@ -611,7 +615,8 @@ func _process_drop_off(delta: float) -> void:
 	carry_type = -1
 	_drop_off_target = null
 	if is_instance_valid(_last_resource) and not FogAccess.can_see(self, _last_resource):
-		command_move(_last_seen_resource_pos)
+		_gather_target = _last_resource
+		_gather_state = "to_resource"
 	elif _resource_available(_last_resource):
 		_gather_target = _last_resource
 		_gather_state = "to_resource"
