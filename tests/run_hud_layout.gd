@@ -220,7 +220,7 @@ func _test_affordability(villager: Node2D, town: Node2D) -> void:
 	state.population_cap[Enums.Team.PLAYER] = state.population[Enums.Team.PLAYER]
 	await _settle()
 	train = _button("train_villager")
-	check(train != null and train.disabled, "full population keeps training disabled despite restored resources")
+	check(train != null and not train.disabled, "full population still allows queueing with restored resources")
 	state.population_cap[Enums.Team.PLAYER] = 50
 	await _settle()
 	train = _button("train_villager")
@@ -233,7 +233,7 @@ func _test_affordability(villager: Node2D, town: Node2D) -> void:
 		town.set_physics_process(false)
 		check(not (hud.get_node("%QueueLabel") as Label).text.is_empty(), "selection information shows production queue")
 		train = _button("train_villager")
-		check(train != null and train.disabled, "busy building blocks another queued unit")
+		check(train != null and not train.disabled, "busy building allows another queued unit")
 		await _capture("training")
 	_select([villager])
 	await _settle()

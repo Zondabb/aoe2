@@ -27,7 +27,9 @@ Python 使用 FastAPI/asyncio 提供 FIFO 队列、房间生命周期和消息�
 {"type":"ping"}
 ```
 
-快照片段仅示意封装格式；实际 `economies` 必须含两方资源、人口、上限和预留人口，实体包含种类、定义、位置与完整表现状态。支持的命令为 `move/stop/gather/build/attack/train/place_building`，ID 使用网络 ID。
+快照片段仅示意封装格式；实际 `economies` 必须含两方资源、人口、上限和预留人口，实体包含种类、定义、位置与完整表现状态。基础命令为 `move/stop/gather/build/attack/train/cancel_train/place_building`，实体 ID 使用网络 ID。
+
+单位生产支持最多 15 项队列。建筑快照增加 `train_queue_ids`，与 `train_queue` 一一对应；`cancel_train` 携带 `building_id` 和稳定的 `queue_id`，由主机验证所属阵营并退款。详见 [单位生产队列](production_queue.md)，双方客户端应使用相同版本。
 
 服务响应依次为 `queued`、`match_found`、`start`：
 

@@ -14,6 +14,7 @@ func _initialize() -> void:
 	failures.append_array(load("res://tests/test_match_2d.gd").new().run())
 	failures.append_array(load("res://tests/test_economy.gd").new().run())
 	failures.append_array(load("res://tests/test_buildings.gd").new().run())
+	failures.append_array(load("res://tests/test_production_queue.gd").new().run())
 	failures.append_array(load("res://tests/test_ai_controller.gd").new().run())
 	failures.append_array(load("res://tests/test_ai_profile.gd").new().run())
 	failures.append_array(load("res://tests/test_ai_vs_ai.gd").new().run())

@@ -158,7 +158,7 @@ func _test_integration() -> void:
 	holder.rebuild_now()
 	check(fog.memories[0].has(resource_key), "hidden resource depletion must retain memory")
 	var proxy: Node = holder.get("_memory_views")[town_key]
-	check(proxy.get_script() == null and proxy.get_groups().is_empty() and proxy.get("def") == null, "memory proxy cannot join simulation")
+	check(proxy.get_script() == null and proxy.get_groups().size() == 1 and proxy.is_in_group("occlusion_memories") and proxy.get("def") == null, "memory proxy can register for rendering only, never simulation")
 	town.queue_free()
 	await process_frame
 	holder.rebuild_now()

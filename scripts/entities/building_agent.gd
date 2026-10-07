@@ -15,6 +15,7 @@ const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 # Keep the entity origin/footprint unchanged; only its artwork covers walkers.
 const TOWN_CENTER_SOLID_Z := 1
 const TOWN_CENTER_SHADOW_Z := -3
+const MAX_TRAIN_QUEUE := 15
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: BuildingDef
@@ -34,6 +35,9 @@ var build_progress := 0.0
 var is_complete := true
 var is_placement_ghost := false
 var train_queue: Array[UnitDef] = []
+var train_queue_ids: Array[int] = []
+var _next_train_id := 1
+var _train_payments: Dictionary = {}
 var train_progress := 0.0
 var _construction_started := false
 var _population_cap_registered := false
@@ -78,16 +82,27 @@ func _physics_process(delta: float) -> void:
 		return
 	if match_state != null and match_state.frozen:
 		return
-	if not is_complete or train_queue.is_empty():
+	if not is_complete or hp <= 0.0 or is_queued_for_deletion() or train_queue.is_empty():
 		return
-	train_progress += delta
-	var unit_def := train_queue[0]
-	if train_progress >= _train_time(unit_def):
-		if _spawn_trained_unit(unit_def):
-			train_queue.clear()
-			train_progress = 0.0
-			set_physics_process(false)
-			train_queue_changed.emit()
+	var remaining := maxf(delta, 0.0)
+	while not train_queue.is_empty():
+		if is_training_population_blocked():
+			return
+		var unit_def := train_queue[0]
+		var duration := maxf(_train_time(unit_def), 0.001)
+		var advance := minf(remaining, maxf(duration - train_progress, 0.0))
+		train_progress += advance
+		remaining -= advance
+		if train_progress < duration or not _spawn_trained_unit(unit_def):
+			return
+		_train_payments.erase(train_queue_ids[0])
+		train_queue.pop_front()
+		train_queue_ids.pop_front()
+		train_progress = 0.0
+		train_queue_changed.emit()
+		if remaining <= 0.0:
+			break
+	set_physics_process(not train_queue.is_empty())
 
 func accepts_resource(resource_type: Enums.ResourceType) -> bool:
 	return accepts_all_resources or accepted_resource_type == resource_type or (def != null and def.id == &"mining_camp" and resource_type == Enums.ResourceType.STONE)
@@ -134,30 +149,65 @@ func _max_hp() -> float:
 func enqueue_train(unit_def: UnitDef) -> bool:
 	# Resolve by catalog ID: old maps may hold a .tres instance of the same unit.
 	unit_def = trainable_definition(unit_def.id) if unit_def != null else null
-	if (
-		not is_complete
-		or unit_def == null
-		or hp <= 0.0
-		or is_placement_ghost
-		or has_meta("network_replica")
-		or not train_queue.is_empty()
-		or is_age_researching()
-		or is_technology_researching()
-		or unit_def not in get_trainable_units()
-		or match_state == null
-		or match_state.frozen
-		or not match_state.can_train(team, unit_def, civ.id if civ != null else &"")
-	):
+	if has_meta("network_replica") or not train_blocked_reason(unit_def).is_empty():
 		return false
 	if not match_state.spend(
 		team, unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold, unit_def.cost_stone
 	):
 		return false
 	train_queue.append(unit_def)
-	_reserved_population = unit_def.population
-	match_state.reserve_pop(team, _reserved_population)
-	train_progress = 0.0
+	train_queue_ids.append(_next_train_id)
+	# Research at another building may upgrade queued definitions. Refund the
+	# amount actually paid, not the replacement unit's current catalog cost.
+	_train_payments[_next_train_id] = {"cost": [unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold, unit_def.cost_stone], "population": unit_def.population}
+	_next_train_id += 1
+	_reserved_population += unit_def.population
+	match_state.reserve_pop(team, unit_def.population)
+	if train_queue.size() == 1:
+		train_progress = 0.0
 	set_physics_process(true)
+	train_queue_changed.emit()
+	return true
+
+func train_blocked_reason(unit_def: UnitDef) -> String:
+	if match_state == null or match_state.frozen or hp <= 0.0 or is_queued_for_deletion() or is_placement_ghost:
+		return "无法生产"
+	if not is_complete:
+		return "建筑尚未完成"
+	if is_age_researching() or is_technology_researching():
+		return "正在升级或研究"
+	if train_queue.size() >= MAX_TRAIN_QUEUE:
+		return "生产队列已满（%d/%d）" % [train_queue.size(), MAX_TRAIN_QUEUE]
+	var definition := trainable_definition(unit_def.id) if unit_def != null else null
+	if definition == null:
+		return "此单位尚未解锁或无法在此建筑生产"
+	if not match_state.can_afford(team, definition.cost_food, definition.cost_wood, definition.cost_gold, definition.cost_stone):
+		return "资源不足"
+	return ""
+
+func is_training_population_blocked() -> bool:
+	return match_state != null and not train_queue.is_empty() \
+		and int(match_state.population[team]) + train_queue[0].population > int(match_state.population_cap[team])
+
+func training_progress_ratio() -> float:
+	return 0.0 if train_queue.is_empty() else clampf(train_progress / maxf(_train_time(train_queue[0]), 0.001), 0.0, 1.0)
+
+func cancel_train(queue_id: int) -> bool:
+	# Stable IDs prevent a delayed network cancellation from removing the next unit.
+	var index := train_queue_ids.find(queue_id)
+	if index < 0 or match_state == null or match_state.frozen or hp <= 0.0 or has_meta("network_replica"):
+		return false
+	var payment: Dictionary = _train_payments[queue_id]
+	_train_payments.erase(queue_id)
+	train_queue.remove_at(index)
+	train_queue_ids.remove_at(index)
+	if index == 0:
+		train_progress = 0.0
+	_reserved_population -= int(payment.population)
+	match_state.reserve_pop(team, -int(payment.population))
+	for type in 4:
+		match_state.add_resource(team, type as Enums.ResourceType, int(payment.cost[type]))
+	set_physics_process(not train_queue.is_empty())
 	train_queue_changed.emit()
 	return true
 
@@ -328,8 +378,9 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	unit.set("def", unit_def)
 	unit.set("civ", civ)
 	unit.set("match_state", match_state)
-	match_state.reserve_pop(team, -_reserved_population)
-	_reserved_population = 0
+	var reserved: int = _train_payments[train_queue_ids[0]].population
+	match_state.reserve_pop(team, -reserved)
+	_reserved_population -= reserved
 	unit.call("register_population")
 	var spawn_offset := Vector2(
 		(def.footprint.x * 0.5 if def != null else 1.0) + 0.8, 0.0

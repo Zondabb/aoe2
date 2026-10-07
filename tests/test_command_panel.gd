@@ -131,4 +131,50 @@ func _test_train_button_click_survives(failures: Array[String]) -> void:
 	button.pressed.emit()
 	if (building.get("train_queue") as Array).is_empty():
 		failures.append("train button click should enqueue a unit")
+	button.pressed.emit()
+	hud._refresh()
+	var queue := hud.get_node("%ProductionQueue") as GridContainer
+	if building.train_queue.size() != 2 or not queue.visible or not queue.get_child(1).visible:
+		failures.append("repeated training clicks must display multiple queue items")
+	building.train_progress = 1.0
+	var food: int = state.resources[0][0]
+	(queue.get_child(1) as Button).pressed.emit()
+	hud._refresh()
+	if building.train_queue.size() != 1 or building.train_progress != 1.0 or state.resources[0][0] <= food:
+		failures.append("queue item click cancels and refunds without restarting the active item")
+	hud.read_only = true
+	hud._refresh()
+	if not (queue.get_child(0) as Button).disabled:
+		failures.append("spectators cannot cancel production")
+	building.team = Enums.Team.AI
+	hud._refresh()
+	if queue.visible:
+		failures.append("opponent production queue is not exposed")
+	building.team = Enums.Team.PLAYER
+	hud.read_only = false
+	hud._refresh()
+	var unit := UNIT_VIEW.instantiate() as UnitAgent
+	unit.def = VILLAGER
+	unit.match_state = state
+	root.add_child(unit)
+	if unit.hp <= 0.0:
+		unit._ready()
+	# Exercise synchronous selection signals, without waiting for _process to
+	# hide the old building queue. This is the box-selection crash path.
+	mock.building = null
+	mock.units = [unit]
+	mock.selection_changed.emit([unit])
+	if queue.visible or (hud.get_node("%ProductionProgress") as Control).visible:
+		failures.append("selecting units immediately hides the previous building queue")
+	if "队列" in (hud.get_node("%CommandHint") as Label).text:
+		failures.append("unit selection must not retain production help text")
+	mock.units = []
+	mock.building = building
+	mock.selection_changed.emit([building])
+	if not queue.visible:
+		failures.append("reselecting the building immediately restores its queue")
+	mock.building = null
+	mock.selection_changed.emit([])
+	if queue.visible or (hud.get_node("%ProductionProgress") as Control).visible:
+		failures.append("empty selection immediately hides production controls")
 	root.free()

@@ -2,6 +2,7 @@ class_name UnitAgent
 extends Node2D
 
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
+const UnitOcclusion := preload("res://scripts/presentation/unit_occlusion.gd")
 
 const ARRIVAL_DISTANCE := 0.15
 const STUCK_REPATH_SECONDS := 0.65
@@ -117,6 +118,7 @@ func _ready() -> void:
 		melee_armor += civ.melee_armor_bonus
 	register_population()
 	_setup_presentation()
+	UnitOcclusion.ensure_for(self)
 	set_selected(false)
 	_vision_register()
 

@@ -81,17 +81,17 @@ func _test_train_queue_spends_and_spawns(failures: Array[String]) -> void:
 
 	if not bool(town_center.call("enqueue_train", VILLAGER)):
 		failures.append("completed town center should enqueue an affordable villager")
-	if bool(town_center.call("enqueue_train", VILLAGER)):
-		failures.append("building train queue should have a maximum size of one")
-	if state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD) != initial_food - VILLAGER.cost_food:
+	if not bool(town_center.call("enqueue_train", VILLAGER)):
+		failures.append("building should accept another unit while training")
+	if state.get_resource(Enums.Team.PLAYER, Enums.ResourceType.FOOD) != initial_food - 2 * VILLAGER.cost_food:
 		failures.append("enqueueing a unit should spend its resource cost")
 
 	town_center.call(
 		"_physics_process",
 		VILLAGER.train_time * CHINESE.villager_train_time_mul
 	)
-	if not (town_center.get("train_queue") as Array).is_empty():
-		failures.append("training should finish using the Chinese villager time multiplier")
+	if (town_center.get("train_queue") as Array).size() != 1:
+		failures.append("training should finish only the head using the Chinese villager time multiplier")
 	if state.population[Enums.Team.PLAYER] != VILLAGER.population:
 		failures.append("trained unit should register used population")
 	if root.get_child_count() != 2:
@@ -119,8 +119,14 @@ func _test_parallel_queues_reserve_population(failures: Array[String]) -> void:
 	)
 	if not bool(town_centers[0].call("enqueue_train", VILLAGER)):
 		failures.append("first queue should reserve the final population slot")
-	if bool(town_centers[1].call("enqueue_train", VILLAGER)):
-		failures.append("parallel queue should not overbook reserved population")
+	if not bool(town_centers[1].call("enqueue_train", VILLAGER)):
+		failures.append("another building may queue while population is reserved")
+	for town_center in town_centers:
+		town_center.call("_physics_process", VILLAGER.train_time)
+	if state.population[Enums.Team.PLAYER] > state.population_cap[Enums.Team.PLAYER]:
+		failures.append("parallel queues must never spawn beyond the population cap")
+	if (town_centers[1].get("train_queue") as Array).is_empty():
+		failures.append("the second building should wait for population")
 	root.free()
 
 func _test_trainables_are_filtered_by_civ(failures: Array[String]) -> void:

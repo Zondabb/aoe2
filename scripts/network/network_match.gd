@@ -108,7 +108,7 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 	var required: Dictionary = {
 		"move": ["unit_id"], "stop": ["unit_id"], "gather": ["unit_id", "target_id"],
 		"build": ["unit_id", "building_id"], "attack": ["unit_id", "target_id"],
-		"train": ["building_id"], "place_building": ["builder_id"],
+		"train": ["building_id"], "cancel_train": ["building_id"], "place_building": ["builder_id"],
 		"research_age": ["building_id"], "cancel_research_age": ["building_id"],
 		"research_technology": ["building_id"], "cancel_technology": ["building_id"],
 	}
@@ -157,6 +157,11 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if command.get("unit_def_id") is not String:
 			return false
 		translated["unit_def_id"] = command.unit_def_id
+	if op == "cancel_train":
+		if not _valid_id(command.get("queue_id")):
+			return false
+		var building := _resolve(int(command.building_id)) as BuildingAgent
+		return building != null and int(building.team) == sender_team and building.cancel_train(int(command.queue_id))
 	if op == "research_technology":
 		if command.get("technology_id") is not String or String(command.technology_id).length() > 128:
 			return false
@@ -238,7 +243,7 @@ func capture_snapshot() -> Dictionary:
 					var queue: Array = []
 					for definition in entity.get("train_queue"):
 						queue.append(String(definition.id))
-					record.merge({"complete": entity.get("is_complete"), "build_progress": entity.get("build_progress"), "train_progress": entity.get("train_progress"), "train_queue": queue, "accepts_all": entity.get("accepts_all_resources"), "farm_food": entity.get("amount")})
+					record.merge({"complete": entity.get("is_complete"), "build_progress": entity.get("build_progress"), "train_progress": entity.get("train_progress"), "train_queue": queue, "train_queue_ids": entity.get("train_queue_ids").duplicate(), "accepts_all": entity.get("accepts_all_resources"), "farm_food": entity.get("amount")})
 		records.append(record)
 	var economies: Array = []
 	for side in [0, 1]:
@@ -402,6 +407,10 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 				if definition != null:
 					queue.append(definition)
 			entity.set("train_queue", queue)
+			var queue_ids: Array[int] = []
+			for id in record.get("train_queue_ids", []):
+				queue_ids.append(int(id))
+			entity.set("train_queue_ids", queue_ids)
 	Iso.sync_node(entity, _vec(record.pos))
 
 
@@ -432,8 +441,16 @@ func _valid_record(record: Dictionary) -> bool:
 		return true
 	if Protocol.building_def_for_id(record.def) == null or record.get("complete") is not bool or not _finite_number(record.get("build_progress")) or not _finite_number(record.get("train_progress")) or record.get("train_queue") is not Array:
 		return false
-	if record.train_queue.size() > 1:
+	if record.train_queue.size() > BuildingAgent.MAX_TRAIN_QUEUE:
 		return false
+	var queue_ids: Variant = record.get("train_queue_ids", [])
+	if queue_ids is not Array or queue_ids.size() != record.train_queue.size():
+		return false
+	var seen_ids := {}
+	for id in queue_ids:
+		if not _valid_id(id) or seen_ids.has(int(id)):
+			return false
+		seen_ids[int(id)] = true
 	if record.has("farm_food") and (not _finite_number(record.farm_food) or float(record.farm_food) < 0.0):
 		return false
 	for id in record.train_queue:

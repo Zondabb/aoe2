@@ -31,6 +31,7 @@ static func make_view(snapshot: Dictionary) -> Node2D:
 	root.position = snapshot.position
 	root.modulate = Color(0.4, 0.4, 0.4)
 	root.set_meta("fog_memory", true)
+	root.add_to_group("occlusion_memories")
 	for part in snapshot.parts:
 		var visual: Node2D
 		if part.has("texture"):

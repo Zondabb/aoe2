@@ -12,6 +12,7 @@ const HOUSE := preload("res://data/buildings/house.tres")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_snapshot_and_commands(failures)
+	_test_production_queue(failures)
 	_test_transport_transitions(failures)
 	return failures
 
@@ -118,6 +119,68 @@ func _test_snapshot_and_commands(failures: Array[String]) -> void:
 	root.free()
 	Registry.clear()
 
+
+func _test_production_queue(failures: Array[String]) -> void:
+	Registry.clear()
+	var root := Node2D.new()
+	(Engine.get_main_loop() as SceneTree).root.add_child(root)
+	var host := _runtime(root, true)
+	var guest := _runtime(root, false)
+	var building := BUILDING.instantiate() as BuildingAgent
+	building.team = Enums.Team.AI
+	building.def = load("res://data/buildings/town_center.tres")
+	building.civ = load("res://data/civs/chinese.tres")
+	building.match_state = host.match_state
+	host.entities.add_child(building)
+	if building.hp <= 0: building._ready()
+	host.match_state.resources[1][Enums.ResourceType.FOOD] = 10000
+	host.match_state.population_cap[1] = 100
+	var id: int = host.entity_id(building)
+	for i in 3:
+		if not host.execute_team_command({"op":"train", "building_id":id, "unit_def_id":"villager"}, 1):
+			failures.append("wire command must append production item %d" % i)
+	if building.train_queue_ids.size() != 3:
+		failures.append("host must assign each queued unit a stable ID")
+		root.free()
+		return
+	building._physics_process(2.0)
+	var packet: Dictionary = JSON.parse_string(JSON.stringify(host.capture_snapshot()))
+	if not guest.apply_snapshot(packet, 1):
+		failures.append("multi-item production snapshot must survive JSON transport")
+	else:
+		var replica := guest._resolve(id) as BuildingAgent
+		if replica.train_queue.size() != 3 or replica.train_queue_ids != building.train_queue_ids or replica.train_progress != 2.0:
+			failures.append("guest must receive full queue identities and active progress")
+	var cancel := {"op":"cancel_train", "building_id":id, "queue_id":building.train_queue_ids[1]}
+	if host.execute_team_command(cancel, 0):
+		failures.append("opponent cannot cancel another player's queue")
+	var invalid := cancel.duplicate()
+	invalid.queue_id = 1.5
+	if host.execute_team_command(invalid, 1):
+		failures.append("fractional queue IDs must be rejected")
+	var food: int = host.match_state.resources[1][Enums.ResourceType.FOOD]
+	if not host.execute_team_command(cancel, 1) or host.execute_team_command(cancel, 1):
+		failures.append("network cancellation must succeed exactly once")
+	if host.match_state.resources[1][Enums.ResourceType.FOOD] != food + VILLAGER.cost_food or building.train_progress != 2.0:
+		failures.append("host cancellation refunds once and preserves head progress")
+	var completed_id: int = building.train_queue_ids[0]
+	building._physics_process(building._train_time(VILLAGER) - building.train_progress)
+	if host.execute_team_command({"op":"cancel_train", "building_id":id, "queue_id":completed_id}, 1) or building.train_queue.size() != 1:
+		failures.append("delayed cancellation of completed item cannot remove its successor")
+	if not guest.apply_snapshot(host.capture_snapshot(), 2) or guest._resolve(id).train_queue_ids != building.train_queue_ids:
+		failures.append("snapshot after completion and cancellation updates the guest queue")
+	var bad: Dictionary = packet.duplicate(true)
+	bad.entities[0].train_queue_ids[1] = bad.entities[0].train_queue_ids[0]
+	if guest.apply_snapshot(bad, 3):
+		failures.append("duplicate production IDs must reject a snapshot")
+	bad = packet.duplicate(true)
+	for i in 16:
+		bad.entities[0].train_queue.append("villager")
+		bad.entities[0].train_queue_ids.append(i + 100)
+	if guest.apply_snapshot(bad, 3):
+		failures.append("oversized production queues must reject a snapshot")
+	root.free()
+	Registry.clear()
 
 func _runtime(root: Node, authority: bool) -> Node:
 	var runtime := Runtime.new()

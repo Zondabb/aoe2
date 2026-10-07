@@ -28,6 +28,9 @@ var _selected_building: Node2D
 var _status_label: Label
 var _command_page := "root"
 var _hovered_command: BaseButton
+var _production_queue: GridContainer
+var _production_progress: ProgressBar
+var _shown_production_key := ""
 
 @onready var _resources_label := %ResourcesLabel as Label
 @onready var _wood_digits := %WoodDigits as Aoe2DigitRow
@@ -103,6 +106,7 @@ func setup(
 	_stats_label = get_node_or_null("%StatsLabel") as Label
 	_queue_label = get_node_or_null("%QueueLabel") as Label
 	_command_hint = get_node_or_null("%CommandHint") as Label
+	_setup_production_queue()
 	_ensure_status_label()
 	_sync_hud_layout()
 	if selection != null:
@@ -256,6 +260,9 @@ func _ensure_selected_building_valid() -> void:
 		_rebuild_command_grid()
 
 func _refresh_info_panel() -> void:
+	# Selection signals refresh details before the next HUD process tick. Keep
+	# queue visibility in sync before reading it for the contextual help text.
+	_refresh_production_queue()
 	if _name_label == null:
 		return
 	var units: Array = selection.call("get_selected_units") if selection != null else []
@@ -311,9 +318,9 @@ func _refresh_entity_details(focus: Node2D, total_count: int) -> void:
 		elif focus.is_technology_researching():
 			var job: Dictionary = match_state.technology_progression.progress_for(focus)
 			_queue_label.text = "研究%s  %d%%" % [Catalog.display_name(job.technology_id), 100 * float(job.progress)]
-		elif not training.is_empty():
+		elif not training.is_empty() and focus.team == PlayerCommands.local_team(self):
 			var trainee: UnitDef = training[0]
-			_queue_label.text = "训练 %s  %d%%" % [UiCatalogScript.unit_display_name(trainee.id), 100 * focus.train_progress / maxf(trainee.train_time, 0.01)]
+			_queue_label.text = "%s %s  %d%%  · 队列 %d/%d" % ["等待人口" if focus.is_training_population_blocked() else "训练", UiCatalogScript.unit_display_name(trainee.id), 100 * focus.training_progress_ratio(), training.size(), BuildingAgent.MAX_TRAIN_QUEUE]
 	elif focus.is_in_group("resource_nodes"):
 		_stats_label.text = "采集速度  %.1f / 秒" % float(focus.get("gather_rate"))
 
@@ -327,6 +334,8 @@ func _refresh_status_label(focus: Node2D, units: Array) -> void:
 			_status_label.text = "需要视野：先探索整个建筑占地" if build_system.get("placement_reason") == "need_vision" else "左键放置建筑；右键或 Esc 取消。"
 		elif _command_page != "root":
 			_status_label.text = "%s：选择建筑，再在地图上放置。Esc 返回。" % ("经济建筑" if _command_page == "economy" else "军事建筑")
+		elif is_instance_valid(_selected_building) and focus == _selected_building and _production_queue != null and _production_queue.visible:
+			_status_label.text = "人口已满：建造房屋或腾出人口后自动继续。点击队列图标可取消并退款。" if _selected_building.is_training_population_blocked() else "重复点击训练可排队；从左到右依次生产。点击队列图标可取消并退款。"
 		else:
 			_status_label.text = "右键移动、采集或攻击；B 经济建筑 / V 军事建筑。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) and units[0].get("def").id == &"villager" else "右键下达指令。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) else ""
 		return
@@ -671,6 +680,80 @@ func _stop_selected_units() -> void:
 		if unit.get("team") == PlayerCommands.local_team(self) and unit.has_method("command_stop"):
 			PlayerCommands.unit_order(self, unit, "stop")
 
+func _setup_production_queue() -> void:
+	_production_queue = get_node_or_null("%ProductionQueue") as GridContainer
+	_production_progress = get_node_or_null("%ProductionProgress") as ProgressBar
+	if _production_queue == null or _production_queue.get_child_count() > 0:
+		return
+	for index in BuildingAgent.MAX_TRAIN_QUEUE:
+		var button := Button.new()
+		button.name = "QueueSlot%d" % index
+		button.custom_minimum_size = Vector2(28, 28)
+		button.focus_mode = Control.FOCUS_NONE
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		for state in ["normal", "hover", "pressed", "disabled"]:
+			var style := StyleBoxFlat.new()
+			style.bg_color = Color("3c3324") if state == "hover" else Color("272318")
+			style.border_color = Color("ffe0a0") if index == 0 or state == "hover" else Color("92794c")
+			style.set_border_width_all(2 if index == 0 else 1)
+			button.add_theme_stylebox_override(state, style)
+		var icon := TextureRect.new()
+		icon.name = "Icon"
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(icon)
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		icon.offset_left = 2
+		icon.offset_top = 2
+		icon.offset_right = -2
+		icon.offset_bottom = -2
+		button.pressed.connect(func(): _cancel_queued_train(int(button.get_meta("queue_id", -1))))
+		_production_queue.add_child(button)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color("d0a544")
+	_production_progress.add_theme_stylebox_override("fill", fill)
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color("463621")
+	_production_progress.add_theme_stylebox_override("background", background)
+
+func _refresh_production_queue() -> void:
+	if _production_queue == null:
+		return
+	var building := _selected_building as BuildingAgent
+	var active := is_instance_valid(building) and building.team == PlayerCommands.local_team(self) and not building.train_queue.is_empty()
+	_production_queue.visible = active
+	_production_progress.visible = active
+	_command_hint.offset_top = 149 if active else 116
+	_command_hint.offset_bottom = 177 if active else 166
+	_command_hint.add_theme_font_size_override("font_size", 11 if active else 13)
+	if not active:
+		_shown_production_key = ""
+		return
+	_production_progress.value = 100.0 * building.training_progress_ratio()
+	var key := str(building.get_instance_id()) + str(building.train_queue_ids) + str(building.train_queue)
+	for index in _production_queue.get_child_count():
+		var button := _production_queue.get_child(index) as Button
+		button.visible = index < building.train_queue.size()
+		if not button.visible:
+			continue
+		button.disabled = not _commands_enabled() or index >= building.train_queue_ids.size()
+		if key == _shown_production_key:
+			continue
+		var definition := building.train_queue[index]
+		button.set_meta("queue_id", building.train_queue_ids[index] if index < building.train_queue_ids.size() else -1)
+		button.get_node("Icon").texture = UiCatalogScript.atlas_frame(UiCatalogScript.ICONS_UNITS_BASE, UiCatalogScript.unit_icon_frame(definition.id))
+		button.tooltip_text = "%d. %s%s\n点击取消，退还全部训练资源" % [index + 1, UiCatalogScript.unit_display_name(definition.id), "（当前生产）" if index == 0 else "（等待）"]
+	_shown_production_key = key
+
+func _cancel_queued_train(queue_id: int) -> void:
+	if not _commands_enabled() or not is_instance_valid(_selected_building) or _selected_building.team != PlayerCommands.local_team(self):
+		return
+	if PlayerCommands.is_online(self):
+		PlayerCommands.submit(self, {"op": "cancel_train", "building_id": PlayerCommands.entity_id(self, _selected_building), "queue_id": queue_id})
+	else:
+		_selected_building.cancel_train(queue_id)
+
 func _enqueue_train(unit_def: UnitDef) -> void:
 	if not _can_enqueue(unit_def):
 		return
@@ -691,12 +774,9 @@ func _can_enqueue(unit_def: UnitDef) -> bool:
 		and is_instance_valid(_selected_building)
 		and _selected_building.get("team") == PlayerCommands.local_team(self)
 		and bool(_selected_building.get("is_complete"))
-		and not _selected_building.is_age_researching()
-		and not _selected_building.is_technology_researching()
-		and (_selected_building.get("train_queue") as Array).is_empty()
 		and match_state != null
 		and match_state.winner == -1
-		and match_state.can_train(PlayerCommands.local_team(self), unit_def)
+		and _selected_building.train_blocked_reason(unit_def).is_empty()
 	)
 
 func _refresh_command_grid_states() -> void:
@@ -718,7 +798,7 @@ func _refresh_command_grid_states() -> void:
 			definition = button.get_meta("unit_def")
 			button.disabled = not _can_enqueue(definition)
 			if button.disabled:
-				reason = "正在训练" if is_instance_valid(_selected_building) and not _selected_building.train_queue.is_empty() else "资源或人口空间不足"
+				reason = _selected_building.train_blocked_reason(definition) if is_instance_valid(_selected_building) else "请选择生产建筑"
 		elif button.has_meta("age_upgrade"):
 			var target_age := match_state.age_of(PlayerCommands.local_team(self)) + 1
 			reason = match_state.age_progression.blocked_reason(_selected_building) if is_instance_valid(match_state.age_progression) else "正在初始化对局"

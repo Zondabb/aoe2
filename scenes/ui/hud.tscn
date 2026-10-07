@@ -273,6 +273,27 @@ theme_override_colors/font_color = Color(0.16, 0.10, 0.045, 1)
 theme_override_font_sizes/font_size = 13
 text_overrun_behavior = 3
 
+[node name="ProductionProgress" type="ProgressBar" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 0
+offset_left = 78.0
+offset_top = 110.0
+offset_right = 462.0
+offset_bottom = 114.0
+mouse_filter = 2
+show_percentage = false
+
+[node name="ProductionQueue" type="GridContainer" parent="CommandPanel/Content/InfoColumn"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 0
+offset_top = 118.0
+offset_right = 462.0
+offset_bottom = 146.0
+theme_override_constants/h_separation = 3
+columns = 15
+
 [node name="CommandHint" type="Label" parent="CommandPanel/Content/InfoColumn"]
 unique_name_in_owner = true
 layout_mode = 0

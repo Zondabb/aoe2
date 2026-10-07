@@ -200,8 +200,8 @@ static func _validate_train(cmd: Dictionary, ctx: CommandExecutionContext) -> Va
 		result.reason = "research_busy"
 		return result
 	var train_queue: Array = building.get("train_queue") as Array
-	if not train_queue.is_empty():
-		result.reason = "train_queue_busy"
+	if train_queue.size() >= BuildingAgent.MAX_TRAIN_QUEUE:
+		result.reason = "train_queue_full"
 		return result
 	var unit_def := AiProtocolScript.unit_def_for_id(String(cmd.get("unit_def_id", "")))
 	if unit_def == null:
@@ -214,7 +214,7 @@ static func _validate_train(cmd: Dictionary, ctx: CommandExecutionContext) -> Va
 	if unit_def == null:
 		result.reason = "unit_not_trainable"
 		return result
-	if not ctx.match_state.can_train(ctx.team, unit_def):
+	if not String(building.call("train_blocked_reason", unit_def)).is_empty():
 		result.reason = "cannot_train"
 		return result
 	result.ok = true
