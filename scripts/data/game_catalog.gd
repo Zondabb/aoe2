@@ -7,6 +7,9 @@ const AGE_NAMES := ["黑暗时代", "封建时代", "城堡时代", "帝王时�
 ## Adapt original DAT movement to this project's map scale and pre-import pace.
 ## Keep the source catalog intact and preserve relative speeds across unit lines.
 const MOVEMENT_SPEED_SCALE := 4.0
+## Original LOS tiles need the same distance conversion as the imported actors.
+## Convert both base sight and age bonuses; fog and AI consume these definitions.
+const VISION_DISTANCE_SCALE := 4.0
 static var _data: Dictionary = {}
 static var _units: Dictionary = {}
 static var _buildings: Dictionary = {}
@@ -47,8 +50,9 @@ static func units() -> Dictionary:
 		u.pierce_armor = int(r.get("pierce_armor", 0))
 		u.move_speed = maxf(0.1, float(r.get("speed", 0.8))) * MOVEMENT_SPEED_SCALE
 		u.footprint_radius = clampf(float(r.get("radius", 0.35)), 0.2, 1.0)
-		u.vision_radius = maxf(0, float(r.get("vision", 6)))
-		u.vision_age_bonus.assign(r.get("vision_age_bonus", []))
+		u.vision_radius = maxf(0, float(r.get("vision", 6))) * VISION_DISTANCE_SCALE
+		for bonus in r.get("vision_age_bonus", []):
+			u.vision_age_bonus.append(float(bonus) * VISION_DISTANCE_SCALE)
 		u.cost_food = _cost(r, "food")
 		u.cost_wood = _cost(r, "wood")
 		u.cost_gold = _cost(r, "gold")
@@ -79,8 +83,10 @@ static func buildings() -> Dictionary:
 		var footprint: Array = r.get("footprint", [3,3])
 		b.footprint = Vector2(footprint[0], footprint[1])
 		b.blocks_movement = key not in ["town_center", "farm", "gate", "palisade_gate"]
-		b.vision_radius = maxf(0, float(r.get("vision", 8)))
-		b.vision_age_bonus.assign(r.get("vision_age_bonus", []))
+		b.vision_radius = maxf(0, float(r.get("vision", 8))) * VISION_DISTANCE_SCALE
+		b.construction_vision_radius = 2.0 * VISION_DISTANCE_SCALE
+		for bonus in r.get("vision_age_bonus", []):
+			b.vision_age_bonus.append(float(bonus) * VISION_DISTANCE_SCALE)
 		b.melee_armor = int(r.get("melee_armor", 0))
 		b.pierce_armor = int(r.get("pierce_armor", 0))
 		b.cost_food = _cost(r, "food")

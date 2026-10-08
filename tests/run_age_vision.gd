@@ -1,6 +1,7 @@
 extends SceneTree
 
 const Fog := preload("res://scripts/systems/fog_of_war_service.gd")
+const SIGHT_SCALE := 4.0
 var checks := 0
 var failures: Array[String] = []
 
@@ -18,15 +19,15 @@ func _run() -> void:
 	state.setup_defaults()
 	state.progression_enabled = true
 	var fog := Fog.new()
-	fog.setup(-20, 20)
+	fog.setup(-60, 60)
 	state.fog = fog
 	var vision := VisionService.new()
 	vision.setup()
-	# Base LOS must match every imported record, including rams, farms and walls.
+	# Convert source tiles consistently, including rams, farms and walls.
 	for id in GameCatalog.data().units:
-		check(GameCatalog.get_unit(id).resolved_vision_radius() == float(GameCatalog.unit_record(id).sight), "%s original base LOS" % id)
+		check(GameCatalog.get_unit(id).resolved_vision_radius() == float(GameCatalog.unit_record(id).sight) * SIGHT_SCALE, "%s original LOS converted to project distance" % id)
 	for id in GameCatalog.data().buildings:
-		check(GameCatalog.get_building(id).resolved_vision_radius() == float(GameCatalog.building_record(id).sight), "%s original base LOS" % id)
+		check(GameCatalog.get_building(id).resolved_vision_radius() == float(GameCatalog.building_record(id).sight) * SIGHT_SCALE, "%s original LOS converted to project distance" % id)
 	var scout := UnitAgent.new()
 	scout.def = GameCatalog.get_unit(&"scout_cavalry")
 	scout.match_state = state
@@ -40,7 +41,7 @@ func _run() -> void:
 	enemy.match_state = state
 	enemy.team = Enums.Team.AI
 	enemy.hp = 100
-	enemy.sim_pos = Vector2(5.5, 0.5)
+	enemy.sim_pos = Vector2(20.5, 0.5)
 	var outpost := BuildingAgent.new()
 	outpost.def = GameCatalog.get_building(&"outpost")
 	outpost.match_state = state
@@ -54,15 +55,15 @@ func _run() -> void:
 		state.set_age(0, age)
 		if age > 0:
 			check(fog.dirty, "age advancement invalidates fog immediately")
-		var radius := float(4 + age * 2)
+		var radius := float(4 + age * 2) * SIGHT_SCALE
 		check(scout.resolved_vision_radius() == radius, "existing scout follows team age")
-		check(villager.resolved_vision_radius() == 4, "villager retains original 4-tile LOS")
-		check(enemy.resolved_vision_radius() == 4, "other team's age is independent")
-		check(outpost.resolved_vision_radius() == 6 + age * 2, "outpost age LOS")
+		check(villager.resolved_vision_radius() == 16, "villager's original 4-tile LOS covers 16 simulation units")
+		check(enemy.resolved_vision_radius() == 16, "other team's age is independent")
+		check(outpost.resolved_vision_radius() == (6 + age * 2) * SIGHT_SCALE, "outpost age LOS")
 		check(fog.radius_of(scout) == radius and vision.vision_radius_of(scout) == radius, "fog and target acquisition share age LOS")
-		check(fog.radius_of(outpost) == 6 + age * 2 and vision.vision_radius_of(outpost) == 6 + age * 2, "building fog and vision agree")
+		check(fog.radius_of(outpost) == (6 + age * 2) * SIGHT_SCALE and vision.vision_radius_of(outpost) == (6 + age * 2) * SIGHT_SCALE, "building fog and vision agree")
 		outpost.is_complete = false
-		check(outpost.resolved_vision_radius() == 2, "unfinished outpost keeps construction LOS")
+		check(outpost.resolved_vision_radius() == 8, "unfinished outpost converts construction LOS too")
 		outpost.is_complete = true
 		var cavalry := UnitAgent.new()
 		cavalry.match_state = state
@@ -76,12 +77,14 @@ func _run() -> void:
 			check(vision.nearest_hostile(scout, Enums.Team.AI) == enemy, "age bonus permits target acquisition")
 	# Repeated snapshots cannot accumulate another bonus.
 	state.set_age(0, 3)
-	check(scout.resolved_vision_radius() == 10, "repeated age snapshot is idempotent")
+	check(scout.resolved_vision_radius() == 40, "repeated age snapshot is idempotent")
 	scout.set_vision_radius(3)
 	check(scout.resolved_vision_radius() == 3, "explicit scenario override wins")
 	scout.vision_radius_override = -1
 	state.progression_enabled = false
-	check(scout.resolved_vision_radius() == 4 and outpost.resolved_vision_radius() == 6, "legacy scenarios keep authored base LOS")
+	check(scout.resolved_vision_radius() == 16 and outpost.resolved_vision_radius() == 24, "disabling progression keeps converted base LOS without age bonuses")
+	var legacy: UnitDef = load("res://data/units/villager.tres")
+	check(legacy.resolved_vision_radius() == legacy.vision_radius, "authored legacy resources are not scaled twice")
 	vision.clear()
 	for entity in [scout, villager, enemy, outpost]:
 		entity.free()

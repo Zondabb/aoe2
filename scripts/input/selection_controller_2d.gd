@@ -263,13 +263,13 @@ func _enemy_at_screen(screen_position: Vector2) -> Node2D:
 func _resource_at_screen(screen_position: Vector2) -> Node2D:
 	var canvas_pos := _viewport_to_canvas(screen_position)
 	var closest: Node2D
-	var closest_distance := CLICK_RADIUS
+	var closest_distance := INF
 	for node in get_tree().get_nodes_in_group("resource_nodes"):
 		var resource := node as Node2D
-		if resource == null or not resource.visible or not FogAccess.view_can_see(resource):
+		if resource == null or not resource.visible or float(resource.get("amount")) <= 0 or not FogAccess.view_can_see(resource):
 			continue
-		var distance := resource.global_position.distance_to(canvas_pos)
-		if distance <= closest_distance:
+		var distance := _resource_pick_distance(resource, canvas_pos)
+		if distance < closest_distance:
 			closest = resource
 			closest_distance = distance
 	return closest
@@ -420,7 +420,7 @@ func _pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
 	if not FogAccess.view_can_see(entity):
 		return INF
 	if entity.is_in_group("resource_nodes"):
-		return _footprint_pick_distance(entity, canvas_pos)
+		return _resource_pick_distance(entity, canvas_pos)
 	if _uses_visual_pick(entity):
 		var rect := _visual_rect_canvas(entity)
 		if rect.size.x > 0.0 and rect.size.y > 0.0:
@@ -431,6 +431,15 @@ func _pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
 	if distance <= CLICK_RADIUS:
 		return distance
 	return INF
+
+func _resource_pick_distance(resource: Node2D, canvas_pos: Vector2) -> float:
+	# A tree's origin is its trunk base; ore artwork also extends beyond the
+	# ground footprint. Use visible sprite pixels for both left and right click.
+	var sprite := _entity_visual_sprite(resource)
+	if sprite is Sprite2D and sprite.is_pixel_opaque(sprite.to_local(canvas_pos)):
+		return canvas_pos.distance_to(_visual_rect_canvas(resource).get_center())
+	# Ground-footprint selection remains available for marker-only resources.
+	return _footprint_pick_distance(resource, canvas_pos)
 
 func _entity_intersects_screen_box(entity: Node2D, screen_box: Rect2) -> bool:
 	if not FogAccess.view_can_see(entity):

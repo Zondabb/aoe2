@@ -64,13 +64,18 @@ func approach_point(from: Vector2, unit_radius: float = 0.35) -> Vector2:
 	if footprint.length_squared() <= 0.0:
 		return sim_pos
 	var half := footprint * 0.5
-	var to_unit := from - sim_pos
-	if to_unit.length_squared() <= 0.0001:
-		to_unit = Vector2(1.0, 0.0)
-	else:
-		to_unit = to_unit.normalized()
-	var stand_radius := maxf(half.x, half.y) + unit_radius + 0.05
-	return sim_pos + to_unit * stand_radius
+	# Navigation/collision treats resources as boxes. A circular stand radius
+	# places diagonal work points inside that box, leaving the goal blocked.
+	var clearance := half + Vector2.ONE * (maxf(unit_radius, 0.0) + 0.05)
+	var offset := from - sim_pos
+	var point := Vector2(clampf(offset.x, -clearance.x, clearance.x), clampf(offset.y, -clearance.y, clearance.y))
+	if absf(offset.x) <= clearance.x and absf(offset.y) <= clearance.y:
+		# If already inside the stand-off band, choose its closest outer face.
+		if clearance.x - absf(offset.x) <= clearance.y - absf(offset.y):
+			point.x = clearance.x * (-1.0 if offset.x < 0.0 else 1.0)
+		else:
+			point.y = clearance.y * (-1.0 if offset.y < 0.0 else 1.0)
+	return sim_pos + point
 
 func _ready() -> void:
 	add_to_group("resource_nodes")

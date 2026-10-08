@@ -21,12 +21,16 @@ func _fixture(type: Enums.ResourceType, building_id: StringName, fog_enabled: bo
 	state.progression_enabled = true
 	state.fog_enabled = fog_enabled
 	state.fog = Fog.new()
-	state.fog.setup(-30, 30)
+	# Keep the mine beyond the newly enlarged worker and drop-off LOS so this
+	# still exercises remembered gather orders while returning through fog.
+	var mine_distance := GameCatalog.get_building(building_id).resolved_vision_radius() + GameCatalog.get_unit(&"villager").resolved_vision_radius() + 8.0
+	var extent := ceili(mine_distance + 8.0)
+	state.fog.setup(-extent, extent)
 	var mine := ResourceNode.new()
 	mine.resource_type = type
 	mine.amount = 500
 	mine.gather_rate = 10
-	mine.sim_pos = Vector2(20, 0)
+	mine.sim_pos = Vector2(mine_distance, 0)
 	world.add_child(mine)
 	var deposit := BuildingAgent.new()
 	deposit.def = GameCatalog.get_building(building_id)
@@ -37,12 +41,12 @@ func _fixture(type: Enums.ResourceType, building_id: StringName, fog_enabled: bo
 	var worker := UnitAgent.new()
 	worker.def = GameCatalog.get_unit(&"villager")
 	worker.match_state = state
-	worker.sim_pos = Vector2(18, 0)
+	worker.sim_pos = mine.sim_pos - Vector2(2, 0)
 	world.add_child(worker)
 	worker.set_physics_process(false)
 	var navigation := NavServiceHolder.new()
 	world.add_child(navigation)
-	navigation.setup(-30, 30)
+	navigation.setup(-extent, extent)
 	navigation.rebuild_from_scene()
 	navigation.set_process(false)
 	state.fog.rebuild([worker, deposit])
