@@ -356,6 +356,9 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 			if record.def == "farm": entity.set_script(load("res://scripts/entities/farm_agent.gd"))
 			entity.set("def", Protocol.building_def_for_id(String(record.def)))
 			entity.set("accepts_all_resources", bool(record.get("accepts_all", false)))
+			entity.set("is_complete", bool(record.complete))
+			entity.set("build_progress", float(record.build_progress))
+			entity.set("hp", float(record.hp))
 		"resource":
 			entity = ResourceScript.new()
 			entity.set("resource_type", int(record.resource_type))

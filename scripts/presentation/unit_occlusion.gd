@@ -53,6 +53,19 @@ static func ensure_for(unit: Node) -> void:
 	viewport.set_meta(KEY, renderer)
 	viewport.add_child.call_deferred(renderer)
 
+
+static func notify_static_entity(actor: Node) -> void:
+	# A placement preview joins the buildings group after its node_added event.
+	# Register that transition once, without rescanning buildings every frame.
+	if not actor.is_inside_tree():
+		return
+	var viewport := actor.get_viewport()
+	if not viewport.has_meta(KEY):
+		return
+	var renderer: Node = viewport.get_meta(KEY)
+	if is_instance_valid(renderer):
+		renderer._queue_node(actor)
+
 func _ready() -> void:
 	mask_view = SubViewport.new()
 	mask_view.name = "UnitOcclusionMask"

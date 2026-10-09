@@ -1,0 +1,63 @@
+{
+  "key": "gate_ground",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 240,
+  "frame_h": 136,
+  "frame_count": 1,
+  "source_frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "construction_stage": 0,
+  "hotspots": [
+    {
+      "x": 123,
+      "y": 74
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "gate_ground_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "includes_shadow": false,
+  "source": "AoE2 HD construction graphic 118 / SLP 236",
+  "derived_composite": true,
+  "footprint": [
+    4,
+    1
+  ],
+  "notes": "Four unmodified first-stage one-tile foundations; excludes raised gate pillars.",
+  "layers": [
+    {
+      "graphic_id": 118,
+      "slp_id": 236,
+      "frame": 0,
+      "x": -72,
+      "y": -36
+    },
+    {
+      "graphic_id": 118,
+      "slp_id": 236,
+      "frame": 0,
+      "x": -24,
+      "y": -12
+    },
+    {
+      "graphic_id": 118,
+      "slp_id": 236,
+      "frame": 0,
+      "x": 24,
+      "y": 12
+    },
+    {
+      "graphic_id": 118,
+      "slp_id": 236,
+      "frame": 0,
+      "x": 72,
+      "y": 36
+    }
+  ]
+}

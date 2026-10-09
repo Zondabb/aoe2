@@ -1,0 +1,45 @@
+{
+  "key": "g3327_static",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 95,
+  "frame_h": 57,
+  "frame_count": 1,
+  "source_frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "construction_stage": 0,
+  "hotspots": [
+    {
+      "x": 51,
+      "y": 36
+    }
+  ],
+  "player_color": {
+    "mode": "indexed",
+    "mask": "g3327_static_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "graphic_id": 3327,
+  "slp_id": 3751,
+  "source": "AoE2 HD DAT construction graphic, first SLP stage",
+  "includes_shadow": false,
+  "layers": [
+    {
+      "graphic_id": 3327,
+      "slp_id": 3751,
+      "frame": 0,
+      "x": 0,
+      "y": 0,
+      "layer": "UNIT",
+      "source": "_common/drs/graphics/3751.slp",
+      "palette": "_common/drs/interface/50500.bina"
+    }
+  ],
+  "skipped_empty_graphics": [
+    3323
+  ],
+  "missing_slp_ids": []
+}

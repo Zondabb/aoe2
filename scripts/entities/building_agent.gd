@@ -12,6 +12,7 @@ const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
+const UnitOcclusionScript := preload("res://scripts/presentation/unit_occlusion.gd")
 # Keep the entity origin/footprint unchanged; only its artwork covers walkers.
 const TOWN_CENTER_SOLID_Z := 1
 const TOWN_CENTER_SHADOW_Z := -3
@@ -32,7 +33,20 @@ var hp := 0.0
 var melee_armor := 0.0
 var pierce_armor := 0.0
 var build_progress := 0.0
-var is_complete := true
+var is_complete := true:
+	set(value):
+		if is_complete == value:
+			return
+		is_complete = value
+		if match_state != null and match_state.fog != null:
+			match_state.fog.dirty = true
+		if is_node_ready():
+			if def != null and def.id == &"farm" and not is_placement_ghost:
+				if value:
+					add_to_group("resource_nodes")
+				else:
+					remove_from_group("resource_nodes")
+			_configure_visuals()
 var is_placement_ghost := false
 var train_queue: Array[UnitDef] = []
 var train_queue_ids: Array[int] = []
@@ -63,15 +77,22 @@ func _ready() -> void:
 		accepted_resource_type = def.drop_off
 		melee_armor = float(_age_attributes().get("melee_armor",def.melee_armor))
 		pierce_armor = float(_age_attributes().get("pierce_armor",def.pierce_armor))
-		_configure_visuals()
 		_sync_block_half()
-		if _construction_started and def.build_time > 0.0:
+		if is_placement_ghost:
+			# The cursor preview has no completed-building effects or capacity.
+			hp = maxf(1.0, hp)
+		elif has_meta("network_replica"):
+			# Snapshot state was assigned before entering the tree. Do not turn a
+			# foundation into a completed building while constructing a replica.
+			pass
+		elif (_construction_started or not is_complete) and def.build_time > 0.0:
 			is_complete = false
 			hp = maxf(1.0, _max_hp() * build_progress / def.build_time)
 		else:
 			build_progress = def.build_time
 			hp = _max_hp()
 			_complete_construction()
+		_configure_visuals()
 	set_physics_process(not train_queue.is_empty())
 	set_selected(false)
 	if not is_placement_ghost:
@@ -108,6 +129,9 @@ func accepts_resource(resource_type: Enums.ResourceType) -> bool:
 	return accepts_all_resources or accepted_resource_type == resource_type or (def != null and def.id == &"mining_camp" and resource_type == Enums.ResourceType.STONE)
 
 func start_construction() -> void:
+	if _population_cap_registered and match_state != null and def != null:
+		match_state.register_pop(team, 0, -def.population_provided)
+		_population_cap_registered = false
 	_construction_started = true
 	is_complete = false
 	build_progress = 0.0
@@ -330,12 +354,16 @@ func _apply_ghost_tint(valid: bool) -> void:
 func clear_ghost_visual() -> void:
 	if match_state != null and match_state.fog != null:
 		match_state.fog.dirty = true
+	if not _construction_started:
+		start_construction()
 	is_placement_ghost = false
 	_ghost_visual_valid = null
 	_register_groups()
 	_configure_visuals()
 
 func _complete_construction() -> void:
+	if is_placement_ghost:
+		return
 	if match_state != null and match_state.fog != null:
 		match_state.fog.dirty = true
 	if is_complete and _population_cap_registered:
@@ -397,8 +425,10 @@ func _configure_visuals() -> void:
 	var civ_id: StringName = civ.id if civ != null else &""
 	var base := ""
 	var meta := {}
+	var foundation := _uses_foundation_visual()
 	if def != null:
-		base = SpriteCatalogScript.building_sheet_base(def.id, civ_id, match_state.age_of(team) if match_state != null and match_state.progression_enabled else -1)
+		var age := match_state.age_of(team) if match_state != null and match_state.progression_enabled else -1
+		base = SpriteCatalogScript.foundation_sheet_base(def.id, civ_id, age, def.footprint) if foundation else SpriteCatalogScript.building_sheet_base(def.id, civ_id, age)
 	if billboard != null and SpriteCatalogScript.sheet_paths_exist(base):
 		meta = SpriteCatalogScript.load_meta(base)
 		var texture := SpriteCatalogScript.load_texture(base)
@@ -424,13 +454,16 @@ func _configure_visuals() -> void:
 	if def != null:
 		SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
 	var has_sprite_shadow := bool(meta.get("includes_shadow", false))
-	var layered_town_center := def != null and def.id == &"town_center"
+	var layered_town_center := def != null and def.id == &"town_center" and not foundation
 	if billboard != null:
-		billboard.z_index = TOWN_CENTER_SOLID_Z if layered_town_center else 0
+		billboard.z_index = -1 if foundation else (TOWN_CENTER_SOLID_Z if layered_town_center else 0)
 	if body != null:
 		body.z_index = TOWN_CENTER_SOLID_Z if layered_town_center else 0
 	var ground_shadow := get_node_or_null("GroundShadow") as CanvasItem
-	if layered_town_center and has_sprite_shadow and _use_billboard:
+	if foundation:
+		if ground_shadow != null:
+			ground_shadow.visible = false
+	elif layered_town_center and has_sprite_shadow and _use_billboard:
 		_configure_sprite_shadow(billboard)
 	elif has_sprite_shadow:
 		if ground_shadow != null:
@@ -443,6 +476,10 @@ func _configure_visuals() -> void:
 		if layered_town_center:
 			(get_node("GroundShadow") as CanvasItem).z_index = TOWN_CENTER_SHADOW_Z
 	_apply_team_color()
+
+
+func _uses_foundation_visual() -> bool:
+	return not is_placement_ghost and not is_complete
 
 func _configure_sprite_shadow(billboard: Sprite2D) -> void:
 	var shadow := get_node_or_null("GroundShadow") as Sprite2D
@@ -475,13 +512,14 @@ func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as CanvasItem
 	var billboard := get_node_or_null("Billboard") as Sprite2D
 	if not _sprite_sheet_base.is_empty() and billboard != null:
-		var layer := SpriteCatalogScript.SpriteLayer.SOLID if def != null and def.id == &"town_center" else SpriteCatalogScript.SpriteLayer.ALL
+		var layer := SpriteCatalogScript.SpriteLayer.SOLID if def != null and def.id == &"town_center" and not _uses_foundation_visual() else SpriteCatalogScript.SpriteLayer.ALL
 		_use_billboard = SpriteCatalogScript.apply_player_color(billboard, _sprite_sheet_base, color_id, layer)
 		billboard.modulate = Color.WHITE
 		billboard.visible = _use_billboard
 	var shadow := get_node_or_null("GroundShadow") as Sprite2D
 	if shadow != null:
-		shadow.visible = _use_billboard and SpriteCatalogScript.apply_player_color(shadow, _sprite_sheet_base, color_id, SpriteCatalogScript.SpriteLayer.SHADOW)
+		var separate_shadow := def != null and def.id == &"town_center" and not _uses_foundation_visual() and bool(SpriteCatalogScript.load_meta(_sprite_sheet_base).get("includes_shadow", false))
+		shadow.visible = separate_shadow and _use_billboard and SpriteCatalogScript.apply_player_color(shadow, _sprite_sheet_base, color_id, SpriteCatalogScript.SpriteLayer.SHADOW)
 		shadow.modulate = Color.WHITE
 	if body != null:
 		body.visible = not _use_billboard
@@ -505,6 +543,7 @@ func _register_groups() -> void:
 	if accepts_all_resources or (def != null and def.has_drop_off):
 		add_to_group("drop_off_buildings")
 	_vision_register()
+	UnitOcclusionScript.notify_static_entity(self)
 
 func _exit_tree() -> void:
 	cancel_age_upgrade()

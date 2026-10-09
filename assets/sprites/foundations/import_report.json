@@ -1,0 +1,79 @@
+[
+  {
+    "key": "g118_static",
+    "path": "res://assets/sprites/foundations/g118_static",
+    "width": 96,
+    "height": 64,
+    "alpha_pixels": 1516
+  },
+  {
+    "key": "g119_static",
+    "path": "res://assets/sprites/foundations/g119_static",
+    "width": 174,
+    "height": 103,
+    "alpha_pixels": 3060
+  },
+  {
+    "key": "g120_static",
+    "path": "res://assets/sprites/foundations/g120_static",
+    "width": 269,
+    "height": 147,
+    "alpha_pixels": 4801
+  },
+  {
+    "key": "g121_static",
+    "path": "res://assets/sprites/foundations/g121_static",
+    "width": 354,
+    "height": 189,
+    "alpha_pixels": 6964
+  },
+  {
+    "key": "g123_static",
+    "path": "res://assets/sprites/foundations/g123_static",
+    "width": 440,
+    "height": 231,
+    "alpha_pixels": 11336
+  },
+  {
+    "key": "gate_ground",
+    "path": "res://assets/sprites/foundations/gate_ground",
+    "width": 240,
+    "height": 136,
+    "alpha_pixels": 5911
+  },
+  {
+    "key": "farm_construction_ground",
+    "path": "res://assets/sprites/foundations/farm_construction_ground",
+    "width": 384,
+    "height": 192,
+    "alpha_pixels": 36864
+  },
+  {
+    "key": "g3319_static",
+    "path": "res://assets/sprites/foundations/g3319_static",
+    "width": 75,
+    "height": 47,
+    "alpha_pixels": 330
+  },
+  {
+    "key": "g3318_static",
+    "path": "res://assets/sprites/foundations/g3318_static",
+    "width": 75,
+    "height": 47,
+    "alpha_pixels": 330
+  },
+  {
+    "key": "g3327_static",
+    "path": "res://assets/sprites/foundations/g3327_static",
+    "width": 95,
+    "height": 57,
+    "alpha_pixels": 345
+  },
+  {
+    "key": "g3326_static",
+    "path": "res://assets/sprites/foundations/g3326_static",
+    "width": 95,
+    "height": 57,
+    "alpha_pixels": 345
+  }
+]

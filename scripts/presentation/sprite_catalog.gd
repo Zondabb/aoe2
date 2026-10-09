@@ -16,6 +16,8 @@ static var _texture_cache: Dictionary = {}
 static var _player_color_cache: Dictionary = {}
 static var _player_material_cache: Dictionary = {}
 static var _unit_frames_cache: Dictionary = {}
+static var _foundation_catalog: Dictionary = {}
+const FOUNDATION_CATALOG_PATH := "res://data/building_foundations.json"
 
 const UNIT_SHEETS := {
 	&"villager": "res://assets/sprites/units/villager_walk",
@@ -244,6 +246,30 @@ static func building_sheet_base(building_id: StringName, civ_id: StringName, age
 	if by_civ.has(civ_id):
 		return String(by_civ[civ_id])
 	return String(by_civ.get(&"default", ""))
+
+
+static func foundation_sheet_base(building_id: StringName, civ_id: StringName, age := -1, footprint := Vector2.ZERO) -> String:
+	if _foundation_catalog.is_empty() and FileAccess.file_exists(FOUNDATION_CATALOG_PATH):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(FOUNDATION_CATALOG_PATH))
+		if parsed is Dictionary:
+			_foundation_catalog = parsed
+	var record: Dictionary = _foundation_catalog.get("buildings", {}).get(String(building_id), {})
+	var civ_sheets: Dictionary = record.get("sprites", {})
+	var sheets: Dictionary = civ_sheets.get(String(civ_id), civ_sheets.get("chinese", civ_sheets.get("teutons", {})))
+	for era in range(clampi(age, 0, 3), -1, -1):
+		if sheets.has(str(era)):
+			return String(sheets[str(era)])
+	# Legacy/custom definitions may have no imported ID. Reuse the nearest
+	# original foundation size so their unfinished state still looks like soil.
+	var best := ""
+	var distance := INF
+	var defaults: Dictionary = _foundation_catalog.get("defaults", {})
+	for size in defaults:
+		var candidate_distance := absf(float(size) - maxf(footprint.x, footprint.y))
+		if candidate_distance < distance:
+			distance = candidate_distance
+			best = String(defaults[size])
+	return best
 
 
 static func resource_sheet_base(resource_type: int) -> String:
