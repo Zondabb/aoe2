@@ -10,9 +10,19 @@ const MOVEMENT_SPEED_SCALE := 4.0
 ## Original LOS tiles need the same distance conversion as the imported actors.
 ## Convert both base sight and age bonuses; fog and AI consume these definitions.
 const VISION_DISTANCE_SCALE := 4.0
+const SIEGE_PROJECTILES_PATH := "res://data/siege_projectiles.json"
+const SIEGE_DISTANCE_SCALE := 4.0
 static var _data: Dictionary = {}
 static var _units: Dictionary = {}
 static var _buildings: Dictionary = {}
+static var _siege_projectiles: Dictionary = {}
+
+static func siege_projectiles() -> Dictionary:
+	if _siege_projectiles.is_empty() and FileAccess.file_exists(SIEGE_PROJECTILES_PATH):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(SIEGE_PROJECTILES_PATH))
+		if parsed is Dictionary:
+			_siege_projectiles = parsed.get("units", {})
+	return _siege_projectiles
 
 static func data() -> Dictionary:
 	if _data.is_empty() and FileAccess.file_exists(PATH):
@@ -46,6 +56,26 @@ static func units() -> Dictionary:
 		u.attack_range = maxf(0.4, float(r.get("attack_range", 0.4)))
 		u.is_ranged = u.attack_range > 1.5
 		u.preferred_attack_range = u.attack_range * 0.85 if u.is_ranged else 0.0
+		var projectile: Dictionary = siege_projectiles().get(String(key), {})
+		if not projectile.is_empty():
+			u.attack_range = float(r.get("attack_range", 0.0)) * SIEGE_DISTANCE_SCALE
+			u.minimum_attack_range = float(r.get("min_range", 0.0)) * SIEGE_DISTANCE_SCALE
+			u.is_ranged = true
+			u.preferred_attack_range = u.attack_range * 0.95
+			u.attack_uses_melee_armor = bool(projectile.get("attack_uses_melee_armor", true))
+			u.attack_class_bonuses = r.get("source_attacks", {}).duplicate()
+			u.attack_release_delay = float(projectile.get("release_delay", 0.0))
+			u.projectile_kind = StringName(projectile.get("projectile_kind", "stone"))
+			u.projectile_speed = float(projectile.get("speed", 3.5)) * SIEGE_DISTANCE_SCALE
+			u.projectile_splash_radius = float(projectile.get("splash_radius", 1.0)) * SIEGE_DISTANCE_SCALE
+			u.projectile_friendly_fire = bool(projectile.get("friendly_fire", true))
+			u.projectile_arc = float(projectile.get("arc", 0.4))
+			u.projectile_launch_height = float(projectile.get("launch_height", 1.8)) * 22.0
+			u.projectile_flight_sheet = String(projectile.get("flight_sheet", ""))
+			u.projectile_impact_sheet = String(projectile.get("impact_sheet", ""))
+			u.projectile_shadow_sheet = String(projectile.get("shadow_sheet", ""))
+			u.projectile_scatter_sheet = String(projectile.get("scatter_sheet", ""))
+			u.projectile_scatter_count = int(projectile.get("scatter_count", 0))
 		u.melee_armor = int(r.get("melee_armor", 0))
 		u.pierce_armor = int(r.get("pierce_armor", 0))
 		u.move_speed = maxf(0.1, float(r.get("speed", 0.8))) * MOVEMENT_SPEED_SCALE

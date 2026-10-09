@@ -1,0 +1,61 @@
+{
+  "key": "mangonel_impact",
+  "graphic_id": 1744,
+  "slp_id": 416,
+  "source": "_common/drs/graphics/416.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "cols": 4,
+  "rows": 3,
+  "frame_w": 111,
+  "frame_h": 84,
+  "frame_count": 10,
+  "directions": 1,
+  "frames_per_direction": 10,
+  "frame_duration": 0.0465,
+  "hotspots": [
+    {
+      "x": 55,
+      "y": 68
+    },
+    {
+      "x": 45,
+      "y": 65
+    },
+    {
+      "x": 46,
+      "y": 52
+    },
+    {
+      "x": 46,
+      "y": 68
+    },
+    {
+      "x": 62,
+      "y": 67
+    },
+    {
+      "x": 47,
+      "y": 63
+    },
+    {
+      "x": 47,
+      "y": 58
+    },
+    {
+      "x": 48,
+      "y": 64
+    },
+    {
+      "x": 46,
+      "y": 72
+    },
+    {
+      "x": 47,
+      "y": 76
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "includes_shadow": false
+}

@@ -1,0 +1,61 @@
+{
+  "key": "trebuchet_stone",
+  "graphic_id": 3394,
+  "slp_id": 3815,
+  "source": "_common/drs/graphics/3815.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "cols": 4,
+  "rows": 3,
+  "frame_w": 11,
+  "frame_h": 11,
+  "frame_count": 10,
+  "directions": 1,
+  "frames_per_direction": 10,
+  "frame_duration": 0.0465,
+  "hotspots": [
+    {
+      "x": 4,
+      "y": 6
+    },
+    {
+      "x": 4,
+      "y": 6
+    },
+    {
+      "x": 4,
+      "y": 7
+    },
+    {
+      "x": 3,
+      "y": 7
+    },
+    {
+      "x": 3,
+      "y": 7
+    },
+    {
+      "x": 4,
+      "y": 6
+    },
+    {
+      "x": 5,
+      "y": 6
+    },
+    {
+      "x": 5,
+      "y": 6
+    },
+    {
+      "x": 5,
+      "y": 6
+    },
+    {
+      "x": 5,
+      "y": 6
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "includes_shadow": false
+}

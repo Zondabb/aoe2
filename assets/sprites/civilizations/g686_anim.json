@@ -8,6 +8,7 @@
   "frame_w": 96,
   "frame_h": 90,
   "frame_count": 5,
+  "source_frame_count": 5,
   "directions": 5,
   "frames_per_direction": 1,
   "hotspots": [
@@ -51,5 +52,9 @@
   "missing_slp_ids": [
     177,
     178
-  ]
+  ],
+  "animation_compositing_version": 2,
+  "source_frame_rate": 0.12,
+  "frame_duration": 0.12,
+  "animation_duration": 0.12
 }

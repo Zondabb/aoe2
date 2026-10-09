@@ -1,0 +1,25 @@
+{
+  "key": "mangonel_stone",
+  "graphic_id": 3396,
+  "slp_id": 4500,
+  "source": "_common/drs/graphics/4500.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 4,
+  "frame_h": 3,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "frame_duration": 0.0,
+  "hotspots": [
+    {
+      "x": 2,
+      "y": 1
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "includes_shadow": false
+}

@@ -153,6 +153,7 @@ func _physics_process(delta: float) -> void:
 	if match_state != null and match_state.frozen:
 		return
 	var frame_start := sim_pos
+	_attack_cooldown_remaining = maxf(0.0, _attack_cooldown_remaining - delta)
 	_repath_cooldown = maxf(0, _repath_cooldown - delta)
 	_goal_refresh_remaining = maxf(0, _goal_refresh_remaining - delta)
 	_path_retry_cooldown = maxf(0, _path_retry_cooldown - delta)
@@ -232,8 +233,11 @@ func _finish_move() -> void:
 	_update_idle_animation(0.0)
 
 func command_move(target: Vector2) -> void:
+	if hp <= 0.0 or is_queued_for_deletion():
+		return
 	if order == Enums.OrderType.MOVE and _requested_move_target.is_equal_approx(target):
 		return
+	_cancel_combat_action()
 	_requested_move_target = target
 	_has_move_command = true
 	_move_target = _choose_move_goal(target)
@@ -255,6 +259,9 @@ func command_move(target: Vector2) -> void:
 	_unit_log("order", "MOVE target=%s" % target)
 
 func command_stop() -> void:
+	if hp <= 0.0 or is_queued_for_deletion():
+		return
+	_cancel_combat_action()
 	_has_move_command = false
 	var nav := _get_nav_service()
 	if nav != null and nav.has_method("cancel_path"):
@@ -279,10 +286,13 @@ func command_stop() -> void:
 	_unit_log("order", "STOP")
 
 func command_gather(resource: Node2D) -> void:
+	if hp <= 0.0 or is_queued_for_deletion():
+		return
 	if not FogAccess.can_see(self, resource):
 		return
 	if resource == null or float(resource.get("amount")) <= 0.0:
 		return
+	_cancel_combat_action()
 	_has_move_command = false
 	_build_target = null
 	_attack_target = null
@@ -302,6 +312,8 @@ func command_gather(resource: Node2D) -> void:
 	_unit_log("order", "GATHER resource=%s" % resource.name)
 
 func command_build(building: Node2D) -> void:
+	if hp <= 0.0 or is_queued_for_deletion():
+		return
 	if (
 		building == null
 		or bool(building.get("is_complete"))
@@ -309,6 +321,7 @@ func command_build(building: Node2D) -> void:
 		or def.id != &"villager"
 	):
 		return
+	_cancel_combat_action()
 	_build_target = building
 	_has_move_command = false
 	_attack_target = null
@@ -319,6 +332,8 @@ func command_build(building: Node2D) -> void:
 	_unit_log("order", "BUILD target=%s" % building.name)
 
 func command_attack(target: Node) -> void:
+	if hp <= 0.0 or is_queued_for_deletion():
+		return
 	if def != null and def.attack <= 0: return
 	if not FogAccess.can_see(self, target):
 		return
@@ -332,6 +347,8 @@ func command_attack(target: Node) -> void:
 	):
 		return
 	_last_seen_attack_pos = target_2d.get("sim_pos")
+	if _attack_target != target_2d:
+		_cancel_combat_action()
 	_has_move_command = false
 	_attack_target = target_2d
 	_gather_target = null
@@ -361,7 +378,6 @@ func _process_attack(delta: float) -> void:
 		_attack_target = null
 		order = Enums.OrderType.NONE
 		return
-	_attack_cooldown_remaining = maxf(0.0, _attack_cooldown_remaining - delta)
 	if _needs_attack_chase(_attack_target):
 		if _combat_action == &"attack":
 			_cancel_combat_action()
@@ -403,9 +419,11 @@ func _process_attack_animation(delta: float) -> void:
 	_apply_billboard_frame(true, &"attack", false)
 	if def.is_ranged:
 		# Ranged damage is resolved only by the projectile impact splash.
-		if not _projectile_spawned and _combat_anim_time >= duration * RANGED_RELEASE_FRACTION:
-			_spawn_projectile()
-			_projectile_spawned = true
+		var release_time := def.attack_release_delay if def.attack_release_delay >= 0.0 else duration * RANGED_RELEASE_FRACTION
+		if not _projectile_spawned and _combat_anim_time >= release_time:
+			if _in_attack_range(_attack_target):
+				_spawn_projectile()
+				_projectile_spawned = true
 	elif not _attack_hit_applied:
 		if _combat_anim_time >= duration * ATTACK_HIT_FRACTION:
 			if _attack_target_available():
@@ -427,7 +445,8 @@ func _spawn_projectile() -> void:
 	if projectile == null:
 		return
 	parent.add_child(projectile)
-	var origin := _projectile_origin_sim()
+	# A siege projectile's launch height is presentation, not a shifted ground aim.
+	var origin := sim_pos if def.projectile_kind == &"stone" else _projectile_origin_sim()
 	var aim := ProjectileAgentScript.aim_point_for_target(origin, _attack_target)
 	projectile.call("setup", origin, aim, def, team, self)
 
@@ -462,7 +481,16 @@ func _combat_anim_duration(action: StringName) -> float:
 	if not billboard.sprite_frames.has_animation(anim):
 		return FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION
 	var frame_count := billboard.sprite_frames.get_frame_count(anim)
-	return maxf(float(frame_count) / ANIM_FPS, 0.1)
+	return maxf(float(frame_count) / _animation_fps(action), 0.1)
+
+
+func _animation_fps(action: StringName) -> float:
+	var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}) if action == &"walk" else {})
+	var frame_duration := float(meta.get("frame_duration", 0.0))
+	if action == &"attack" and def != null and def.projectile_kind == &"stone":
+		var profile: Dictionary = GameCatalog.siege_projectiles().get(String(def.id), {})
+		frame_duration = float(profile.get("attack_frame_duration", frame_duration))
+	return 1.0 / frame_duration if frame_duration > 0.0 else ANIM_FPS
 
 func _combat_animation_name(action: StringName) -> StringName:
 	if _villager_actions:
@@ -756,10 +784,13 @@ func _preferred_attack_range(target: Node2D) -> float:
 
 
 func _in_attack_range(target: Node2D) -> bool:
-	return _distance_to(target) <= _effective_attack_range(target)
+	var distance := _distance_to(target)
+	return distance >= def.minimum_attack_range and distance <= _effective_attack_range(target)
 
 
 func _needs_attack_chase(target: Node2D) -> bool:
+	if def.is_ranged or def.minimum_attack_range > 0.0:
+		return not _in_attack_range(target)
 	return _distance_to(target) > _effective_attack_range(target) + ATTACK_CHASE_SLACK
 
 
@@ -773,11 +804,14 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 	var approach_dir := offset / dist
 	if def.is_ranged:
 		var standoff := _preferred_attack_range(target)
-		if dist > _effective_attack_range(target):
+		if _distance_to(target) < def.minimum_attack_range:
+			standoff = minf(def.attack_range, def.minimum_attack_range + 1.0)
+		elif _distance_to(target) > _effective_attack_range(target):
 			standoff = minf(standoff, dist)
 		else:
 			return sim_pos
-		return target_pos + approach_dir * standoff
+		var target_edge := ProjectileAgentScript.aim_point_for_target(sim_pos, target)
+		return target_edge + approach_dir * standoff
 	if target.get("def") is BuildingDef:
 		var building_standoff := _effective_attack_range(target) * 0.95
 		return target_pos + approach_dir * building_standoff
@@ -1284,7 +1318,7 @@ func _setup_presentation() -> void:
 				var meta := SpriteCatalogScript.load_meta(base)
 				if not meta.is_empty() and sprite_frames != null:
 					_sprite_metas = {&"": meta}
-					for action: StringName in [&"attack", &"die"]:
+					for action: StringName in [&"idle", &"attack", &"die"]:
 						var action_base := SpriteCatalogScript.combat_sheet_base(def.id, action)
 						if not action_base.is_empty():
 							var action_meta := SpriteCatalogScript.load_meta(action_base)
@@ -1405,7 +1439,7 @@ func _update_billboard_facing_from_vector(
 	_facing_dir = int(facing["dir"])
 	_facing_flip = bool(facing["flip"])
 	if animate:
-		_anim_frame = fmod(_anim_frame + ANIM_FPS * delta, 1024.0)
+		_anim_frame = fmod(_anim_frame + _animation_fps(&"walk") * delta, 1024.0)
 	_apply_billboard_frame(animate, &"", actually_moving)
 
 
@@ -1431,10 +1465,10 @@ func _update_idle_animation(delta: float) -> void:
 		return
 	if _villager_actions:
 		if delta > 0.0:
-			_anim_frame = fmod(_anim_frame + ANIM_FPS * delta, 1024.0)
+			_anim_frame = fmod(_anim_frame + _animation_fps(&"idle") * delta, 1024.0)
 		_apply_billboard_frame(true, &"", false)
 	else:
-		_apply_billboard_frame(false)
+		_apply_billboard_frame(false, &"idle", false)
 
 
 func _resolve_visual_action() -> StringName:
@@ -1521,7 +1555,12 @@ func _apply_billboard_frame(
 		anim = _pick_villager_animation(action)
 	else:
 		if action.is_empty():
-			anim = StringName("dir_%d" % _facing_dir)
+			var idle_anim := StringName("idle_dir_%d" % _facing_dir)
+			if not actually_moving and billboard.sprite_frames.has_animation(idle_anim):
+				action = &"idle"
+				anim = idle_anim
+			else:
+				anim = StringName("dir_%d" % _facing_dir)
 		else:
 			anim = StringName("%s_dir_%d" % [action, _facing_dir])
 			if not billboard.sprite_frames.has_animation(anim):
@@ -1541,7 +1580,7 @@ func _apply_billboard_frame(
 	var one_shot := action in [&"attack", &"die"]
 	var frame_idx := 0
 	if one_shot:
-		frame_idx = mini(int(_combat_anim_time * ANIM_FPS), frame_count - 1)
+		frame_idx = mini(int(_combat_anim_time * _animation_fps(action)), frame_count - 1)
 	elif animate:
 		frame_idx = int(_anim_frame) % frame_count
 	billboard.frame = frame_idx

@@ -8,6 +8,29 @@ from export_sprites import (_read_slp, pack_sheet, composite_hotspot_images,
 from player_color import composite_player_masks, pack_masks, save_player_mask
 
 
+ANIMATION_COMPOSITING_VERSION = 2
+
+
+def layer_frame_index(graphic, source_count, direction, step, directions):
+    """Keep a delta layer in its parent's direction while its own cycle advances.
+
+    A siege vehicle's animated wheels/crew and static chassis have different
+    frames-per-direction. Modulo the entire SLP rotates the chassis through all
+    directions on consecutive ticks. DAT frame_count is the per-direction count.
+    """
+    frames_per_direction = max(1, int(graphic.frame_count))
+    available_directions = max(1, source_count // frames_per_direction)
+    if available_directions == 1:
+        layer_direction = 0
+    elif available_directions >= directions:
+        layer_direction = direction
+    else:
+        raise ValueError(f'Graphic {graphic.graphic_id}: {available_directions} '
+                         f'layer directions cannot match {directions} parent directions')
+    return min(layer_direction * frames_per_direction + step % frames_per_direction,
+               source_count - 1)
+
+
 class GraphicExporter:
     def __init__(self, dat, resources, out):
         # DAT omits null graphics: list offsets are NOT graphic IDs.
@@ -31,7 +54,9 @@ class GraphicExporter:
             if metadata.get('player_color', {}).get('mode') == 'indexed':
                 required.append(self.out/metadata['player_color']['mask'])
             complete_groups = int(metadata['frame_count']) == int(metadata['directions']) * int(metadata['frames_per_direction'])
-            if complete_groups and all(path.is_file() for path in required):
+            current_animation = (not animation or
+                                 metadata.get('animation_compositing_version') == ANIMATION_COMPOSITING_VERSION)
+            if complete_groups and current_animation and all(path.is_file() for path in required):
                 self.cache[key] = base
                 self._record(graphic_id, base, metadata, cached=True)
                 return base
@@ -55,15 +80,18 @@ class GraphicExporter:
             return base
         if not layers:
             raise ValueError(f'Graphic {graphic_id}/{g.name}: no usable SLP layers')
-        count = max(len(item[3]) for item in layers) if animation else 1
-        fpd = max(1, int(g.frame_count))
-        directions = max(1, count // fpd) if animation else 1
+        source_count = max(len(item[3]) for item in layers) if animation else 1
+        # Resolve direction groups from a single source, never from the longest
+        # delta divided by the main graphic's unrelated per-direction length.
+        anchor = next((item for item in layers if item[0].graphic_id == graphic_id), layers[0])
+        anchor_fpd = max(1, int(anchor[0].frame_count))
+        directions = max(1, len(anchor[3]) // anchor_fpd) if animation else 1
         if animation and directions not in (1, 5, 8, 16, 32):
-            directions = 5 if count % 5 == 0 else 1
-        source_count = count
+            directions = 5 if source_count % 5 == 0 else 1
         # Some legacy SLPs append spare frames after their five directional groups.
         # The DAT animation uses complete groups; do not expose the spare tail.
-        count = (count // directions) * directions
+        fpd = max(max(1, int(item[0].frame_count)) for item in layers) if animation else 1
+        count = directions * fpd
         images, all_masks, hotspots = [], [], []
         # Shadows / terrain layers underneath the solid pieces, stable within layer.
         priority = {'TERRAIN':0, 'SHADOW':1, 'UNIT_LOW':2}
@@ -71,7 +99,8 @@ class GraphicExporter:
         for frame in range(count):
             parts, masks = [], []
             for part,x,y,fs,ms,ks in layers:
-                i = frame % len(fs)
+                i = layer_frame_index(part, len(fs), frame // fpd, frame % fpd,
+                                      directions) if animation else 0
                 parts.append((fs[i], ms[i].hotspot_x, ms[i].hotspot_y, x, y))
                 masks.append(ks[i])
             canvas,hx,hy = composite_hotspot_images(parts)
@@ -88,6 +117,12 @@ class GraphicExporter:
             player_color=color,includes_shadow=any(x[0].layer=='SHADOW' for x in layers),
             layers=[{'graphic_id':p.graphic_id,'slp_id':p.slp_id,'x':x,'y':y} for p,x,y,*_ in layers],
             missing_slp_ids=missing)
+        if animation:
+            # The misleading DAT name frame_rate stores seconds per frame.
+            duration = round(float(g.frame_rate), 6)
+            metadata.update(animation_compositing_version=ANIMATION_COMPOSITING_VERSION,
+                            source_frame_rate=duration, frame_duration=duration,
+                            animation_duration=round(duration * fpd, 6))
         (self.out/(key+'.json')).write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
         self.cache[key] = base
         self._record(graphic_id, base, metadata, cached=False)

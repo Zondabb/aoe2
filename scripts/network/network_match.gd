@@ -435,7 +435,17 @@ func _valid_record(record: Dictionary) -> bool:
 		return false
 	if kind == "projectile":
 		var visual: Variant = record.get("presentation")
-		return visual is Dictionary and _valid_position(visual.get("origin")) and _valid_position(visual.get("aim")) and _finite_number(visual.get("traveled"))
+		if visual is not Dictionary or not _valid_position(visual.get("origin")) or not _valid_position(visual.get("aim")) or not _finite_number(visual.get("traveled")):
+			return false
+		if visual.get("projectile_kind", "arrow") not in ["arrow", "stone"]:
+			return false
+		if visual.get("source_def", "") is not String:
+			return false
+		if visual.get("projectile_kind", "arrow") == "stone":
+			var definition := Catalog.get_unit(StringName(visual.get("source_def", "")))
+			if definition == null or definition.projectile_kind != &"stone":
+				return false
+		return _finite_number(visual.get("launch_height", 0.0)) and float(visual.get("launch_height", 0.0)) >= 0.0 and visual.get("impact", false) is bool and _finite_number(visual.get("impact_elapsed", 0.0)) and float(visual.get("impact_elapsed", 0.0)) >= 0.0 and float(visual.traveled) >= 0.0
 	if record.get("def") is not String or not _finite_number(record.get("hp")):
 		return false
 	if kind == "unit":

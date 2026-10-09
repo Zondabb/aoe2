@@ -517,7 +517,10 @@ static func append_unit_combat_frames(
 ) -> Dictionary:
 	var metas := {}
 	var by_action: Dictionary = UNIT_COMBAT_SHEETS.get(unit_id, {}).duplicate()
-	for action in [&"attack", &"die"]:
+	var actions: Array[StringName] = [&"attack", &"die"]
+	if ImportedCatalog.unit_record(unit_id).get("source_class", "") in ["SIEGE_WEAPON", "PACKED_SIEGE_UNITS", "SCORPION"]:
+		actions.append(&"idle")
+	for action in actions:
 		var imported := ImportedCatalog.unit_sheet(unit_id, action)
 		if not imported.is_empty(): by_action[action] = imported
 	for action: StringName in by_action:
@@ -571,10 +574,12 @@ static func _add_directional_animations(
 	var directions := maxi(1, int(meta.get("directions", 1)))
 	var frames_per_dir := maxi(1, int(meta.get("frames_per_direction", 1)))
 	var frame_count := int(meta.get("frame_count", frames_per_dir * directions))
+	var frame_duration := float(meta.get("frame_duration", 0.0))
+	var animation_fps := 1.0 / frame_duration if frame_duration > 0.0 else 12.0
 	for direction in directions:
 		var anim_name := _direction_animation_name(prefix, direction)
 		frames.add_animation(anim_name)
-		frames.set_animation_speed(anim_name, 12.0)
+		frames.set_animation_speed(anim_name, animation_fps)
 		frames.set_animation_loop(anim_name, loop)
 		for step in frames_per_dir:
 			var index := direction * frames_per_dir + step

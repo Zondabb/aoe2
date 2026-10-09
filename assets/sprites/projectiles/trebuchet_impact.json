@@ -1,0 +1,101 @@
+{
+  "key": "trebuchet_impact",
+  "graphic_id": 4203,
+  "slp_id": 4370,
+  "source": "_common/drs/graphics/4370.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "cols": 5,
+  "rows": 4,
+  "frame_w": 34,
+  "frame_h": 29,
+  "frame_count": 20,
+  "directions": 1,
+  "frames_per_direction": 20,
+  "frame_duration": 0.0465,
+  "hotspots": [
+    {
+      "x": 16,
+      "y": 26
+    },
+    {
+      "x": 15,
+      "y": 24
+    },
+    {
+      "x": 15,
+      "y": 24
+    },
+    {
+      "x": 15,
+      "y": 23
+    },
+    {
+      "x": 15,
+      "y": 22
+    },
+    {
+      "x": 14,
+      "y": 22
+    },
+    {
+      "x": 13,
+      "y": 22
+    },
+    {
+      "x": 13,
+      "y": 22
+    },
+    {
+      "x": 16,
+      "y": 21
+    },
+    {
+      "x": 12,
+      "y": 21
+    },
+    {
+      "x": 14,
+      "y": 21
+    },
+    {
+      "x": 13,
+      "y": 21
+    },
+    {
+      "x": 13,
+      "y": 22
+    },
+    {
+      "x": 11,
+      "y": 22
+    },
+    {
+      "x": 11,
+      "y": 23
+    },
+    {
+      "x": 10,
+      "y": 23
+    },
+    {
+      "x": 9,
+      "y": 24
+    },
+    {
+      "x": 9,
+      "y": 18
+    },
+    {
+      "x": 8,
+      "y": 25
+    },
+    {
+      "x": 7,
+      "y": 26
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "includes_shadow": false
+}

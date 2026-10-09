@@ -1,0 +1,61 @@
+{
+  "key": "mangonel_scatter",
+  "graphic_id": 3385,
+  "slp_id": 3986,
+  "source": "_common/drs/graphics/3986.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "cols": 4,
+  "rows": 3,
+  "frame_w": 8,
+  "frame_h": 8,
+  "frame_count": 10,
+  "directions": 1,
+  "frames_per_direction": 10,
+  "frame_duration": 0.05,
+  "hotspots": [
+    {
+      "x": 2,
+      "y": 3
+    },
+    {
+      "x": 2,
+      "y": 3
+    },
+    {
+      "x": 2,
+      "y": 3
+    },
+    {
+      "x": 2,
+      "y": 4
+    },
+    {
+      "x": 3,
+      "y": 4
+    },
+    {
+      "x": 3,
+      "y": 3
+    },
+    {
+      "x": 3,
+      "y": 3
+    },
+    {
+      "x": 3,
+      "y": 3
+    },
+    {
+      "x": 3,
+      "y": 3
+    },
+    {
+      "x": 3,
+      "y": 3
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "includes_shadow": false
+}
