@@ -57,7 +57,7 @@ func _rebalance_discovered_type(ctx: AiRunContext) -> void:
 	for type in [Enums.ResourceType.FOOD, Enums.ResourceType.WOOD, Enums.ResourceType.GOLD, Enums.ResourceType.STONE]:
 		if int(counts.get(type, 0)) > 0: continue
 		for villager in ctx.blackboard.team_villagers:
-			if villager.get("order") != Enums.OrderType.GATHER or villager.get("_gather_state") == "to_drop_off" or float(villager.get("carry_amount")) > 0.001: continue
+			if villager.get("order") != Enums.OrderType.GATHER or villager.get("_gather_state") in ["to_drop_off", "searching_resource"] or float(villager.get("carry_amount")) > 0.001: continue
 			if reserved.has(EntityRegistry.id_of(villager)): continue
 			var previous := villager.get("_last_resource") as Node2D
 			if not is_instance_valid(previous) or int(counts.get(previous.get("resource_type"), 0)) < 2: continue
@@ -74,10 +74,10 @@ func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:
 		var order: Enums.OrderType = villager.get("order")
 		if order == Enums.OrderType.BUILD:
 			continue
-		# Let drop-off finish; interrupting mid-deposit causes idle loops.
+		# Let delivery and the worker's budgeted resource search finish first.
 		if (
 			order == Enums.OrderType.GATHER
-			and String(villager.get("_gather_state")) == "to_drop_off"
+			and String(villager.get("_gather_state")) in ["to_drop_off", "searching_resource"]
 		):
 			continue
 		if order == Enums.OrderType.NONE:

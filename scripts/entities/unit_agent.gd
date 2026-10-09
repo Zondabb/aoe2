@@ -67,6 +67,13 @@ var _last_seen_attack_pos := Vector2.ZERO
 var _attack_target: Node2D
 var _attack_cooldown_remaining := 0.0
 var _gather_state := ""
+var _gather_resource_type := -1
+var _gather_source_depleted := false
+var _gather_candidates: Array[WeakRef] = []
+var _gather_work_points := PackedVector2Array()
+var _automatic_gather_target := false
+var _automatic_gather_goal := Vector2.ZERO
+var _automatic_gather_resource_pos := Vector2.ZERO
 var _population_registered := false
 var _use_billboard := false
 var _villager_actions := false
@@ -237,6 +244,7 @@ func command_move(target: Vector2) -> void:
 		return
 	if order == Enums.OrderType.MOVE and _requested_move_target.is_equal_approx(target):
 		return
+	_cancel_gather_search()
 	_cancel_combat_action()
 	_requested_move_target = target
 	_has_move_command = true
@@ -261,6 +269,7 @@ func command_move(target: Vector2) -> void:
 func command_stop() -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
+	_cancel_gather_search()
 	_cancel_combat_action()
 	_has_move_command = false
 	var nav := _get_nav_service()
@@ -290,13 +299,16 @@ func command_gather(resource: Node2D) -> void:
 		return
 	if not FogAccess.can_see(self, resource):
 		return
-	if resource == null or float(resource.get("amount")) <= 0.0:
+	if not is_instance_valid(resource) or resource.is_queued_for_deletion() or float(resource.get("amount")) <= 0.0:
 		return
+	_cancel_gather_search()
 	_cancel_combat_action()
 	_has_move_command = false
 	_build_target = null
 	_attack_target = null
 	var new_type := int(resource.get("resource_type"))
+	_gather_resource_type = new_type
+	_gather_source_depleted = false
 	_last_seen_resource_pos = resource.get("sim_pos")
 	if carry_amount > 0.0 and carry_type != -1 and carry_type != new_type:
 		_last_resource = resource
@@ -321,6 +333,7 @@ func command_build(building: Node2D) -> void:
 		or def.id != &"villager"
 	):
 		return
+	_cancel_gather_search()
 	_cancel_combat_action()
 	_build_target = building
 	_has_move_command = false
@@ -346,6 +359,7 @@ func command_attack(target: Node) -> void:
 		or not target_2d.has_method("take_damage")
 	):
 		return
+	_cancel_gather_search()
 	_last_seen_attack_pos = target_2d.get("sim_pos")
 	if _attack_target != target_2d:
 		_cancel_combat_action()
@@ -458,6 +472,7 @@ func _process_die(delta: float) -> void:
 		queue_free()
 
 func _begin_die() -> void:
+	_cancel_gather_search()
 	if match_state != null and match_state.fog != null:
 		match_state.fog.dirty = true
 	order = Enums.OrderType.NONE
@@ -541,6 +556,9 @@ func _process_build(delta: float) -> void:
 		order = Enums.OrderType.NONE
 
 func _process_gather(delta: float) -> void:
+	if _gather_state == "searching_resource":
+		_update_idle_animation(delta)
+		return
 	if _gather_state in ["to_resource", "gathering"] and (not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion()):
 		_gather_target = null
 		_finish_or_drop_off()
@@ -550,7 +568,7 @@ func _process_gather(delta: float) -> void:
 		# clears the resource target and leaves the worker idle after one delivery.
 		# Use only the remembered location until sight returns, never hidden stock.
 		_gather_state = "to_resource"
-		_move_toward(_last_seen_resource_pos, delta)
+		_move_toward(_automatic_gather_goal if _automatic_gather_target else _last_seen_resource_pos, delta)
 		return
 	match _gather_state:
 		"to_resource":
@@ -586,7 +604,9 @@ func _gather(delta: float) -> void:
 	var gather_rate := float(_gather_target.get("gather_rate"))
 	var gather_time := minf(delta, remaining_capacity / gather_rate)
 	carry_amount += float(_gather_target.call("extract", gather_time))
-	if carry_amount >= carry_capacity or not _resource_available(_gather_target):
+	if not _resource_available(_gather_target):
+		_finish_or_drop_off()
+	elif carry_amount >= carry_capacity:
 		_begin_drop_off()
 
 func _begin_drop_off() -> void:
@@ -598,6 +618,7 @@ func _begin_drop_off() -> void:
 		_drop_off_log("no drop-off building found", {"carry_type": carry_type})
 		order = Enums.OrderType.NONE
 		return
+	_clear_gather_path()
 	_gather_state = "to_drop_off"
 	_drop_off_log(
 		"begin",
@@ -642,22 +663,134 @@ func _process_drop_off(delta: float) -> void:
 	carry_amount = 0.0
 	carry_type = -1
 	_drop_off_target = null
-	if is_instance_valid(_last_resource) and not FogAccess.can_see(self, _last_resource):
+	if not _gather_source_depleted and is_instance_valid(_last_resource) and not _last_resource.is_queued_for_deletion() and not FogAccess.can_see(self, _last_resource):
 		_gather_target = _last_resource
 		_gather_state = "to_resource"
-	elif _resource_available(_last_resource):
+		_clear_gather_path()
+	elif not _gather_source_depleted and _resource_available(_last_resource):
 		_gather_target = _last_resource
 		_gather_state = "to_resource"
+		_clear_gather_path()
 	else:
-		order = Enums.OrderType.NONE
-		_gather_state = ""
+		_finish_or_drop_off()
 
 func _finish_or_drop_off() -> void:
-	if carry_amount > 0.0:
+	_gather_source_depleted = true
+	# Remember the next visible source before leaving the work site. Otherwise
+	# the forest may be entirely hidden when a full worker reaches its drop-off.
+	if _start_gather_search():
+		return
+	elif carry_amount > 0.0:
 		_begin_drop_off()
 	else:
+		_cancel_gather_search()
+		_gather_target = null
+		_last_resource = null
 		order = Enums.OrderType.NONE
 		_gather_state = ""
+		_update_idle_animation(0.0)
+
+
+func _cancel_gather_search() -> void:
+	if order == Enums.OrderType.GATHER:
+		_clear_gather_path()
+	_gather_candidates.clear()
+	_gather_work_points.clear()
+	_automatic_gather_target = false
+	_gather_resource_type = -1
+	_gather_source_depleted = false
+
+
+func _clear_gather_path() -> void:
+	var nav := _get_nav_service()
+	if nav != null and nav.has_method("cancel_path"):
+		nav.cancel_path(get_instance_id())
+	_path.clear()
+	_path_index = 0
+	_path_pending = false
+	_pending_crowd_route = false
+	_path_is_crowd_route = false
+	_path_retry_cooldown = 0.0
+	_stuck_seconds = 0.0
+	_no_progress_frames = 0
+	_stuck_repath_attempts = 0
+	_repath_cooldown = 0.0
+
+
+func _start_gather_search() -> bool:
+	_clear_gather_path()
+	_gather_target = null
+	_automatic_gather_target = false
+	_gather_work_points.clear()
+	if _gather_resource_type < 0:
+		return false
+	_gather_candidates = GatherSystemScript.resource_candidates(self, _gather_resource_type, _last_seen_resource_pos)
+	return _queue_next_gather_resource()
+
+
+func _queue_next_gather_resource() -> bool:
+	var nav := _get_nav_service()
+	while not _gather_candidates.is_empty():
+		var reference: WeakRef = _gather_candidates.pop_front()
+		var resource := reference.get_ref() as Node2D
+		if not GatherSystemScript.resource_usable(self, resource, _gather_resource_type):
+			continue
+		_gather_target = resource
+		var actual_point := GatherSystemScript.work_point(resource, sim_pos, _pathfinding_radius())
+		var center: Vector2 = resource.get("sim_pos")
+		var reach := GATHER_RANGE if actual_point != center else maxf(GATHER_RANGE, _pathfinding_radius() * 2.0 + GATHER_CENTER_RANGE_SLACK)
+		_gather_work_points = GatherSystemScript.work_points(resource, sim_pos, _pathfinding_radius(), nav, reach)
+		if _gather_work_points.is_empty():
+			continue
+		_last_resource = resource
+		_gather_source_depleted = false
+		_automatic_gather_target = true
+		_automatic_gather_resource_pos = center
+		if nav == null:
+			_automatic_gather_goal = _gather_work_points[0]
+			_gather_work_points.clear()
+			_last_seen_resource_pos = center
+			_gather_state = "to_resource"
+			if carry_amount >= carry_capacity and carry_amount > 0.0:
+				_begin_drop_off()
+			return true
+		return _queue_gather_work_point()
+	_gather_target = null
+	return false
+
+
+func _queue_gather_work_point() -> bool:
+	if _gather_work_points.is_empty():
+		return _queue_next_gather_resource()
+	_automatic_gather_goal = _gather_work_points[0]
+	_gather_work_points.remove_at(0)
+	_move_target = _automatic_gather_goal
+	_nav_goal = _automatic_gather_goal
+	_gather_state = "searching_resource"
+	_request_nav_path(_automatic_gather_goal)
+	return true
+
+
+func _apply_gather_search_path(path: PackedVector2Array) -> void:
+	if not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion() or (FogAccess.can_see(self, _gather_target) and not _resource_available(_gather_target)):
+		_gather_work_points.clear()
+		path = PackedVector2Array()
+	if path.is_empty() or path[-1].distance_to(_automatic_gather_goal) > GATHER_RANGE:
+		if not _queue_gather_work_point():
+			_gather_source_depleted = true
+			if carry_amount > 0.0:
+				_begin_drop_off()
+			else:
+				_cancel_gather_search()
+				order = Enums.OrderType.NONE
+				_gather_state = ""
+		return
+	_last_seen_resource_pos = _automatic_gather_resource_pos
+	_gather_state = "to_resource"
+	_path = path
+	_path_index = 0
+	if carry_amount >= carry_capacity and carry_amount > 0.0:
+		_begin_drop_off()
 
 func _resource_available(resource: Variant) -> bool:
 	# May receive a cached resource that was freed during the drop-off trip.
@@ -665,6 +798,8 @@ func _resource_available(resource: Variant) -> bool:
 
 
 func _gather_approach_point(resource: Node2D) -> Vector2:
+	if _automatic_gather_target and resource == _gather_target:
+		return _automatic_gather_goal
 	if resource != null and resource.has_method("approach_point"):
 		return resource.call("approach_point", sim_pos, _pathfinding_radius())
 	if resource != null:
@@ -678,7 +813,7 @@ func _gather_reach_distance(resource: Node2D) -> float:
 	if resource == null:
 		return INF
 	if resource.has_method("approach_point"):
-		return sim_pos.distance_to(_gather_approach_point(resource))
+		return sim_pos.distance_to(GatherSystemScript.work_point(resource, sim_pos, _pathfinding_radius()))
 	return sim_pos.distance_to(resource.get("sim_pos"))
 
 
@@ -690,7 +825,7 @@ func _gather_interaction_range(resource: Node2D) -> float:
 	var center_variant: Variant = resource.get("sim_pos")
 	if not (center_variant is Vector2):
 		return GATHER_RANGE
-	var approach := _gather_approach_point(resource)
+	var approach := GatherSystemScript.work_point(resource, sim_pos, _pathfinding_radius())
 	if approach.distance_squared_to(center_variant as Vector2) > 0.0001:
 		return GATHER_RANGE
 	return maxf(GATHER_RANGE, _pathfinding_radius() * 2.0 + GATHER_CENTER_RANGE_SLACK)
@@ -1013,9 +1148,9 @@ func _get_nav_service() -> Object:
 	var holders := get_tree().get_nodes_in_group("nav_service")
 	if holders.is_empty():
 		return null
-	var holder := holders[0]
-	if holder.has_meta("nav"):
-		return holder.get_meta("nav")
+	for holder in holders:
+		if holder.get_parent().is_ancestor_of(self) and holder.has_meta("nav"):
+			return holder.get_meta("nav")
 	return null
 
 func _request_nav_path(target: Vector2) -> void:
@@ -1045,6 +1180,9 @@ func apply_nav_path(path: PackedVector2Array) -> void:
 	if not _path_pending:
 		return
 	_path_pending = false
+	if order == Enums.OrderType.GATHER and _automatic_gather_target and _gather_state in ["searching_resource", "to_resource"]:
+		_apply_gather_search_path(path)
+		return
 	_path_retry_cooldown = 0.0
 	_path_is_crowd_route = _pending_crowd_route
 	if path.is_empty():

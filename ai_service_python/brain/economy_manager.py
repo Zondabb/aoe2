@@ -93,7 +93,7 @@ class EconomyManager:
             if counts.get(kind, 0) > 0:
                 continue
             for worker in bb.team_villagers:
-                if worker.get("order") != ORDER_GATHER or worker.get("gather_state") == "to_drop_off" or float(worker.get("carry_amount", 0)) > 0.001 or int(worker["id"]) in reserved:
+                if worker.get("order") != ORDER_GATHER or worker.get("gather_state") in ("to_drop_off", "searching_resource") or float(worker.get("carry_amount", 0)) > 0.001 or int(worker["id"]) in reserved:
                     continue
                 previous_type = self._worker_resource_type(worker)
                 if previous_type is None or counts.get(previous_type, 0) < 2:
@@ -111,7 +111,8 @@ class EconomyManager:
             order = str(villager.get("order", ORDER_NONE))
             if order == ORDER_BUILD:
                 continue
-            if order == ORDER_GATHER and str(villager.get("gather_state", "")) == "to_drop_off":
+            # A resource search owns its path queue just as a delivery owns its cargo.
+            if order == ORDER_GATHER and str(villager.get("gather_state", "")) in ("to_drop_off", "searching_resource"):
                 continue
             if order == ORDER_NONE:
                 result.append(villager)

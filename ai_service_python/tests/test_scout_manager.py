@@ -136,11 +136,29 @@ def test_one_empty_handed_surplus_worker_rebalances_to_visible_ore(kind):
     assert [(c.op, c.unit_id, c.target_id) for c in ctx.commands] == [("gather", 2, 11)]
 
 
-@pytest.mark.parametrize("order,state,carry", [("GATHER", "to_drop_off", 0), ("GATHER", "to_resource", 10), ("BUILD", "", 0), ("ATTACK", "", 0)])
+@pytest.mark.parametrize("order,state,carry", [("GATHER", "to_drop_off", 0), ("GATHER", "searching_resource", 0), ("GATHER", "to_resource", 10), ("BUILD", "", 0), ("ATTACK", "", 0)])
 def test_rebalance_preserves_deliveries_carrying_building_and_attacking(order, state, carry):
     bb = economic_board()
     for worker in bb.team_villagers:
         worker.update(order=order, gather_state=state, carry_amount=carry)
+    ctx = CommandContext(tick=1)
+    EconomyManager().assign_gatherers(ctx, bb, profile_for_id("teutons"), PHASE_ECO)
+    assert ctx.commands == []
+
+
+@pytest.mark.parametrize("previous", ["depleted", "missing", "stuck"])
+def test_resource_search_finishes_before_economy_reassigns_work(previous):
+    bb = economic_board()
+    bb.team_villagers = bb.team_villagers[:1]
+    worker = bb.team_villagers[0]
+    worker["gather_state"] = "searching_resource"
+    if previous == "depleted":
+        worker["_last_resource"]["amount"] = 0
+    elif previous == "missing":
+        worker["_last_resource"] = None
+        worker["last_resource_id"] = None
+    else:
+        worker["stuck_frames"] = 12
     ctx = CommandContext(tick=1)
     EconomyManager().assign_gatherers(ctx, bb, profile_for_id("teutons"), PHASE_ECO)
     assert ctx.commands == []
