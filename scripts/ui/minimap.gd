@@ -28,6 +28,8 @@ var _dragging := false
 var _order_pos := Vector2.ZERO
 var _order_ttl := 0.0
 var _markers_team := -2
+var _marker_mesh: ArrayMesh
+var _marker_mesh_size := Vector2(-1, -1)
 
 func _ready() -> void:
 	# Blend the fog terrain between cells; marker visibility still uses fog.can_see.
@@ -53,7 +55,11 @@ func _bind_default() -> void:
 		controller != null and controller.get("read_only") == true)
 
 func setup(state: MatchState, controller: Node, system: Node, spectator := false) -> void:
+	if match_state != null and match_state.team_color_changed.is_connected(_on_team_color_changed):
+		match_state.team_color_changed.disconnect(_on_team_color_changed)
 	match_state = state
+	if match_state != null:
+		match_state.team_color_changed.connect(_on_team_color_changed)
 	selection = controller
 	build_system = system
 	read_only = spectator
@@ -66,6 +72,10 @@ func setup(state: MatchState, controller: Node, system: Node, spectator := false
 		_entities = _world.get_node("Entities")
 		_camera = _world.get_node_or_null("Camera2D") as Camera2D
 	visible = _camera != null
+
+func _on_team_color_changed(_team: int) -> void:
+	_rebuild_marker_mesh()
+	queue_redraw()
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(_camera) or not is_instance_valid(_world):
@@ -139,10 +149,15 @@ func refresh_markers() -> void:
 		return
 	var shown: Dictionary = {}
 	var restricted := match_state != null and match_state.fog_enabled and _team != -1
-	for entity in _entities.get_children():
+	var reuse_visibility: bool = restricted and is_instance_valid(_holder) and _holder.has_method("entity_visible_for") and _holder.get("fog") == _fog
+	var live: Array = _holder.live_entities() if reuse_visibility else _entities.get_children()
+	for entity in live:
+		if not is_instance_valid(entity) or entity.is_queued_for_deletion(): continue
 		if entity.has_meta("fog_memory") or entity.get("sim_pos") == null or entity.get("is_placement_ghost") == true:
 			continue
-		if restricted and (_fog == null or not _fog.can_see(_team, entity)):
+		var position: Vector2 = entity.get("sim_pos")
+		var footprint := Fog.footprint_of(entity)
+		if restricted and (_fog == null or not (_holder.entity_visible_for(_team, entity, position, footprint) if reuse_visibility else _fog.can_see(_team, entity))):
 			continue
 		if entity.get("hp") != null and float(entity.get("hp")) <= 0.0:
 			continue
@@ -160,9 +175,9 @@ func refresh_markers() -> void:
 		else:
 			continue
 		shown[entity.get_instance_id()] = true
-		_markers.append({"sim_pos": entity.get("sim_pos"), "minimap_kind": marker_kind,
+		_markers.append({"sim_pos": position, "minimap_kind": marker_kind,
 			"team": entity.get("team"), "resource_type": entity.get("resource_type"),
-			"kind": entity.get("kind"), "footprint": Fog.footprint_of(entity), "memory": false})
+			"kind": entity.get("kind"), "footprint": footprint, "memory": false})
 	if restricted and _fog != null:
 		var known: Dictionary = _fog.memories.get(_team, {})
 		for id in known:
@@ -172,7 +187,13 @@ func refresh_markers() -> void:
 			marker["memory"] = true
 			_markers.append(marker)
 	# Terrain/resources first, then buildings and mobile units.
-	_markers.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return _marker_layer(a) < _marker_layer(b))
+	# There are only three layers. A linear partition avoids thousands of
+	# GDScript comparator callbacks when a forest has been discovered.
+	var layers := [[], [], []]
+	for marker in _markers: layers[_marker_layer(marker)].append(marker)
+	_markers.clear()
+	for layer in layers: _markers.append_array(layer)
+	_rebuild_marker_mesh()
 
 func _marker_layer(marker: Dictionary) -> int:
 	return 2 if marker.minimap_kind == "unit" else (1 if marker.minimap_kind == "building" else 0)
@@ -201,8 +222,10 @@ func _draw() -> void:
 			Vector2(-size.x, size.y) / (2.0 * side), Vector2(size.x * 0.5, 0)))
 		draw_texture(_terrain, Vector2.ZERO)
 		draw_set_transform_matrix(Transform2D.IDENTITY)
-	for marker in _markers:
-		_draw_marker(marker)
+	if _marker_mesh_size != size:
+		_rebuild_marker_mesh()
+	if _marker_mesh != null:
+		draw_mesh(_marker_mesh, null)
 	for polygon in camera_polygons():
 		var outline := PackedVector2Array(polygon)
 		outline.append(outline[0])
@@ -215,14 +238,45 @@ func _draw() -> void:
 	draw_polyline(diamond, Color(0.67, 0.62, 0.43), 1.0, true)
 
 func _draw_marker(marker: Dictionary) -> void:
+	var polygon := _marker_polygon(marker)
+	if not polygon.is_empty():
+		draw_colored_polygon(polygon, marker_color(marker))
+
+
+## Cache all marker quads as one colored triangle mesh. Canvas redraws still
+## follow camera/input every frame without triangulating 1000 resource dots.
+func _rebuild_marker_mesh() -> void:
+	_marker_mesh_size = size
+	var vertices := PackedVector2Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	for marker in _markers:
+		var polygon := _marker_polygon(marker)
+		if polygon.is_empty(): continue
+		var base := vertices.size()
+		var color := marker_color(marker)
+		vertices.append_array(polygon)
+		for _corner in 4: colors.append(color)
+		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+	_marker_mesh = null
+	if vertices.is_empty(): return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	_marker_mesh = ArrayMesh.new()
+	_marker_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+
+func _marker_polygon(marker: Dictionary) -> PackedVector2Array:
 	var center: Vector2 = marker.sim_pos
 	if center.x < map_min.x or center.y < map_min.y or center.x > map_max.x or center.y > map_max.y:
-		return
-	var color := marker_color(marker)
+		return PackedVector2Array()
 	if marker.minimap_kind == "unit":
 		var radius := maxf(1.0, size.x / 196.0)
-		draw_rect(Rect2(world_to_map(center) - Vector2.ONE * radius * 0.5, Vector2.ONE * radius), color)
-		return
+		var rect := Rect2(world_to_map(center) - Vector2.ONE * radius * 0.5, Vector2.ONE * radius)
+		return PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
 	var half: Vector2 = marker.footprint * 0.5
 	# Keep sparse resources readable even on the largest arena maps.
 	var minimum := (map_max - map_min) * (1.5 / maxf(size.x, 1.0))
@@ -230,7 +284,7 @@ func _draw_marker(marker: Dictionary) -> void:
 	var polygon := PackedVector2Array()
 	for offset in [Vector2(-half.x, -half.y), Vector2(half.x, -half.y), half, Vector2(-half.x, half.y)]:
 		polygon.append(world_to_map((center + offset).clamp(map_min, map_max)))
-	draw_colored_polygon(polygon, color)
+	return polygon
 
 func camera_polygons() -> Array[PackedVector2Array]:
 	if not is_instance_valid(_camera):

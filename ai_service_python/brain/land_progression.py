@@ -6,7 +6,7 @@ from pathlib import Path
 
 from brain.build_placement import next_build_position
 from brain.command_builder import CommandContext
-from brain.entity_queries import find_town_center, idle_villager, any_villager
+from brain.entity_queries import find_town_center, idle_villager
 from brain.profile_loader import CivAiProfile
 from brain.stores import Blackboard
 from protocol.models import Command
@@ -38,8 +38,7 @@ class LandProgression:
         reserve = AGE_COSTS[age] if age < 3 and not researching_age else {}
         if bb.pop_used >= bb.pop_cap:
             self._build(ctx, bb, profile, "house", repeat=True)
-        if not any(float(r.get("amount", 0)) > 0 and r.get("resource_type") == "FOOD" for r in bb.resource_nodes):
-            self._build(ctx, bb, profile, "farm", repeat=True)
+        self._ensure_food_supply(ctx, bb, profile)
         for name in ("barracks", "archery_range", "stable", "castle", "siege_workshop"):
             if not any(b.get("def_id") == name for b in bb.team_buildings):
                 self._build(ctx, bb, profile, name)
@@ -76,6 +75,28 @@ class LandProgression:
                 bb.pop_used += population
                 break
 
+    def _ensure_food_supply(self, ctx: CommandContext, bb: Blackboard, profile: CivAiProfile) -> bool:
+        if not any(b.get("def_id") == "mill" and b.get("is_complete") for b in bb.team_buildings):
+            return False
+        tc = find_town_center(bb.team_buildings)
+        if tc is None:
+            return False
+        def near_base(entity: dict) -> bool:
+            pos = entity.get("pos", [0, 0])
+            return sum((float(pos[i]) - float(tc["pos"][i])) ** 2 for i in (0, 1)) <= 144.0 ** 2
+        natural_food = sum(max(0.0, float(r.get("amount", 0))) for r in bb.resource_nodes
+                           if r.get("kind") != "building" and r.get("resource_type") == "FOOD" and near_base(r))
+        if natural_food > 100.0:
+            return False
+        active_farms = sum(1 for b in bb.team_buildings if b.get("def_id") == "farm" and near_base(b)
+                           and (not b.get("is_complete") or float(b.get("amount", 0)) > 0))
+        desired = max(2, min(4, (len(bb.team_villagers) + 1) // 2))
+        if active_farms >= desired:
+            return False
+        # Depleted plots still reserve their footprint. Existing place_building
+        # commands establish a fresh, spaced plot without protocol-only reseeds.
+        return self._build(ctx, bb, profile, "farm", repeat=True)
+
     def _build(self, ctx: CommandContext, bb: Blackboard, profile: CivAiProfile, name: str, repeat: bool = False) -> bool:
         # One foundation each observation avoids assigning the same builder twice.
         if any(c.op == "place_building" for c in ctx.commands):
@@ -95,10 +116,21 @@ class LandProgression:
             return False
         if not self._can_afford(bb, record.get("cost", {})):
             return False
-        builder = idle_villager(bb.team_villagers) or any_villager(bb.team_villagers)
+        # Commands emitted earlier in this decision have not changed snapshots.
+        # Preserve their workers and every construction, combat or delivery job.
+        reserved_workers = {c.unit_id for c in ctx.commands} | {c.builder_id for c in ctx.commands}
+        available_workers = [w for w in bb.team_villagers
+                             if int(w["id"]) not in reserved_workers
+                             and w.get("order", "NONE") in ("NONE", "GATHER")
+                             and w.get("gather_state") != "to_drop_off"
+                             and float(w.get("carry_amount", 0)) <= 0.001]
+        builder = idle_villager(available_workers) or next(iter(available_workers), None)
         if builder is None:
             return False
-        pos = next_build_position(name, find_town_center(bb.team_buildings), bb.all_buildings, ctx.next_build_slot, CATALOG["buildings"])
+        pos = next_build_position(
+            name, find_town_center(bb.team_buildings), bb.all_buildings,
+            ctx.next_build_slot, CATALOG["buildings"], bb.resource_nodes, bb.map_bounds,
+        )
         if pos is None:
             return False
         ctx.issue_place_building(name, list(pos), int(builder["id"]))

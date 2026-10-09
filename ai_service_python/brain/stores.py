@@ -21,7 +21,7 @@ PHASE_ATTACK = 2
 PHASE_DEFEND = 3
 
 STUCK_GATHER_FRAMES = 12
-BASE_RESOURCE_RADIUS = 36.0
+BASE_RESOURCE_RADIUS = 144.0
 
 
 @dataclass
@@ -34,6 +34,7 @@ class Blackboard:
     gold: int = 0
     stone: int = 0
     progression: dict[str, Any] = field(default_factory=dict)
+    map_bounds: tuple[float, float, float, float] | None = None
     pop_used: int = 0
     pop_cap: int = 0
     villager_count: int = 0
@@ -73,12 +74,14 @@ class ObservationStore:
         self.derived: dict[str, Any] = {}
         self.entities: list[dict[str, Any]] = []
         self.progression: dict[str, Any] = {}
+        self.map_bounds: dict[str, Any] | None = None
 
     def load_from_dict(self, observation: dict[str, Any]) -> None:
         self.economy = observation.get("economy", {})
         self.derived = observation.get("derived", {})
         self.entities = observation.get("entities", [])
         self.progression = observation.get("progression") or {}
+        self.map_bounds = observation.get("map_bounds")
 
     def apply_to_blackboard(
         self, blackboard: Blackboard, team: int, enemy_team: int
@@ -91,6 +94,8 @@ class ObservationStore:
         blackboard.gold = int(self.economy.get("gold", 0))
         blackboard.stone = int(self.economy.get("stone", 0))
         blackboard.progression = self.progression
+        box = self.map_bounds
+        blackboard.map_bounds = (*map(float, box["min"]), *map(float, box["max"])) if box else None
         blackboard.pop_used = int(self.economy.get("pop_used", 0))
         blackboard.pop_cap = int(self.economy.get("pop_cap", 0))
         blackboard.villager_count = int(self.derived.get("villager_count", 0))

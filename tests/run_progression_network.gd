@@ -188,8 +188,24 @@ func _run() -> void:
 	var farm_copy: BuildingAgent = guest._resolve(host.entity_id(farm))
 	check(farm_copy.has_method("extract") and farm_copy.amount == 12.5, "replica farm preserves class and remaining food")
 	check(guest.match_state.get_resource(1, Enums.ResourceType.STONE) == host.match_state.get_resource(1, Enums.ResourceType.STONE), "stone economy synchronizes")
+	var tree := ResourceNode.new()
+	tree.resource_type = Enums.ResourceType.WOOD
+	tree.sim_pos = Vector2(-20,-20)
+	tree.block_size_override = Vector2(4,4)
+	host.entities.add_child(tree)
+	_sync("generated forest collision size transfers through JSON")
+	var tree_copy: ResourceNode = guest._resolve(host.entity_id(tree))
+	check(tree_copy.pathfinding_size() == Vector2(4,4) and tree_copy.block_half == Vector2(2,2), "guest forest uses the same occupied tile as host")
 	var packet := _packet()
 	var invalid := packet.duplicate(true)
+	for record in invalid.entities:
+		if record.id == host.entity_id(tree): record.block_size = [4,NAN]
+	_invalid(invalid, "nonfinite forest collision size rejected atomically")
+	invalid = packet.duplicate(true)
+	for record in invalid.entities:
+		if record.id == host.entity_id(tree): record.block_size = [-1,4]
+	_invalid(invalid, "negative forest collision size rejected atomically")
+	invalid = packet.duplicate(true)
 	invalid.progression.ages[1] = 3.5
 	_invalid(invalid, "fractional age rejected")
 	invalid = packet.duplicate(true)

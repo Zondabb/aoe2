@@ -4,7 +4,7 @@ extends RefCounted
 
 const AiEntityQueriesScript := preload("res://scripts/systems/ai/ai_entity_queries.gd")
 const STUCK_GATHER_FRAMES := 12
-const BASE_RESOURCE_RADIUS := 36.0
+const BASE_RESOURCE_RADIUS := 144.0
 
 
 func assign_builders(ctx: AiRunContext) -> void:
@@ -36,11 +36,36 @@ func assign_builders(ctx: AiRunContext) -> void:
 func assign_gatherers(ctx: AiRunContext) -> void:
 	var needs_work := _villagers_needing_gather(ctx)
 	if needs_work.is_empty():
+		if ctx.match_state.progression_enabled and ctx.blackboard.map_bounds.has_area():
+			_rebalance_discovered_type(ctx)
 		return
 	if ctx.phase <= 0 and not ctx.match_state.progression_enabled:
 		_assign_opening_gatherers(ctx, needs_work)
 	else:
 		_assign_balanced_gatherers(ctx, needs_work)
+
+
+func _rebalance_discovered_type(ctx: AiRunContext) -> void:
+	# A scout can reveal ore after every worker already has a food/wood job.
+	# Move at most one empty-handed surplus worker to a newly visible kind.
+	var counts := _count_active_gatherers(ctx)
+	var reserved := {}
+	if ctx.capture_commands:
+		for command in ctx.pending_commands:
+			reserved[int(command.get("unit_id", -1))] = true
+			reserved[int(command.get("builder_id", -1))] = true
+	for type in [Enums.ResourceType.FOOD, Enums.ResourceType.WOOD, Enums.ResourceType.GOLD, Enums.ResourceType.STONE]:
+		if int(counts.get(type, 0)) > 0: continue
+		for villager in ctx.blackboard.team_villagers:
+			if villager.get("order") != Enums.OrderType.GATHER or villager.get("_gather_state") == "to_drop_off" or float(villager.get("carry_amount")) > 0.001: continue
+			if reserved.has(EntityRegistry.id_of(villager)): continue
+			var previous := villager.get("_last_resource") as Node2D
+			if not is_instance_valid(previous) or int(counts.get(previous.get("resource_type"), 0)) < 2: continue
+			var target := AiEntityQueriesScript.nearest_resource_near_base(villager, ctx.blackboard.resource_nodes, type, ctx.blackboard.own_tc_pos, BASE_RESOURCE_RADIUS)
+			if target == null: continue
+			ctx.issue_gather(villager, target)
+			ctx.log_decision("ECON", "调配空手村民采集新发现的 " + _resource_name(type))
+			return
 
 
 func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:

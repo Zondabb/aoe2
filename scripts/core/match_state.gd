@@ -27,6 +27,8 @@ var team_color_ids: Dictionary = {}
 ## Enabled explicitly by 2D match bootstraps; legacy fixtures opt out.
 var fog_enabled := false
 var fog: RefCounted
+## Public geometry for AI placement/scouting; an empty rect denotes a legacy arena.
+var map_bounds := Rect2()
 var winner := -1
 ## When true, unit/building simulation should early-return (match ended).
 var frozen := false

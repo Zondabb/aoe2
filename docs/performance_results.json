@@ -1,0 +1,193 @@
+{
+  "date": "2026-10-08",
+  "engine": "Godot 4.7.1 OpenGL Compatibility",
+  "gpu": "Intel UHD Graphics 770",
+  "sample_frames": 240,
+  "warmup_frames": 30,
+  "marching_simulation_delta": 0.016666666666666666,
+  "notes": [
+    "VSync disabled; runs executed sequentially on the same host.",
+    "Performance CPU monitors refresh about once a second and may include earlier stages/startup. Frame intervals and draw calls are the comparison metrics.",
+    "48 extra walkers are stepped once per rendered frame to preserve equal simulation work."
+  ],
+  "before": {
+    "48_marching_units": {
+      "draw_calls": {
+        "max": 1027.0,
+        "mean": 1027.0,
+        "p50": 1027.0,
+        "p95": 1027.0
+      },
+      "entity_children": 2079,
+      "frame_ms": {
+        "max": 251.393,
+        "mean": 172.42,
+        "p50": 175.152,
+        "p95": 180.334
+      },
+      "physics_ms": {
+        "max": 26.905,
+        "mean": 21.757,
+        "p50": 21.409,
+        "p95": 24.03
+      },
+      "process_ms": {
+        "max": 174.862,
+        "mean": 91.022,
+        "p50": 89.867,
+        "p95": 92.027
+      },
+      "units": 57
+    },
+    "explored_forests": {
+      "draw_calls": {
+        "max": 999.0,
+        "mean": 999.0,
+        "p50": 999.0,
+        "p95": 999.0
+      },
+      "entity_children": 2031,
+      "frame_ms": {
+        "max": 102.293,
+        "mean": 78.382,
+        "p50": 79.883,
+        "p95": 89.639
+      },
+      "physics_ms": {
+        "max": 23.059,
+        "mean": 21.362,
+        "p50": 21.055,
+        "p95": 23.059
+      },
+      "process_ms": {
+        "max": 35.88,
+        "mean": 31.589,
+        "p50": 31.529,
+        "p95": 33.309
+      },
+      "units": 9
+    },
+    "known_resources": 950,
+    "opening": {
+      "draw_calls": {
+        "max": 49.0,
+        "mean": 49.0,
+        "p50": 49.0,
+        "p95": 49.0
+      },
+      "entity_children": 1081,
+      "frame_ms": {
+        "max": 21.804,
+        "mean": 3.681,
+        "p50": 1.365,
+        "p95": 17.425
+      },
+      "physics_ms": {
+        "max": 17.285,
+        "mean": 17.285,
+        "p50": 17.285,
+        "p95": 17.285
+      },
+      "process_ms": {
+        "max": 6.575,
+        "mean": 6.575,
+        "p50": 6.575,
+        "p95": 6.575
+      },
+      "units": 9
+    },
+    "renderer": "Windows",
+    "resource_count": 1070,
+    "window": "(1280, 720)"
+  },
+  "after": {
+    "48_marching_units": {
+      "draw_calls": {
+        "max": 76.0,
+        "mean": 76.0,
+        "p50": 76.0,
+        "p95": 76.0
+      },
+      "entity_children": 2079,
+      "frame_ms": {
+        "max": 30.714,
+        "mean": 14.672,
+        "p50": 10.713,
+        "p95": 28.255
+      },
+      "physics_ms": {
+        "max": 16.407,
+        "mean": 11.513,
+        "p50": 10.372,
+        "p95": 16.407
+      },
+      "process_ms": {
+        "max": 29.786,
+        "mean": 23.589,
+        "p50": 22.639,
+        "p95": 29.786
+      },
+      "units": 57
+    },
+    "explored_forests": {
+      "draw_calls": {
+        "max": 47.0,
+        "mean": 41.8,
+        "p50": 41.0,
+        "p95": 47.0
+      },
+      "entity_children": 2031,
+      "frame_ms": {
+        "max": 19.284,
+        "mean": 1.851,
+        "p50": 1.007,
+        "p95": 9.781
+      },
+      "physics_ms": {
+        "max": 9.46,
+        "mean": 9.46,
+        "p50": 9.46,
+        "p95": 9.46
+      },
+      "process_ms": {
+        "max": 233.023,
+        "mean": 233.023,
+        "p50": 233.023,
+        "p95": 233.023
+      },
+      "units": 9
+    },
+    "known_resources": 950,
+    "opening": {
+      "draw_calls": {
+        "max": 47.0,
+        "mean": 41.5,
+        "p50": 41.0,
+        "p95": 47.0
+      },
+      "entity_children": 1081,
+      "frame_ms": {
+        "max": 9.073,
+        "mean": 1.14,
+        "p50": 0.774,
+        "p95": 3.792
+      },
+      "physics_ms": {
+        "max": 955.704,
+        "mean": 955.704,
+        "p50": 955.704,
+        "p95": 955.704
+      },
+      "process_ms": {
+        "max": 19.332,
+        "mean": 19.332,
+        "p50": 19.332,
+        "p95": 19.332
+      },
+      "units": 9
+    },
+    "renderer": "Windows",
+    "resource_count": 1070,
+    "window": "(1280, 720)"
+  }
+}

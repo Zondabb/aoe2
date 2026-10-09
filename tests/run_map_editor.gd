@@ -166,7 +166,7 @@ func _test_validation() -> void:
 	check(Data.bounds(data).size == Vector2(63, 31), "odd sizes retain exact width and height")
 	for value in [null, [], 3, "bad", {}, {"format": Data.FORMAT, "schema_version": 1, "display_name": 6}]:
 		check(not Data.validate(value).is_empty(), "malformed root rejected: %s" % str(value))
-	for patch in [{"schema_version": 2}, {"schema_version": 1.5}, {"bounds": {"min": [0, 0], "max": [12, 12]}}, {"bounds": {"min": [0, 0], "max": [257, 32]}}, {"bounds": {"min": [0.5, 0], "max": [40, 40]}}, {"bounds": {"min": [0, "0"], "max": [40, 40]}}, {"entities": [null]}, {"entities": {}}]:
+	for patch in [{"schema_version": 2}, {"schema_version": 1.5}, {"bounds": {"min": [0, 0], "max": [12, 12]}}, {"bounds": {"min": [0, 0], "max": [Data.MAX_SIZE + 1, 32]}}, {"bounds": {"min": [0.5, 0], "max": [40, 40]}}, {"bounds": {"min": [0, "0"], "max": [40, 40]}}, {"entities": [null]}, {"entities": {}}]:
 		var invalid := data.duplicate(true)
 		invalid.merge(patch, true)
 		check(not Data.validate(invalid).is_empty(), "invalid field rejected: %s" % str(patch))

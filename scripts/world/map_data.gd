@@ -5,7 +5,7 @@ const Catalog := preload("res://scripts/world/map_catalog.gd")
 const FORMAT := "aoe2-rts-map"
 const VERSION := 1
 const MIN_SIZE := 16
-const MAX_SIZE := 256
+const MAX_SIZE := 1024
 const MAX_ENTITIES := 2000
 
 static func create(width := 80, height := 80, title := "未命名地图") -> Dictionary:
@@ -91,6 +91,11 @@ static func validate(data: Variant) -> PackedStringArray:
 		if kind != "resource" and record.get("team") not in ["player", "ai"]:
 			errors.append(prefix + "team 必须是 player 或 ai。")
 		if kind == "resource":
+			if record.has("block_size"):
+				var size: Variant = record.block_size
+				if not vector(size) or size[0] <= 0 or size[1] <= 0 or size[0] > 64 or size[1] > 64:
+					errors.append(prefix + "block_size 必须是两个大于 0 且不超过 64 的有限数值。")
+					continue
 			for field in ["amount", "gather_rate"]:
 				var value: Variant = record.get(field)
 				if not number(value) or value <= 0 or value > 1000000:

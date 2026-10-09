@@ -2,6 +2,7 @@ extends Control
 
 const Loader := preload("res://scripts/world/map_loader.gd")
 const Data := preload("res://scripts/world/map_data.gd")
+const DefaultMap := preload("res://scripts/world/default_map_generator.gd")
 const Preview := preload("res://scripts/ui/map_preview.gd")
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const HttpClient := preload("res://scripts/ai_gateway/http_ai_client.gd")
@@ -154,6 +155,7 @@ func _build_ui() -> void:
 	_label(_setup, "EnemyTitle", "对手文明", Rect2(799, 292, 270, 28), 19)
 	_enemy_choice = _choice(_setup, "EnemyCiv", Rect2(799, 330, 270, 44), ["中国", "条顿"])
 	_enemy_choice.select(1 if GameSession.ai_civ_id == &"teutons" else 0)
+	_enemy_choice.item_selected.connect(func(_index): _refresh_default_preview())
 	_label(_setup, "AiTitle", "对手控制", Rect2(799, 399, 270, 28), 19)
 	_ai_choice = _choice(_setup, "AiMode", Rect2(799, 437, 270, 44), ["本地 AI", "沙盒 · 对手不自动行动", "外部 AI 服务"])
 	_ai_choice.add_theme_font_size_override("font_size", 16)
@@ -245,12 +247,17 @@ func _reset_online_session() -> void:
 
 func _update_civ_description() -> void:
 	_civ_info.text = "诸葛弩 · 经济发展\n村民训练更快；默认地图额外一名村民。" if _player_choice.selected == 0 else "条顿武士 · 坚实防御\n建筑生命值提高，近战单位护甲增加。"
+	_refresh_default_preview()
+
+func _refresh_default_preview() -> void:
+	if _preview == null or _enemy_choice == null or _map_choice.selected < 0 or not map_paths[_map_choice.selected].is_empty(): return
+	_preview.show_map(DefaultMap.generate(DefaultMap.DEFAULT_SEED, CIV_IDS[_player_choice.selected], CIV_IDS[_enemy_choice.selected]))
 
 func _refresh_maps() -> void:
 	var previous := map_paths[_map_choice.selected] if _map_choice.selected >= 0 and _map_choice.selected < map_paths.size() else GameSession.selected_map_path
 	map_paths = ["", "res://data/maps/editor_demo.json"]
 	_map_choice.clear()
-	_map_choice.add_item("默认双营地")
+	_map_choice.add_item("经典双营地 · 120 × 120 原版格")
 	_map_choice.add_item("双阵营营地 · 编辑示例")
 	DirAccess.make_dir_recursive_absolute("user://maps")
 	var directory := DirAccess.open("user://maps")
@@ -308,10 +315,8 @@ func _map_selected(_index: int) -> void:
 		_map_info.text = "地图不可用，请重新选择或修正文件。"
 		return
 	if selected_data.is_empty():
-		var diagram := Data.create(120, 120, "默认双营地")
-		diagram.entities = [{"type":"building", "team":"player", "pos":[-40,-40]}, {"type":"building", "team":"ai", "pos":[40,40]}]
-		_preview.show_map(diagram)
-		_map_info.text = "默认双营地  ·  120 × 120\n双方城镇中心、村民和起始资源。\n开局人数随文明设置生成。"
+		_refresh_default_preview()
+		_map_info.text = "经典双营地  ·  120 × 120 原版格\n对应 480 × 480 游戏格，双方对称开局。\n多片森林、浆果群及主矿、次矿和中立矿。"
 	else:
 		_preview.show_map(selected_data)
 		var bounds := Data.bounds(selected_data)

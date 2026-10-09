@@ -41,7 +41,9 @@ static func half_size(record: Dictionary) -> Vector2:
 	match record.get("type", ""):
 		"building": return (BUILDINGS[id] as BuildingDef).footprint * 0.5
 		"unit": return Vector2.ONE * (UNITS[id] as UnitDef).resolved_footprint_radius()
-		"resource": return ResourceNode.selection_footprint(RESOURCES[id]) * 0.5
+		"resource":
+			if record.has("block_size"): return Vector2(record.block_size[0],record.block_size[1]) * 0.5
+			return ResourceNode.selection_footprint(RESOURCES[id]) * 0.5
 	return Vector2.ONE
 
 static func make_record(kind: String, id: String, pos: Vector2, team := "player") -> Dictionary:

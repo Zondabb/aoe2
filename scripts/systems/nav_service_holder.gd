@@ -6,8 +6,15 @@ extends Node
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const DEFAULT_FRAME_BUDGET := 12
+const STATIC_BUCKET_SIZE := 8.0
 
 var nav: NavGridServiceScript
+var _static_buckets: Dictionary = {}
+var _static_records: Dictionary = {}
+var _tracked_buildings: Dictionary = {}
+var _static_dirty := true
+var _rebuild_queued := false
+var _last_building_check_frame := -1
 
 func setup(
 	map_min: int,
@@ -21,11 +28,14 @@ func setup(
 	CollisionResolverScript.set_map_bounds(Vector2(map_min, map_min), Vector2(map_max, map_max))
 	set_meta("nav", nav)
 	add_to_group("nav_service")
+	_reset_static_index()
 
 func _ready() -> void:
 	call_deferred("_connect_existing_buildings")
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
+	if not get_tree().node_removed.is_connected(_on_node_removed):
+		get_tree().node_removed.connect(_on_node_removed)
 
 
 func setup_rect(minimum: Vector2i, maximum: Vector2i) -> void:
@@ -35,22 +45,36 @@ func setup_rect(minimum: Vector2i, maximum: Vector2i) -> void:
 	CollisionResolverScript.set_map_bounds(Vector2(minimum), Vector2(maximum))
 	set_meta("nav", nav)
 	add_to_group("nav_service")
+	_reset_static_index()
 
 func _on_node_added(node: Node) -> void:
-	call_deferred("_try_connect_weak", weakref(node))
+	if node is Node2D and (node.has_signal("construction_started") or node.has_method("extract") or node.get("block_size") is Vector2):
+		call_deferred("_try_connect_weak", weakref(node))
+		_queue_static_rebuild()
+
+
+func _on_node_removed(node: Node) -> void:
+	var id := node.get_instance_id()
+	if _static_records.has(id) or _tracked_buildings.has(id):
+		_tracked_buildings.erase(id)
+		_queue_static_rebuild()
 
 func _try_connect_weak(reference: WeakRef) -> void:
 	var node := reference.get_ref() as Node
 	if node != null and node.is_inside_tree() and get_parent().is_ancestor_of(node):
 		_try_connect_building(node)
+		_queue_static_rebuild()
 
 func _connect_existing_buildings() -> void:
 	for node in get_tree().get_nodes_in_group("buildings"):
-		_try_connect_building(node)
+		if get_parent().is_ancestor_of(node): _try_connect_building(node)
+	_queue_static_rebuild()
 
 func _try_connect_building(node: Node) -> void:
 	if not is_instance_valid(node):
 		return
+	if node.has_signal("construction_started"):
+		_tracked_buildings[node.get_instance_id()] = {"node": weakref(node), "signature": _building_signature(node)}
 	if node.has_signal("construction_started"):
 		if not node.is_connected("construction_started", _on_construction_changed):
 			node.connect("construction_started", _on_construction_changed)
@@ -65,14 +89,24 @@ func _on_construction_changed(_building: Node) -> void:
 func rebuild_from_scene() -> void:
 	if nav == null:
 		return
-	nav.rebuild_from_blockers(NavGridServiceScript.collect_blockers_from_tree(get_tree()))
-	_refresh_debug_overlays()
-	call_deferred("_repath_moving_units")
+	var blockers: Array = []
+	for node in NavGridServiceScript.collect_blockers_from_tree(get_tree()):
+		if is_instance_valid(node) and node.is_inside_tree() and not node.is_queued_for_deletion() and get_parent().is_ancestor_of(node):
+			blockers.append(node)
+	var changed := nav.rebuild_from_blockers(blockers)
+	if changed or not _same_static_objects(blockers):
+		_update_static_index(blockers)
+	_static_dirty = false
+	if changed:
+		_refresh_debug_overlays()
+		call_deferred("_repath_moving_units")
 
 
 func _process(_delta: float) -> void:
 	if nav == null:
 		return
+	_check_building_changes()
+	if _static_dirty: rebuild_from_scene()
 	var results: Dictionary = nav.flush_pending_paths()
 	if results.is_empty():
 		return
@@ -86,8 +120,105 @@ func _process(_delta: float) -> void:
 
 func _repath_moving_units() -> void:
 	for unit in get_tree().get_nodes_in_group("units"):
-		if unit.has_method("refresh_nav_path_if_moving"):
+		if get_parent().is_ancestor_of(unit) and unit.has_method("refresh_nav_path_if_moving"):
 			unit.call("refresh_nav_path_if_moving")
+
+
+## Sweep broad phase over actual static AABBs. A mover normally visits only
+## nearby 8×8 buckets, regardless of the forest's total tree count.
+func query_static_blockers(from: Vector2, to: Vector2, radius: float) -> Array:
+	_check_building_changes()
+	if _static_dirty: rebuild_from_scene()
+	var margin := Vector2.ONE * maxf(0.0, radius)
+	var minimum := from.min(to) - margin
+	var maximum := from.max(to) + margin
+	var first := Vector2i((minimum / STATIC_BUCKET_SIZE).floor())
+	var last := Vector2i((maximum / STATIC_BUCKET_SIZE).floor())
+	var seen := {}
+	var result: Array = []
+	for y in range(first.y, last.y + 1):
+		for x in range(first.x, last.x + 1):
+			for id in _static_buckets.get(Vector2i(x, y), []):
+				if seen.has(id): continue
+				seen[id] = true
+				var record: Dictionary = _static_records[id]
+				var node: Node = record.node.get_ref()
+				if node == null or not node.is_inside_tree() or node.is_queued_for_deletion(): continue
+				# Amount may become zero before the deferred tree/depletion update.
+				if node.get("def") is not BuildingDef and node.get("resource_type") != null and float(node.get("amount")) <= 0: continue
+				var center: Vector2 = record.center
+				var half: Vector2 = record.half
+				if center.x + half.x >= minimum.x and center.x - half.x <= maximum.x and center.y + half.y >= minimum.y and center.y - half.y <= maximum.y:
+					result.append(node)
+	return result
+
+
+func _reset_static_index() -> void:
+	_static_buckets.clear()
+	_static_records.clear()
+	_tracked_buildings.clear()
+	_static_dirty = true
+	_last_building_check_frame = -1
+
+
+func _update_static_index(blockers: Array) -> void:
+	_static_buckets.clear()
+	_static_records.clear()
+	for node in blockers:
+		var half := CollisionResolverScript._blocker_half(node, 0.0)
+		if half.x <= 0.0 or half.y <= 0.0: continue
+		var center: Vector2 = node.get("sim_pos")
+		var id: int = node.get_instance_id()
+		_static_records[id] = {"node": weakref(node), "center": center, "half": half}
+		var minimum := Vector2i(((center - half) / STATIC_BUCKET_SIZE).floor())
+		var maximum := Vector2i(((center + half) / STATIC_BUCKET_SIZE).floor())
+		for y in range(minimum.y, maximum.y + 1):
+			for x in range(minimum.x, maximum.x + 1):
+				var cell := Vector2i(x, y)
+				if not _static_buckets.has(cell): _static_buckets[cell] = []
+				_static_buckets[cell].append(id)
+	for record: Dictionary in _tracked_buildings.values():
+		var node: Node = record.node.get_ref()
+		if node != null: record.signature = _building_signature(node)
+
+
+func _same_static_objects(blockers: Array) -> bool:
+	if blockers.size() != _static_records.size(): return false
+	for node in blockers:
+		if not _static_records.has(node.get_instance_id()): return false
+	return true
+
+
+func _building_signature(node: Node) -> Array:
+	if node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: return []
+	var half := CollisionResolverScript._blocker_half(node, 0.0)
+	return [] if half == Vector2.ZERO else [node.get("sim_pos"), half]
+
+
+func _check_building_changes() -> void:
+	var frame := Engine.get_physics_frames()
+	if frame == _last_building_check_frame: return
+	_last_building_check_frame = frame
+	for id in _tracked_buildings.keys():
+		var record: Dictionary = _tracked_buildings[id]
+		var node: Node = record.node.get_ref()
+		if node == null:
+			_tracked_buildings.erase(id)
+			_queue_static_rebuild()
+		elif record.signature != _building_signature(node):
+			_queue_static_rebuild()
+
+
+func _queue_static_rebuild() -> void:
+	_static_dirty = true
+	if not _rebuild_queued and is_inside_tree():
+		_rebuild_queued = true
+		call_deferred("_rebuild_if_dirty")
+
+
+func _rebuild_if_dirty() -> void:
+	_rebuild_queued = false
+	if is_inside_tree() and _static_dirty: rebuild_from_scene()
 
 func _refresh_debug_overlays() -> void:
 	for node in get_tree().get_nodes_in_group("nav_debug_overlay"):

@@ -103,6 +103,7 @@ class Observation(BaseModel):
     derived: Derived
     entities: list[dict[str, Any]]
     progression: Progression | None = None
+    map_bounds: dict[str, list[float]] | None = None
 
 
 class GameEvent(BaseModel):

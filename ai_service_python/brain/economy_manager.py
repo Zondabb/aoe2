@@ -31,6 +31,12 @@ from brain.stores import (
 class EconomyManager:
     """Port of scripts/systems/ai/ai_economy_manager.gd."""
 
+    def __init__(self) -> None:
+        self._seen_resource_types: dict[int, int] = {}
+
+    def reset(self) -> None:
+        self._seen_resource_types.clear()
+
     def assign_builders(self, ctx: CommandContext, blackboard: Blackboard) -> None:
         for building in blackboard.team_buildings:
             if bool(building.get("is_complete", False)):
@@ -67,13 +73,37 @@ class EconomyManager:
         profile: CivAiProfile,
         phase: int,
     ) -> None:
+        for resource in blackboard.resource_nodes:
+            self._seen_resource_types[int(resource["id"])] = resource_type_from_name(str(resource.get("resource_type", "")))
         needs_work = self._villagers_needing_gather(blackboard)
         if not needs_work:
+            if blackboard.progression and blackboard.map_bounds:
+                self._rebalance_discovered_type(ctx, blackboard)
             return
         if phase <= PHASE_ECO and not blackboard.progression:
             self._assign_opening_gatherers(ctx, blackboard, needs_work)
         else:
             self._assign_balanced_gatherers(ctx, blackboard, profile, phase, needs_work)
+
+    def _rebalance_discovered_type(self, ctx: CommandContext, bb: Blackboard) -> None:
+        """Preserve deliveries and the last worker of each existing resource kind."""
+        counts = self._count_active_gatherers(bb)
+        reserved = {c.unit_id for c in ctx.commands} | {c.builder_id for c in ctx.commands}
+        for kind in (FOOD, WOOD, GOLD, STONE):
+            if counts.get(kind, 0) > 0:
+                continue
+            for worker in bb.team_villagers:
+                if worker.get("order") != ORDER_GATHER or worker.get("gather_state") == "to_drop_off" or float(worker.get("carry_amount", 0)) > 0.001 or int(worker["id"]) in reserved:
+                    continue
+                previous_type = self._worker_resource_type(worker)
+                if previous_type is None or counts.get(previous_type, 0) < 2:
+                    continue
+                target = nearest_resource_near_base(worker, bb.resource_nodes, kind, bb.own_tc_pos, BASE_RESOURCE_RADIUS)
+                if target is None:
+                    continue
+                ctx.issue_gather(int(worker["id"]), int(target["id"]))
+                ctx.log_decision("ECON", f"调配空手村民采集新发现的 {resource_name(kind)}")
+                return
 
     def _villagers_needing_gather(self, blackboard: Blackboard) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -90,6 +120,10 @@ class EconomyManager:
                 continue
             resource = villager.get("_last_resource")
             if resource is None:
+                # A current order owns its remembered location. Absence from a
+                # fog-filtered observation does not mean that node was depleted.
+                if blackboard.progression and blackboard.map_bounds and villager.get("last_resource_id") is not None:
+                    continue
                 result.append(villager)
                 continue
             if float(resource.get("amount", 0.0)) <= 0.0:
@@ -142,16 +176,22 @@ class EconomyManager:
             ctx.log_decision("ECON", f"村民采集 {resource_name(resource_type)}")
 
     def _count_active_gatherers(self, blackboard: Blackboard) -> dict[int, int]:
-        counts = {FOOD: 0, WOOD: 0, GOLD: 0}
+        counts = {FOOD: 0, WOOD: 0, GOLD: 0, STONE: 0}
         for villager in blackboard.team_villagers:
             if str(villager.get("order", "")) != ORDER_GATHER:
                 continue
-            resource = villager.get("_last_resource")
-            if resource is None:
+            resource_type = self._worker_resource_type(villager)
+            if resource_type is None:
                 continue
-            resource_type = resource_type_from_name(str(resource.get("resource_type", "")))
             counts[resource_type] = counts.get(resource_type, 0) + 1
         return counts
+
+    def _worker_resource_type(self, worker: dict[str, Any]) -> int | None:
+        resource = worker.get("_last_resource")
+        if resource is not None:
+            return resource_type_from_name(str(resource.get("resource_type", "")))
+        previous_id = worker.get("last_resource_id")
+        return self._seen_resource_types.get(int(previous_id)) if previous_id is not None else None
 
 
 def _pick_gather_target(

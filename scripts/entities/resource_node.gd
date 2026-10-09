@@ -10,6 +10,11 @@ const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 @export var resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
 @export var amount := 100.0
 @export var gather_rate := 4.0
+## Generated forests reserve one converted terrain tile per tree. Old maps keep
+## their existing playable footprints unless a size is explicitly supplied.
+@export var block_size_override := Vector2.ZERO
+var block_size: Vector2:
+	get: return selection_footprint(resource_type) if resource_type == Enums.ResourceType.FOOD else pathfinding_size()
 
 var sim_pos := Vector2.ZERO
 var _use_billboard := false
@@ -23,6 +28,12 @@ static func resource_blocks_pathfinding(type: Enums.ResourceType) -> bool:
 			return true
 		_:
 			return true
+
+func pathfinding_size() -> Vector2:
+	if not resource_blocks_pathfinding(resource_type): return Vector2.ZERO
+	if block_size_override.x > 0 and block_size_override.y > 0:
+		return block_size_override
+	return pathfinding_footprint(resource_type)
 
 static func pathfinding_footprint(type: Enums.ResourceType) -> Vector2:
 	if not resource_blocks_pathfinding(type):
@@ -60,7 +71,7 @@ static func edge_distance(from: Vector2, center: Vector2, type: Enums.ResourceTy
 	return from.distance_to(nearest)
 
 func approach_point(from: Vector2, unit_radius: float = 0.35) -> Vector2:
-	var footprint := pathfinding_footprint(resource_type)
+	var footprint := pathfinding_size()
 	if footprint.length_squared() <= 0.0:
 		return sim_pos
 	var half := footprint * 0.5
@@ -83,7 +94,7 @@ func _ready() -> void:
 	if sim_pos == Vector2.ZERO:
 		sim_pos = position
 	IsoMathScript.sync_node(self, sim_pos)
-	block_half = pathfinding_footprint(resource_type) * 0.5
+	block_half = pathfinding_size() * 0.5
 	_setup_presentation()
 	set_selected(false)
 

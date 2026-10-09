@@ -31,7 +31,7 @@ func run() -> Array[String]:
 	elif camera.get_script() == null:
 		failures.append("match camera should have controller script")
 	else:
-		var expected := IsoMathScript.world_to_screen(Vector2(-40.0, -40.0))
+		var expected := IsoMathScript.world_to_screen(preload("res://scripts/world/default_map_generator.gd").BASE_POSITION)
 		if not camera.position.is_equal_approx(expected):
 			failures.append("camera should start focused on the player base")
 		camera.call("_ready")
@@ -72,8 +72,8 @@ func run() -> Array[String]:
 	var entities := scene_root.get_node("Entities") as Node2D
 	if not entities.y_sort_enabled:
 		failures.append("Entities root should enable y_sort for iso depth")
-	if entities.get_child_count() != 17:
-		failures.append("bootstrap should spawn both bases, Chinese extra villager, and stone deposits")
+	if entities.get_child_count() != preload("res://scripts/world/default_map_generator.gd").generate().entities.size():
+		failures.append("bootstrap should spawn both bases, scouts and all generated resource groups")
 	else:
 		var unit := entities.get_node("PlayerVillager1")
 		unit.call("_ready")
@@ -139,8 +139,8 @@ func run() -> Array[String]:
 		for drop_button_name in ["MillButton", "LumberButton", "MiningButton"]:
 			if hud.find_child(drop_button_name, true, false) == null:
 				failures.append("HUD should expose %s for drop-off buildings" % drop_button_name)
-		if ground.get_child_count() < 10:
-			failures.append("match ground should spawn grass tiles covering the play area")
+		if ground.get_child_count() == 0 or not ground.get_child(0) is Polygon2D or (ground.get_child(0) as Polygon2D).texture == null:
+			failures.append("match ground should provide textured terrain covering the play area")
 		var player_billboard := unit.get_node_or_null("Billboard") as AnimatedSprite2D
 		var ai_villager := entities.get_node_or_null("AiVillager1") as Node2D
 		if ai_villager != null:
@@ -171,9 +171,9 @@ func run() -> Array[String]:
 			failures.append("bootstrap should spawn gatherable food")
 		elif town_center == null or not town_center.has_method("accepts_resource"):
 			failures.append("bootstrap should spawn a resource drop-off TC")
-		elif town_center.get("sim_pos") != Vector2(-40.0, -40.0):
+		elif town_center.get("sim_pos") != preload("res://scripts/world/default_map_generator.gd").BASE_POSITION:
 			failures.append("player TC should spawn at the player base origin")
-		elif ai_town_center == null or ai_town_center.get("sim_pos") != Vector2(40.0, 40.0):
+		elif ai_town_center == null or ai_town_center.get("sim_pos") != -preload("res://scripts/world/default_map_generator.gd").BASE_POSITION:
 			failures.append("AI TC should spawn at the opposite base origin")
 		elif entities.get_node_or_null("PlayerVillager4") == null:
 			failures.append("Chinese should start with four villagers")

@@ -7,32 +7,23 @@ const Catalog := preload("res://scripts/data/game_catalog.gd")
 const AgeService := preload("res://scripts/systems/age_progression.gd")
 const TechnologyService := preload("res://scripts/systems/technology_progression.gd")
 
-const GROUND_COLOR := Color(0.20, 0.48, 0.16)
-const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
-const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
-const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
-const VILLAGER_DEF := preload("res://data/units/villager.tres")
-const TOWN_CENTER_DEF := preload("res://data/buildings/town_center.tres")
 const CHINESE_CIV := preload("res://data/civs/chinese.tres")
 const TEUTONS_CIV := preload("res://data/civs/teutons.tres")
-const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
-const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const AiGatewayScript := preload("res://scripts/ai_gateway/ai_gateway.gd")
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
-const GROUND_MIN := -60
-const GROUND_MAX := 60
-const GROUND_STEP := 8
 const MapLoaderScript := preload("res://scripts/world/map_loader.gd")
 const MapDataScript := preload("res://scripts/world/map_data.gd")
+const DefaultMap := preload("res://scripts/world/default_map_generator.gd")
 
 var match_state := MatchState.new()
 var player_civ: CivDef
 var ai_civ: CivDef
-var map_bounds := Rect2(-60, -60, 120, 120)
+var map_bounds := Rect2(Vector2.ONE * (-DefaultMap.DEFAULT_SIZE * 0.5), Vector2.ONE * DefaultMap.DEFAULT_SIZE)
 var map_data: Dictionary = {}
+var generated_default_map := false
 
 func _ready() -> void:
 	match_state.fog_enabled = true
@@ -48,13 +39,16 @@ func _ready() -> void:
 	match_state.team_civilizations = {0:player_civ.id, 1:ai_civ.id}
 	match_state.unit_catalog.assign(Catalog.units().values())
 	map_data = GameSession.match_map_data.duplicate(true)
-	if not map_data.is_empty():
-		var errors := MapDataScript.validate(map_data)
-		if not errors.is_empty():
-			GameSession.menu_notice = "地图无法启动：" + "；".join(errors)
-			get_tree().call_deferred("change_scene_to_file", "res://scenes/civ_select.tscn")
-			return
-		map_bounds = MapDataScript.bounds(map_data)
+	generated_default_map = map_data.is_empty()
+	if generated_default_map:
+		map_data = DefaultMap.generate(DefaultMap.DEFAULT_SEED, player_civ.id, ai_civ.id)
+	var errors := MapDataScript.validate(map_data)
+	if not errors.is_empty():
+		GameSession.menu_notice = "地图无法启动：" + "；".join(errors)
+		get_tree().call_deferred("change_scene_to_file", "res://scenes/civ_select.tscn")
+		return
+	map_bounds = MapDataScript.bounds(map_data)
+	match_state.map_bounds = map_bounds
 	_setup_ground()
 	_setup_nav()
 	_setup_vision()
@@ -130,13 +124,12 @@ func _setup_debug_overlay() -> void:
 
 func _focus_camera_on_player_base() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D
-	var focus := Vector2(-40, -40)
-	if GameSession.online_active and GameSession.local_team() == Enums.Team.AI:
-		focus = Vector2(40, 40)
+	var focus := DefaultMap.BASE_POSITION
+	var focus_team := "player" if GameSession.local_team() == Enums.Team.PLAYER else "ai"
 	if not map_data.is_empty():
 		focus = map_bounds.get_center()
 		for record in map_data.entities:
-			if record.get("team") == "player":
+			if record.get("team") == focus_team:
 				focus = MapDataScript.position_of(record)
 				if record.get("building_id") == "town_center":
 					break
@@ -148,32 +141,7 @@ func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D
 	if ground == null:
 		return
-	if not map_data.is_empty():
-		MapLoaderScript.setup_ground(map_data, ground)
-		return
-	for child in ground.get_children():
-		child.free()
-	var texture: Texture2D = null
-	if ResourceLoader.exists(TERRAIN_TEXTURE):
-		texture = load(TERRAIN_TEXTURE) as Texture2D
-	var lx := GROUND_MIN
-	while lx <= GROUND_MAX:
-		var lz := GROUND_MIN
-		while lz <= GROUND_MAX:
-			var tile := Sprite2D.new()
-			tile.centered = true
-			tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			tile.z_index = -100
-			if texture != null:
-				tile.texture = texture
-				tile.modulate = Color(1.0, 1.0, 1.0, 1.0)
-				tile.scale = Vector2(0.35, 0.35)
-			else:
-				tile.modulate = GROUND_COLOR
-			tile.position = IsoMathScript.world_to_screen(Vector2(float(lx), float(lz)))
-			ground.add_child(tile)
-			lz += GROUND_STEP
-		lx += GROUND_STEP
+	MapLoaderScript.setup_ground(map_data, ground)
 
 func _spawn_entities() -> void:
 	if GameSession.online_active and GameSession.local_team() != Enums.Team.PLAYER:
@@ -181,103 +149,13 @@ func _spawn_entities() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D
 	if entities == null or entities.get_child_count() > 0:
 		return
-	if not map_data.is_empty():
-		MapLoaderScript.spawn_entities(map_data, entities, match_state, false, {Enums.Team.PLAYER: player_civ, Enums.Team.AI: ai_civ})
-		return
-
-	_spawn_base(
-		entities, Enums.Team.PLAYER, player_civ,
-		Vector2(-40.0, -40.0), "Player", 1.0
-	)
-	_spawn_base(
-		entities, Enums.Team.AI, ai_civ,
-		Vector2(40.0, 40.0), "Ai", -1.0
-	)
-
-func _spawn_base(
-	entities: Node2D,
-	team: Enums.Team,
-	civ: CivDef,
-	origin: Vector2,
-	prefix: String,
-	direction: float
-) -> void:
-	var town_center := BUILDING_VIEW.instantiate() as Node2D
-	town_center.name = "%sTownCenter" % prefix
-	town_center.set("team", team)
-	town_center.set("def", Catalog.get_building(&"town_center"))
-	town_center.set("civ", civ)
-	town_center.set("match_state", match_state)
-	town_center.set("accepts_all_resources", true)
-	town_center.set("sim_pos", origin)
-	entities.add_child(town_center)
-
-	var villager_count := 3 + civ.extra_starting_villagers
-	var villager_offsets := [
-		Vector2(5.0, 0.0),
-		Vector2(3.5, 3.5),
-		Vector2(0.0, 5.0),
-		Vector2(5.0, 5.0),
-	]
-	for index in villager_count:
-		var villager := UNIT_VIEW.instantiate() as Node2D
-		villager.name = "%sVillager%d" % [prefix, index + 1]
-		villager.set("team", team)
-		villager.set("def", Catalog.get_unit(&"villager"))
-		villager.set("civ", civ)
-		villager.set("match_state", match_state)
-		villager.set("sim_pos", origin + villager_offsets[index] * direction)
-		entities.add_child(villager)
-
-	_spawn_resource(
-		entities, "%sFoodBush" % prefix, Enums.ResourceType.FOOD,
-		origin + Vector2(9.0, 2.0) * direction,
-		Color(0.35, 0.75, 0.20)
-	)
-	_spawn_resource(
-		entities, "%sTree" % prefix, Enums.ResourceType.WOOD,
-		origin + Vector2(7.0, -6.0) * direction,
-		Color(0.12, 0.42, 0.12)
-	)
-	_spawn_resource(
-		entities, "%sGoldMine" % prefix, Enums.ResourceType.GOLD,
-		origin + Vector2(5.0, 9.0) * direction,
-		Color(0.92, 0.72, 0.12)
-	)
-
-	_spawn_resource(entities, "%sStoneMine" % prefix, Enums.ResourceType.STONE,
-		origin + Vector2(-6.0, 9.0) * direction, Color("adada5"))
+	MapLoaderScript.spawn_entities(map_data, entities, match_state, false, {Enums.Team.PLAYER: player_civ, Enums.Team.AI: ai_civ})
+	if generated_default_map:
+		for entity in entities.get_children():
+			entity.name = entity.get_meta("map_id")
 
 func _civ_for_id(civ_id: StringName) -> CivDef:
 	return TEUTONS_CIV if civ_id == &"teutons" else CHINESE_CIV
-
-func _spawn_resource(
-	parent: Node2D,
-	node_name: String,
-	resource_type: Enums.ResourceType,
-	spawn_position: Vector2,
-	color: Color
-) -> void:
-	var resource := ResourceNodeScript.new()
-	resource.name = node_name
-	resource.resource_type = resource_type
-	resource.amount = 3000.0
-	resource.gather_rate = 4.0
-	resource.sim_pos = spawn_position
-	resource.add_child(_make_marker(color))
-	parent.add_child(resource)
-
-func _make_marker(color: Color) -> Polygon2D:
-	var marker := Polygon2D.new()
-	marker.name = "Marker"
-	marker.color = color
-	marker.polygon = PackedVector2Array([
-		Vector2(-10, -10),
-		Vector2(10, -10),
-		Vector2(10, 10),
-		Vector2(-10, 10),
-	])
-	return marker
 
 func _setup_building_controls() -> void:
 	var match_root := get_parent()

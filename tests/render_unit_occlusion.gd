@@ -140,6 +140,18 @@ func _run() -> void:
 	viewport.size = Vector2i(480, 320)
 	await compare("viewport resize", true)
 	check(renderer.mask_view.size == viewport.size, "mask resizes with the game viewport")
+	building.position = Vector2(180, 10000)
+	await compare("static spatial cache moves offscreen", false)
+	building.position = Vector2(180, 180)
+	await compare("static spatial cache returns onscreen", true)
+	entities.position = Vector2(10000, 0)
+	await compare("static ancestor moves offscreen", false)
+	entities.position = Vector2.ZERO
+	await compare("static ancestor returns onscreen", true)
+	var idle_redraws: int = renderer.mask_redraws
+	await frame()
+	await frame()
+	check(renderer.mask_redraws == idle_redraws, "unchanged transforms/textures reuse the rendered mask")
 	var fillers: Array[Node] = []
 	for i in 260:
 		var filler := StaticStub.new()
@@ -152,6 +164,7 @@ func _run() -> void:
 		entities.add_child(filler)
 		fillers.append(filler)
 	await compare("more than 256 draw ranks", true)
+	check(renderer.static_registered > 256, "late-added occluders enter the registry without rescanning scene groups")
 	for filler in fillers:
 		filler.free()
 	building.remove_from_group("buildings")
@@ -279,7 +292,10 @@ func _compare_window(label: String, save_preview: bool) -> void:
 			var mask_pixel := mask.get_pixel(int((x + 0.5) * mask.get_width() / outlined.get_width()), int((y + 0.5) * mask.get_height() / outlined.get_height()))
 			if mask_pixel.r == 0.0 and mask_pixel.g == 0.0:
 				outside += 1
-	check(changed > 100, "%s must outline villagers beneath the roof (%d pixels)" % [label, changed])
+	# The same outline occupies fewer pixels in a smaller game window. Keep the
+	# minimum visible area proportional to the rendered resolution.
+	var minimum_outline_pixels := int(100.0 * pow(outlined.get_height() / 720.0, 2.0))
+	check(changed > minimum_outline_pixels, "%s must outline villagers beneath the roof (%d pixels)" % [label, changed])
 	check(outside == 0, "%s must leave uncovered pixels unchanged (%d outside)" % [label, outside])
 	if save_preview:
 		outlined.save_png("res://.godot/unit-occlusion-match.png")

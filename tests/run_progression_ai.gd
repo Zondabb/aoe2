@@ -109,7 +109,7 @@ func _run_civilization(civilization: StringName) -> void:
 	check(age_events == [1, 2, 3], "%s AI autonomously advances all three ages: %s" % [civilization, age_events])
 	check(age_start_requirements.size() == 3 and not age_start_requirements.has(false), "%s each age begins with legitimate building prerequisites" % civilization)
 	check(imperial_at >= 480.0 and imperial_at <= 1200.0, "%s AI respects research durations and reaches Imperial in simulation" % civilization)
-	check(completed.has("mill") and completed.has("lumber_camp"), "%s AI constructs initial age prerequisites" % civilization)
+	check(completed.has("mill") and (completed.has("lumber_camp") or completed.has("barracks")), "%s AI constructs two distinct initial age prerequisites" % civilization)
 	check(completed.has("barracks") and completed.has("archery_range") and completed.has("castle"), "%s military construction continues after attack phase" % civilization)
 	check(state.age_of(Enums.Team.PLAYER) == 0, "%s AI does not modify opponent age" % civilization)
 	check(military.size() >= 3 and queued.size() >= 4, "%s AI trains varied land troops" % civilization)

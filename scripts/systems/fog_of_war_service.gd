@@ -61,15 +61,25 @@ func state_at(team: int, pos: Vector2) -> int:
 	return State.EXPLORED if explored[team][index] != 0 else State.UNEXPLORED
 
 func footprint_visible(team: int, pos: Vector2, footprint: Vector2, require_all := false) -> bool:
+	return rect_visible(team, footprint_cells(pos, footprint), require_all)
+
+## Static entities reuse this cell rectangle instead of converting their world
+## footprint separately for both teams on every visibility / memory pass.
+func footprint_cells(pos: Vector2, footprint: Vector2) -> Rect2i:
 	var half := footprint * 0.5
 	var lo := cell_at(pos - half)
 	# Right/bottom edges are exclusive except a point-sized query.
 	var hi := cell_at(pos + (half - Vector2.ONE * 0.00001).max(Vector2.ZERO))
-	if lo.x < 0 or hi.x < 0 or not visible_now.has(team):
+	if lo.x < 0 or hi.x < 0:
+		return Rect2i(-1, -1, 0, 0)
+	return Rect2i(lo, hi - lo + Vector2i.ONE)
+
+func rect_visible(team: int, cells: Rect2i, require_all := false) -> bool:
+	if cells.position.x < 0 or cells.size.x <= 0 or cells.size.y <= 0 or not visible_now.has(team):
 		return false
 	var mask: PackedByteArray = visible_now[team]
-	for y in range(lo.y, hi.y+1):
-		for x in range(lo.x, hi.x+1):
+	for y in range(cells.position.y, cells.end.y):
+		for x in range(cells.position.x, cells.end.x):
 			var seen := mask[y*side+x] != 0
 			if require_all and not seen:
 				return false

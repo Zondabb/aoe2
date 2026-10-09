@@ -808,13 +808,21 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_con
 			for other in get_tree().get_nodes_in_group("units"):
 				if other != self and sim_pos.distance_squared_to(other.sim_pos) < query_radius * query_radius:
 					units.append(other)
-		solids.append_array(get_tree().get_nodes_in_group("buildings"))
-		solids.append_array(get_tree().get_nodes_in_group("path_blockers"))
-		for resource in get_tree().get_nodes_in_group("resource_nodes"):
-			if resource.amount > 0 and ResourceNode.resource_blocks_pathfinding(resource.resource_type):
-				solids.append(resource)
+		var nav_holder := get_tree().get_first_node_in_group("nav_service")
+		if nav_holder != null and nav_holder.has_method("query_static_blockers"):
+			# Include the complete prediction circle: avoidance may turn in any
+			# direction, and large footprints are indexed by all occupied buckets.
+			var reach := _pathfinding_radius() + def.move_speed * maxf(Avoidance.HORIZON, delta)
+			solids = nav_holder.query_static_blockers(from_pos, from_pos, reach)
+		else:
+			# Small standalone arenas may not install the navigation holder.
+			solids.append_array(get_tree().get_nodes_in_group("buildings"))
+			solids.append_array(get_tree().get_nodes_in_group("path_blockers"))
+			for resource in get_tree().get_nodes_in_group("resource_nodes"):
+				if resource.amount > 0 and ResourceNode.resource_blocks_pathfinding(resource.resource_type):
+					solids.append(resource)
 	var preferred := (desired_pos - from_pos) / maxf(delta, 0.00001)
-	sim_pos = Avoidance.step(self, preferred, _locomotion_velocity, delta, units, solids)
+	sim_pos = Avoidance.step(self, preferred, _locomotion_velocity, delta, units, solids, _move_target)
 	_vision_sync_position()
 
 
@@ -904,6 +912,10 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	if distance <= ARRIVAL_DISTANCE:
 		if _advance_path_waypoint():
 			return
+		# A clearance grid may stop before the precise working position. Once
+		# consumed, keep steering toward that position instead of walking back
+		# to the final grid point after each short direct step.
+		_path_index = _path.size()
 		if sim_pos.distance_to(_move_target) > ARRIVAL_DISTANCE:
 			_direct_step_toward(_move_target, delta)
 			return

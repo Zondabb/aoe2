@@ -7,12 +7,18 @@ const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.
 var economy: Dictionary = {}
 var derived: Dictionary = {}
 var entities: Array = []
+var map_bounds := Rect2()
 
 
 func load_from_dict(observation: Dictionary) -> void:
 	economy = observation.get("economy", {}) as Dictionary
 	derived = observation.get("derived", {}) as Dictionary
 	entities = observation.get("entities", []) as Array
+	map_bounds = Rect2()
+	var box: Variant = observation.get("map_bounds")
+	if box is Dictionary and AiProtocolScript.array_to_vec2(box.get("min")) != null and AiProtocolScript.array_to_vec2(box.get("max")) != null:
+		var minimum: Vector2 = AiProtocolScript.array_to_vec2(box.min)
+		map_bounds = Rect2(minimum, AiProtocolScript.array_to_vec2(box.max) - minimum)
 
 
 func apply_to_blackboard(blackboard: AiBlackboard, team: Enums.Team, enemy_team: Enums.Team) -> void:
@@ -20,6 +26,7 @@ func apply_to_blackboard(blackboard: AiBlackboard, team: Enums.Team, enemy_team:
 		return
 	blackboard.match_time = float(derived.get("match_time_sec", 0.0))
 	blackboard.ai_team = team
+	blackboard.map_bounds = map_bounds
 	blackboard.enemy_team = enemy_team
 	blackboard.food = int(economy.get("food", 0))
 	blackboard.wood = int(economy.get("wood", 0))

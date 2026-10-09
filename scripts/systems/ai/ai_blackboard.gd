@@ -31,6 +31,7 @@ var incomplete_buildings := 0
 ## 双方城镇中心位置；threat_near_base 驱动 DEFEND 阶段。
 var own_tc_pos := Vector2.ZERO
 var enemy_tc_pos := Vector2.ZERO
+var map_bounds := Rect2()
 var threat_near_base := false
 
 ## 本方实体列表 + 全图资源点（资源不分阵营）。
@@ -66,6 +67,7 @@ func refresh(
 
 	if match_state == null or entities == null:
 		return
+	map_bounds = match_state.map_bounds
 
 	food = match_state.get_resource(team, Enums.ResourceType.FOOD)
 	wood = match_state.get_resource(team, Enums.ResourceType.WOOD)

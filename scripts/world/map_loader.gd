@@ -61,6 +61,8 @@ static func spawn_entity(record: Dictionary, parent: Node2D, state: MatchState, 
 			entity.set("resource_type", Catalog.RESOURCES[id])
 			entity.set("amount", float(record.amount))
 			entity.set("gather_rate", float(record.gather_rate))
+			if record.has("block_size"):
+				entity.set("block_size_override", Vector2(record.block_size[0], record.block_size[1]))
 	if entity == null:
 		return null
 	if record.type != "resource":

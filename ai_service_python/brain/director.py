@@ -9,6 +9,7 @@ from brain.command_builder import CommandContext
 from brain.economy_manager import EconomyManager
 from brain.land_progression import LandProgression
 from brain.production_manager import ProductionManager
+from brain.scout_manager import ScoutManager
 from brain.profile_loader import CivAiProfile, profile_for_id
 from brain.stores import (
     PHASE_ATTACK,
@@ -37,6 +38,7 @@ class AiDirector:
         self._production = ProductionManager()
         self._army = ArmyManager()
         self._combat = CombatManager()
+        self._scout = ScoutManager()
         self._event_store = EventStore()
         self._blackboard = Blackboard()
 
@@ -45,6 +47,8 @@ class AiDirector:
         self._previous_phase = PHASE_ECO
         self._next_build_slot = 0
         self._event_store.clear()
+        self._scout.reset()
+        self._economy.reset()
 
     def apply_events(self, events: list[dict[str, Any]]) -> None:
         self._event_store.apply(events)
@@ -121,6 +125,7 @@ class AiDirector:
             self._army.rally_to_base(ctx, self._blackboard, self.profile)
             self._combat.tick_army(ctx, self._blackboard, self.profile, enemy_team)
 
+        self._scout.tick(ctx, self._blackboard, self.phase)
         self._next_build_slot = ctx.next_build_slot
         return TickResponse(
             match_id=match_id,

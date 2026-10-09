@@ -289,7 +289,8 @@ func _test_accelerated_match_progression(failures: Array[String]) -> void:
 		if entity.get("def") is BuildingDef:
 			entity.def = load("res://data/buildings/%s.tres" % entity.def.id)
 		elif entity.get("def") is UnitDef:
-			entity.def = load("res://data/units/%s.tres" % entity.def.id)
+			var legacy_path := "res://data/units/%s.tres" % entity.def.id
+			if ResourceLoader.exists(legacy_path): entity.def = load(legacy_path)
 		entity.call("_ready")
 	var ai := AI_CONTROLLER.new()
 	scene_root.add_child(ai)

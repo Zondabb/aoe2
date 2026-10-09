@@ -4,6 +4,17 @@ extends RefCounted
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 const BuildSystemScript := preload("res://scripts/systems/build_system.gd")
+const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
+
+## Original DAT footprints are smaller than the rendered ground covered by the
+## imported artwork. Reserve original tiles at the same 4× distance scale as
+## movement/vision, then leave one original tile for workers and army traffic.
+## This is settlement planning only; player/protocol construction rules stay intact.
+const SETTLEMENT_FOOTPRINT_SCALE := 4.0
+const SETTLEMENT_LANE_WIDTH := 4.0
+const SETTLEMENT_EDGE_MARGIN := 4.0
+const SETTLEMENT_SLOT_STEP := 8
+const SETTLEMENT_MAX_RADIUS := 96
 
 
 static func idle_villager(villagers: Array[Node2D]) -> Node2D:
@@ -211,36 +222,82 @@ static func next_build_position(
 	var existing := all_buildings(entities)
 	var origin: Vector2 = town_center.get("sim_pos")
 	var side := _build_side_sign(origin)
-	# 环 TC 放置，优先在村民/资源一侧（朝地图中心），避免路径穿过 TC
-	var offsets := [
-		Vector2(6.0, 0.0),
-		Vector2(6.0, 4.0),
-		Vector2(4.0, 6.0),
-		Vector2(0.0, 6.0),
-		Vector2(8.0, 2.0),
-		Vector2(8.0, 6.0),
-		Vector2(6.0, 8.0),
-		Vector2(10.0, 0.0),
-		Vector2(10.0, 4.0),
-		Vector2(8.0, 8.0),
-		Vector2(4.0, 10.0),
-		Vector2(12.0, 2.0),
-	]
-	# A four-age base outgrows the opening slots. Expand toward the map center.
-	for radius in range(14, 39, 4):
-		for offset in range(0, radius + 1, 4):
+	var offsets: Array[Vector2] = []
+	# Prefer the inner side of the map; expand in deterministic, roomy rings.
+	for radius in range(16, SETTLEMENT_MAX_RADIUS + 1, SETTLEMENT_SLOT_STEP):
+		for offset in range(0, radius + 1, SETTLEMENT_SLOT_STEP):
 			offsets.append(Vector2(radius, offset))
-			offsets.append(Vector2(offset, radius))
+			if offset != radius:
+				offsets.append(Vector2(offset, radius))
+	var resources: Array[Node2D] = []
+	for node in entities.get_children():
+		if node.has_method("extract") and not node.get("def") is BuildingDef:
+			if float(node.get("amount")) > 0.0 and FogAccess.can_see(town_center, node):
+				resources.append(node as Node2D)
+	var bounds := _settlement_map_bounds(town_center)
 	for index in offsets.size():
-		var slot := (build_slot + index) % offsets.size()
+		var slot := posmod(build_slot + index, offsets.size())
 		var candidate: Vector2 = origin + offsets[slot] * side
 		var fog := FogAccess.for_node(town_center)
 		var state: MatchState = town_center.get("match_state")
 		if state != null and state.fog_enabled and fog != null and not fog.footprint_visible(town_center.get("team"), candidate, building_def.footprint, true):
 			continue
-		if BuildSystemScript.can_place(building_def.footprint, candidate, existing):
+		if can_plan_settlement(building_def.footprint, candidate, existing, resources, bounds):
 			return candidate
 	return null
+
+
+## A building must leave a traversable lane around visual ground footprints,
+## gathering space beside resources, and a lane inside rectangular map edges.
+static func can_plan_settlement(
+	footprint: Vector2, center: Vector2, existing: Array,
+	resources: Array = [], bounds: Rect2 = Rect2()
+) -> bool:
+	if not BuildSystemScript.can_place(footprint, center, existing):
+		return false
+	var half := footprint * (SETTLEMENT_FOOTPRINT_SCALE * 0.5)
+	if bounds.has_area():
+		var margin := half + Vector2.ONE * SETTLEMENT_EDGE_MARGIN
+		if not bounds.encloses(Rect2(center - margin, margin * 2.0)):
+			return false
+	for value in existing:
+		var building := value as Node2D
+		if not is_instance_valid(building) or building.is_queued_for_deletion() or building.get("is_placement_ghost") == true:
+			continue
+		var definition := building.get("def") as BuildingDef
+		var other_half := (definition.footprint if definition != null else Vector2.ONE) * (SETTLEMENT_FOOTPRINT_SCALE * 0.5)
+		if _settlement_boxes_overlap(center, half, building.get("sim_pos"), other_half):
+			return false
+	for value in resources:
+		var resource := value as Node2D
+		if not is_instance_valid(resource) or resource.is_queued_for_deletion() or float(resource.get("amount")) <= 0.0:
+			continue
+		var other_half := ResourceNodeScript.selection_footprint(resource.get("resource_type")) * (SETTLEMENT_FOOTPRINT_SCALE * 0.5)
+		if _settlement_boxes_overlap(center, half, resource.get("sim_pos"), other_half):
+			return false
+	return true
+
+
+static func _settlement_boxes_overlap(a: Vector2, half_a: Vector2, b: Vector2, half_b: Vector2) -> bool:
+	var required := half_a + half_b + Vector2.ONE * SETTLEMENT_LANE_WIDTH
+	var offset := (a - b).abs()
+	return offset.x < required.x and offset.y < required.y
+
+
+static func _settlement_map_bounds(town_center: Node2D) -> Rect2:
+	var fog := FogAccess.for_node(town_center)
+	if fog != null:
+		return Rect2(fog.get("map_origin"), fog.get("map_end") - fog.get("map_origin"))
+	# Fixtures and custom sandboxes may have no fog service.
+	var ancestor: Node = town_center
+	while ancestor != null:
+		var bootstrap := ancestor.get_node_or_null("Bootstrap")
+		if bootstrap != null:
+			var bounds: Variant = bootstrap.get("map_bounds")
+			if bounds is Rect2:
+				return bounds
+		ancestor = ancestor.get_parent()
+	return Rect2()
 
 
 ## 基地在地图负角时村民在 TC 朝中心一侧；正角时相反。建筑跟同一侧扩展。

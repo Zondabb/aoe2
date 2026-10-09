@@ -36,9 +36,13 @@ var _solid_cells_cache: Array[Vector2i] = []
 var _solid_cells_dirty := true
 var _blocker_marks: Array[Dictionary] = []
 var _solid_by_radius: Dictionary = {}
+var _solid_indices_by_radius: Dictionary = {}
 var _solid_radius_order: Array[String] = []
 var _active_radius_key := ""
 var _query_radius := DEFAULT_UNIT_RADIUS
+var _grid_solid := PackedByteArray()
+var _grid_solid_indices := PackedInt32Array()
+var _manual_changed := false
 
 
 func setup(
@@ -60,6 +64,7 @@ func setup_rect(minimum: Vector2i, maximum: Vector2i, p_cell_size: float = CELL_
 	_pending_requests.clear()
 	_blocker_marks.clear()
 	_solid_by_radius.clear()
+	_solid_indices_by_radius.clear()
 	_solid_radius_order.clear()
 	_active_radius_key = ""
 	_solid_cells_dirty = true
@@ -67,6 +72,9 @@ func setup_rect(minimum: Vector2i, maximum: Vector2i, p_cell_size: float = CELL_
 	_solid = PackedByteArray()
 	_solid.resize(_width * _height)
 	_solid.fill(0)
+	_grid_solid = _solid.duplicate()
+	_grid_solid_indices.clear()
+	_manual_changed = false
 	_grid = AStarGrid2D.new()
 	_grid.region = Rect2i(_origin_cell, Vector2i(_width, _height))
 	_grid.cell_size = Vector2(cell_size, cell_size)
@@ -82,17 +90,20 @@ func clear_solids() -> void:
 	_solid.fill(0)
 	_blocker_marks.clear()
 	_solid_by_radius.clear()
+	_solid_indices_by_radius.clear()
 	_solid_radius_order.clear()
 	_active_radius_key = ""
 	_solid_cells_dirty = true
 	_clear_path_cache()
-	for y in _height:
-		for x in _width:
-			_grid.set_point_solid(Vector2i(_origin_cell.x + x, _origin_cell.y + y), false)
+	for idx in _grid_solid_indices:
+		_grid.set_point_solid(_cell_from_index(idx), false)
+	_grid_solid.fill(0)
+	_grid_solid_indices.clear()
+	_manual_changed = false
 
 
-func rebuild_from_blockers(blockers: Array) -> void:
-	clear_solids()
+func rebuild_from_blockers(blockers: Array) -> bool:
+	var marks: Array[Dictionary] = []
 	for value in blockers:
 		var blocker := value as Object
 		if blocker == null or not is_instance_valid(blocker):
@@ -101,11 +112,23 @@ func rebuild_from_blockers(blockers: Array) -> void:
 		var half := _blocker_half(blocker)
 		if half.x <= 0.0 or half.y <= 0.0:
 			continue
-		_blocker_marks.append({
+		marks.append({
 			"center": center,
 			"half": half,
 		})
+	# Completion signals and repeated network snapshots often retain exactly
+	# the same geometry. Keep clearance layers and routes instead of rebuilding.
+	if marks == _blocker_marks and not _manual_changed:
+		return false
+	_blocker_marks = marks
+	_solid_by_radius.clear()
+	_solid_indices_by_radius.clear()
+	_solid_radius_order.clear()
+	_active_radius_key = ""
+	_manual_changed = false
+	_clear_path_cache()
 	_ensure_active_radius(DEFAULT_UNIT_RADIUS)
+	return true
 
 
 func mark_aabb_solid(center: Vector2, half: Vector2, solid: bool = true) -> void:
@@ -128,7 +151,19 @@ func set_cell_solid(cell: Vector2i, solid: bool) -> void:
 		return
 	if _solid[idx] != (1 if solid else 0):
 		_solid_cells_dirty = true
+		_manual_changed = true
+		_clear_path_cache()
+		_grid.set_point_solid(cell, solid)
+		_grid_solid[idx] = 1 if solid else 0
+		if solid:
+			_grid_solid_indices.append(idx)
+		else:
+			var at := _grid_solid_indices.find(idx)
+			if at >= 0: _grid_solid_indices.remove_at(at)
 	_solid[idx] = 1 if solid else 0
+	if not _active_radius_key.is_empty():
+		_solid_by_radius[_active_radius_key] = _solid
+		_solid_indices_by_radius.erase(_active_radius_key)
 
 
 func is_cell_solid(cell: Vector2i) -> bool:
@@ -399,39 +434,56 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 	inflated.resize(_width * _height)
 	inflated.fill(0)
 	var pad := Vector2(radius, radius)
-	var interior := get_map_rect().grow(-radius)
+	var indices := PackedInt32Array()
+	# Only the thin border can fail clearance against map edges. Stamp it
+	# directly rather than testing every one of the 230,400 interior cells.
+	var left := clampi(ceili(radius / cell_size - 0.5), 0, _width)
+	var top := clampi(ceili(radius / cell_size - 0.5), 0, _height)
+	var right := clampi(ceili(_width - radius / cell_size - 0.5), 0, _width)
+	var bottom := clampi(ceili(_height - radius / cell_size - 0.5), 0, _height)
 	for y in _height:
-		for x in _width:
-			if not interior.has_point(cell_to_world_center(_origin_cell + Vector2i(x, y))):
-				inflated[y * _width + x] = 1
+		if y < top or y >= bottom:
+			for x in _width:
+				_mark_index_on_layer(inflated, y * _width + x, indices)
+		else:
+			for x in left:
+				_mark_index_on_layer(inflated, y * _width + x, indices)
+			for x in range(right, _width):
+				_mark_index_on_layer(inflated, y * _width + x, indices)
 	for mark: Dictionary in _blocker_marks:
 		var center := mark["center"] as Vector2
 		var half := (mark["half"] as Vector2) + pad
-		_mark_aabb_on_layer(inflated, center, half)
+		_mark_aabb_on_layer(inflated, center, half, indices)
 	_solid_by_radius[key] = inflated
+	_solid_indices_by_radius[key] = indices
 	_solid_radius_order.append(key)
 	while _solid_radius_order.size() > MAX_RADIUS_GRID_CACHE:
 		var oldest: String = _solid_radius_order.pop_front()
 		_solid_by_radius.erase(oldest)
+		_solid_indices_by_radius.erase(oldest)
 	return inflated
 
 
-func _mark_aabb_on_layer(layer: PackedByteArray, center: Vector2, half: Vector2) -> void:
+func _mark_aabb_on_layer(layer: PackedByteArray, center: Vector2, half: Vector2, indices: PackedInt32Array) -> void:
 	var min_cell := world_to_cell(center - half)
 	var max_cell := world_to_cell(center + half - Vector2(0.001, 0.001))
 	for cy in range(min_cell.y, max_cell.y + 1):
 		for cx in range(min_cell.x, max_cell.x + 1):
 			var idx := _index_of(Vector2i(cx, cy))
 			if idx >= 0:
-				layer[idx] = 1
+				_mark_index_on_layer(layer, idx, indices)
+
+
+func _mark_index_on_layer(layer: PackedByteArray, idx: int, indices: PackedInt32Array) -> void:
+	if layer[idx] == 0:
+		layer[idx] = 1
+		indices.append(idx)
 
 
 func _rebuild_solid_cells_cache() -> void:
 	_solid_cells_cache = []
-	for y in _height:
-		for x in _width:
-			if _solid[y * _width + x] != 0:
-				_solid_cells_cache.append(Vector2i(_origin_cell.x + x, _origin_cell.y + y))
+	for idx in _indices_for_active_layer():
+		_solid_cells_cache.append(_cell_from_index(idx))
 	_solid_cells_dirty = false
 
 
@@ -470,10 +522,29 @@ func _adapt_cached_path(
 
 
 func _sync_grid_from_solid() -> void:
-	for y in _height:
-		for x in _width:
-			var cell := Vector2i(_origin_cell.x + x, _origin_cell.y + y)
-			_grid.set_point_solid(cell, _solid[y * _width + x] != 0)
+	var next_indices := _indices_for_active_layer()
+	for idx in _grid_solid_indices:
+		if _solid[idx] == 0:
+			_grid.set_point_solid(_cell_from_index(idx), false)
+	for idx in next_indices:
+		if _grid_solid[idx] == 0:
+			_grid.set_point_solid(_cell_from_index(idx), true)
+	_grid_solid = _solid.duplicate()
+	_grid_solid_indices = next_indices.duplicate()
+
+
+func _indices_for_active_layer() -> PackedInt32Array:
+	if _solid_indices_by_radius.has(_active_radius_key):
+		return _solid_indices_by_radius[_active_radius_key]
+	var indices := PackedInt32Array()
+	for idx in _solid.size():
+		if _solid[idx] != 0: indices.append(idx)
+	_solid_indices_by_radius[_active_radius_key] = indices
+	return indices
+
+
+func _cell_from_index(idx: int) -> Vector2i:
+	return _origin_cell + Vector2i(idx % _width, idx / _width)
 
 
 func _find_path_uncached(
@@ -545,6 +616,9 @@ func _blocker_half(blocker: Object) -> Vector2:
 	var building_def := blocker.get("def") as BuildingDef
 	if building_def != null and not building_def.blocks_movement:
 		return Vector2.ZERO
+	if building_def == null and blocker.get("resource_type") != null:
+		if float(blocker.get("amount")) <= 0.0 or not ResourceNodeScript.resource_blocks_pathfinding(int(blocker.get("resource_type"))):
+			return Vector2.ZERO
 	if blocker.get("block_half") is Vector2:
 		var half := blocker.get("block_half") as Vector2
 		if half.x > 0.0 and half.y > 0.0:
@@ -574,11 +648,30 @@ func _simplify_path(points: PackedVector2Array) -> PackedVector2Array:
 	var i := 0
 	while i < points.size() - 1:
 		var furthest := i + 1
-		for j in range(i + 2, points.size()):
-			if _line_clear(points[i], points[j]):
-				furthest = j
-			else:
-				break
+		var last := points.size() - 1
+		if _line_clear(points[i], points[last]):
+			furthest = last
+		else:
+			# Long open stretches should take logarithmic visibility probes,
+			# rather than rewalking every growing prefix of a 480-cell route.
+			var step := 2
+			var blocked := last
+			while i + step < last:
+				var candidate := i + step
+				if not _line_clear(points[i], points[candidate]):
+					blocked = candidate
+					break
+				furthest = candidate
+				step *= 2
+			var low := furthest + 1
+			var high := blocked - 1
+			while low <= high:
+				var candidate := (low + high) / 2
+				if _line_clear(points[i], points[candidate]):
+					furthest = candidate
+					low = candidate + 1
+				else:
+					high = candidate - 1
 		simplified.append(points[furthest])
 		i = furthest
 	return simplified

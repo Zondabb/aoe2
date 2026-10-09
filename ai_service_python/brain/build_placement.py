@@ -4,6 +4,13 @@ from typing import Any
 
 from brain.game_data import BUILDINGS
 
+# Match AiEntityQueries settlement planning, not the player's legal footprint.
+SETTLEMENT_FOOTPRINT_SCALE = 4.0
+SETTLEMENT_LANE_WIDTH = 4.0
+SETTLEMENT_EDGE_MARGIN = 4.0
+SETTLEMENT_SLOT_STEP = 8
+SETTLEMENT_MAX_RADIUS = 96
+
 
 def can_place(
     building_def_id: str,
@@ -33,6 +40,56 @@ def can_place(
     return True
 
 
+def can_plan_settlement(
+    building_def_id: str,
+    center: tuple[float, float],
+    existing_buildings: list[dict[str, Any]],
+    definitions: dict[str, dict] = BUILDINGS,
+    resources: list[dict[str, Any]] | None = None,
+    map_bounds: tuple[float, float, float, float] | None = None,
+) -> bool:
+    """Leave visual clearance and worker lanes without changing build legality.
+
+    ``map_bounds`` is (minimum_x, minimum_y, maximum_x, maximum_y).
+    Only resources present in the team's observation are supplied by callers.
+    """
+    if not can_place(building_def_id, center, existing_buildings, definitions):
+        return False
+    footprint = definitions[building_def_id]["footprint"]
+    half = tuple(float(side) * SETTLEMENT_FOOTPRINT_SCALE * 0.5 for side in footprint)
+    if map_bounds is not None:
+        minimum_x, minimum_y, maximum_x, maximum_y = map_bounds
+        if (
+            center[0] - half[0] - SETTLEMENT_EDGE_MARGIN < minimum_x
+            or center[1] - half[1] - SETTLEMENT_EDGE_MARGIN < minimum_y
+            or center[0] + half[0] + SETTLEMENT_EDGE_MARGIN > maximum_x
+            or center[1] + half[1] + SETTLEMENT_EDGE_MARGIN > maximum_y
+        ):
+            return False
+    for existing in existing_buildings:
+        other_fp = definitions.get(str(existing.get("def_id", "")), {}).get("footprint", (1.0, 1.0))
+        other_half = tuple(float(side) * SETTLEMENT_FOOTPRINT_SCALE * 0.5 for side in other_fp)
+        if _boxes_overlap(center, half, existing.get("pos", (0.0, 0.0)), other_half):
+            return False
+    resource_footprints = {"FOOD": 0.8, "WOOD": 1.2, "GOLD": 2.0, "STONE": 2.0}
+    for resource in resources or []:
+        if float(resource.get("amount", 0)) <= 0 or resource.get("kind") == "building":
+            continue
+        side = resource_footprints.get(str(resource.get("resource_type", "")).upper(), 0.0)
+        other_half = (side * SETTLEMENT_FOOTPRINT_SCALE * 0.5,) * 2
+        if _boxes_overlap(center, half, resource.get("pos", (0.0, 0.0)), other_half):
+            return False
+    return True
+
+
+def _boxes_overlap(center: tuple, half: tuple, other_center: tuple | list, other_half: tuple) -> bool:
+    return all(
+        abs(float(center[axis]) - float(other_center[axis]))
+        < half[axis] + other_half[axis] + SETTLEMENT_LANE_WIDTH
+        for axis in (0, 1)
+    )
+
+
 def build_side_sign(origin: tuple[float, float]) -> tuple[float, float]:
     sx = 1.0
     sy = 1.0
@@ -53,6 +110,8 @@ def next_build_position(
     all_buildings: list[dict[str, Any]],
     build_slot: int,
     definitions: dict[str, dict] = BUILDINGS,
+    resources: list[dict[str, Any]] | None = None,
+    map_bounds: tuple[float, float, float, float] | None = None,
 ) -> tuple[float, float] | None:
     if town_center is None:
         return None
@@ -61,27 +120,16 @@ def next_build_position(
         float(town_center["pos"][1]),
     )
     side = build_side_sign(origin)
-    offsets = [
-        (6.0, 0.0),
-        (6.0, 4.0),
-        (4.0, 6.0),
-        (0.0, 6.0),
-        (8.0, 2.0),
-        (8.0, 6.0),
-        (6.0, 8.0),
-        (10.0, 0.0),
-        (10.0, 4.0),
-        (8.0, 8.0),
-        (4.0, 10.0),
-        (12.0, 2.0),
-    ]
-    for radius in range(14, 39, 4):
-        for offset in range(0, radius + 1, 4):
-            offsets.extend(((float(radius), float(offset)), (float(offset), float(radius))))
+    offsets = []
+    for radius in range(16, SETTLEMENT_MAX_RADIUS + 1, SETTLEMENT_SLOT_STEP):
+        for offset in range(0, radius + 1, SETTLEMENT_SLOT_STEP):
+            offsets.append((float(radius), float(offset)))
+            if offset != radius:
+                offsets.append((float(offset), float(radius)))
     for index in range(len(offsets)):
         slot = (build_slot + index) % len(offsets)
         ox, oy = offsets[slot]
         candidate = (origin[0] + ox * side[0], origin[1] + oy * side[1])
-        if can_place(building_def_id, candidate, all_buildings, definitions):
+        if can_plan_settlement(building_def_id, candidate, all_buildings, definitions, resources, map_bounds):
             return candidate
     return None

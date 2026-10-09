@@ -11,6 +11,37 @@ var enabled := true
 var mask_view: SubViewport
 var copies: Dictionary = {}
 var outlines: Dictionary = {}
+const STATIC_GROUPS := [&"buildings", &"resource_nodes", &"path_blockers", &"occlusion_memories"]
+const SPATIAL_CELL_PIXELS := 256.0
+var last_update_usec := 0
+var static_candidates := 0
+var static_registered := 0
+var mask_redraws := 0
+var _static_actors: Dictionary = {}
+var _static_sources: Dictionary = {}
+var _dynamic_actors: Dictionary = {}
+var _spatial_cells: Dictionary = {}
+var _unindexed_sources: Dictionary = {}
+var _dirty_sources: Dictionary = {}
+var _queued_nodes: Dictionary = {}
+var _copy_pool: Dictionary = {}
+var _copy_orders: Dictionary = {}
+var _outline_params: Dictionary = {}
+var _composition_invalid := true
+var _pending_mask_frames := 0
+
+## Static sprites do not process every frame. This child receives inherited
+## transform notifications, including when an actor/ancestor moves or scales.
+class TransformTracker extends Node2D:
+	var owner_ref: WeakRef
+	var source_id := 0
+	func _ready() -> void:
+		set_notify_transform(true)
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_TRANSFORM_CHANGED and owner_ref != null:
+			var renderer: Node = owner_ref.get_ref()
+			if renderer != null:
+				renderer._mark_source_dirty(source_id)
 
 static func ensure_for(unit: Node) -> void:
 	if DisplayServer.get_name() == "headless":
@@ -34,6 +65,13 @@ func _ready() -> void:
 	# frame_pre_draw is too late: uniforms update immediately but Sprite2D UVs
 	# would still belong to the previous animation frame, especially on Web.
 	process_priority = 100
+	get_tree().node_added.connect(_queue_node)
+	get_tree().node_removed.connect(_remove_node)
+	for group in STATIC_GROUPS:
+		for actor in get_tree().get_nodes_in_group(group): _register_static_actor(actor)
+	for actor in get_tree().get_nodes_in_group("units"):
+		if actor is Node2D and actor.get_viewport() == get_viewport():
+			_dynamic_actors[actor.get_instance_id()] = actor
 
 func _process(_delta: float) -> void:
 	update_mask()
@@ -42,6 +80,141 @@ func _exit_tree() -> void:
 	for overlay in outlines.values():
 		if is_instance_valid(overlay):
 			overlay.queue_free()
+
+func _queue_node(node: Node) -> void:
+	# node_added can precede the node's cached viewport/group initialization.
+	# Check its final viewport when draining this queue after _ready completes.
+	if node is Node2D and not node is TransformTracker:
+		_queued_nodes[node.get_instance_id()] = weakref(node)
+
+func _is_static_actor(node: Node) -> bool:
+	for group in STATIC_GROUPS:
+		if node.is_in_group(group): return true
+	return false
+
+func _register_static_actor(actor: Node) -> void:
+	if actor is not Node2D or actor.get_viewport() != get_viewport(): return
+	var actor_id := actor.get_instance_id()
+	if not _static_actors.has(actor_id): _static_actors[actor_id] = []
+	for source in actor.get_children():
+		if source is Sprite2D and source.name != &"GroundShadow":
+			_register_static_source(actor, source)
+
+func _register_static_source(actor: Node2D, source: Sprite2D) -> void:
+	var id := source.get_instance_id()
+	if _static_sources.has(id): return
+	_static_sources[id] = {"actor":actor, "source":source, "cells":[]}
+	_static_actors[actor.get_instance_id()].append(id)
+	source.item_rect_changed.connect(_mark_source_dirty.bind(id))
+	source.texture_changed.connect(_mark_source_dirty.bind(id))
+	var tracker := TransformTracker.new()
+	tracker.name = "OcclusionTransformTracker"
+	tracker.owner_ref = weakref(self)
+	tracker.source_id = id
+	source.add_child(tracker)
+	_mark_source_dirty(id)
+
+func _mark_source_dirty(id: int) -> void:
+	if _static_sources.has(id): _dirty_sources[id] = true
+
+func _remove_node(node: Node) -> void:
+	var id := node.get_instance_id()
+	_queued_nodes.erase(id)
+	if _static_sources.has(id): _remove_static_source(id)
+	if _static_actors.has(id):
+		for source_id in _static_actors[id].duplicate(): _remove_static_source(source_id)
+		_static_actors.erase(id)
+	if _dynamic_actors.has(id):
+		_dynamic_actors.erase(id)
+		if outlines.has(id):
+			if is_instance_valid(outlines[id]): outlines[id].queue_free()
+			outlines.erase(id)
+		_outline_params.erase(id)
+		for name in [&"Billboard", &"Body"]:
+			var source := node.get_node_or_null(NodePath(name))
+			if source != null: _release_copy(source.get_instance_id())
+	_release_copy(id)
+
+func _release_copy(id: int) -> void:
+	if _copy_pool.has(id):
+		if is_instance_valid(_copy_pool[id]): _copy_pool[id].free()
+		_copy_pool.erase(id)
+		copies.erase(id)
+		_copy_orders.erase(id)
+		_composition_invalid = true
+
+func _remove_static_source(id: int) -> void:
+	if not _static_sources.has(id): return
+	_remove_source_cells(id)
+	_static_sources.erase(id)
+	_unindexed_sources.erase(id)
+	_dirty_sources.erase(id)
+	_release_copy(id)
+
+func _remove_source_cells(id: int) -> void:
+	for cell in _static_sources[id].cells:
+		if _spatial_cells.has(cell):
+			_spatial_cells[cell].erase(id)
+			if _spatial_cells[cell].is_empty(): _spatial_cells.erase(cell)
+	_static_sources[id].cells = []
+
+func _refresh_source(id: int) -> void:
+	var record: Dictionary = _static_sources[id]
+	var source: Sprite2D = record.source
+	if not is_instance_valid(source):
+		_remove_static_source(id)
+		return
+	_remove_source_cells(id)
+	_unindexed_sources.erase(id)
+	if source.texture == null: return
+	var bounds := Rect2(source.offset, source.texture.get_size())
+	if source.centered: bounds.position -= bounds.size * 0.5
+	# A CanvasLayer has its own camera transform; keep rare layer actors in the
+	# direct candidate set instead of incorrectly indexing them in world space.
+	var ancestor: Node = source
+	while ancestor != get_viewport() and ancestor != null:
+		if ancestor is CanvasLayer:
+			_unindexed_sources[id] = true
+			return
+		ancestor = ancestor.get_parent()
+	var world_bounds: Rect2 = source.get_global_transform() * bounds
+	var first := Vector2i((world_bounds.position / SPATIAL_CELL_PIXELS).floor())
+	var last := Vector2i((world_bounds.end / SPATIAL_CELL_PIXELS).floor())
+	for x in range(first.x, last.x + 1):
+		for y in range(first.y, last.y + 1):
+			var cell := Vector2i(x, y)
+			if not _spatial_cells.has(cell): _spatial_cells[cell] = {}
+			_spatial_cells[cell][id] = true
+			record.cells.append(cell)
+
+func _refresh_registry() -> void:
+	var queued := _queued_nodes.values()
+	_queued_nodes.clear()
+	for reference: WeakRef in queued:
+		var node: Node = reference.get_ref()
+		if node == null or not node.is_inside_tree() or node.get_viewport() != get_viewport(): continue
+		if node.is_in_group("units"):
+			_dynamic_actors[node.get_instance_id()] = node
+		if _is_static_actor(node): _register_static_actor(node)
+		elif node is Sprite2D and node.get_parent() is Node2D and _is_static_actor(node.get_parent()):
+			_register_static_actor(node.get_parent())
+	var changed := _dirty_sources.keys()
+	_dirty_sources.clear()
+	for id in changed:
+		if _static_sources.has(id): _refresh_source(id)
+	static_registered = _static_sources.size()
+
+func _query_static_sources(screen: Rect2) -> Array:
+	var world_rect: Rect2 = get_viewport().get_canvas_transform().affine_inverse() * screen
+	var first := Vector2i((world_rect.position / SPATIAL_CELL_PIXELS).floor())
+	var last := Vector2i((world_rect.end / SPATIAL_CELL_PIXELS).floor())
+	var found := _unindexed_sources.duplicate()
+	for x in range(first.x, last.x + 1):
+		for y in range(first.y, last.y + 1):
+			var cell := Vector2i(x, y)
+			if _spatial_cells.has(cell): found.merge(_spatial_cells[cell])
+	static_candidates = found.size()
+	return found.keys()
 
 func _visible(node: CanvasItem) -> bool:
 	return node.get_viewport() == get_viewport() and node.is_visible_in_tree() and node.modulate.a > 0.01
@@ -84,6 +257,7 @@ func _part(actor: Node2D, source: Node2D, dynamic: bool, screen: Rect2) -> Dicti
 		"dynamic": dynamic, "z": _effective_z(source), "y": source.global_position.y}
 
 func update_mask() -> void:
+	var started := Time.get_ticks_usec()
 	if not is_inside_tree() or mask_view == null:
 		return
 	if not enabled:
@@ -101,28 +275,18 @@ func update_mask() -> void:
 	var pixel_size := Vector2i((Vector2(size) * stretch.get_scale()).round())
 	if mask_view.size != pixel_size:
 		mask_view.size = pixel_size
+		_composition_invalid = true
 	var screen := Rect2(Vector2.ZERO, Vector2(size))
+	_refresh_registry()
 	var parts: Array[Dictionary] = []
 	var alive_outlines: Dictionary = {}
+	var shown_outlines: Dictionary = {}
 	var static_count := 0
-	for group in [&"buildings", &"resource_nodes", &"path_blockers", &"occlusion_memories"]:
-		for actor in get_tree().get_nodes_in_group(group):
-			if actor is not Node2D or not _visible(actor) or actor.get("is_placement_ghost") == true:
-				continue
-			for source in actor.get_children():
-				if source is not Sprite2D or source.name == &"GroundShadow" or source.z_index < 0:
-					continue
-				var part := _part(actor, source, false, screen)
-				if not part.is_empty():
-					parts.append(part)
-					static_count += 1
-	for actor in get_tree().get_nodes_in_group("units"):
+	for actor in _dynamic_actors.values():
 		if actor is not Node2D or actor.get_viewport() != get_viewport():
 			continue
 		var id: int = actor.get_instance_id()
 		alive_outlines[id] = true
-		if is_instance_valid(outlines.get(id)):
-			outlines[id].visible = false
 		if not _visible(actor):
 			continue
 		for name in [&"Billboard", &"Body"]:
@@ -133,6 +297,19 @@ func update_mask() -> void:
 			if not part.is_empty():
 				parts.append(part)
 				break
+	# A viewport without a visible unit needs neither static queries nor a mask.
+	var visible_units := parts.size()
+	static_candidates = 0
+	if visible_units > 0:
+		for id in _query_static_sources(screen):
+			var record: Dictionary = _static_sources[id]
+			var actor: Node2D = record.actor
+			var source: Sprite2D = record.source
+			if not _is_static_actor(actor) or not _visible(actor) or actor.get("is_placement_ghost") == true or source.z_index < 0: continue
+			var part := _part(actor, source, false, screen)
+			if not part.is_empty():
+				parts.append(part)
+				static_count += 1
 	for id in outlines.keys():
 		if not alive_outlines.has(id):
 			if is_instance_valid(outlines[id]):
@@ -140,40 +317,86 @@ func update_mask() -> void:
 			outlines.erase(id)
 	parts.sort_custom(_before)
 	var alive_copies: Dictionary = {}
+	var composition_changed := _composition_invalid
+	_composition_invalid = false
 	var order := 0
 	for part in parts:
 		order += 1
 		var source: Node2D = part.source
 		var id := source.get_instance_id()
 		alive_copies[id] = true
-		var copy := copies.get(id) as Sprite2D
+		var copy := _copy_pool.get(id) as Sprite2D
 		if copy == null:
 			copy = Sprite2D.new()
 			copy.material = ShaderMaterial.new()
 			copy.material.shader = DEPTH
 			mask_view.add_child(copy)
-			copies[id] = copy
-		_copy_sprite(copy, source, part.texture)
-		copy.transform = stretch * part.transform
-		copy.modulate.a = source.modulate.a * source.self_modulate.a * part.actor.modulate.a
+			_copy_pool[id] = copy
+			composition_changed = true
+		copies[id] = copy
+		if not copy.visible:
+			copy.show()
+			composition_changed = true
+		composition_changed = _copy_sprite(copy, source, part.texture) or composition_changed
+		var transform: Transform2D = stretch * part.transform
+		if copy.transform != transform:
+			copy.transform = transform
+			composition_changed = true
+		var opacity: float = source.modulate.a * source.self_modulate.a * part.actor.modulate.a
+		if not is_equal_approx(copy.modulate.a, opacity):
+			copy.modulate.a = opacity
+			composition_changed = true
 		var rank := 0 if part.dynamic else order
-		copy.material.set_shader_parameter("drawing_order", Vector2(rank % 256, rank / 256) / 255.0)
-		mask_view.move_child(copy, mask_view.get_child_count() - 1)
+		if _copy_orders.get(id, -1) != rank:
+			copy.material.set_shader_parameter("drawing_order", Vector2(rank % 256, rank / 256) / 255.0)
+			_copy_orders[id] = rank
+			composition_changed = true
+		if copy.get_index() != order - 1:
+			mask_view.move_child(copy, order - 1)
+			composition_changed = true
 		if part.dynamic and static_count > 0:
 			_update_outline(part, order)
+			shown_outlines[part.actor.get_instance_id()] = true
+	for id in outlines:
+		if not shown_outlines.has(id) and is_instance_valid(outlines[id]) and outlines[id].visible:
+			outlines[id].hide()
 	for id in copies.keys():
 		if not alive_copies.has(id):
-			copies[id].free()
+			copies[id].hide()
 			copies.erase(id)
-	mask_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if static_count > 0 and not outlines.is_empty() else SubViewport.UPDATE_DISABLED
+			composition_changed = true
+	# CanvasItem child order and a newly created atlas copy can reach the GL draw
+	# list one frame after their uniforms. Render a second settling frame before
+	# keeping the mask, otherwise same-Y reorder/new foreground units use old depth.
+	if composition_changed: _pending_mask_frames = 2
+	var should_draw := static_count > 0 and visible_units > 0 and _pending_mask_frames > 0
+	mask_view.render_target_update_mode = SubViewport.UPDATE_ONCE if should_draw else SubViewport.UPDATE_DISABLED
+	if should_draw:
+		mask_redraws += 1
+		_pending_mask_frames -= 1
+	last_update_usec = Time.get_ticks_usec() - started
 
-static func _copy_sprite(copy: Sprite2D, source: Node2D, texture: Texture2D) -> void:
-	copy.texture = texture
-	copy.centered = source.centered
-	copy.offset = source.offset
-	copy.flip_h = source.flip_h
-	copy.flip_v = source.flip_v
-	copy.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+static func _copy_sprite(copy: Sprite2D, source: Node2D, texture: Texture2D) -> bool:
+	var changed := false
+	if copy.texture != texture:
+		copy.texture = texture
+		changed = true
+	if copy.centered != source.centered:
+		copy.centered = source.centered
+		changed = true
+	if copy.offset != source.offset:
+		copy.offset = source.offset
+		changed = true
+	if copy.flip_h != source.flip_h:
+		copy.flip_h = source.flip_h
+		changed = true
+	if copy.flip_v != source.flip_v:
+		copy.flip_v = source.flip_v
+		changed = true
+	if copy.texture_filter != CanvasItem.TEXTURE_FILTER_NEAREST:
+		copy.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		changed = true
+	return changed
 
 func _update_outline(part: Dictionary, order: int) -> void:
 	var actor: Node2D = part.actor
@@ -190,8 +413,9 @@ func _update_outline(part: Dictionary, order: int) -> void:
 		actor.add_child(overlay)
 		outlines[id] = overlay
 	_copy_sprite(overlay, source, part.texture)
-	overlay.transform = source.transform
-	overlay.modulate.a = source.modulate.a * source.self_modulate.a
+	if overlay.transform != source.transform: overlay.transform = source.transform
+	var opacity: float = source.modulate.a * source.self_modulate.a
+	if not is_equal_approx(overlay.modulate.a, opacity): overlay.modulate.a = opacity
 	var texture: Texture2D = part.texture
 	var uv := Rect2(Vector2.ZERO, Vector2.ONE)
 	var sheet_size := texture.get_size()
@@ -200,9 +424,12 @@ func _update_outline(part: Dictionary, order: int) -> void:
 		uv = Rect2(texture.region.position / sheet_size, texture.region.size / sheet_size)
 	var pixel_scale: float = minf(part.transform.x.length(), part.transform.y.length())
 	var color := COLORS.fallback_color(COLORS.resolve_color_id(int(actor.get("team")), actor.get("match_state")))
-	overlay.material.set_shader_parameter("outline_color", color.lightened(0.2))
-	overlay.material.set_shader_parameter("mask_size", Vector2(mask_view.size))
-	overlay.material.set_shader_parameter("unit_order", float(order))
-	overlay.material.set_shader_parameter("frame_uv", Vector4(uv.position.x, uv.position.y, uv.end.x, uv.end.y))
-	overlay.material.set_shader_parameter("outline_step", Vector2.ONE / sheet_size * maxf(1.0, 1.5 / maxf(pixel_scale, 0.01)))
-	overlay.visible = true
+	if not _outline_params.has(id): _outline_params[id] = {}
+	var parameters := {"outline_color": color.lightened(0.2), "mask_size": Vector2(mask_view.size),
+		"unit_order":float(order), "frame_uv":Vector4(uv.position.x, uv.position.y, uv.end.x, uv.end.y),
+		"outline_step":Vector2.ONE / sheet_size * maxf(1.0, 1.5 / maxf(pixel_scale, 0.01))}
+	for key in parameters:
+		if _outline_params[id].get(key) != parameters[key]:
+			overlay.material.set_shader_parameter(key, parameters[key])
+			_outline_params[id][key] = parameters[key]
+	if not overlay.visible: overlay.show()

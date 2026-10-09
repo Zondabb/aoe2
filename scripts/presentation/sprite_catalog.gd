@@ -106,9 +106,12 @@ const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const ISO_CAMERA_YAW_DEGREES := 45.0
 const ISO_SPRITE_YAW_RADIANS := deg_to_rad(ISO_CAMERA_YAW_DEGREES + 180.0)
 
-const UNIT_PIXEL_SCALE_2D := 2.2
-const BUILDING_PIXEL_SCALE_2D := 2.0
-const RESOURCE_PIXEL_SCALE_2D := 2.0
+## DAT/SLP atlases retain the original pixels and relative actor sizes. Share
+## one zoom factor rather than enlarging humans independently of buildings.
+const ORIGINAL_ART_PIXEL_SCALE_2D := 1.2
+const UNIT_PIXEL_SCALE_2D := ORIGINAL_ART_PIXEL_SCALE_2D
+const BUILDING_PIXEL_SCALE_2D := ORIGINAL_ART_PIXEL_SCALE_2D
+const RESOURCE_PIXEL_SCALE_2D := ORIGINAL_ART_PIXEL_SCALE_2D
 ## Shrink sprite-derived nav footprints (resources, water, cliffs). Tune in [0.5, 1.0].
 const PATHFINDING_FOOTPRINT_SCALE := 0.72
 ## Buildings use logical def.footprint; optional slight padding over max side.
@@ -678,12 +681,10 @@ static func pathfinding_footprint_from_meta(
 	return Vector2(side_sim, side_sim)
 
 
-static func building_pixel_scale(def: BuildingDef, meta: Dictionary) -> float:
-	var frame_w := float(meta.get("frame_w", 1))
-	var target_width := maxf(def.footprint.x, def.footprint.y) * IsoMath.SCALE_X * 1.15
-	if frame_w <= 0.0:
-		return BUILDING_PIXEL_SCALE_2D
-	return clampf(target_width / frame_w, 1.2, 3.0)
+static func building_pixel_scale(_def: BuildingDef, _meta: Dictionary) -> float:
+	## Cropped frames include roofs and shadows, not just the foundation. Fitting
+	## their width to a logical footprint changes actor proportions between eras.
+	return BUILDING_PIXEL_SCALE_2D
 
 
 static func pathfinding_footprint_for_building(

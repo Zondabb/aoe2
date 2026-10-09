@@ -407,11 +407,7 @@ func _configure_visuals() -> void:
 			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
 			var hotspot := SpriteCatalogScript.average_hotspot(meta)
 			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
-			var frame_w := float(meta.get("frame_w", 1))
-			var pixel_scale := SpriteCatalogScript.BUILDING_PIXEL_SCALE_2D
-			if def != null and frame_w > 0.0:
-				var target_width := maxf(def.footprint.x, def.footprint.y) * IsoMathScript.SCALE_X * 1.15
-				pixel_scale = clampf(target_width / frame_w, 1.2, 3.0)
+			var pixel_scale := SpriteCatalogScript.building_pixel_scale(def, meta)
 			SpriteCatalogScript.configure_sprite_2d(billboard, pixel_scale, offset)
 			billboard.modulate = Color.WHITE
 			billboard.visible = true

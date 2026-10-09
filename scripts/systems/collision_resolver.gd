@@ -100,6 +100,16 @@ static func static_step_safe(from: Vector2, to: Vector2, radius: float, solids: 
 	return true
 
 
+## Avoidance samples many velocities against the same local blockers. Geometry
+## snapshots remove repeated Object property reads from that inner loop.
+static func static_geometry_step_safe(from: Vector2, to: Vector2, geometry: Array[Dictionary]) -> bool:
+	for solid in geometry:
+		var center: Vector2 = solid.center
+		if segment_hits_box(from - center, to - center, solid.half):
+			return false
+	return true
+
+
 static func segment_hits_box(from: Vector2, to: Vector2, half: Vector2) -> bool:
 	# A tiny inset permits tangential travel exactly along a boundary.
 	half -= Vector2.ONE * 0.0001
@@ -133,6 +143,9 @@ static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 	var building_def := blocker.get("def") as BuildingDef
 	if building_def != null and not building_def.blocks_movement:
 		return Vector2.ZERO
+	if building_def == null and blocker.get("resource_type") != null:
+		if float(blocker.get("amount")) <= 0.0 or not ResourceNodeScript.resource_blocks_pathfinding(int(blocker.get("resource_type"))):
+			return Vector2.ZERO
 	var half_variant: Variant = blocker.get("block_half")
 	if half_variant is Vector2:
 		var half := half_variant as Vector2

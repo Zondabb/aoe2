@@ -25,6 +25,8 @@ static func build(
 	}
 	if match_state == null or entities == null:
 		return observation
+	if match_state.map_bounds.has_area():
+		observation["map_bounds"] = {"min": AiProtocolScript.vec2_to_array(match_state.map_bounds.position), "max": AiProtocolScript.vec2_to_array(match_state.map_bounds.end)}
 
 	if match_state.progression_enabled:
 		observation["progression"] = {"age":match_state.age_of(team),"researched_technologies":match_state.researched_technologies.get(team,{}),"age_research":match_state.age_progression.progress_for(team) if match_state.age_progression != null else {}}

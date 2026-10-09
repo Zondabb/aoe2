@@ -57,6 +57,10 @@ class BuildManager:
         blackboard: Blackboard,
         building_def_id: str,
     ) -> bool:
+        # A captured foundation is absent from this observation's blockers.
+        # Plan another building only after the game applies it and sends a tick.
+        if any(command.op == "place_building" for command in ctx.commands):
+            return False
         building_def = BUILDINGS.get(building_def_id)
         if building_def is None:
             return False
@@ -84,6 +88,8 @@ class BuildManager:
             town_center,
             blackboard.all_buildings,
             ctx.next_build_slot,
+            resources=blackboard.resource_nodes,
+            map_bounds=blackboard.map_bounds,
         )
         if place_position is None:
             return False

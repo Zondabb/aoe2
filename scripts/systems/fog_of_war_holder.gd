@@ -24,6 +24,17 @@ var _grid: Node2D
 var _grid_check: CheckBox
 var _saved_flags: Dictionary = {}
 var _saved_selection: Array = []
+var _entities_dirty := true
+var _live_entities: Array[Node2D] = []
+var _dynamic_entities: Array[Node2D] = []
+var _vision_sources: Array[Node2D] = []
+var _static_records: Array[Dictionary] = []
+var _shown: Dictionary = {}
+var _static_seen := {0: {}, 1: {}}
+var _seen_geometry: Dictionary = {}
+var _static_seen_revision := -1
+var _proxy_states: Dictionary = {}
+var _resource_visual_cache: Dictionary = {}
 
 static func install(root: Node, state: MatchState, minimum: float, maximum: float, default_view := 0) -> void:
 	install_rect(root, state, Vector2(minimum, minimum), Vector2(maximum, maximum), default_view)
@@ -41,7 +52,11 @@ static func install_rect(root: Node, state: MatchState, minimum: Vector2, maximu
 	holder.entities = root.get_node("Entities")
 	holder.base_view = default_view
 	holder.view_team = default_view
-	holder.fog.setup_rect(minimum, maximum)
+	# Larger maps use one fog cell per converted original tile. Keep fine cells
+	# for small authored arenas, and avoid scanning 480² cells at every update.
+	var span := maximum - minimum
+	var cell_size := 4.0 if maxf(span.x, span.y) > 256.0 else 1.0
+	holder.fog.setup_rect(minimum, maximum, cell_size)
 	state.fog_enabled = true
 	state.fog = holder.fog
 	root.set_meta("fog_holder", holder)
@@ -54,7 +69,9 @@ func _ready() -> void:
 	add_to_group("fog_of_war")
 	_create_overlay()
 	_create_debug_panel()
-	match_state.team_color_changed.connect(func(_team: int): _refresh_choice_labels())
+	match_state.team_color_changed.connect(func(_team: int):
+		_refresh_choice_labels()
+		for key in _resource_visual_cache: _resource_visual_dirty(key))
 	entities.child_entered_tree.connect(_entity_changed)
 	entities.child_exiting_tree.connect(_entity_changed)
 	rebuild_now()
@@ -66,6 +83,7 @@ func _entity_changed(node: Node) -> void:
 	if node.has_meta("fog_memory"):
 		return
 	_dirty = true
+	_entities_dirty = true
 	# Prevent newly spawned enemies being rendered before the next visibility tick.
 	if node is CanvasItem and node.get("sim_pos") != null:
 		node.visible = view_can_see(node)
@@ -75,13 +93,16 @@ func _physics_process(delta: float) -> void:
 	if not match_state.frozen and (_dirty or fog.dirty or _elapsed >= 0.1):
 		rebuild_now()
 	else:
-		_apply_visibility()
+		# Moving enemies can cross a visibility cell between fog updates. Static
+		# trees and their memory proxies only need a pass when fog is rebuilt.
+		_apply_visibility(_entities_dirty)
 
 func reset_match() -> void:
 	if debug_mode:
 		set_debug_mode(false)
 	fog.reset()
 	_clear_memory_views()
+	_entities_dirty = true
 	view_team = base_view
 	rebuild_now()
 	_refresh_choice_labels()
@@ -90,73 +111,233 @@ func reset_match() -> void:
 func rebuild_now() -> void:
 	_elapsed = 0.0
 	_dirty = false
-	var nodes := entities.get_children()
-	fog.rebuild(nodes)
-	_update_memories(nodes)
+	_ensure_entity_cache()
+	fog.rebuild(_vision_sources)
+	_update_memories(_live_entities)
 	_sync_texture()
-	_apply_visibility()
+	_apply_visibility(true, true)
 	_update_stats()
 
-func _update_memories(nodes: Array) -> void:
+func _ensure_entity_cache() -> void:
+	if not _entities_dirty: return
+	_entities_dirty = false
+	_live_entities.clear()
+	_dynamic_entities.clear()
+	_vision_sources.clear()
+	_static_records.clear()
+	var alive_ids := {}
+	for node in entities.get_children():
+		if node is not Node2D or node.has_meta("fog_memory") or node.get("sim_pos") == null or node.is_queued_for_deletion(): continue
+		_live_entities.append(node)
+		var id: int = node.get_instance_id()
+		alive_ids[id] = true
+		var definition: Variant = node.get("def")
+		var resource: bool = node.has_method("extract")
+		var static_kind := "building" if definition is BuildingDef else ("resource" if resource else ("blocker" if node.is_in_group("path_blockers") else ""))
+		if static_kind.is_empty():
+			_dynamic_entities.append(node)
+		else:
+			var footprint := Fog.footprint_of(node)
+			_static_records.append({"entity":node, "id":id, "kind":static_kind, "resource":resource,
+				"team":node.get("team"), "definition":definition, "position":node.get("sim_pos"), "footprint":footprint,
+				"cells":fog.footprint_cells(node.get("sim_pos"), footprint), "size_override":node.get("block_size_override")})
+			if static_kind == "resource": _track_resource_visual(node, id)
+		if node.get("hp") != null and node.get("team") in Enums.Team.values(): _vision_sources.append(node)
+	for id in _shown.keys():
+		if not alive_ids.has(id): _shown.erase(id)
+	for id in _resource_visual_cache.keys():
+		if not alive_ids.has(id): _resource_visual_cache.erase(id)
+
+func _track_resource_visual(node: Node2D, key: int) -> void:
+	if _resource_visual_cache.has(key): return
+	_resource_visual_cache[key] = {"dirty":true, "children_dirty":true, "visuals":[], "values":[], "parts":[], "appearance":0}
+	var changed := _resource_visual_dirty.bind(key)
+	var children_changed := _resource_visual_children_changed.bind(key)
+	node.visibility_changed.connect(changed)
+	node.child_entered_tree.connect(children_changed)
+	node.child_exiting_tree.connect(children_changed)
+
+func _resource_visual_dirty(key: int) -> void:
+	if _resource_visual_cache.has(key): _resource_visual_cache[key].dirty = true
+
+func _resource_visual_children_changed(_child: Node, key: int) -> void:
+	if _resource_visual_cache.has(key):
+		_resource_visual_cache[key].children_dirty = true
+		_resource_visual_cache[key].dirty = true
+
+func _resource_snapshot(node: Node2D, key: int) -> Dictionary:
+	var cached: Dictionary = _resource_visual_cache[key]
+	if cached.children_dirty:
+		cached.visuals = Memory.visual_nodes(node)
+		cached.children_dirty = false
+		var changed := _resource_visual_dirty.bind(key)
+		for child in cached.visuals:
+			for signal_name in ["item_rect_changed", "visibility_changed", "texture_changed", "frame_changed"]:
+				if child.has_signal(signal_name) and not child.is_connected(signal_name, changed): child.connect(signal_name, changed)
+	var values := Memory.resource_values(node, cached.visuals)
+	if cached.dirty or cached.values != values:
+		var changed := _resource_visual_dirty.bind(key)
+		for child in cached.visuals:
+			if is_instance_valid(child) and child.material != null and not child.material.changed.is_connected(changed): child.material.changed.connect(changed)
+		cached.values = values
+		cached.appearance = Memory.appearance_key(node)
+		cached.parts = Memory.capture(node)
+		cached.dirty = false
+	return cached
+
+func _refresh_static_record(record: Dictionary) -> bool:
+	var node: Node2D = record.entity
+	if not is_instance_valid(node) or node.is_queued_for_deletion():
+		_entities_dirty = true
+		return false
+	var position: Vector2 = node.get("sim_pos")
+	record.team = node.get("team")
+	var footprint: Vector2 = record.footprint
+	if record.kind == "building":
+		var definition: Variant = node.get("def")
+		if definition != record.definition:
+			record.definition = definition
+			footprint = Fog.footprint_of(node)
+	elif record.resource:
+		var override: Variant = node.get("block_size_override")
+		if override is Vector2:
+			if override != record.size_override:
+				record.size_override = override
+				footprint = Fog.footprint_of(node)
+		else:
+			var size: Variant = node.get("block_size")
+			if size is Vector2: footprint = size
+	if position != record.position or footprint != record.footprint:
+		record.position = position
+		record.footprint = footprint
+		record.cells = fog.footprint_cells(position, footprint)
+	return true
+
+func _update_memories(_nodes: Array) -> void:
+	_ensure_entity_cache()
+	var observed := {0:{}, 1:{}}
+	_static_seen = {0:{}, 1:{}}
+	_seen_geometry.clear()
+	var seen_at := Time.get_ticks_msec()
+	for record in _static_records:
+		if not _refresh_static_record(record): continue
+		var node: Node2D = record.entity
+		var key: int = record.id
+		_seen_geometry[key] = Rect2(record.position, record.footprint)
+		var appearance := 0
+		var appearance_ready := false
+		var captured: Array = []
+		for team in Enums.Team.values():
+			var seen: bool = fog.ready and fog.rect_visible(team, record.cells)
+			_static_seen[team][key] = seen
+			if not seen or record.team == team or node.get("is_placement_ghost") == true: continue
+			if (record.resource and node.get("amount") <= 0) or (record.kind == "building" and node.get("hp") != null and node.get("hp") <= 0): continue
+			observed[team][key] = true
+			var known: Dictionary = fog.memories[team]
+			var previous: Dictionary = known.get(key, {})
+			if not appearance_ready:
+				if record.kind == "resource":
+					var resource_snapshot := _resource_snapshot(node, key)
+					appearance = resource_snapshot.appearance
+					captured = resource_snapshot.parts
+				else: appearance = Memory.appearance_key(node)
+				appearance_ready = true
+			var parts: Array
+			if not previous.is_empty() and previous.get("appearance") == appearance:
+				parts = previous.parts
+			else:
+				if captured.is_empty(): captured = Memory.capture(node)
+				parts = captured
+			known[key] = {"sim_pos":record.position, "position":node.position, "footprint":record.footprint,
+				"cells":record.cells, "parts":parts, "appearance":appearance, "minimap_kind":record.kind,
+				"team":record.team, "resource_type":node.get("resource_type"), "kind":node.get("kind"), "last_seen_msec":seen_at}
 	for team in Enums.Team.values():
 		var known: Dictionary = fog.memories[team]
-		var observed: Dictionary = {}
-		for node in nodes:
-			if node.get("team") == team or node.get("is_placement_ghost") == true:
-				continue
-			if node.get("def") is not BuildingDef and not node.has_method("extract") and not node.is_in_group("path_blockers"):
-				continue
-			if not fog.can_see(team, node):
-				continue
-			var key: int = node.get_instance_id()
-			if (node.has_method("extract") and node.get("amount") <= 0) or (node.get("hp") != null and node.get("hp") <= 0):
-				continue
-			observed[key] = true
-			known[key] = {"sim_pos": node.get("sim_pos"), "position": node.position,
-				"footprint": Fog.footprint_of(node), "parts": Memory.capture(node),
-				"minimap_kind": "building" if node.get("def") is BuildingDef else ("resource" if node.has_method("extract") else "blocker"),
-				"team": node.get("team"), "resource_type": node.get("resource_type"),
-				"kind": node.get("kind"),
-				"last_seen_msec": Time.get_ticks_msec()}
 		for key in known.keys():
 			var snapshot: Dictionary = known[key]
-			if not observed.has(key) and fog.footprint_visible(team, snapshot.sim_pos, snapshot.footprint, true):
-				known.erase(key)
+			var cells: Rect2i = snapshot.cells if snapshot.has("cells") else fog.footprint_cells(snapshot.sim_pos, snapshot.footprint)
+			if not observed[team].has(key) and fog.rect_visible(team, cells, true): known.erase(key)
+	_static_seen_revision = fog.revision
+
+## Consumers must treat the shared list as read-only. It excludes visual
+## memory proxies, while retaining hidden real entities for team queries.
+func live_entities() -> Array[Node2D]:
+	_ensure_entity_cache()
+	return _live_entities
+
+## Reuse only visibility evaluated for this exact geometry and fog revision.
+## Mobile/new/changed actors and externally rebuilt masks use the live query.
+func entity_visible_for(team: int, node: Variant, position: Vector2, footprint: Vector2) -> bool:
+	if not is_instance_valid(node) or node is not Node2D: return false
+	if node.get("is_placement_ghost") == true: return node.get("team") == team
+	if node.get("team") == team and node.get("hp") != null and float(node.get("hp")) > 0: return true
+	var id: int = node.get_instance_id()
+	if fog.ready and _static_seen_revision == fog.revision and _seen_geometry.has(id):
+		if _seen_geometry[id] == Rect2(position, footprint) and _static_seen.get(team, {}).has(id):
+			return _static_seen[team][id]
+	return fog.can_see(team, node)
 
 func view_can_see(node: Node) -> bool:
 	return view_team == ALL or fog.can_see(view_team, node)
 
-func _apply_visibility() -> void:
-	var shown: Dictionary = {}
-	for node in entities.get_children():
-		if node.has_meta("fog_memory") or node is not Node2D:
-			continue
-		if node.get("sim_pos") == null:
-			continue
-		var alive_visual := not node.has_method("extract") or float(node.get("amount")) > 0
-		node.visible = alive_visual and view_can_see(node)
-		if node.visible:
-			shown[node.get_instance_id()] = true
-		elif node.has_method("set_selected"):
-			node.call("set_selected", false)
+func _apply_visibility(update_static := true, use_cached_seen := false) -> void:
+	_ensure_entity_cache()
+	for node in _dynamic_entities:
+		if is_instance_valid(node): _set_entity_visible(node, view_can_see(node))
+	if not update_static: return
+	for record in _static_records:
+		if not _refresh_static_record(record): continue
+		var node: Node2D = record.entity
+		var visible_visual: bool = not record.resource or float(node.get("amount")) > 0
+		var seen := view_team == ALL
+		if not seen:
+			var hp: Variant = node.get("hp") if record.team == view_team else null
+			if hp != null and float(hp) > 0: seen = true
+			elif node.get("is_placement_ghost") == true: seen = record.team == view_team
+			elif fog.ready:
+				seen = bool(_static_seen[view_team].get(record.id, false)) if use_cached_seen else fog.rect_visible(view_team, record.cells)
+		_set_entity_visible(node, visible_visual and seen)
+	_sync_memory_views()
+
+func _set_entity_visible(node: Node2D, value: bool) -> void:
+	var key := node.get_instance_id()
+	if node.visible != value:
+		node.visible = value
+		if not value and node.has_method("set_selected"): node.call("set_selected", false)
+	if value: _shown[key] = true
+	else: _shown.erase(key)
+
+func _sync_memory_views() -> void:
 	var known: Dictionary = fog.memories.get(view_team, {})
 	for key in _memory_views.keys():
-		if not known.has(key) or shown.has(key):
+		if not known.has(key):
 			_memory_views[key].hide()
 			_memory_views[key].queue_free()
 			_memory_views.erase(key)
+			_proxy_states.erase(key)
 	for key in known:
-		if shown.has(key) or _memory_views.has(key):
+		if _shown.has(key):
+			if _memory_views.has(key): _memory_views[key].hide()
 			continue
-		var proxy := Memory.make_view(known[key])
-		entities.add_child(proxy)
-		_memory_views[key] = proxy
+		var proxy: Node2D = _memory_views.get(key)
+		if proxy == null:
+			proxy = Memory.make_view(known[key])
+			entities.add_child(proxy)
+			_memory_views[key] = proxy
+			_proxy_states[key] = [known[key].appearance, known[key].position]
+		else:
+			var previous: Array = _proxy_states[key]
+			if previous[0] != known[key].appearance or previous[1] != known[key].position:
+				Memory.update_view(proxy, known[key])
+				_proxy_states[key] = [known[key].appearance, known[key].position]
+		if not proxy.visible: proxy.show()
 
 func _clear_memory_views() -> void:
 	for proxy in _memory_views.values():
 		proxy.hide()
 		proxy.queue_free()
 	_memory_views.clear()
+	_proxy_states.clear()
 
 func _create_overlay() -> void:
 	_grid = preload("res://scripts/presentation/fog_grid_overlay.gd").new()
@@ -240,6 +421,7 @@ func set_debug_mode(enabled: bool) -> void:
 			hud.call("_rebuild_command_grid")
 		_saved_selection.clear()
 	_sync_debug_ui()
+	_update_stats()
 
 func _clear_selection() -> void:
 	var selection := get_parent().get_node_or_null("UILayer/SelectionController")
@@ -327,7 +509,7 @@ func _refresh_choice_labels() -> void:
 		_choices.set_item_text(team + 1, "%s · 玩家色 %d" % [civ_name, match_state.get_team_color_id(team)])
 
 func _update_stats() -> void:
-	if _stats == null:
+	if _stats == null or not debug_mode:
 		return
 	if view_team == ALL:
 		_stats.text = "全知显示不改变双方探索记录\n更新 %.2f ms" % fog.elapsed_ms

@@ -92,7 +92,7 @@ func _build_ui() -> void:
 	_civ.select(1 if GameSession.online_civ_id == &"teutons" else 0)
 	_style(_civ)
 	add_child(_civ)
-	_label("MapInfo", "地图：默认双营地 · 120 × 120\n双方各控制一个阵营；离开对局或连接中断将结束本局。", Rect2(215, 432, 850, 64), 17)
+	_label("MapInfo", "地图：经典双营地 · 480 × 480（原版双人尺寸）\n双方各控制一个阵营；离开对局或连接中断将结束本局。", Rect2(215, 432, 850, 64), 17)
 	_status = _label("Status", "准备就绪，点击开始匹配。", Rect2(215, 528, 850, 83), 18)
 	_back = _button("Back", "返回主菜单", Rect2(215, 640, 168, 48), go_back)
 	_cancel = _button("Cancel", "取消匹配", Rect2(648, 640, 180, 48), cancel_matchmaking)

@@ -230,6 +230,8 @@ func capture_snapshot() -> Dictionary:
 		var record := {"id": entity_id(entity), "kind": kind, "pos": [pos.x, pos.y]}
 		if kind == "resource":
 			record.merge({"resource_type": entity.get("resource_type"), "amount": entity.get("amount"), "gather_rate": entity.get("gather_rate")})
+			if entity.block_size_override != Vector2.ZERO:
+				record["block_size"] = [entity.block_size_override.x, entity.block_size_override.y]
 		else:
 			record["team"] = entity.get("team")
 			if kind == "projectile":
@@ -357,6 +359,7 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 		"resource":
 			entity = ResourceScript.new()
 			entity.set("resource_type", int(record.resource_type))
+			if record.has("block_size"): entity.set("block_size_override", _vec(record.block_size))
 		"projectile":
 			entity = PROJECTILE_VIEW.instantiate()
 		_:
@@ -385,6 +388,8 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 	if record.kind == "resource":
 		entity.set("amount", float(record.amount))
 		entity.set("gather_rate", float(record.gather_rate))
+		entity.set("block_size_override", _vec(record.block_size) if record.has("block_size") else Vector2.ZERO)
+		entity.block_half = entity.pathfinding_size() * 0.5
 		entity.visible = float(record.amount) > 0.0
 	elif record.kind == "projectile":
 		entity.call("apply_network_presentation", record.presentation)
@@ -421,6 +426,10 @@ func _valid_record(record: Dictionary) -> bool:
 	if kind not in ["unit", "building", "resource", "projectile"]:
 		return false
 	if kind == "resource":
+		if record.has("block_size"):
+			var size: Variant = record.block_size
+			if size is not Array or size.size() != 2 or not _finite_number(size[0]) or not _finite_number(size[1]) or float(size[0]) <= 0 or float(size[1]) <= 0 or float(size[0]) > 64 or float(size[1]) > 64:
+				return false
 		return _valid_enum(record.get("resource_type"), 0, 3) and _finite_number(record.get("amount")) and _finite_number(record.get("gather_rate"))
 	if not _valid_enum(record.get("team"), 0, 1):
 		return false

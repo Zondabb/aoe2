@@ -37,7 +37,7 @@ func _run() -> void:
 	check(map.visible and map.size.is_equal_approx(Vector2(392,196)), "minimap fits the skin diamond")
 	for point in [Vector2(-60,-60), Vector2(60,-60), Vector2(60,60), Vector2(-60,60), Vector2(-23,17)]:
 		check(map.map_to_world(map.world_to_map(point)).is_equal_approx(point), "projection round trip %s" % point)
-	check(map.world_to_map(Vector2(-60,-60)).is_equal_approx(Vector2(196,0)), "north corner matches isometric world")
+	check(map.world_to_map(map.map_min).is_equal_approx(Vector2(196,0)), "north corner matches isometric world")
 	check(not map.contains_map_point(Vector2.ZERO), "rectangle corners outside diamond cannot navigate")
 	check(map.contains_map_point(map.size * 0.5), "diamond center accepts navigation")
 	map.refresh_markers()
