@@ -286,8 +286,13 @@ func _apply_visibility(update_static := true, use_cached_seen := false) -> void:
 		if is_instance_valid(node): _set_entity_visible(node, view_can_see(node))
 	if not update_static: return
 	for record in _static_records:
-		if not _refresh_static_record(record): continue
 		var node: Node2D = record.entity
+		# rebuild_now just refreshed every static geometry in _update_memories.
+		# Reuse that pass when consuming its visibility; external calls still
+		# refresh geometry before consulting the current mask.
+		if use_cached_seen:
+			if not is_instance_valid(node) or node.is_queued_for_deletion(): continue
+		elif not _refresh_static_record(record): continue
 		var visible_visual: bool = not record.resource or float(node.get("amount")) > 0
 		var seen := view_team == ALL
 		if not seen:

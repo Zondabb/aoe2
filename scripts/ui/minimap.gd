@@ -30,6 +30,8 @@ var _order_ttl := 0.0
 var _markers_team := -2
 var _marker_mesh: ArrayMesh
 var _marker_mesh_size := Vector2(-1, -1)
+var _static_marker_cache: Dictionary = {}
+var _marker_refresh := 0
 
 func _ready() -> void:
 	# Blend the fog terrain between cells; marker visibility still uses fog.can_see.
@@ -64,6 +66,7 @@ func setup(state: MatchState, controller: Node, system: Node, spectator := false
 	build_system = system
 	read_only = spectator
 	_terrain_key.clear()
+	_static_marker_cache.clear()
 	_elapsed = UPDATE_INTERVAL
 	_world = get_parent()
 	while _world != null and not _world.has_node("Entities"):
@@ -147,37 +150,46 @@ func refresh_markers() -> void:
 	_markers_team = _team
 	if not is_instance_valid(_entities):
 		return
+	_marker_refresh += 1
 	var shown: Dictionary = {}
 	var restricted := match_state != null and match_state.fog_enabled and _team != -1
 	var reuse_visibility: bool = restricted and is_instance_valid(_holder) and _holder.has_method("entity_visible_for") and _holder.get("fog") == _fog
 	var live: Array = _holder.live_entities() if reuse_visibility else _entities.get_children()
 	for entity in live:
 		if not is_instance_valid(entity) or entity.is_queued_for_deletion(): continue
-		if entity.has_meta("fog_memory") or entity.get("sim_pos") == null or entity.get("is_placement_ghost") == true:
-			continue
-		var position: Vector2 = entity.get("sim_pos")
-		var footprint := Fog.footprint_of(entity)
-		if restricted and (_fog == null or not (_holder.entity_visible_for(_team, entity, position, footprint) if reuse_visibility else _fog.can_see(_team, entity))):
-			continue
-		if entity.get("hp") != null and float(entity.get("hp")) <= 0.0:
-			continue
-		if entity.has_method("extract") and float(entity.get("amount")) <= 0.0:
-			continue
-		var marker_kind := ""
-		if entity.get("def") is BuildingDef:
-			marker_kind = "building"
-		elif entity.get("def") is UnitDef:
-			marker_kind = "unit"
-		elif entity.has_method("extract"):
-			marker_kind = "resource"
-		elif entity.is_in_group("path_blockers"):
-			marker_kind = "blocker"
+		if entity.has_meta("fog_memory"): continue
+		var marker: Dictionary
+		# These are almost all nodes on a large map. Typed reads avoid repeated
+		# Object.get() lookups for properties that resources do not even have.
+		if entity is ResourceNode:
+			var resource: ResourceNode = entity
+			if resource.amount <= 0.0: continue
+			marker = _resource_marker(resource)
+		elif entity is BuildingAgent and entity.def != null:
+			var building: BuildingAgent = entity
+			if building.hp <= 0.0 or building.is_placement_ghost: continue
+			if building.has_method("extract") and building.amount <= 0.0: continue
+			marker = _static_marker(building.get_instance_id(), building.sim_pos, building.def.footprint,
+				"building", building.team, building.resource_type, null, building.def)
+		elif entity is UnitAgent and entity.def != null:
+			var unit: UnitAgent = entity
+			if unit.hp <= 0.0: continue
+			marker = {"sim_pos":unit.sim_pos, "minimap_kind":"unit", "team":unit.team,
+				"resource_type":null, "kind":null, "footprint":Vector2.ZERO, "memory":false}
+		elif entity is PathBlocker and entity.is_in_group("path_blockers"):
+			var blocker: PathBlocker = entity
+			marker = _static_marker(blocker.get_instance_id(), blocker.sim_pos, blocker.block_size,
+				"blocker", null, null, blocker.kind)
 		else:
+			marker = _generic_marker(entity)
+			if marker.is_empty(): continue
+		if restricted and (_fog == null or not _marker_visible(entity, marker, reuse_visibility)):
 			continue
 		shown[entity.get_instance_id()] = true
-		_markers.append({"sim_pos": position, "minimap_kind": marker_kind,
-			"team": entity.get("team"), "resource_type": entity.get("resource_type"),
-			"kind": entity.get("kind"), "footprint": footprint, "memory": false})
+		_markers.append(marker)
+	for id in _static_marker_cache.keys():
+		if _static_marker_cache[id]._refresh != _marker_refresh:
+			_static_marker_cache.erase(id)
 	if restricted and _fog != null:
 		var known: Dictionary = _fog.memories.get(_team, {})
 		for id in known:
@@ -194,6 +206,75 @@ func refresh_markers() -> void:
 	_markers.clear()
 	for layer in layers: _markers.append_array(layer)
 	_rebuild_marker_mesh()
+
+func _resource_marker(resource: ResourceNode) -> Dictionary:
+	var id := resource.get_instance_id()
+	var footprint: Vector2
+	if _static_marker_cache.has(id):
+		var previous: Dictionary = _static_marker_cache[id]
+		if previous.resource_type == resource.resource_type and previous._size_override == resource.block_size_override:
+			if previous.sim_pos == resource.sim_pos:
+				previous._refresh = _marker_refresh
+				return previous
+			footprint = previous.footprint
+		else:
+			footprint = resource.block_size
+	else:
+		footprint = resource.block_size
+	var marker := _static_marker(id, resource.sim_pos, footprint, "resource", null, resource.resource_type, null)
+	marker._size_override = resource.block_size_override
+	return marker
+
+func _static_marker(id: int, position: Vector2, footprint: Vector2, kind: String,
+		team: Variant, resource_type: Variant, terrain_kind: Variant, definition: Variant = null) -> Dictionary:
+	var marker: Dictionary
+	if _static_marker_cache.has(id):
+		marker = _static_marker_cache[id]
+		if marker.sim_pos != position or marker.footprint != footprint or marker.team != team or marker._definition != definition:
+			marker._visible_revision = -1
+		if marker.sim_pos != position or marker.footprint != footprint:
+			marker._polygon_dirty = true
+	else:
+		marker = {"memory":false, "_static_cache":true, "_visible_revision":-1, "_visible_fog":null,
+			"_visible_team":-2, "_visible_ready":false, "_visible":false, "_polygon_dirty":true,
+			"_polygon":PackedVector2Array(), "_projection_size":Vector2(-1, -1),
+			"_projection_min":Vector2.ZERO, "_projection_max":Vector2.ZERO, "_size_override":Vector2.ZERO}
+		_static_marker_cache[id] = marker
+	marker.sim_pos = position
+	marker.footprint = footprint
+	marker.minimap_kind = kind
+	marker.team = team
+	marker.resource_type = resource_type
+	marker.kind = terrain_kind
+	marker._definition = definition
+	marker._refresh = _marker_refresh
+	return marker
+
+func _marker_visible(entity: Node, marker: Dictionary, reuse_visibility: bool) -> bool:
+	if not marker.get("_static_cache", false):
+		return _holder.entity_visible_for(_team, entity, marker.sim_pos, marker.footprint) if reuse_visibility else _fog.can_see(_team, entity)
+	# Geometry changes invalidate the cached revision above. Never use visibility
+	# from a different fog service, revision, perspective, or unready mask.
+	if marker._visible_fog != _fog or marker._visible_revision != _fog.revision or marker._visible_team != _team or marker._visible_ready != _fog.ready:
+		marker._visible = _holder.entity_visible_for(_team, entity, marker.sim_pos, marker.footprint) if reuse_visibility else _fog.can_see(_team, entity)
+		marker._visible_fog = _fog
+		marker._visible_revision = _fog.revision
+		marker._visible_team = _team
+		marker._visible_ready = _fog.ready
+	return marker._visible
+
+## Authored fixtures/custom entities retain the original property-based path.
+func _generic_marker(entity: Node) -> Dictionary:
+	if entity.has_meta("fog_memory") or entity.get("sim_pos") == null or entity.get("is_placement_ghost") == true: return {}
+	if entity.get("hp") != null and float(entity.get("hp")) <= 0.0: return {}
+	if entity.has_method("extract") and float(entity.get("amount")) <= 0.0: return {}
+	var definition: Variant = entity.get("def")
+	var kind := "building" if definition is BuildingDef else ("unit" if definition is UnitDef else (
+		"resource" if entity.has_method("extract") else ("blocker" if entity.is_in_group("path_blockers") else "")))
+	if kind.is_empty(): return {}
+	return {"sim_pos":entity.get("sim_pos"), "minimap_kind":kind, "team":entity.get("team"),
+		"resource_type":entity.get("resource_type"), "kind":entity.get("kind"),
+		"footprint":Fog.footprint_of(entity), "memory":false}
 
 func _marker_layer(marker: Dictionary) -> int:
 	return 2 if marker.minimap_kind == "unit" else (1 if marker.minimap_kind == "building" else 0)
@@ -270,6 +351,19 @@ func _rebuild_marker_mesh() -> void:
 
 
 func _marker_polygon(marker: Dictionary) -> PackedVector2Array:
+	var cached: bool = marker.get("_static_cache", false)
+	if cached and not marker._polygon_dirty and marker._projection_size == size and marker._projection_min == map_min and marker._projection_max == map_max:
+		return marker._polygon
+	var polygon := _make_marker_polygon(marker)
+	if cached:
+		marker._polygon = polygon
+		marker._polygon_dirty = false
+		marker._projection_size = size
+		marker._projection_min = map_min
+		marker._projection_max = map_max
+	return polygon
+
+func _make_marker_polygon(marker: Dictionary) -> PackedVector2Array:
 	var center: Vector2 = marker.sim_pos
 	if center.x < map_min.x or center.y < map_min.y or center.x > map_max.x or center.y > map_max.y:
 		return PackedVector2Array()

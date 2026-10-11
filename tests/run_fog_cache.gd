@@ -1,6 +1,7 @@
 extends SceneTree
 
 const Holder := preload("res://scripts/systems/fog_of_war_holder.gd")
+const Fog := preload("res://scripts/systems/fog_of_war_service.gd")
 var checks := 0
 var failures: Array[String] = []
 
@@ -38,6 +39,7 @@ func _billboard_part(snapshot: Dictionary) -> Dictionary:
 	return {}
 
 func _run() -> void:
+	_test_small_rect_queries()
 	var world := Node2D.new()
 	root.add_child(world)
 	var entities := Node2D.new()
@@ -176,3 +178,28 @@ func _run() -> void:
 	await process_frame
 	print("FOG CACHE: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)
+
+func _test_small_rect_queries() -> void:
+	var fog := Fog.new()
+	fog.setup_rect(Vector2.ZERO, Vector2(8, 9))
+	var random := RandomNumberGenerator.new()
+	random.seed = 61587
+	for trial in 16:
+		var mask := PackedByteArray()
+		mask.resize(72)
+		for index in mask.size(): mask[index] = 255 if random.randf() > 0.6 else 0
+		fog.visible_now[0] = mask
+		var matches := true
+		for width in range(1, 5):
+			for height in range(1, 5):
+				for origin in [Vector2i.ZERO, Vector2i(2, 3), Vector2i(8-width, 9-height)]:
+					var any_seen := false
+					var all_seen := true
+					for y in range(origin.y, origin.y + height):
+						for x in range(origin.x, origin.x + width):
+							any_seen = any_seen or mask[y * 8 + x] != 0
+							all_seen = all_seen and mask[y * 8 + x] != 0
+					var rect := Rect2i(origin, Vector2i(width, height))
+					matches = matches and fog.rect_visible(0, rect) == any_seen and fog.rect_visible(0, rect, true) == all_seen
+		check(matches, "optimized tiny footprints and larger rectangles match independent mask oracle")
+	check(not fog.rect_visible(0, Rect2i(-1, -1, 0, 0)) and not fog.rect_visible(8, Rect2i(0, 0, 1, 1)), "invalid footprint and team stay hidden")

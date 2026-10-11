@@ -50,33 +50,52 @@ const FRAME_UNIT_SWORDSMAN := 12
 const FRAME_UNIT_CHU_KO_NU := 44
 const FRAME_UNIT_TEUTONIC_KNIGHT := 8
 
+## HUD portraits refresh every frame. Share immutable packaged UI assets across
+## those refreshes; the sheet base remains part of the key for age/civ changes.
+static var _meta_cache: Dictionary = {}
+static var _texture_cache: Dictionary = {}
+static var _frame_cache: Dictionary = {}
+
 static func load_meta(base: String) -> Dictionary:
+	if _meta_cache.has(base):
+		return _meta_cache[base]
 	var path := "%s.json" % base
 	if not FileAccess.file_exists(path):
-		return {}
+		_meta_cache[base] = {}
+		return _meta_cache[base]
 	var text := FileAccess.get_file_as_string(path)
 	var data = JSON.parse_string(text)
-	return data if typeof(data) == TYPE_DICTIONARY else {}
+	_meta_cache[base] = data if typeof(data) == TYPE_DICTIONARY else {}
+	return _meta_cache[base]
 
 static func load_texture(base: String) -> Texture2D:
+	if _texture_cache.has(base):
+		return _texture_cache[base]
 	var path := "%s.png" % base
-	if not ResourceLoader.exists(path):
-		return null
-	return load(path) as Texture2D
+	_texture_cache[base] = load(path) as Texture2D if ResourceLoader.exists(path) else null
+	return _texture_cache[base]
 
 static func atlas_frame(base: String, frame_index: int) -> Texture2D:
+	if not _frame_cache.has(base):
+		_frame_cache[base] = {}
+	var frames: Dictionary = _frame_cache[base]
+	if frames.has(frame_index):
+		return frames[frame_index]
 	var tex := load_texture(base)
 	var meta := load_meta(base)
 	if tex == null or meta.is_empty():
+		frames[frame_index] = null
 		return null
 	var cols := int(meta.get("cols", 1))
 	var fw := int(meta.get("frame_w", 0))
 	var fh := int(meta.get("frame_h", 0))
 	if cols <= 0 or fw <= 0 or fh <= 0:
+		frames[frame_index] = null
 		return null
 	var atlas := AtlasTexture.new()
 	atlas.atlas = tex
 	atlas.region = Rect2((frame_index % cols) * fw, int(frame_index / cols) * fh, fw, fh)
+	frames[frame_index] = atlas
 	return atlas
 
 static func panel_texture() -> Texture2D:

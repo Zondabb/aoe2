@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/input/rts_camera_2d.gd" id="1_camera"]
 [ext_resource type="Script" path="res://scripts/match/match_bootstrap.gd" id="2_bootstrap"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/systems/ai_controller.gd" id="6_ai"]
 [ext_resource type="Script" path="res://scripts/ui/pathfinding_debug_panel.gd" id="7_debug_panel"]
 [ext_resource type="Script" path="res://scripts/ui/save_game_controls.gd" id="8_saves"]
+[ext_resource type="Script" path="res://scripts/ui/performance_overlay.gd" id="9_performance"]
 
 [node name="Match" type="Node2D"]
 
@@ -118,3 +119,7 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("8_saves")
+
+[node name="PerformanceOverlay" type="PanelContainer" parent="UILayer"]
+mouse_filter = 2
+script = ExtResource("9_performance")

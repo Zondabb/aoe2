@@ -76,7 +76,33 @@ func refresh(
 	pop_used = int(match_state.population.get(team, 0))
 	pop_cap = int(match_state.population_cap.get(team, 0))
 
-	for node in entities.get_children():
+	var holder := _fog_holder(match_state, entities)
+	var candidates: Array = holder.live_entities() if holder != null else entities.get_children()
+	for node in candidates:
+		# Generated forests dominate the snapshot. Use the match's static fog
+		# result instead of rediscovering properties and footprint cells per tree.
+		if node is ResourceNode:
+			if not match_state.fog_enabled or (holder.entity_visible_for(team, node, node.sim_pos, node.block_size) if holder != null else FogAccess.state_can_see(match_state, team, node)):
+				resource_nodes.append(node)
+			continue
+		if node is BuildingAgent and node.def != null:
+			if node.is_placement_ghost:
+				continue
+			if match_state.fog_enabled and not (holder.entity_visible_for(team, node, node.sim_pos, node.def.footprint) if holder != null else FogAccess.state_can_see(match_state, team, node)):
+				continue
+			if node.has_method("extract") and node.is_complete:
+				resource_nodes.append(node)
+			_read_building(node, node.def, node.team, node.sim_pos, node.is_complete, team, enemy)
+			continue
+		if node is UnitAgent and node.def != null:
+			# A living owned unit is always visible. Hostile/dead units still use
+			# the current mask so moving across fog never reuses static visibility.
+			if match_state.fog_enabled and not (node.team == team and node.hp > 0.0) and not FogAccess.state_can_see(match_state, team, node):
+				continue
+			_read_unit(node, node.def, node.team, node.hp, node.sim_pos, team, defend_radius)
+			continue
+		# Legacy arenas and observation fixtures may expose def/extract without
+		# extending the runtime entity classes. Preserve their original behavior.
 		if not FogAccess.state_can_see(match_state, team, node) or node.get("is_placement_ghost") == true:
 			continue
 		# 资源：有 extract() 即 ResourceNode，全局可见供采集分配。
@@ -114,3 +140,42 @@ func refresh(
 				team_villagers.append(node as Node2D)
 			else:
 				military_count += 1
+
+
+func _fog_holder(state: MatchState, entity_root: Node2D) -> Node:
+	if not state.fog_enabled or state.fog == null:
+		return null
+	var parent := entity_root.get_parent()
+	if parent == null or not parent.has_meta("fog_holder"):
+		return null
+	var holder: Variant = parent.get_meta("fog_holder")
+	if not is_instance_valid(holder) or not holder is Node or not holder.has_method("live_entities") or not holder.has_method("entity_visible_for"):
+		return null
+	# Other worlds and externally supplied masks must retain the live fallback.
+	return holder if holder.get("fog") == state.fog and holder.get("entities") == entity_root else null
+
+
+func _read_building(building: Node2D, definition: BuildingDef, building_team: int, position: Vector2, complete: bool, team: int, enemy: int) -> void:
+	if definition.id == &"town_center":
+		if building_team == team:
+			own_tc_pos = position
+		elif building_team == enemy:
+			enemy_tc_pos = position
+	if building_team != team:
+		return
+	team_buildings.append(building)
+	if not complete:
+		incomplete_buildings += 1
+
+
+func _read_unit(unit: Node2D, definition: UnitDef, unit_team: int, health: float, position: Vector2, team: int, defend_radius: float) -> void:
+	if unit_team != team:
+		if health > 0.0 and own_tc_pos != Vector2.ZERO and own_tc_pos.distance_to(position) <= defend_radius:
+			threat_near_base = true
+		return
+	team_units.append(unit)
+	if definition.id == &"villager":
+		villager_count += 1
+		team_villagers.append(unit)
+	else:
+		military_count += 1

@@ -78,6 +78,15 @@ func rect_visible(team: int, cells: Rect2i, require_all := false) -> bool:
 	if cells.position.x < 0 or cells.size.x <= 0 or cells.size.y <= 0 or not visible_now.has(team):
 		return false
 	var mask: PackedByteArray = visible_now[team]
+	# Trees and ore usually cover at most two rows/columns. Avoid constructing
+	# nested ranges for the thousands of identical tiny queries each fog refresh.
+	if cells.size.x <= 2 and cells.size.y <= 2:
+		var first := cells.position.y * side + cells.position.x
+		var last_row := (cells.end.y - 1) * side + cells.position.x
+		var right := cells.size.x - 1
+		if require_all:
+			return mask[first] != 0 and mask[first + right] != 0 and mask[last_row] != 0 and mask[last_row + right] != 0
+		return mask[first] != 0 or mask[first + right] != 0 or mask[last_row] != 0 or mask[last_row + right] != 0
 	for y in range(cells.position.y, cells.end.y):
 		for x in range(cells.position.x, cells.end.x):
 			var seen := mask[y*side+x] != 0
