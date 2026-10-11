@@ -59,8 +59,8 @@ func _rebalance_discovered_type(ctx: AiRunContext) -> void:
 		for villager in ctx.blackboard.team_villagers:
 			if villager.get("order") != Enums.OrderType.GATHER or villager.get("_gather_state") in ["to_drop_off", "searching_resource"] or float(villager.get("carry_amount")) > 0.001: continue
 			if reserved.has(EntityRegistry.id_of(villager)): continue
-			var previous := villager.get("_last_resource") as Node2D
-			if not is_instance_valid(previous) or int(counts.get(previous.get("resource_type"), 0)) < 2: continue
+			var previous := _last_live_resource(villager)
+			if previous == null or int(counts.get(previous.get("resource_type"), 0)) < 2: continue
 			var target := AiEntityQueriesScript.nearest_resource_near_base(villager, ctx.blackboard.resource_nodes, type, ctx.blackboard.own_tc_pos, BASE_RESOURCE_RADIUS)
 			if target == null: continue
 			ctx.issue_gather(villager, target)
@@ -85,8 +85,8 @@ func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:
 			continue
 		if order != Enums.OrderType.GATHER:
 			continue
-		var resource := villager.get("_last_resource") as Node2D
-		if resource == null or not is_instance_valid(resource):
+		var resource := _last_live_resource(villager)
+		if resource == null:
 			result.append(villager)
 			continue
 		if float(resource.get("amount")) <= 0.0:
@@ -173,13 +173,22 @@ func _count_active_gatherers(ctx: AiRunContext) -> Dictionary:
 	for villager in ctx.blackboard.team_villagers:
 		if villager.get("order") != Enums.OrderType.GATHER:
 			continue
-		var resource := villager.get("_last_resource") as Node2D
-		if resource == null or not is_instance_valid(resource):
+		var resource := _last_live_resource(villager)
+		if resource == null:
 			continue
 		var resource_type: int = int(resource.get("resource_type"))
 		if counts.has(resource_type):
 			counts[resource_type] = int(counts[resource_type]) + 1
 	return counts
+
+
+func _last_live_resource(villager: Node2D) -> Node2D:
+	# A worker can retain its source while delivering or searching after removal.
+	# Keep the raw reference untyped until validated: casting a freed object throws.
+	var resource: Variant = villager.get("_last_resource")
+	if not is_instance_valid(resource) or not resource is Node2D or resource.is_queued_for_deletion():
+		return null
+	return resource as Node2D
 
 
 func _total_gather_count(counts: Dictionary) -> int:

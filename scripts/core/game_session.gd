@@ -9,6 +9,8 @@ var match_map_data: Dictionary = {}
 var selected_map_path := ""
 var match_ai_mode := "gateway"
 var menu_notice := ""
+## Validated single-player snapshot, consumed once by MatchBootstrap.
+var pending_save_data: Dictionary = {}
 ## Online matches keep world teams stable; this client's team can be either side.
 var online_active := false
 var online_team := 0

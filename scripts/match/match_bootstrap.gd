@@ -17,6 +17,7 @@ const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const MapLoaderScript := preload("res://scripts/world/map_loader.gd")
 const MapDataScript := preload("res://scripts/world/map_data.gd")
 const DefaultMap := preload("res://scripts/world/default_map_generator.gd")
+const SaveGames := preload("res://scripts/core/save_game_service.gd")
 
 var match_state := MatchState.new()
 var player_civ: CivDef
@@ -24,8 +25,13 @@ var ai_civ: CivDef
 var map_bounds := Rect2(Vector2.ONE * (-DefaultMap.DEFAULT_SIZE * 0.5), Vector2.ONE * DefaultMap.DEFAULT_SIZE)
 var map_data: Dictionary = {}
 var generated_default_map := false
+var setup_ready := false
+var _saved_data: Dictionary = {}
 
 func _ready() -> void:
+	if not GameSession.online_active:
+		_saved_data = GameSession.pending_save_data.duplicate(true)
+	GameSession.pending_save_data.clear()
 	match_state.fog_enabled = true
 	if match_state.resources.is_empty():
 		match_state.setup_defaults()
@@ -97,6 +103,13 @@ func _finish_setup() -> void:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
 	FogHolder.install_rect(get_parent(), match_state, map_bounds.position, map_bounds.end, GameSession.local_team())
+	if not _saved_data.is_empty():
+		var error := SaveGames.restore(self, _saved_data)
+		if not error.is_empty():
+			GameSession.menu_notice = "存档无法恢复：" + error
+			get_tree().call_deferred("change_scene_to_file", "res://scenes/civ_select.tscn")
+			return
+	setup_ready = true
 	if GameSession.online_active:
 		var network := load("res://scripts/network/network_match.gd").new() as Node
 		network.name = "NetworkMatch"
@@ -144,6 +157,8 @@ func _setup_ground() -> void:
 	MapLoaderScript.setup_ground(map_data, ground)
 
 func _spawn_entities() -> void:
+	if not _saved_data.is_empty():
+		return
 	if GameSession.online_active and GameSession.local_team() != Enums.Team.PLAYER:
 		return
 	var entities := get_node_or_null("../Entities") as Node2D
@@ -201,6 +216,9 @@ func _setup_ai_gateway() -> void:
 				local_ai.set_process(true)
 			else:
 				local_ai.stop()
+		if not _saved_data.is_empty():
+			SaveGames.restore_ai(match_root, _saved_data.ai)
+			_saved_data.clear()
 		return
 	var existing := match_root.get_node_or_null("AiGateway")
 	if existing != null:
@@ -220,3 +238,6 @@ func _setup_ai_gateway() -> void:
 		},
 	]
 	gateway.setup(match_state, entities, teams, AiConfigScript.from_game_session())
+	if not _saved_data.is_empty():
+		SaveGames.restore_ai(match_root, _saved_data.ai)
+		_saved_data.clear()

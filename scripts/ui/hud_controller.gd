@@ -277,7 +277,7 @@ func _refresh_info_panel() -> void:
 		_clear_info_panel()
 		return
 	var focus := _pick_info_entity(units, building, primary)
-	if focus == null:
+	if not is_instance_valid(focus) or focus.is_queued_for_deletion() or not FogAccess.view_can_see(focus):
 		_clear_info_panel()
 		return
 	var max_hp := _entity_max_hp(focus)
@@ -300,15 +300,18 @@ func _refresh_entity_details(focus: Node2D, total_count: int) -> void:
 	var definition: Variant = focus.get("def")
 	_stats_label.text = ""
 	_queue_label.text = ""
+	var show_private_details: bool = read_only or focus.get("team") == PlayerCommands.local_team(self)
 	_count_label.text = "已选择 %d 个单位" % total_count if total_count > 1 else ""
 	if total_count == 1 and focus.get("team") != null:
 		_count_label.text = "己方" if focus.get("team") == PlayerCommands.local_team(self) else "对手"
 	if definition is UnitDef:
 		_stats_label.text = "攻击 %d    护甲 %d / %d    射程 %.1f" % [definition.attack, focus.melee_armor, focus.pierce_armor, definition.attack_range]
-		if focus.get("carry_amount") != null and focus.carry_amount > 0:
+		if show_private_details and focus.get("carry_amount") != null and focus.carry_amount > 0:
 			_queue_label.text = "携带资源 %d / %d" % [focus.carry_amount, focus.carry_capacity]
 	elif definition is BuildingDef:
 		_stats_label.text = "护甲 %d / %d    人口上限 +%d" % [focus.melee_armor, focus.pierce_armor, definition.population_provided]
+		if not show_private_details:
+			return
 		var training: Array = focus.get("train_queue")
 		if not focus.is_complete:
 			_queue_label.text = "建造中  %d%%" % (100 * focus.build_progress / maxf(definition.build_time, 0.01))
@@ -336,6 +339,8 @@ func _refresh_status_label(focus: Node2D, units: Array) -> void:
 			_status_label.text = "%s：选择建筑，再在地图上放置。Esc 返回。" % ("经济建筑" if _command_page == "economy" else "军事建筑")
 		elif is_instance_valid(_selected_building) and focus == _selected_building and _production_queue != null and _production_queue.visible:
 			_status_label.text = "人口已满：建造房屋或腾出人口后自动继续。点击队列图标可取消并退款。" if _selected_building.is_training_population_blocked() else "重复点击训练可排队；从左到右依次生产。点击队列图标可取消并退款。"
+		elif is_instance_valid(focus) and focus.get("team") != null and focus.get("team") != PlayerCommands.local_team(self):
+			_status_label.text = "敌方%s：仅可查看信息。" % ("建筑" if focus.is_in_group("buildings") else "单位")
 		else:
 			_status_label.text = "右键移动、采集或攻击；B 经济建筑 / V 军事建筑。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) and units[0].get("def").id == &"villager" else "右键下达指令。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) else ""
 		return

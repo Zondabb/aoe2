@@ -343,9 +343,8 @@ func _all_selectables() -> Array[Node2D]:
 
 
 func _selectable_entities() -> Array[Node2D]:
-	if select_all_teams:
-		return _all_selectables()
-	return _player_selectables()
+	# Left clicks may inspect visible opponents; box selection stays own-team.
+	return _all_selectables()
 
 func get_selected_units() -> Array[Node2D]:
 	var result: Array[Node2D] = []
@@ -368,14 +367,30 @@ func get_primary_selection() -> Node2D:
 	return null
 
 func _add_selection(unit: Node2D, notify := true) -> void:
-	if not FogAccess.view_can_see(unit):
+	if not is_instance_valid(unit) or unit.is_queued_for_deletion() or unit.get("is_placement_ghost") == true or not FogAccess.view_can_see(unit):
 		return
 	if unit in _selected:
 		return
+	if not select_all_teams:
+		# An opponent is an inspection target, never part of a command group.
+		# Shift-clicking either side replaces an inspection with that side.
+		if _is_enemy_entity(unit):
+			_clear_selection(false)
+		else:
+			for selected in _selected:
+				if is_instance_valid(selected) and _is_enemy_entity(selected):
+					_clear_selection(false)
+					break
 	_selected.append(unit)
 	unit.call("set_selected", true)
 	if notify:
 		_emit_selection_changed()
+
+func _is_enemy_entity(entity: Node2D) -> bool:
+	return (
+		(entity.is_in_group("units") or entity.is_in_group("buildings"))
+		and entity.get("team") != PlayerCommands.local_team(self)
+	)
 
 func _clear_selection(notify := true) -> void:
 	for unit in _selected:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/input/rts_camera_2d.gd" id="1_camera"]
 [ext_resource type="Script" path="res://scripts/match/match_bootstrap.gd" id="2_bootstrap"]
@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="5_hud"]
 [ext_resource type="Script" path="res://scripts/systems/ai_controller.gd" id="6_ai"]
 [ext_resource type="Script" path="res://scripts/ui/pathfinding_debug_panel.gd" id="7_debug_panel"]
+[ext_resource type="Script" path="res://scripts/ui/save_game_controls.gd" id="8_saves"]
 
 [node name="Match" type="Node2D"]
 
@@ -107,3 +108,13 @@ text = "G：进入/退出视野调试"
 
 [node name="Bootstrap" type="Node" parent="."]
 script = ExtResource("2_bootstrap")
+
+[node name="SaveGameControls" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("8_saves")

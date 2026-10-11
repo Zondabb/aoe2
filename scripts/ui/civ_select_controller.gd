@@ -7,6 +7,8 @@ const Preview := preload("res://scripts/ui/map_preview.gd")
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const HttpClient := preload("res://scripts/ai_gateway/http_ai_client.gd")
 const OnlineLobby := preload("res://scripts/ui/online_lobby.gd")
+const SaveService := preload("res://scripts/core/save_game_service.gd")
+const SaveDialog := preload("res://scripts/ui/save_game_dialog.gd")
 const MAIN_ART := preload("res://assets/ui/menu/main_background.jpg")
 const SETUP_ART := preload("res://assets/ui/menu/setup_background.jpg")
 const CIV_IDS := [&"chinese", &"teutons"]
@@ -37,6 +39,7 @@ var _ai_url_edit: LineEdit
 var _ai_token_edit: LineEdit
 var _embedded_check: CheckBox
 var _busy: Control
+var _save_dialog
 
 func _ready() -> void:
 	var return_to_lobby := GameSession.online_return_to_lobby
@@ -122,7 +125,7 @@ func _build_ui() -> void:
 	_main = _rect(Control.new(), _design, "MainPage", Rect2(0, 0, 1280, 720))
 	_label(_main, "Brand", "帝国时代 II", Rect2(100, 70, 570, 84), 52, true)
 	_label(_main, "Subtitle", "AGE OF EMPIRES  ·  即时战略", Rect2(104, 150, 570, 36), 19, true)
-	var panel := _rect(Panel.new(), _main, "MenuPanel", Rect2(725, 175, 430, 416)) as Panel
+	var panel := _rect(Panel.new(), _main, "MenuPanel", Rect2(725, 145, 430, 474)) as Panel
 	var skin := StyleBoxFlat.new()
 	skin.bg_color = Color(0.10, 0.075, 0.045, 0.95)
 	skin.border_color = Color("947443")
@@ -131,9 +134,10 @@ func _build_ui() -> void:
 	_label(panel, "Heading", "开始你的征程", Rect2(38, 25, 350, 40), 26, true)
 	_button(panel, "SinglePlayer", "单机游戏", Rect2(38, 92, 354, 62), show_single_player)
 	_button(panel, "Multiplayer", "联机对战", Rect2(38, 170, 354, 62), _multiplayer_pressed)
-	_main_status = _label(panel, "Status", "选择单机游戏，或联机匹配另一位玩家。", Rect2(38, 250, 354, 76), 15, true)
-	_button(panel, "MapEditor", "地图编辑器", Rect2(38, 338, 169, 42), func(): get_tree().change_scene_to_file("res://scenes/editor/map_editor.tscn"))
-	_button(panel, "Quit", "退出游戏", Rect2(223, 338, 169, 42), func(): get_tree().quit())
+	_button(panel, "LoadGame", "读取单机存档", Rect2(38, 248, 354, 48), _open_saved_game)
+	_main_status = _label(panel, "Status", "选择新游戏，或读取存档继续征程。", Rect2(38, 310, 354, 76), 15, true)
+	_button(panel, "MapEditor", "地图编辑器", Rect2(38, 406, 169, 42), func(): get_tree().change_scene_to_file("res://scenes/editor/map_editor.tscn"))
+	_button(panel, "Quit", "退出游戏", Rect2(223, 406, 169, 42), func(): get_tree().quit())
 	_button(_main, "CombatArena", "战斗测试场", Rect2(100, 634, 150, 40), func(): get_tree().change_scene_to_file("res://scenes/combat_arena.tscn"))
 	_button(_main, "PathArena", "寻路测试场", Rect2(268, 634, 150, 40), func(): get_tree().change_scene_to_file("res://scenes/pathfinding_arena.tscn"))
 	_setup = _rect(Control.new(), _design, "SinglePlayerPage", Rect2(0, 0, 1280, 720))
@@ -167,6 +171,7 @@ func _build_ui() -> void:
 	_status.max_lines_visible = 2
 	_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_button(_setup, "Back", "返回主菜单", Rect2(215, 640, 168, 48), show_main)
+	_button(_setup, "LoadGame", "读取存档", Rect2(399, 640, 168, 48), _open_saved_game)
 	_start = _button(_setup, "Start", "开始游戏", Rect2(848, 632, 221, 58), _start_game)
 	_file = FileDialog.new()
 	_file.name = "MapFileDialog"
@@ -205,7 +210,29 @@ func _build_ui() -> void:
 	_busy = _rect(Control.new(), _design, "BusyBlocker", Rect2(0, 0, 1280, 720))
 	_busy.mouse_filter = Control.MOUSE_FILTER_STOP
 	_busy.visible = false
+	_save_dialog = SaveDialog.new()
+	add_child(_save_dialog)
+	_save_dialog.load_requested.connect(_load_saved_game)
 	_update_civ_description()
+
+func _open_saved_game() -> void:
+	if starting: return
+	_save_dialog.open_slots(false)
+
+func _load_saved_game(path: String) -> void:
+	if starting: return
+	var error := SaveService.prepare_load(path)
+	if not error.is_empty():
+		_save_dialog.show_error(error)
+		return
+	_set_starting(true)
+	var scene_error := get_tree().change_scene_to_file("res://scenes/match_2d.tscn")
+	if scene_error != OK:
+		GameSession.pending_save_data = {}
+		_set_starting(false)
+		_save_dialog.show_error("无法进入存档对局：" + error_string(scene_error))
+	else:
+		_save_dialog.hide()
 
 func show_main() -> void:
 	if starting: return
@@ -336,6 +363,7 @@ func _map_selected(_index: int) -> void:
 func _start_game() -> void:
 	if starting or page != "single": return
 	_reset_online_session()
+	GameSession.pending_save_data = {}
 	# Revalidate immediately before launch; a saved file may have changed on disk.
 	_map_selected(_map_choice.selected)
 	if not map_error.is_empty(): return
