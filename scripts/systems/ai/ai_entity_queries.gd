@@ -220,6 +220,9 @@ static func next_build_position(
 	if town_center == null or entities == null or building_def == null:
 		return null
 	var existing := all_buildings(entities)
+	for node in entities.get_children():
+		if node.is_in_group("terrain_regions"):
+			existing.append(node)
 	var origin: Vector2 = town_center.get("sim_pos")
 	var side := _build_side_sign(origin)
 	var offsets: Array[Vector2] = []
@@ -266,6 +269,8 @@ static func can_plan_settlement(
 			continue
 		var definition := building.get("def") as BuildingDef
 		var other_half := (definition.footprint if definition != null else Vector2.ONE) * (SETTLEMENT_FOOTPRINT_SCALE * 0.5)
+		if definition == null and building.get("block_size") is Vector2:
+			other_half = building.get("block_size") * 0.5
 		if _settlement_boxes_overlap(center, half, building.get("sim_pos"), other_half):
 			return false
 	for value in resources:

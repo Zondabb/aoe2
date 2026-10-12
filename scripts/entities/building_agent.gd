@@ -13,10 +13,12 @@ const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.
 const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const UnitOcclusionScript := preload("res://scripts/presentation/unit_occlusion.gd")
+const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 # Keep the entity origin/footprint unchanged; only its artwork covers walkers.
 const TOWN_CENTER_SOLID_Z := 1
 const TOWN_CENTER_SHADOW_Z := -3
 const MAX_TRAIN_QUEUE := 15
+const TRAIN_SPAWN_RETRY_INTERVAL := 0.25
 
 @export var team: Enums.Team = Enums.Team.PLAYER
 @export var def: BuildingDef
@@ -61,6 +63,7 @@ var _use_billboard := false
 var _sprite_sheet_base := ""
 var block_half := Vector2.ONE
 var _visual_age := 0
+var _spawn_retry_remaining := 0.0
 
 func _ready() -> void:
 	_visual_age = match_state.age_of(team) if match_state != null else 0
@@ -105,6 +108,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if not is_complete or hp <= 0.0 or is_queued_for_deletion() or train_queue.is_empty():
 		return
+	_spawn_retry_remaining = maxf(0.0, _spawn_retry_remaining - maxf(delta, 0.0))
 	var remaining := maxf(delta, 0.0)
 	while not train_queue.is_empty():
 		if is_training_population_blocked():
@@ -114,7 +118,12 @@ func _physics_process(delta: float) -> void:
 		var advance := minf(remaining, maxf(duration - train_progress, 0.0))
 		train_progress += advance
 		remaining -= advance
-		if train_progress < duration or not _spawn_trained_unit(unit_def):
+		if train_progress < duration or _spawn_retry_remaining > 0.0:
+			return
+		if not _spawn_trained_unit(unit_def):
+			# A shoreline or a crowd can temporarily leave no legal exit. Keep
+			# the completed item/payment/population reservation and retry locally.
+			_spawn_retry_remaining = TRAIN_SPAWN_RETRY_INTERVAL
 			return
 		_train_payments.erase(train_queue_ids[0])
 		train_queue.pop_front()
@@ -189,6 +198,7 @@ func enqueue_train(unit_def: UnitDef) -> bool:
 	match_state.reserve_pop(team, unit_def.population)
 	if train_queue.size() == 1:
 		train_progress = 0.0
+		_spawn_retry_remaining = 0.0
 	set_physics_process(true)
 	train_queue_changed.emit()
 	return true
@@ -227,6 +237,7 @@ func cancel_train(queue_id: int) -> bool:
 	train_queue_ids.remove_at(index)
 	if index == 0:
 		train_progress = 0.0
+		_spawn_retry_remaining = 0.0
 	_reserved_population -= int(payment.population)
 	match_state.reserve_pop(team, -int(payment.population))
 	for type in 4:
@@ -398,6 +409,9 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	var parent := get_parent() as Node2D
 	if parent == null:
 		return false
+	var spawn_position: Variant = _training_spawn_position(unit_def, parent)
+	if spawn_position == null:
+		return false
 	var unit_view := load("res://scenes/entities/unit_view.tscn") as PackedScene
 	if unit_view == null:
 		return false
@@ -410,12 +424,62 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	match_state.reserve_pop(team, -reserved)
 	_reserved_population -= reserved
 	unit.call("register_population")
-	var spawn_offset := Vector2(
-		(def.footprint.x * 0.5 if def != null else 1.0) + 0.8, 0.0
-	)
-	unit.set("sim_pos", sim_pos + spawn_offset)
+	unit.set("sim_pos", spawn_position)
 	parent.add_child(unit)
 	return true
+
+func _training_spawn_position(unit_def: UnitDef, parent: Node2D) -> Variant:
+	var radius := unit_def.resolved_footprint_radius()
+	var half := def.footprint * 0.5 if def != null else Vector2.ONE
+	half = half.max(CollisionResolverScript._blocker_half(self, 0.0))
+	var clearance := maxf(0.8, radius + 0.2)
+	var holder: Node
+	if is_inside_tree():
+		for candidate in get_tree().get_nodes_in_group("nav_service"):
+			if candidate.get_parent() != null and (candidate.get_parent() == parent or candidate.get_parent().is_ancestor_of(parent)):
+				holder = candidate
+				break
+	var solids: Array = []
+	if holder != null and holder.has_method("query_static_blockers"):
+		# Only the production building's neighborhood, at completion / retry.
+		solids = holder.query_static_blockers(sim_pos, sim_pos, half.length() + clearance + 2.0 + radius)
+	else:
+		for child in parent.get_children():
+			if child.get("def") is BuildingDef or child.get("block_size") is Vector2 or child.has_method("extract"):
+				solids.append(child)
+	solids.erase(self)
+	var units: Array = []
+	if is_inside_tree():
+		for other in get_tree().get_nodes_in_group("units"):
+			if other.get_parent() == parent and not other.is_queued_for_deletion() and float(other.get("hp")) > 0.0:
+				units.append(other)
+	else:
+		for other in parent.get_children():
+			if other.get("def") is UnitDef and float(other.get("hp")) > 0.0: units.append(other)
+	var offsets: Array[Vector2] = [Vector2(half.x + 0.8, 0)]
+	for ring in 3:
+		var edge := half + Vector2.ONE * (clearance + ring)
+		for fraction in [0.0, 0.5, -0.5, 1.0, -1.0]:
+			offsets.append_array([Vector2(edge.x, edge.y * fraction), Vector2(edge.x * fraction, edge.y),
+				Vector2(-edge.x, edge.y * fraction), Vector2(edge.x * fraction, -edge.y)])
+	for offset in offsets:
+		var position := sim_pos + offset
+		if match_state != null and match_state.map_bounds.has_area() and not match_state.map_bounds.encloses(Rect2(position - Vector2.ONE * radius, Vector2.ONE * radius * 2.0)):
+			continue
+		if not CollisionResolverScript.clamp_to_map(position, radius).is_equal_approx(position): continue
+		if CollisionResolverScript._hits_building(position, radius, self): continue
+		if holder != null and holder.get("nav") != null and not holder.nav.is_world_walkable_with_radius(position, radius): continue
+		# Check the whole exit segment so a farther empty point cannot jump a
+		# water strip, cliff or wall into another disconnected land pocket.
+		if not CollisionResolverScript.static_step_safe(sim_pos, position, radius, solids): continue
+		var occupied := false
+		for other in units:
+			var separation := radius + CollisionResolverScript.unit_radius(other)
+			if position.distance_squared_to(other.get("sim_pos")) < separation * separation:
+				occupied = true
+				break
+		if not occupied: return position
+	return null
 
 func _configure_visuals() -> void:
 	_use_billboard = false

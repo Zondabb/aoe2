@@ -41,6 +41,9 @@ var _height: SpinBox
 var _category: OptionButton
 var _palette: ItemList
 var _team: OptionButton
+var _terrain_brush_fields: VBoxContainer
+var _terrain_brush_width: SpinBox
+var _terrain_brush_height: SpinBox
 var _snap: CheckBox
 var _grid: CheckBox
 var _auto_attack: CheckBox
@@ -53,6 +56,9 @@ var _owner: OptionButton
 var _amount: SpinBox
 var _rate: SpinBox
 var _resource_fields: VBoxContainer
+var _terrain_fields: VBoxContainer
+var _terrain_width: SpinBox
+var _terrain_height: SpinBox
 var _title: Label
 var _status: Label
 var _coordinates: Label
@@ -164,10 +170,10 @@ func _build_ui() -> void:
 	_tool_choice.item_selected.connect(_set_tool)
 	_edit_panel.add_child(_tool_choice)
 	_category = OptionButton.new()
-	for text in ["建筑", "资源", "动态单位"]:
+	for text in ["建筑", "资源", "动态单位", "地形（水体 / 悬崖）"]:
 		_category.add_item(text)
 	_category.item_selected.connect(func(index: int):
-		_kind = ["building", "resource", "unit"][index]
+		_kind = ["building", "resource", "unit", "terrain"][index]
 		_populate_palette()
 		_set_tool(Tool.PLACE))
 	_edit_panel.add_child(_category)
@@ -175,10 +181,20 @@ func _build_ui() -> void:
 	_palette.custom_minimum_size = Vector2(0, 142)
 	_palette.item_selected.connect(func(index: int):
 		_brush_id = Catalog.ids(_kind)[index]
+		_refresh_terrain_brush()
 		_set_tool(Tool.PLACE))
 	_edit_panel.add_child(_palette)
 	_team = _teams(_edit_panel)
-	_team.tooltip_text = "新放置对象的阵营；资源为中立。"
+	_team.tooltip_text = "新放置对象的阵营；资源和地形为中立。"
+	_terrain_brush_fields = VBoxContainer.new()
+	_edit_panel.add_child(_terrain_brush_fields)
+	_label(_terrain_brush_fields, "地形画笔尺寸", 14)
+	var terrain_brush_row := HBoxContainer.new()
+	_terrain_brush_fields.add_child(terrain_brush_row)
+	_terrain_brush_width = _spin(terrain_brush_row, "宽（格）", 1, 128, 1)
+	_terrain_brush_height = _spin(terrain_brush_row, "高（格）", 1, 128, 1)
+	var terrain_help := _label(_terrain_brush_fields, "单击放置一块地形，可连续放置组成湖泊、河流或悬崖。陆地单位无法进入这些地形。", 13)
+	terrain_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_snap = _check(_edit_panel, "对齐 1 格", true)
 	_grid = _check(content, "显示网格 (G)", true)
 	_selection_label = _label(_edit_panel, "未选中对象", 14)
@@ -194,6 +210,12 @@ func _build_ui() -> void:
 	_inspector.add_child(_resource_fields)
 	_amount = _spin(_resource_fields, "资源总量", 0.1, 1000000, 0.1)
 	_rate = _spin(_resource_fields, "采集速度 / 秒", 0.1, 1000000, 0.1)
+	_terrain_fields = VBoxContainer.new()
+	_inspector.add_child(_terrain_fields)
+	var terrain_size_row := HBoxContainer.new()
+	_terrain_fields.add_child(terrain_size_row)
+	_terrain_width = _spin(terrain_size_row, "地形宽（格）", 1, 128, 1)
+	_terrain_height = _spin(terrain_size_row, "地形高（格）", 1, 128, 1)
 	_button(_inspector, "应用对象属性", _apply_inspector)
 	_button(_inspector, "删除选中对象 (Delete)", delete_selected)
 	_play_panel = VBoxContainer.new()
@@ -305,7 +327,18 @@ func _populate_palette() -> void:
 		_palette.add_item(Catalog.NAMES[id])
 	_palette.select(0)
 	_brush_id = Catalog.ids(_kind)[0]
-	_team.disabled = _kind == "resource"
+	_team.disabled = _kind in ["resource", "terrain"]
+	_team.visible = _kind != "terrain"
+	_refresh_terrain_brush()
+
+func _refresh_terrain_brush() -> void:
+	_terrain_brush_fields.visible = _kind == "terrain"
+	if _kind != "terrain":
+		return
+	var record := Catalog.make_record("terrain", _brush_id, Vector2.ZERO)
+	var size := Catalog.half_size(record) * 2.0
+	_terrain_brush_width.value = size.x
+	_terrain_brush_height.value = size.y
 
 func _set_tool(value: int) -> void:
 	tool = value
@@ -343,11 +376,16 @@ func _refresh_ui() -> void:
 	_selection_label.text = "%s  ·  %s" % [Catalog.NAMES[Catalog.definition_id(record)], record.id]
 	_x.value = record.pos[0]
 	_z.value = record.pos[1]
-	_owner.visible = record.type != "resource"
+	_owner.visible = record.type not in ["resource", "terrain"]
 	_resource_fields.visible = record.type == "resource"
+	_terrain_fields.visible = record.type == "terrain"
 	if record.type == "resource":
 		_amount.value = record.amount
 		_rate.value = record.gather_rate
+	elif record.type == "terrain":
+		var size := Catalog.half_size(record) * 2.0
+		_terrain_width.value = size.x
+		_terrain_height.value = size.y
 	else:
 		_owner.select(0 if record.team == "player" else 1)
 
@@ -418,7 +456,10 @@ func place_at(point: Vector2) -> bool:
 	return true
 
 func _brush(point: Vector2) -> Dictionary:
-	return Catalog.make_record(_kind, _brush_id, _snap_point(point), "player" if _team.selected == 0 else "ai")
+	var record := Catalog.make_record(_kind, _brush_id, _snap_point(point), "player" if _team.selected == 0 else "ai")
+	if _kind == "terrain":
+		record.block_size = [_terrain_brush_width.value, _terrain_brush_height.value]
+	return record
 
 func _snap_point(point: Vector2) -> Vector2:
 	return point.round() if _snap.button_pressed else point.snapped(Vector2(0.1, 0.1))
@@ -447,6 +488,8 @@ func _apply_inspector() -> void:
 	if changed.type == "resource":
 		changed.amount = _amount.value
 		changed.gather_rate = _rate.value
+	elif changed.type == "terrain":
+		changed.block_size = [_terrain_width.value, _terrain_height.value]
 	else:
 		changed.team = "player" if _owner.selected == 0 else "ai"
 	_update_record(changed)
@@ -767,7 +810,15 @@ func _draw() -> void:
 	var point := Data.position_of(preview)
 	var half := Catalog.half_size(preview)
 	var valid := Data.placement_error(document.data, preview, preview.id).is_empty()
+	if preview.type == "terrain":
+		_draw_terrain_preview(Rect2(point - half, half * 2.0), preview.terrain_id)
 	_draw_rect_iso(Rect2(point - half, half * 2.0), Color("86efac") if valid else Color("ff7068"), 2.0 / camera.zoom.x)
+
+func _draw_terrain_preview(rect: Rect2, terrain_id: String) -> void:
+	var points := PackedVector2Array()
+	for point in [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]:
+		points.append(IsoMath.world_to_screen(point))
+	draw_colored_polygon(points, Color(0.2, 0.6, 0.85, 0.35) if terrain_id == "water" else Color(0.6, 0.55, 0.45, 0.35))
 
 func _draw_rect_iso(rect: Rect2, color: Color, width: float) -> void:
 	var points := PackedVector2Array()

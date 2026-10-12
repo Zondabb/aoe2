@@ -1,0 +1,28 @@
+{
+  "edition": "Age of Empires II HD",
+  "textures": {
+    "water": {
+      "source": "_common/terrain/textures/g_wtr_00_color.png",
+      "sha256": "8973f0d6c95f82a9cfcba5e948c62ab606d411400bf8aeb5966491f93a14e479",
+      "pixels": "unmodified original texture"
+    },
+    "rock": {
+      "source": "_common/terrain/textures/g_rck_00_COLOR.png",
+      "sha256": "5ae00313d943f760e69beb3ec8b2247dfaa828127cd19843e359e7083e10e156",
+      "pixels": "unmodified original texture"
+    },
+    "cliff_face": {
+      "source": "_common/drs/graphics/226.slp",
+      "palette": "_common/drs/interface/50500.bina",
+      "slp_id": 226,
+      "frame_index": 1,
+      "crop_xyxy": [
+        95,
+        57,
+        191,
+        97
+      ],
+      "pixels": "opaque unchanged excerpt of original rock face"
+    }
+  }
+}

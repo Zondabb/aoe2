@@ -3,6 +3,7 @@ extends Node
 const Fog := preload("res://scripts/systems/fog_of_war_service.gd")
 const Memory := preload("res://scripts/presentation/fog_memory.gd")
 const Iso := preload("res://scripts/presentation/iso_math.gd")
+const Terrain := preload("res://scripts/presentation/terrain_visual.gd")
 const ALL := -1
 var fog := Fog.new()
 var match_state: MatchState
@@ -113,8 +114,8 @@ func rebuild_now() -> void:
 	_dirty = false
 	_ensure_entity_cache()
 	fog.rebuild(_vision_sources)
-	_update_memories(_live_entities)
 	_sync_texture()
+	_update_memories(_live_entities)
 	_apply_visibility(true, true)
 	_update_stats()
 
@@ -198,7 +199,7 @@ func _refresh_static_record(record: Dictionary) -> bool:
 		if definition != record.definition:
 			record.definition = definition
 			footprint = Fog.footprint_of(node)
-	elif record.resource:
+	elif record.resource or record.kind == "blocker":
 		var override: Variant = node.get("block_size_override")
 		if override is Vector2:
 			if override != record.size_override:
@@ -222,6 +223,7 @@ func _update_memories(_nodes: Array) -> void:
 	for record in _static_records:
 		if not _refresh_static_record(record): continue
 		var node: Node2D = record.entity
+		if node.is_in_group("terrain_regions"): Terrain.bind_fog(node, self)
 		var key: int = record.id
 		_seen_geometry[key] = Rect2(record.position, record.footprint)
 		var appearance := 0
@@ -250,7 +252,8 @@ func _update_memories(_nodes: Array) -> void:
 				parts = captured
 			known[key] = {"sim_pos":record.position, "position":node.position, "footprint":record.footprint,
 				"cells":record.cells, "parts":parts, "appearance":appearance, "minimap_kind":record.kind,
-				"team":record.team, "resource_type":node.get("resource_type"), "kind":node.get("kind"), "last_seen_msec":seen_at}
+				"team":record.team, "resource_type":node.get("resource_type"), "kind":node.get("kind"),
+				"terrain_region":node.is_in_group("terrain_regions"), "last_seen_msec":seen_at}
 	for team in Enums.Team.values():
 		var known: Dictionary = fog.memories[team]
 		for key in known.keys():
@@ -335,6 +338,7 @@ func _sync_memory_views() -> void:
 			if previous[0] != known[key].appearance or previous[1] != known[key].position:
 				Memory.update_view(proxy, known[key])
 				_proxy_states[key] = [known[key].appearance, known[key].position]
+		if known[key].get("terrain_region", false): Terrain.bind_fog(proxy, self)
 		if not proxy.visible: proxy.show()
 
 func _clear_memory_views() -> void:
@@ -364,6 +368,7 @@ func _create_overlay() -> void:
 func _sync_texture() -> void:
 	_overlay.visible = view_team != ALL
 	if view_team == ALL:
+		_bind_terrain_fog()
 		return
 	if _texture_revision == fog.revision and _texture_team == view_team:
 		return
@@ -375,6 +380,15 @@ func _sync_texture() -> void:
 		_overlay.material.set_shader_parameter("fog_mask", _texture)
 	else:
 		_texture.update(data)
+	_bind_terrain_fog()
+
+func _bind_terrain_fog() -> void:
+	for record in _static_records:
+		var node: Node2D = record.entity
+		if is_instance_valid(node) and node.is_in_group("terrain_regions"):
+			Terrain.bind_fog(node, self)
+	for proxy in _memory_views.values():
+		if is_instance_valid(proxy): Terrain.bind_fog(proxy, self)
 
 func set_view(team: int) -> void:
 	if get_parent().get_meta("online_match", false) and team != base_view:

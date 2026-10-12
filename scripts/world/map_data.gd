@@ -7,6 +7,7 @@ const VERSION := 1
 const MIN_SIZE := 16
 const MAX_SIZE := 1024
 const MAX_ENTITIES := 2000
+const MAX_TERRAIN_SIZE := 128.0
 
 static func create(width := 80, height := 80, title := "未命名地图") -> Dictionary:
 	var minimum := Vector2i(-floori(width / 2.0), -floori(height / 2.0))
@@ -67,6 +68,7 @@ static func validate(data: Variant) -> PackedStringArray:
 		errors.append("单张地图最多 %d 个对象。" % MAX_ENTITIES)
 		return errors
 	var ids := {}
+	var footprints: Array[Dictionary] = []
 	for i in data.entities.size():
 		var record: Variant = data.entities[i]
 		var prefix := "对象 #%d：" % (i + 1)
@@ -81,15 +83,20 @@ static func validate(data: Variant) -> PackedStringArray:
 		else:
 			ids[id] = true
 		var kind: Variant = record.get("type")
-		if kind not in ["building", "unit", "resource"]:
+		if kind not in ["building", "unit", "resource", "terrain"]:
 			errors.append(prefix + "未知对象类型。")
 			continue
-		var key: String = {"building": "building_id", "unit": "unit_id", "resource": "resource_type"}[kind]
+		var key: String = {"building": "building_id", "unit": "unit_id", "resource": "resource_type", "terrain": "terrain_id"}[kind]
 		if record.get(key) not in Catalog.ids(kind):
 			errors.append(prefix + "未知的 " + key + "。")
 			continue
-		if kind != "resource" and record.get("team") not in ["player", "ai"]:
+		if kind in ["building", "unit"] and record.get("team") not in ["player", "ai"]:
 			errors.append(prefix + "team 必须是 player 或 ai。")
+		if kind == "terrain":
+			var size: Variant = record.get("block_size")
+			if not vector(size) or size[0] <= 0 or size[1] <= 0 or size[0] > MAX_TERRAIN_SIZE or size[1] > MAX_TERRAIN_SIZE:
+				errors.append(prefix + "block_size 必须是两个大于 0 且不超过 128 的有限数值。")
+				continue
 		if kind == "resource":
 			if record.has("block_size"):
 				var size: Variant = record.block_size
@@ -107,9 +114,20 @@ static func validate(data: Variant) -> PackedStringArray:
 		var half := Catalog.half_size(record)
 		if not rect.encloses(Rect2(point - half, half * 2.0)):
 			errors.append(prefix + "占地超出地图边界。")
+		footprints.append({"id": str(id), "type": kind, "rect": Rect2(point - half, half * 2.0)})
+	# Existing scenarios may overlap regular entities, but no land entity may start
+	# inside inaccessible terrain. Terrain rectangles may overlap to form regions.
+	for terrain in footprints:
+		if terrain.type != "terrain":
+			continue
+		for entity in footprints:
+			if entity.type != "terrain" and terrain.rect.intersects(entity.rect):
+				errors.append("地形 %s 与对象 %s 的占地重叠。" % [terrain.id, entity.id])
+				break
 	return errors
 
-## Placement disallows footprint overlaps, but imported scenarios may intentionally overlap.
+## Terrain patches may overlap each other; land entities must remain on land.
+## Regular entity placement disallows overlaps even though legacy files may use them.
 static func placement_error(data: Dictionary, record: Dictionary, except_id := "") -> String:
 	var point := position_of(record)
 	var half := Catalog.half_size(record)
@@ -118,6 +136,8 @@ static func placement_error(data: Dictionary, record: Dictionary, except_id := "
 		return "对象占地超出地图边界。"
 	for other in data.entities:
 		if other.id == except_id:
+			continue
+		if record.type == "terrain" and other.type == "terrain":
 			continue
 		var other_half := Catalog.half_size(other)
 		if footprint.intersects(Rect2(position_of(other) - other_half, other_half * 2.0)):

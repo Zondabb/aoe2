@@ -6,6 +6,8 @@ const GameCatalogScript := preload("res://scripts/data/game_catalog.gd")
 static var BUILDINGS: Dictionary = GameCatalogScript.buildings()
 static var UNITS: Dictionary = GameCatalogScript.units()
 const RESOURCES := {"food": Enums.ResourceType.FOOD, "wood": Enums.ResourceType.WOOD, "gold": Enums.ResourceType.GOLD, "stone": Enums.ResourceType.STONE}
+const TERRAINS := {"water": "水域", "cliff": "悬崖"}
+const TERRAIN_DEFAULT_SIZES := {"water": Vector2(16, 12), "cliff": Vector2(16, 4)}
 static var NAMES: Dictionary = _names()
 
 static func _names() -> Dictionary:
@@ -20,6 +22,7 @@ static func _names() -> Dictionary:
 	for key in BUILDINGS: result[key] = BUILDINGS[key].display_name
 	for key in UNITS: result[key] = UNITS[key].display_name
 	result["stone"] = "石矿"
+	result.merge(TERRAINS)
 	return result
 
 static func ids(kind: String) -> Array:
@@ -27,6 +30,7 @@ static func ids(kind: String) -> Array:
 		"building": return BUILDINGS.keys()
 		"unit": return UNITS.keys()
 		"resource": return RESOURCES.keys()
+		"terrain": return TERRAINS.keys()
 	return []
 
 static func definition_id(record: Dictionary) -> String:
@@ -34,6 +38,7 @@ static func definition_id(record: Dictionary) -> String:
 		"building": return record.get("building_id", "")
 		"unit": return record.get("unit_id", "")
 		"resource": return record.get("resource_type", "")
+		"terrain": return record.get("terrain_id", "")
 	return ""
 
 static func half_size(record: Dictionary) -> Vector2:
@@ -44,7 +49,13 @@ static func half_size(record: Dictionary) -> Vector2:
 		"resource":
 			if record.has("block_size"): return Vector2(record.block_size[0],record.block_size[1]) * 0.5
 			return ResourceNode.selection_footprint(RESOURCES[id]) * 0.5
+		"terrain":
+			if record.has("block_size"): return Vector2(record.block_size[0], record.block_size[1]) * 0.5
+			return terrain_size(id) * 0.5
 	return Vector2.ONE
+
+static func terrain_size(id: String) -> Vector2:
+	return TERRAIN_DEFAULT_SIZES.get(id, Vector2(16, 12))
 
 static func make_record(kind: String, id: String, pos: Vector2, team := "player") -> Dictionary:
 	var result := {"id": "", "type": kind, "pos": [pos.x, pos.y]}
@@ -52,4 +63,7 @@ static func make_record(kind: String, id: String, pos: Vector2, team := "player"
 		"building": result.merge({"building_id": id, "team": team})
 		"unit": result.merge({"unit_id": id, "team": team})
 		"resource": result.merge({"resource_type": id, "amount": 200.0, "gather_rate": 4.0})
+		"terrain":
+			var size := terrain_size(id)
+			result.merge({"terrain_id": id, "block_size": [size.x, size.y]})
 	return result

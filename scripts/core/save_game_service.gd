@@ -13,6 +13,10 @@ const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const PROJECTILE_VIEW := preload("res://scenes/entities/projectile_view.tscn")
 const PLAYER_COLOR_SHADER := preload("res://shaders/player_color.gdshader")
+const TERRAIN_SCRIPT := preload("res://scripts/entities/path_blocker.gd")
+const CLIFF_FOG_SHADER := preload("res://shaders/terrain_cliff_fog.gdshader")
+const POLYGON_VECTORS := ["polygon_offset", "texture_scale", "texture_offset"]
+const PART_COLORS := ["modulate", "self_modulate", "polygon_color"]
 const CHINESE := preload("res://data/civs/chinese.tres")
 const TEUTONS := preload("res://data/civs/teutons.tres")
 const SESSION_FIELDS := ["match_ai_mode", "ai_service_url", "ai_chat_url", "ai_service_timeout_sec", "ai_tick_interval_sec", "ai_use_local_embedded", "ai_protocol", "ai_protocol_version", "ai_backend", "ai_model", "ai_max_tokens", "ai_use_tick_batch", "ai_history_turns", "ai_log_observation", "ai_llm_base_url"]
@@ -99,7 +103,7 @@ static func capture(bootstrap: Node) -> Dictionary:
 	var next_id := 1
 	for entity in root.get_node("Entities").get_children():
 		if entity.has_meta("fog_memory") or entity.get("is_placement_ghost") == true or entity.is_queued_for_deletion(): continue
-		if entity is UnitAgent or entity is BuildingAgent or entity is ResourceNode or entity is ProjectileAgent:
+		if entity is UnitAgent or entity is BuildingAgent or entity is ResourceNode or entity is ProjectileAgent or entity.is_in_group("terrain_regions"):
 			ids[entity.get_instance_id()] = next_id
 			next_id += 1
 	for entity in root.get_node("Entities").get_children():
@@ -148,11 +152,14 @@ static func _capture_entity(entity: Node2D, ids: Dictionary) -> Dictionary:
 			if id != 0: record.gather_candidates.append(id)
 	elif entity is BuildingAgent:
 		record.merge({"type": "building", "definition": String(entity.def.id), "team": entity.team, "fields": _object_fields(entity, BUILDING_NUMBERS + BUILDING_BOOLS), "queue": []})
+		record.fields["_spawn_retry_remaining"] = entity._spawn_retry_remaining
 		for i in entity.train_queue.size():
 			var id: int = entity.train_queue_ids[i]
 			record.queue.append({"id": id, "definition": String(entity.train_queue[i].id), "payment": entity._train_payments[id].duplicate(true)})
 	elif entity is ResourceNode:
 		record.merge({"type": "resource", "resource_type": entity.resource_type, "amount": entity.amount, "gather_rate": entity.gather_rate, "block_size": _vec(entity.block_size_override)})
+	elif entity is PathBlocker and entity.is_in_group("terrain_regions"):
+		record.merge({"type":"terrain", "terrain_id":String(entity.kind), "block_size":_vec(entity.block_size)})
 	elif entity is ProjectileAgent:
 		var weapon: UnitDef = entity.attacker_def
 		record.merge({"type": "projectile", "team": entity.team, "presentation": entity.network_presentation(), "attacker": _id_of(entity.attacker, ids), "weapon": {"id": String(weapon.id), "attack": weapon.attack, "is_ranged": weapon.is_ranged, "projectile_speed": weapon.projectile_speed, "projectile_kind": String(weapon.projectile_kind)}})
@@ -169,6 +176,10 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 	state.frozen = true
 	if is_instance_valid(state.age_progression): state.age_progression._jobs.clear()
 	if is_instance_valid(state.technology_progression): state.technology_progression.jobs.clear()
+	# Memory proxies belong to the old entity tree. Drop holder references before
+	# replacing that tree, including restores into the currently running match.
+	var fog_holder := root.get_node_or_null("FogOfWar")
+	if fog_holder != null: fog_holder._clear_memory_views()
 	for child in entities.get_children(): child.free()
 	# Age-dependent presentation is constructed with the saved age. Economic
 	# totals are assigned after _ready registration, so they are not doubled.
@@ -197,6 +208,11 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 				entity.amount = float(record.amount)
 				entity.gather_rate = float(record.gather_rate)
 				entity.block_size_override = _vector(record.block_size)
+			"terrain":
+				entity = TERRAIN_SCRIPT.new()
+				entity.kind = StringName(record.terrain_id)
+				entity.auto_block_size = false
+				entity.block_size = _vector(record.block_size)
 			"projectile": entity = PROJECTILE_VIEW.instantiate()
 		entity.name = String(record.name)
 		entity.sim_pos = _vector(record.pos)
@@ -225,6 +241,7 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 			entity._update_idle_animation(0.0)
 		elif record.type == "building":
 			_apply_fields(entity, record.fields, BUILDING_NUMBERS + BUILDING_BOOLS)
+			entity._spawn_retry_remaining = float(record.fields.get("_spawn_retry_remaining", 0.0))
 			entity.train_queue.clear()
 			entity.train_queue_ids.clear()
 			entity._train_payments.clear()
@@ -318,20 +335,42 @@ static func restore_ai(root: Node, data: Dictionary) -> void:
 
 static func _capture_memory(memory: Dictionary, id: int) -> Dictionary:
 	var record := {"entity": id, "sim_pos": _vec(memory.sim_pos), "position": _vec(memory.position), "footprint": _vec(memory.footprint), "minimap_kind": memory.get("minimap_kind", "resource"), "team": memory.get("team"), "resource_type": memory.get("resource_type"), "parts": []}
+	record["terrain_region"] = memory.get("terrain_region", false)
+	record["kind"] = String(memory.kind) if memory.get("kind") != null else null
 	for part in memory.parts:
 		var transform: Transform2D = part.transform
 		var color: Color = part.color
 		var encoded := {"transform": [_vec(transform.x), _vec(transform.y), _vec(transform.origin)], "color": [color.r, color.g, color.b, color.a], "z": part.z}
-		if part.has("texture"):
+		for key in PART_COLORS:
+			if part.has(key):
+				var value: Color = part[key]
+				encoded[key] = [value.r, value.g, value.b, value.a]
+		for key in ["z_as_relative", "texture_filter", "texture_repeat"]:
+			if part.has(key): encoded[key] = part[key]
+		if part.has("polygon"):
+			encoded.polygon = _vectors(part.polygon)
+			encoded.uv = _vectors(part.get("uv", PackedVector2Array()))
+			if part.get("texture") != null: encoded.texture = _capture_texture(part.texture)
+			for key in POLYGON_VECTORS:
+				if part.has(key): encoded[key] = _vec(part[key])
+			for key in ["texture_rotation", "invert_enabled", "invert_border", "antialiased"]:
+				if part.has(key): encoded[key] = part[key]
+			encoded.vertex_colors = []
+			for value: Color in part.get("vertex_colors", PackedColorArray()):
+				encoded.vertex_colors.append([value.r, value.g, value.b, value.a])
+			encoded.polygons = []
+			for polygon in part.get("polygons", []): encoded.polygons.append(Array(polygon))
+		elif part.has("texture"):
 			encoded.texture = _capture_texture(part.texture)
 			encoded.offset = _vec(part.offset)
 			encoded.centered = part.centered
-		else: encoded.polygon = _vectors(part.polygon)
 		if part.get("material") is ShaderMaterial and part.material.shader == PLAYER_COLOR_SHADER:
 			encoded.material = {"type": "player_color", "player_mask": _capture_texture(part.material.get_shader_parameter("player_mask")), "player_palette": _capture_texture(part.material.get_shader_parameter("player_palette")),
 				"source_player": part.material.get_shader_parameter("source_player"), "target_player": part.material.get_shader_parameter("target_player"), "sprite_layer": part.material.get_shader_parameter("sprite_layer")}
 		elif part.get("material") is CanvasItemMaterial:
 			encoded.material = {"type": "canvas", "blend_mode": part.material.blend_mode, "light_mode": part.material.light_mode}
+		elif part.get("material") is ShaderMaterial and part.material.shader == CLIFF_FOG_SHADER:
+			encoded.material = {"type":"terrain_cliff"}
 		record.parts.append(encoded)
 	return record
 
@@ -362,9 +401,27 @@ static func _restore_fog(root: Node, state: MatchState, data: Dictionary, nodes:
 			var parts: Array = []
 			for encoded in record.parts:
 				var part := {"transform": Transform2D(_vector(encoded.transform[0]), _vector(encoded.transform[1]), _vector(encoded.transform[2])), "color": Color(encoded.color[0], encoded.color[1], encoded.color[2], encoded.color[3]), "z": int(encoded.z)}
-				if encoded.has("texture"):
+				for field in PART_COLORS:
+					if encoded.has(field):
+						var color: Array = encoded[field]
+						part[field] = Color(color[0], color[1], color[2], color[3])
+				for field in ["z_as_relative", "texture_filter", "texture_repeat"]:
+					if encoded.has(field): part[field] = encoded[field]
+				if encoded.has("polygon"):
+					part.polygon = _packed_vectors(encoded.polygon)
+					part.uv = _packed_vectors(encoded.get("uv", []))
+					part.texture = _restore_texture(encoded.texture) if encoded.has("texture") else null
+					for field in POLYGON_VECTORS:
+						if encoded.has(field): part[field] = _vector(encoded[field])
+					for field in ["texture_rotation", "invert_enabled", "invert_border", "antialiased"]:
+						if encoded.has(field): part[field] = encoded[field]
+					var colors := PackedColorArray()
+					for value in encoded.get("vertex_colors", []): colors.append(Color(value[0],value[1],value[2],value[3]))
+					part.vertex_colors = colors
+					part.polygons = []
+					for polygon in encoded.get("polygons", []): part.polygons.append(PackedInt32Array(polygon))
+				elif encoded.has("texture"):
 					part.merge({"texture": _restore_texture(encoded.texture), "offset": _vector(encoded.offset), "centered": encoded.centered})
-				else: part.polygon = _packed_vectors(encoded.polygon)
 				if encoded.has("material"):
 					var material_data: Dictionary = encoded.material
 					if material_data.type == "player_color":
@@ -372,6 +429,10 @@ static func _restore_fog(root: Node, state: MatchState, data: Dictionary, nodes:
 						material.shader = PLAYER_COLOR_SHADER
 						for uniform in ["source_player", "target_player", "sprite_layer"]: material.set_shader_parameter(uniform, int(material_data[uniform]))
 						for uniform in ["player_mask", "player_palette"]: material.set_shader_parameter(uniform, _restore_texture(material_data[uniform]))
+						part.material = material
+					elif material_data.type == "terrain_cliff":
+						var material := ShaderMaterial.new()
+						material.shader = CLIFF_FOG_SHADER
 						part.material = material
 					else:
 						var material := CanvasItemMaterial.new()
@@ -383,7 +444,7 @@ static func _restore_fog(root: Node, state: MatchState, data: Dictionary, nodes:
 			orphan -= 1
 			var pos := _vector(record.sim_pos)
 			var footprint := _vector(record.footprint)
-			fog.memories[team][key] = {"sim_pos": pos, "position": _vector(record.position), "footprint": footprint, "cells": fog.footprint_cells(pos, footprint), "parts": parts, "appearance": hash(record.parts), "minimap_kind": record.minimap_kind, "team": record.team, "resource_type": record.resource_type, "kind": null, "last_seen_msec": Time.get_ticks_msec()}
+			fog.memories[team][key] = {"sim_pos": pos, "position": _vector(record.position), "footprint": footprint, "cells": fog.footprint_cells(pos, footprint), "parts": parts, "appearance": hash(record.parts), "minimap_kind": record.minimap_kind, "team": record.team, "resource_type": record.resource_type, "kind": StringName(record.kind) if record.get("kind") != null else null, "terrain_region":record.get("terrain_region", false), "last_seen_msec": Time.get_ticks_msec()}
 	fog.dirty = true
 	fog.revision += 1
 	var holder := root.get_node_or_null("FogOfWar")
@@ -479,6 +540,7 @@ static func validate(data: Variant) -> String:
 				if not _vector_list(record.get("path")) or not _vector_list(record.get("gather_work_points")) or not record.get("gather_candidates") is Array: return "存档单位路径已损坏。"
 			else:
 				if not record.get("queue") is Array or record.queue.size() > BuildingAgent.MAX_TRAIN_QUEUE: return "存档生产队列已损坏。"
+				if record.fields.has("_spawn_retry_remaining") and (not MapDataScript.number(record.fields._spawn_retry_remaining) or record.fields._spawn_retry_remaining < 0 or record.fields._spawn_retry_remaining > BuildingAgent.TRAIN_SPAWN_RETRY_INTERVAL): return "存档建筑出口等待进度已损坏。"
 				var queue_ids := {}
 				for item in record.queue:
 					if not item is Dictionary or not _integer_between(item.get("id"), 1, 2147483647) or queue_ids.has(int(item.id)) or not item.get("definition") is String or Catalog.get_unit(StringName(item.definition)) == null: return "存档生产队列项目已损坏。"
@@ -486,6 +548,10 @@ static func validate(data: Variant) -> String:
 					if not item.get("payment") is Dictionary or not _numbers(item.payment.get("cost"), 4) or not _integer_between(item.payment.get("population"), 0, 200): return "存档生产付款信息已损坏。"
 		elif record.get("type") == "resource":
 			if not _integer_between(record.get("resource_type"), 0, 3) or not MapDataScript.number(record.get("amount")) or float(record.amount) < 0 or not MapDataScript.number(record.get("gather_rate")) or float(record.gather_rate) < 0 or not MapDataScript.vector(record.get("block_size")): return "存档资源节点已损坏。"
+		elif record.get("type") == "terrain":
+			if record.get("terrain_id") not in ["water", "cliff"] or not MapDataScript.vector(record.get("block_size")): return "存档地形类型或尺寸已损坏。"
+			var size := _vector(record.block_size)
+			if size.x <= 0 or size.y <= 0 or size.x > MapDataScript.MAX_TERRAIN_SIZE or size.y > MapDataScript.MAX_TERRAIN_SIZE or not MapDataScript.bounds(data.map).encloses(Rect2(_vector(record.pos) - size * 0.5, size)): return "存档地形占地无效。"
 		elif record.get("type") == "projectile":
 			if not _integer_between(record.get("team"), 0, 1) or not record.get("presentation") is Dictionary or not record.get("weapon") is Dictionary: return "存档飞行弹药已损坏。"
 			var p: Dictionary = record.presentation
@@ -540,16 +606,42 @@ static func _validate_fog(data: Variant, bounds: Rect2) -> String:
 		for memory in data.memories[team]:
 			if not memory is Dictionary or not _integer_between(memory.get("entity"), 0, MAX_ENTITIES) or not MapDataScript.vector(memory.get("sim_pos")) or not MapDataScript.vector(memory.get("position")) or not MapDataScript.vector(memory.get("footprint")) or memory.get("minimap_kind") not in ["building", "resource", "blocker"] or not memory.get("parts") is Array or memory.parts.size() > 64: return "存档迷雾记忆已损坏。"
 			if memory.get("team") != null and not _integer_between(memory.team, 0, 1) or memory.get("resource_type") != null and not _integer_between(memory.resource_type, 0, 3): return "存档迷雾记忆阵营已损坏。"
+			if memory.has("terrain_region") and not memory.terrain_region is bool: return "存档地形记忆已损坏。"
+			if memory.get("kind") != null and (not memory.kind is String or memory.kind.length() > 128): return "存档迷雾记忆类型已损坏。"
+			if memory.get("terrain_region", false) and (memory.get("kind") not in ["water", "cliff"] or memory.minimap_kind != "blocker"): return "存档地形记忆类型已损坏。"
 			for part in memory.parts:
 				if not part is Dictionary or not _vector_list(part.get("transform")) or part.transform.size() != 3 or not _numbers(part.get("color"), 4) or not MapDataScript.number(part.get("z")): return "存档迷雾图像已损坏。"
-				if part.has("texture"):
+				for field in PART_COLORS:
+					if part.has(field) and not _numbers(part[field],4): return "存档迷雾颜色已损坏。"
+				if part.has("z_as_relative") and not part.z_as_relative is bool: return "存档迷雾层级已损坏。"
+				if part.has("texture_filter") and not _integer_between(part.texture_filter,0,6) or part.has("texture_repeat") and not _integer_between(part.texture_repeat,0,3): return "存档迷雾纹理设置已损坏。"
+				if part.has("polygon"):
+					if not _vector_list(part.polygon) or not _vector_list(part.get("uv", [])) or not part.get("uv", []).is_empty() and part.uv.size() != part.polygon.size(): return "存档迷雾多边形已损坏。"
+					if part.has("texture") and not _valid_texture(part.texture): return "存档迷雾纹理已损坏。"
+					for field in POLYGON_VECTORS:
+						if part.has(field) and not MapDataScript.vector(part[field]): return "存档迷雾纹理坐标已损坏。"
+					for field in ["texture_rotation", "invert_border"]:
+						if part.has(field) and not MapDataScript.number(part[field]): return "存档迷雾纹理数值已损坏。"
+					for field in ["invert_enabled", "antialiased"]:
+						if part.has(field) and not part[field] is bool: return "存档迷雾多边形状态已损坏。"
+					if not part.get("vertex_colors", []) is Array or part.get("vertex_colors", []).size() > part.polygon.size(): return "存档迷雾顶点颜色已损坏。"
+					for color in part.get("vertex_colors", []):
+						if not _numbers(color,4): return "存档迷雾顶点颜色已损坏。"
+					if not part.get("polygons", []) is Array or part.get("polygons", []).size() > MAX_ENTITIES: return "存档迷雾面索引已损坏。"
+					for polygon in part.get("polygons", []):
+						if not polygon is Array or polygon.size() > MAX_ENTITIES: return "存档迷雾面索引已损坏。"
+						for index in polygon:
+							if not _integer_between(index,0,part.polygon.size()-1): return "存档迷雾面索引已损坏。"
+				elif part.has("texture"):
 					if not _valid_texture(part.texture) or not MapDataScript.vector(part.get("offset")) or not part.get("centered") is bool: return "存档迷雾纹理已损坏。"
-				elif not _vector_list(part.get("polygon")): return "存档迷雾轮廓已损坏。"
+				else: return "存档迷雾轮廓已损坏。"
 				if part.has("material"):
 					var material: Variant = part.material
-					if not material is Dictionary or material.get("type") not in ["player_color", "canvas"]: return "存档迷雾材质已损坏。"
+					if not material is Dictionary or material.get("type") not in ["player_color", "canvas", "terrain_cliff"]: return "存档迷雾材质已损坏。"
 					if material.type == "player_color":
 						if not _valid_texture(material.get("player_mask")) or not _valid_texture(material.get("player_palette")) or not _integer_between(material.get("source_player"), 1, 8) or not _integer_between(material.get("target_player"), 1, 8) or not _integer_between(material.get("sprite_layer"), 0, 2): return "存档迷雾颜色已损坏。"
+					elif material.type == "terrain_cliff":
+						if not part.has("polygon") or not memory.get("terrain_region", false): return "存档地形材质已损坏。"
 					elif not _integer_between(material.get("blend_mode"), 0, 4) or not _integer_between(material.get("light_mode"), 0, 2): return "存档迷雾混合模式已损坏。"
 	return ""
 

@@ -6,6 +6,7 @@ extends Node2D
 
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+const TerrainVisualScript := preload("res://scripts/presentation/terrain_visual.gd")
 
 @export var sim_pos := Vector2.ZERO
 @export var block_size := Vector2(2.0, 2.0)
@@ -15,6 +16,7 @@ const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 @export var kind := &"block"
 
 var block_half := Vector2.ONE
+var _selection: Line2D
 
 func _ready() -> void:
 	add_to_group("path_blockers")
@@ -24,7 +26,25 @@ func _ready() -> void:
 	if auto_block_size:
 		_sync_block_size_from_sprite()
 	block_half = block_size * 0.5
+	if kind in [&"water", &"cliff"] and not auto_block_size:
+		add_to_group("terrain_regions")
 	_setup_visual()
+	_setup_selection()
+
+func set_selected(value: bool) -> void:
+	if _selection != null:
+		_selection.visible = value
+
+func _setup_selection() -> void:
+	_selection = Line2D.new()
+	_selection.name = "SelectionFootprint"
+	_selection.points = TerrainVisualScript.footprint(block_size)
+	_selection.closed = true
+	_selection.width = 2.0
+	_selection.default_color = Color(1.0, 0.9, 0.35)
+	_selection.z_index = 100
+	_selection.visible = false
+	add_child(_selection)
 
 func _pixel_scale_for_sheet() -> float:
 	match kind:
@@ -43,6 +63,16 @@ func _sync_block_size_from_sprite() -> void:
 	)
 
 func _setup_visual() -> void:
+	# New map terrain specifies its footprint explicitly. Keep old auto-sized
+	# SLP blockers / test arenas intact, including their generic fallback art.
+	if kind in [&"water", &"cliff"] and not auto_block_size:
+		for label in ["Billboard", "Body", "Fallback"]:
+			var previous := get_node_or_null(label)
+			if previous != null: previous.free()
+		TerrainVisualScript.populate(self, kind, block_size, sim_pos)
+		if is_instance_valid(_selection):
+			_selection.points = TerrainVisualScript.footprint(block_size)
+		return
 	var billboard := get_node_or_null("Billboard") as Sprite2D
 	if billboard == null:
 		billboard = Sprite2D.new()

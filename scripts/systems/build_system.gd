@@ -31,8 +31,8 @@ static func can_place(
 		if building == null or building.is_queued_for_deletion() or building.get("is_placement_ghost") == true:
 			continue
 		var building_def := building.get("def") as BuildingDef
-		var existing_footprint := (
-			building_def.footprint if building_def != null else Vector2.ONE
+		var existing_footprint: Vector2 = (
+			building_def.footprint if building_def != null else (building.get("block_size") if building.get("block_size") is Vector2 else Vector2.ONE)
 		)
 		var existing_half := existing_footprint * 0.5
 		var building_pos: Vector2 = building.get("sim_pos")
@@ -198,7 +198,7 @@ func _update_placement_validity() -> void:
 		return
 	var existing: Array = []
 	for node in _entities.get_children():
-		if node != _ghost and node.get("def") is BuildingDef:
+		if node != _ghost and (node.get("def") is BuildingDef or node.is_in_group("terrain_regions")):
 			existing.append(node)
 	_placement_valid = (
 		can_place(

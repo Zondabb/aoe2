@@ -7,6 +7,7 @@ const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const CHINESE := preload("res://data/civs/chinese.tres")
 const TEUTONS := preload("res://data/civs/teutons.tres")
+const TERRAIN := preload("res://scripts/entities/path_blocker.gd")
 const MAX_FILE_BYTES := 4 * 1024 * 1024
 
 static func load_file(path: String) -> Dictionary:
@@ -63,9 +64,14 @@ static func spawn_entity(record: Dictionary, parent: Node2D, state: MatchState, 
 			entity.set("gather_rate", float(record.gather_rate))
 			if record.has("block_size"):
 				entity.set("block_size_override", Vector2(record.block_size[0], record.block_size[1]))
+		"terrain":
+			entity = TERRAIN.new()
+			entity.set("kind", StringName(record.terrain_id))
+			entity.set("auto_block_size", false)
+			entity.set("block_size", Vector2(record.block_size[0], record.block_size[1]))
 	if entity == null:
 		return null
-	if record.type != "resource":
+	if record.type not in ["resource", "terrain"]:
 		var team := Enums.Team.PLAYER if record.team == "player" else Enums.Team.AI
 		entity.set("team", team)
 		entity.set("civ", civilizations.get(team, CHINESE if team == Enums.Team.PLAYER else TEUTONS))

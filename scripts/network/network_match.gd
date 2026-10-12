@@ -14,6 +14,7 @@ const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const PROJECTILE_VIEW := preload("res://scenes/entities/projectile_view.tscn")
 const ResourceScript := preload("res://scripts/entities/resource_node.gd")
+const TerrainScript := preload("res://scripts/entities/path_blocker.gd")
 const SNAPSHOT_INTERVAL := 0.1
 const SNAPSHOT_TIMEOUT := 10.0
 const MAX_ENTITIES := 2000
@@ -232,6 +233,8 @@ func capture_snapshot() -> Dictionary:
 			record.merge({"resource_type": entity.get("resource_type"), "amount": entity.get("amount"), "gather_rate": entity.get("gather_rate")})
 			if entity.block_size_override != Vector2.ZERO:
 				record["block_size"] = [entity.block_size_override.x, entity.block_size_override.y]
+		elif kind == "terrain":
+			record.merge({"terrain_id": String(entity.kind), "block_size": [entity.block_size.x, entity.block_size.y]})
 		else:
 			record["team"] = entity.get("team")
 			if kind == "projectile":
@@ -363,6 +366,11 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 			entity = ResourceScript.new()
 			entity.set("resource_type", int(record.resource_type))
 			if record.has("block_size"): entity.set("block_size_override", _vec(record.block_size))
+		"terrain":
+			entity = TerrainScript.new()
+			entity.set("kind", StringName(record.terrain_id))
+			entity.set("auto_block_size", false)
+			entity.set("block_size", _vec(record.block_size))
 		"projectile":
 			entity = PROJECTILE_VIEW.instantiate()
 		_:
@@ -370,7 +378,7 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 	entity.set_meta("net_id", int(record.id))
 	entity.set_meta("network_replica", true)
 	entity.set("sim_pos", _vec(record.pos))
-	if record.kind != "resource":
+	if record.kind not in ["resource", "terrain"]:
 		entity.set("team", int(record.team))
 		entity.set("match_state", match_state)
 		if record.kind != "projectile":
@@ -383,6 +391,7 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 
 
 func _apply_record(entity: Node2D, record: Dictionary) -> void:
+	var position_changed: bool = entity.get("sim_pos") != _vec(record.pos)
 	if entity is UnitAgent and String(entity.def.id) != record.def:
 		entity.apply_definition_upgrade(Catalog.get_unit(record.def))
 	elif entity is BuildingAgent and String(entity.def.id) != record.def:
@@ -394,6 +403,17 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 		entity.set("block_size_override", _vec(record.block_size) if record.has("block_size") else Vector2.ZERO)
 		entity.block_half = entity.pathfinding_size() * 0.5
 		entity.visible = float(record.amount) > 0.0
+	elif record.kind == "terrain":
+		var new_size := _vec(record.block_size)
+		var new_kind := StringName(record.terrain_id)
+		if position_changed or entity.block_size != new_size or entity.kind != new_kind:
+			entity.block_size = new_size
+			entity.block_half = new_size * 0.5
+			entity.kind = new_kind
+			entity.call("_setup_visual")
+			for holder in get_tree().get_nodes_in_group("nav_service"):
+				if holder.get_parent().is_ancestor_of(entity):
+					holder.invalidate_static_geometry()
 	elif record.kind == "projectile":
 		entity.call("apply_network_presentation", record.presentation)
 		return
@@ -426,8 +446,11 @@ func _valid_record(record: Dictionary) -> bool:
 	if not _valid_id(record.get("id")) or not _valid_position(record.get("pos")):
 		return false
 	var kind: Variant = record.get("kind")
-	if kind not in ["unit", "building", "resource", "projectile"]:
+	if kind not in ["unit", "building", "resource", "projectile", "terrain"]:
 		return false
+	if kind == "terrain":
+		var size: Variant = record.get("block_size")
+		return record.get("terrain_id") in ["water", "cliff"] and _valid_position(size) and float(size[0]) > 0 and float(size[1]) > 0 and float(size[0]) <= 128 and float(size[1]) <= 128 and map_bounds.encloses(Rect2(_vec(record.pos) - _vec(size) * 0.5, _vec(size)))
 	if kind == "resource":
 		if record.has("block_size"):
 			var size: Variant = record.block_size
@@ -501,6 +524,8 @@ func _entity_kind(entity: Node) -> String:
 		return "building"
 	if entity is ResourceNode:
 		return "resource"
+	if entity is TerrainScript and entity.kind in [&"water", &"cliff"]:
+		return "terrain"
 	if entity is ProjectileAgent:
 		return "projectile"
 	return ""

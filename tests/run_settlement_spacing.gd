@@ -21,6 +21,7 @@ class PlannedBootstrap extends Node:
 class PlannedUnit extends Node2D:
 	var def: UnitDef
 	var order := Enums.OrderType.NONE
+	var carry_amount := 0.0
 
 class PlannedResource extends Node2D:
 	var resource_type := Enums.ResourceType.WOOD

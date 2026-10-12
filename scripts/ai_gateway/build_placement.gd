@@ -15,6 +15,8 @@ static func place_foundation(
 ) -> Node2D:
 	if building_def == null or ctx == null or ctx.match_state == null or ctx.entities == null:
 		return null
+	if not can_place_at(building_def, pos, ctx.entities):
+		return null
 	if not ctx.match_state.spend(
 		ctx.team,
 		building_def.cost_food,
@@ -54,4 +56,7 @@ static func can_place_at(
 	if building_def == null or entities == null:
 		return false
 	var existing := AiEntityQueriesScript.all_buildings(entities)
+	for node in entities.get_children():
+		if node.is_in_group("terrain_regions"):
+			existing.append(node)
 	return BuildSystemScript.can_place(building_def.footprint, pos, existing)

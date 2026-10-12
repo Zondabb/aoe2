@@ -86,6 +86,10 @@ func _try_connect_building(node: Node) -> void:
 func _on_construction_changed(_building: Node) -> void:
 	rebuild_from_scene()
 
+## Coalesce network terrain edits with the existing deferred static rebuild.
+func invalidate_static_geometry() -> void:
+	_queue_static_rebuild()
+
 func rebuild_from_scene() -> void:
 	if nav == null:
 		return
@@ -185,7 +189,9 @@ func _update_static_index(blockers: Array) -> void:
 func _same_static_objects(blockers: Array) -> bool:
 	if blockers.size() != _static_records.size(): return false
 	for node in blockers:
-		if not _static_records.has(node.get_instance_id()): return false
+		var record: Dictionary = _static_records.get(node.get_instance_id(), {})
+		if record.is_empty() or record.center != node.get("sim_pos") or record.half != CollisionResolverScript._blocker_half(node, 0.0):
+			return false
 	return true
 
 

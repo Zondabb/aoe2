@@ -19,7 +19,7 @@ const TEUTONS := preload("res://data/civs/teutons.tres")
 
 static func generate(seed_value := DEFAULT_SEED, player_civ_id: StringName = &"chinese", ai_civ_id: StringName = &"teutons") -> Dictionary:
 	var data := Data.create(DEFAULT_SIZE, DEFAULT_SIZE, "经典双营地 · 陆地")
-	data["generator"] = {"id": "classic_land", "version": 1, "seed": seed_value, "original_tiles": MAP_ORIGINAL_TILES, "distance_scale": WORLD_DISTANCE_SCALE}
+	data["generator"] = {"id": "classic_land", "version": 2, "seed": seed_value, "original_tiles": MAP_ORIGINAL_TILES, "distance_scale": WORLD_DISTANCE_SCALE}
 	var random := RandomNumberGenerator.new()
 	random.seed = seed_value
 	_add_base(data, "player", "Player", BASE_POSITION, player_civ_id)
@@ -38,7 +38,20 @@ static func generate(seed_value := DEFAULT_SEED, player_civ_id: StringName = &"c
 	var forest_centers := [Vector2(-120, -188), Vector2(-188, -120), Vector2(-195, -195), Vector2(-160, -24), Vector2(-40, -185), Vector2(-52, -40), Vector2(-195, 60)]
 	for index in forest_centers.size():
 		_add_forest_pair(data, forest_centers[index], index, random)
+	_add_terrain_pair(data, "water", "Lake", Vector2(-80, 90), Vector2(64, 44))
+	_add_terrain_pair(data, "cliff", "Cliff", Vector2(-15, 100), Vector2(12, 72))
 	return data
+
+
+static func _add_terrain_pair(data: Dictionary, kind: String, suffix: String, center: Vector2, size: Vector2) -> void:
+	# Symmetric obstacles leave both bases, resource work bands and the middle
+	# route open. Custom saved maps retain their own authored terrain entirely.
+	for side in 2:
+		var point := center if side == 0 else -center
+		var record := Catalog.make_record("terrain", kind, point)
+		record.id = ("Player" if side == 0 else "Ai") + suffix
+		record.block_size = [size.x, size.y]
+		data.entities.append(record)
 
 static func _add_base(data: Dictionary, team: String, prefix: String, origin: Vector2, civ_id: StringName) -> void:
 	var town := Catalog.make_record("building", "town_center", origin, team)

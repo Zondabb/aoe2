@@ -29,6 +29,8 @@ var _copy_orders: Dictionary = {}
 var _outline_params: Dictionary = {}
 var _composition_invalid := true
 var _pending_mask_frames := 0
+var _polygon_sources: Dictionary = {}
+var _white_texture: ImageTexture
 
 ## Static sprites do not process every frame. This child receives inherited
 ## transform notifications, including when an actor/ancestor moves or scales.
@@ -110,16 +112,21 @@ func _register_static_actor(actor: Node) -> void:
 	var actor_id := actor.get_instance_id()
 	if not _static_actors.has(actor_id): _static_actors[actor_id] = []
 	for source in actor.get_children():
-		if source is Sprite2D and source.name != &"GroundShadow":
+		if (source is Sprite2D or source is Polygon2D) and source.name != &"GroundShadow":
 			_register_static_source(actor, source)
 
-func _register_static_source(actor: Node2D, source: Sprite2D) -> void:
+func _register_static_source(actor: Node2D, source: Node2D) -> void:
 	var id := source.get_instance_id()
 	if _static_sources.has(id): return
 	_static_sources[id] = {"actor":actor, "source":source, "cells":[]}
 	_static_actors[actor.get_instance_id()].append(id)
 	source.item_rect_changed.connect(_mark_source_dirty.bind(id))
-	source.texture_changed.connect(_mark_source_dirty.bind(id))
+	if source is Sprite2D:
+		source.texture_changed.connect(_mark_source_dirty.bind(id))
+	else:
+		# Polygon2D has no texture_changed signal. Geometry polling is confined
+		# to the few terrain polygons; the thousands of static sprites stay cached.
+		_polygon_sources[id] = [source.polygon, source.offset, source.invert_enabled, source.invert_border]
 	var tracker := TransformTracker.new()
 	tracker.name = "OcclusionTransformTracker"
 	tracker.owner_ref = weakref(self)
@@ -160,6 +167,7 @@ func _remove_static_source(id: int) -> void:
 	if not _static_sources.has(id): return
 	_remove_source_cells(id)
 	_static_sources.erase(id)
+	_polygon_sources.erase(id)
 	_unindexed_sources.erase(id)
 	_dirty_sources.erase(id)
 	_release_copy(id)
@@ -173,15 +181,14 @@ func _remove_source_cells(id: int) -> void:
 
 func _refresh_source(id: int) -> void:
 	var record: Dictionary = _static_sources[id]
-	var source: Sprite2D = record.source
+	var source: Node2D = record.source
 	if not is_instance_valid(source):
 		_remove_static_source(id)
 		return
 	_remove_source_cells(id)
 	_unindexed_sources.erase(id)
-	if source.texture == null: return
-	var bounds := Rect2(source.offset, source.texture.get_size())
-	if source.centered: bounds.position -= bounds.size * 0.5
+	var bounds := _source_bounds(source)
+	if not bounds.has_area(): return
 	# A CanvasLayer has its own camera transform; keep rare layer actors in the
 	# direct candidate set instead of incorrectly indexing them in world space.
 	var ancestor: Node = source
@@ -209,8 +216,14 @@ func _refresh_registry() -> void:
 		if node.is_in_group("units"):
 			_dynamic_actors[node.get_instance_id()] = node
 		if _is_static_actor(node): _register_static_actor(node)
-		elif node is Sprite2D and node.get_parent() is Node2D and _is_static_actor(node.get_parent()):
+		elif (node is Sprite2D or node is Polygon2D) and node.get_parent() is Node2D and _is_static_actor(node.get_parent()):
 			_register_static_actor(node.get_parent())
+	for id in _polygon_sources:
+		var polygon: Polygon2D = _static_sources[id].source
+		var geometry := [polygon.polygon, polygon.offset, polygon.invert_enabled, polygon.invert_border]
+		if geometry != _polygon_sources[id]:
+			_polygon_sources[id] = geometry
+			_mark_source_dirty(id)
 	var changed := _dirty_sources.keys()
 	_dirty_sources.clear()
 	for id in changed:
@@ -246,6 +259,26 @@ static func _before(a: Dictionary, b: Dictionary) -> bool:
 		return a.y < b.y
 	return (b.source as Node).is_greater_than(a.source)
 
+static func _source_bounds(source: Node2D, texture: Texture2D = null) -> Rect2:
+	if source is Polygon2D:
+		if source.polygon.size() < 3: return Rect2()
+		var bounds := Rect2(source.polygon[0] + source.offset, Vector2.ZERO)
+		for point in source.polygon: bounds = bounds.expand(point + source.offset)
+		if source.invert_enabled: bounds = bounds.grow(source.invert_border)
+		return bounds
+	if texture == null and source is Sprite2D: texture = source.texture
+	if texture == null: return Rect2()
+	var bounds := Rect2(source.offset, texture.get_size())
+	if source.centered: bounds.position -= bounds.size * 0.5
+	return bounds
+
+func _opaque_texture() -> ImageTexture:
+	if _white_texture == null:
+		var white := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		white.fill(Color.WHITE)
+		_white_texture = ImageTexture.create_from_image(white)
+	return _white_texture
+
 func _part(actor: Node2D, source: Node2D, dynamic: bool, screen: Rect2) -> Dictionary:
 	if not _visible(source):
 		return {}
@@ -256,14 +289,14 @@ func _part(actor: Node2D, source: Node2D, dynamic: bool, screen: Rect2) -> Dicti
 		texture = source.sprite_frames.get_frame_texture(source.animation, source.frame)
 	elif source is Sprite2D:
 		texture = source.texture
+	elif source is Polygon2D:
+		texture = source.texture if source.texture != null else _opaque_texture()
 	else:
 		return {}
 	if texture == null:
 		return {}
 	var transform := source.get_global_transform_with_canvas()
-	var bounds := Rect2(source.offset, texture.get_size())
-	if source.centered:
-		bounds.position -= bounds.size * 0.5
+	var bounds := _source_bounds(source, texture)
 	if not screen.intersects(transform * bounds):
 		return {}
 	return {"actor": actor, "source": source, "texture": texture, "transform": transform,
@@ -317,8 +350,8 @@ func update_mask() -> void:
 		for id in _query_static_sources(screen):
 			var record: Dictionary = _static_sources[id]
 			var actor: Node2D = record.actor
-			var source: Sprite2D = record.source
-			if not _is_static_actor(actor) or not _visible(actor) or actor.get("is_placement_ghost") == true or source.z_index < 0: continue
+			var source: Node2D = record.source
+			if not _is_static_actor(actor) or not _visible(actor) or actor.get("is_placement_ghost") == true or _effective_z(source) < 0: continue
 			var part := _part(actor, source, false, screen)
 			if not part.is_empty():
 				parts.append(part)
@@ -338,9 +371,9 @@ func update_mask() -> void:
 		var source: Node2D = part.source
 		var id := source.get_instance_id()
 		alive_copies[id] = true
-		var copy := _copy_pool.get(id) as Sprite2D
+		var copy := _copy_pool.get(id) as Node2D
 		if copy == null:
-			copy = Sprite2D.new()
+			copy = Polygon2D.new() if source is Polygon2D else Sprite2D.new()
 			copy.material = ShaderMaterial.new()
 			copy.material.shader = DEPTH
 			mask_view.add_child(copy)
@@ -350,7 +383,10 @@ func update_mask() -> void:
 		if not copy.visible:
 			copy.show()
 			composition_changed = true
-		composition_changed = _copy_sprite(copy, source, part.texture) or composition_changed
+		if source is Polygon2D:
+			composition_changed = _copy_polygon(copy, source, part.texture) or composition_changed
+		else:
+			composition_changed = _copy_sprite(copy, source, part.texture) or composition_changed
 		var transform: Transform2D = stretch * part.transform
 		if copy.transform != transform:
 			copy.transform = transform
@@ -408,6 +444,20 @@ static func _copy_sprite(copy: Sprite2D, source: Node2D, texture: Texture2D) -> 
 		changed = true
 	if copy.texture_filter != CanvasItem.TEXTURE_FILTER_NEAREST:
 		copy.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		changed = true
+	return changed
+
+static func _copy_polygon(copy: Polygon2D, source: Polygon2D, texture: Texture2D) -> bool:
+	var changed := false
+	for property in [&"polygon", &"offset", &"uv", &"polygons", &"vertex_colors", &"color",
+		&"texture_scale", &"texture_offset", &"texture_rotation", &"texture_filter", &"texture_repeat",
+		&"invert_enabled", &"invert_border", &"antialiased"]:
+		var value: Variant = source.get(property)
+		if copy.get(property) != value:
+			copy.set(property, value)
+			changed = true
+	if copy.texture != texture:
+		copy.texture = texture
 		changed = true
 	return changed
 

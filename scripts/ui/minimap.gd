@@ -22,6 +22,7 @@ var _fog: RefCounted
 var _team := Enums.Team.PLAYER
 var _terrain: ImageTexture
 var _terrain_key: Array = []
+var _terrain_shapes: Array[Dictionary] = []
 var _markers: Array[Dictionary] = []
 var _elapsed := UPDATE_INTERVAL
 var _dragging := false
@@ -91,7 +92,6 @@ func _process(delta: float) -> void:
 	if _fog != null:
 		map_min = _fog.map_origin
 		map_max = _fog.map_end
-	_sync_terrain()
 	_elapsed += delta
 	if _elapsed >= UPDATE_INTERVAL:
 		_elapsed = 0.0
@@ -99,6 +99,7 @@ func _process(delta: float) -> void:
 	# View changes must not leave enemy dots from the previous perspective.
 	if _markers_team != _team:
 		refresh_markers()
+	_sync_terrain()
 	_order_ttl = maxf(0.0, _order_ttl - delta)
 	if _dragging and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_dragging = false
@@ -124,26 +125,47 @@ func _diamond() -> PackedVector2Array:
 
 func _sync_terrain() -> void:
 	var revision: int = _fog.revision if _fog != null else -1
-	var key := [_fog, revision, _team, match_state != null and match_state.fog_enabled]
+	var key := [_fog, revision, _team, match_state != null and match_state.fog_enabled, map_min, map_max]
 	if key == _terrain_key:
 		return
 	_terrain_key = key
 	var dims: Vector2i = _fog.grid_size if _fog != null else Vector2i.ONE
-	var pixels := Image.create(dims.x, dims.y, false, Image.FORMAT_RGB8)
-	var hidden := match_state != null and match_state.fog_enabled and _team != -1
-	pixels.fill(Color.BLACK if hidden else GRASS)
-	if hidden and _fog != null:
-		var explored: PackedByteArray = _fog.explored.get(_team, PackedByteArray())
-		var current: PackedByteArray = _fog.visible_now.get(_team, PackedByteArray())
-		for y in dims.y:
-			for x in dims.x:
-				var index := y * dims.x + x
-				if index < explored.size() and explored[index] != 0:
-					pixels.set_pixel(x, y, GRASS if current[index] != 0 else GRASS.darkened(0.58))
+	if _fog == null and not _terrain_shapes.is_empty():
+		dims = Vector2i((map_max - map_min).ceil()).clamp(Vector2i.ONE, Vector2i(256, 256))
+	var pixels := _terrain_image(dims)
 	if _terrain != null and _terrain.get_width() == dims.x and _terrain.get_height() == dims.y:
 		_terrain.update(pixels)
 	else:
 		_terrain = ImageTexture.create_from_image(pixels)
+
+## Paint terrain beneath the fog, never as an unmasked footprint marker.
+func _terrain_image(dims: Vector2i) -> Image:
+	var pixels := Image.create(dims.x, dims.y, false, Image.FORMAT_RGB8)
+	var hidden := match_state != null and match_state.fog_enabled and _team != -1
+	pixels.fill(Color.BLACK if hidden else GRASS)
+	var explored := PackedByteArray()
+	var current := PackedByteArray()
+	if hidden and _fog != null:
+		explored = _fog.explored.get(_team, PackedByteArray())
+		current = _fog.visible_now.get(_team, PackedByteArray())
+		for y in dims.y:
+			for x in dims.x:
+				var index := y * dims.x + x
+				if index < explored.size() and explored[index] != 0:
+					pixels.set_pixel(x, y, GRASS if index < current.size() and current[index] != 0 else GRASS.darkened(0.58))
+	var scale := Vector2(dims) / (map_max - map_min)
+	for shape in _terrain_shapes:
+		var half: Vector2 = shape.footprint * 0.5
+		var first := Vector2i(((shape.sim_pos - half - map_min) * scale).floor()).clamp(Vector2i.ZERO, dims)
+		var last := Vector2i(((shape.sim_pos + half - map_min) * scale).ceil()).clamp(Vector2i.ZERO, dims)
+		var color := Color(0.18, 0.40, 0.60) if shape.kind == &"water" else Color(0.55, 0.53, 0.45)
+		for y in range(first.y, last.y):
+			for x in range(first.x, last.x):
+				var index := y * dims.x + x
+				if hidden and (index >= explored.size() or explored[index] == 0): continue
+				var dimmed: bool = hidden and (index >= current.size() or current[index] == 0)
+				pixels.set_pixel(x, y, color.darkened(0.58) if dimmed else color)
+	return pixels
 
 func refresh_markers() -> void:
 	_markers.clear()
@@ -151,6 +173,7 @@ func refresh_markers() -> void:
 	if not is_instance_valid(_entities):
 		return
 	_marker_refresh += 1
+	var terrain_shapes: Array[Dictionary] = []
 	var shown: Dictionary = {}
 	var restricted := match_state != null and match_state.fog_enabled and _team != -1
 	var reuse_visibility: bool = restricted and is_instance_valid(_holder) and _holder.has_method("entity_visible_for") and _holder.get("fog") == _fog
@@ -186,6 +209,9 @@ func refresh_markers() -> void:
 		if restricted and (_fog == null or not _marker_visible(entity, marker, reuse_visibility)):
 			continue
 		shown[entity.get_instance_id()] = true
+		if entity.is_in_group("terrain_regions"):
+			terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind})
+			continue
 		_markers.append(marker)
 	for id in _static_marker_cache.keys():
 		if _static_marker_cache[id]._refresh != _marker_refresh:
@@ -196,8 +222,14 @@ func refresh_markers() -> void:
 			if shown.has(id) or not known[id].has("minimap_kind"):
 				continue
 			var marker: Dictionary = known[id].duplicate()
+			if marker.get("terrain_region", false):
+				terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind})
+				continue
 			marker["memory"] = true
 			_markers.append(marker)
+	if terrain_shapes != _terrain_shapes:
+		_terrain_shapes = terrain_shapes
+		_terrain_key.clear()
 	# Terrain/resources first, then buildings and mobile units.
 	# There are only three layers. A linear partition avoids thousands of
 	# GDScript comparator callbacks when a forest has been discovered.
@@ -298,9 +330,8 @@ func _draw() -> void:
 	var diamond := _diamond()
 	draw_colored_polygon(diamond, Color.BLACK)
 	if _terrain != null:
-		var side := float(_terrain.get_width())
-		draw_set_transform_matrix(Transform2D(Vector2(size.x, size.y) / (2.0 * side),
-			Vector2(-size.x, size.y) / (2.0 * side), Vector2(size.x * 0.5, 0)))
+		draw_set_transform_matrix(Transform2D(Vector2(size.x, size.y) / (2.0 * _terrain.get_width()),
+			Vector2(-size.x, size.y) / (2.0 * _terrain.get_height()), Vector2(size.x * 0.5, 0)))
 		draw_texture(_terrain, Vector2.ZERO)
 		draw_set_transform_matrix(Transform2D.IDENTITY)
 	if _marker_mesh_size != size:
