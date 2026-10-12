@@ -9,6 +9,8 @@ def board(worker_count=3):
     buildings = [
         dict(id=1, kind="building", def_id="town_center", pos=[-100, -100], is_complete=True),
         dict(id=2, kind="building", def_id="mill", pos=[-84, -100], is_complete=True),
+        dict(id=3, kind="building", def_id="lumber_camp", pos=[-84, -84], is_complete=True),
+        dict(id=4, kind="building", def_id="barracks", pos=[-100, -84], is_complete=True),
     ]
     return Blackboard(wood=2000, progression={"age": 0}, team_buildings=buildings,
                       all_buildings=buildings.copy(), team_villagers=[
@@ -52,13 +54,35 @@ def test_three_workers_keep_two_farms_and_replace_exhausted_plot():
     assert plots[0]["amount"] == 0 and ctx.commands[0].pos != plots[0]["pos"]
 
 
-def test_large_workforce_caps_active_farm_target_at_four():
+def test_farms_scale_with_the_workforce():
     ai, profile, bb = LandProgression(), profile_for_id("teutons"), board(12)
-    for tick in range(4):
+    for tick in range(6):
         ctx = CommandContext(tick)
         assert ai._ensure_food_supply(ctx, bb, profile)
         complete_command(bb, ctx)
-    assert not ai._ensure_food_supply(CommandContext(4), bb, profile)
+    assert not ai._ensure_food_supply(CommandContext(6), bb, profile)
+
+
+def test_farm_target_caps_at_ten_for_a_large_army_economy():
+    ai, profile, bb = LandProgression(), profile_for_id("teutons"), board(30)
+    bb.wood = 10000
+    for tick in range(10):
+        ctx = CommandContext(tick)
+        assert ai._ensure_food_supply(ctx, bb, profile)
+        complete_command(bb, ctx)
+    assert not ai._ensure_food_supply(CommandContext(10), bb, profile)
+
+
+def test_bootstrap_keeps_one_farm_while_saving_wood_for_first_barracks():
+    ai, profile, bb = LandProgression(), profile_for_id("teutons"), board(8)
+    bb.team_buildings = [b for b in bb.team_buildings if b["def_id"] != "barracks"]
+    bb.all_buildings = bb.team_buildings.copy()
+    ctx = CommandContext(1)
+    assert ai._ensure_food_supply(ctx, bb, profile)
+    complete_command(bb, ctx)
+    bb.wood = 100
+    assert not ai._ensure_food_supply(CommandContext(2), bb, profile)
+    assert bb.wood == 100
 
 
 def test_unaffordable_farm_does_not_spend_or_emit_command():

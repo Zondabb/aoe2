@@ -121,6 +121,7 @@ def test_director_integrates_scout_from_filtered_observation_without_hidden_targ
 
 def economic_board(kind="GOLD"):
     bb = board()
+    bb.team_buildings.extend([dict(id=20, def_id="lumber_camp", is_complete=True), dict(id=21, def_id="barracks", is_complete=True)])
     food = {"id": 10, "kind": "resource", "pos": [100, 100], "resource_type": "FOOD", "amount": 125}
     ore = {"id": 11, "kind": "resource", "pos": [65, 135], "resource_type": kind, "amount": 800}
     bb.resource_nodes = [food, ore]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import math
 
 from brain.game_data import BUILDINGS
 
@@ -112,8 +113,9 @@ def next_build_position(
     definitions: dict[str, dict] = BUILDINGS,
     resources: list[dict[str, Any]] | None = None,
     map_bounds: tuple[float, float, float, float] | None = None,
+    placement_visibility: dict[str, Any] | None = None,
 ) -> tuple[float, float] | None:
-    if town_center is None:
+    if town_center is None or building_def_id not in definitions:
         return None
     origin = (
         float(town_center["pos"][0]),
@@ -130,6 +132,29 @@ def next_build_position(
         slot = (build_slot + index) % len(offsets)
         ox, oy = offsets[slot]
         candidate = (origin[0] + ox * side[0], origin[1] + oy * side[1])
+        if not footprint_visible(candidate, definitions[building_def_id]["footprint"], placement_visibility):
+            continue
         if can_plan_settlement(building_def_id, candidate, all_buildings, definitions, resources, map_bounds):
             return candidate
     return None
+
+
+def footprint_visible(center: tuple[float, float], footprint: list | tuple,
+                      visibility: dict[str, Any] | None) -> bool:
+    """Mirror Godot's current fog cells using only the team's sight sources."""
+    if visibility is None:
+        return True  # Older observations and arenas have no fog restriction.
+    origin = visibility["origin"]
+    size = float(visibility["cell_size"])
+    width, height = map(int, visibility["grid_size"])
+    low = [math.floor((center[i] - float(footprint[i]) / 2 - origin[i]) / size) for i in (0, 1)]
+    high = [math.floor((center[i] + max(0, float(footprint[i]) / 2 - 0.00001) - origin[i]) / size) for i in (0, 1)]
+    if low[0] < 0 or low[1] < 0 or high[0] >= width or high[1] >= height:
+        return False
+    sources = visibility.get("sources", [])
+    for y in range(low[1], high[1] + 1):
+        for x in range(low[0], high[0] + 1):
+            px, py = origin[0] + (x + 0.5) * size, origin[1] + (y + 0.5) * size
+            if not any((px - sx) ** 2 + (py - sy) ** 2 <= radius ** 2 for sx, sy, radius in sources):
+                return False
+    return True

@@ -58,7 +58,10 @@ class EconomyManager:
                 break
             if assigned_builder is not None:
                 continue
-            idle = idle_villager(blackboard.team_villagers)
+            reserved = {c.unit_id for c in ctx.commands} | {c.builder_id for c in ctx.commands}
+            idle = idle_villager([worker for worker in blackboard.team_villagers
+                                  if int(worker["id"]) not in reserved
+                                  and float(worker.get("carry_amount", 0)) <= 0.001])
             if idle is not None:
                 ctx.issue_build(int(idle["id"]), building_id)
                 ctx.log_decision(
@@ -75,35 +78,56 @@ class EconomyManager:
     ) -> None:
         for resource in blackboard.resource_nodes:
             self._seen_resource_types[int(resource["id"])] = resource_type_from_name(str(resource.get("resource_type", "")))
-        needs_work = self._villagers_needing_gather(blackboard)
+        reserved = {c.unit_id for c in ctx.commands} | {c.builder_id for c in ctx.commands}
+        needs_work = [worker for worker in self._villagers_needing_gather(blackboard)
+                      if int(worker["id"]) not in reserved]
         if not needs_work:
             if blackboard.progression and blackboard.map_bounds:
-                self._rebalance_discovered_type(ctx, blackboard)
+                self._rebalance_discovered_type(ctx, blackboard, profile, phase)
             return
         if phase <= PHASE_ECO and not blackboard.progression:
             self._assign_opening_gatherers(ctx, blackboard, needs_work)
         else:
             self._assign_balanced_gatherers(ctx, blackboard, profile, phase, needs_work)
 
-    def _rebalance_discovered_type(self, ctx: CommandContext, bb: Blackboard) -> None:
-        """Preserve deliveries and the last worker of each existing resource kind."""
+    def _rebalance_discovered_type(self, ctx: CommandContext, bb: Blackboard, profile: CivAiProfile, phase: int) -> None:
+        """Gradually correct incumbent jobs, preserving every delivery and path search."""
         counts = self._count_active_gatherers(bb)
+        total = _total_gather_count(counts)
+        ratios = self._resource_ratios(bb, profile, phase)
         reserved = {c.unit_id for c in ctx.commands} | {c.builder_id for c in ctx.commands}
-        for kind in (FOOD, WOOD, GOLD, STONE):
-            if counts.get(kind, 0) > 0:
+        deficits = {kind: total * ratio - counts.get(kind, 0) for kind, ratio in ratios.items()}
+        for kind in sorted(deficits, key=deficits.get, reverse=True):
+            if deficits[kind] <= 0.25:
                 continue
             for worker in bb.team_villagers:
                 if worker.get("order") != ORDER_GATHER or worker.get("gather_state") in ("to_drop_off", "searching_resource") or float(worker.get("carry_amount", 0)) > 0.001 or int(worker["id"]) in reserved:
                     continue
                 previous_type = self._worker_resource_type(worker)
-                if previous_type is None or counts.get(previous_type, 0) < 2:
+                if previous_type is None or previous_type == kind:
+                    continue
+                previous_ratio = ratios.get(previous_type, 0)
+                minimum = 0 if previous_ratio == 0 else 1
+                if (counts.get(previous_type, 0) <= minimum
+                        or counts.get(previous_type, 0) - total * previous_ratio <= 0.5):
                     continue
                 target = nearest_resource_near_base(worker, bb.resource_nodes, kind, bb.own_tc_pos, BASE_RESOURCE_RADIUS)
                 if target is None:
                     continue
                 ctx.issue_gather(int(worker["id"]), int(target["id"]))
-                ctx.log_decision("ECON", f"调配空手村民采集新发现的 {resource_name(kind)}")
+                ctx.log_decision("ECON", f"调配空手村民补充 {resource_name(kind)} 采集")
                 return
+
+    @staticmethod
+    def _resource_ratios(bb: Blackboard, profile: CivAiProfile, phase: int) -> dict[int, float]:
+        if not bb.progression:
+            return profile.ratios_for_phase(phase)
+        if not all(any(b.get("def_id") == name and b.get("is_complete") for b in bb.team_buildings)
+                   for name in ("lumber_camp", "barracks")):
+            return {FOOD: 0.5, WOOD: 0.4, GOLD: 0.1, STONE: 0.0}
+        if int(bb.progression.get("age", 0)) == 0:
+            return {FOOD: 0.5, WOOD: 0.3, GOLD: 0.1, STONE: 0.1}
+        return {FOOD: 0.4, WOOD: 0.25, GOLD: 0.25, STONE: 0.1}
 
     def _villagers_needing_gather(self, blackboard: Blackboard) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -157,9 +181,7 @@ class EconomyManager:
         phase: int,
         villagers: list[dict[str, Any]],
     ) -> None:
-        ratios = profile.ratios_for_phase(phase)
-        if blackboard.progression:
-            ratios = {FOOD: 0.5, WOOD: 0.3, GOLD: 0.1, STONE: 0.1} if int(blackboard.progression.get("age", 0)) == 0 else {FOOD: 0.4, WOOD: 0.25, GOLD: 0.25, STONE: 0.1}
+        ratios = self._resource_ratios(blackboard, profile, phase)
         counts = self._count_active_gatherers(blackboard)
         assigned = _total_gather_count(counts)
         base_pos = blackboard.own_tc_pos

@@ -28,14 +28,15 @@ func tick(ctx: AiRunContext, build_manager: AiBuildManager) -> void:
 
 
 func _train_villagers(ctx: AiRunContext, build_manager: AiBuildManager) -> void:
-	if ctx.blackboard.villager_count >= ctx.profile.villager_target:
+	var target := Progression.villager_target(ctx)
+	if ctx.blackboard.villager_count >= target:
 		return
 	var town_center := AiEntityQueriesScript.find_town_center(ctx.blackboard.team_buildings)
 	if town_center == null:
 		return
 	if _try_enqueue(ctx, town_center, VILLAGER):
 		ctx.log_decision("PROD", "训练村民 (%d/%d)" % [
-			ctx.blackboard.villager_count, ctx.profile.villager_target
+			ctx.blackboard.villager_count, target
 		])
 
 
@@ -84,9 +85,11 @@ func _try_enqueue(ctx: AiRunContext, building: Node2D, unit_def: UnitDef) -> boo
 		return false
 	if not (building.get("train_queue") as Array).is_empty():
 		return false
+	if ctx.building_busy(building):
+		return false
 	if bool(building.call("is_age_researching")) or bool(building.call("is_technology_researching")):
 		return false
-	if unit_def not in building.call("get_trainable_units") or not ctx.match_state.can_train(ctx.team, unit_def) or Progression.reserves_for_age(ctx, unit_def):
+	if unit_def not in building.call("get_trainable_units") or not ctx.match_state.can_train(ctx.team, unit_def) or not ctx.can_afford(unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold, unit_def.cost_stone) or Progression.reserves_for_age(ctx, unit_def):
 		return false
 	return ctx.issue_train(building, unit_def)
 
@@ -112,6 +115,14 @@ func _count_unit_id(ctx: AiRunContext, unit_id: StringName) -> int:
 		var unit_def := unit.get("def") as UnitDef
 		if unit_def != null and unit_def.id == unit_id:
 			count += 1
+	for building in ctx.blackboard.team_buildings:
+		for definition: UnitDef in building.get("train_queue"):
+			if definition.id == unit_id:
+				count += 1
+	if ctx.capture_commands:
+		for command in ctx.pending_commands:
+			if command.get("op") == "train" and command.get("unit_def_id") == String(unit_id):
+				count += 1
 	return count
 
 
@@ -123,15 +134,31 @@ func _train_available_army(ctx: AiRunContext) -> void:
 	# get_trainable_units applies civilization, age, and researched upgrade lines.
 	for building in ctx.blackboard.team_buildings:
 		var available: Array = building.call("get_trainable_units")
-		var best: UnitDef
+		var candidates: Array[UnitDef] = []
 		for definition: UnitDef in available:
-			if definition.id == &"villager" or definition.attack <= 0:
+			if definition.id in [&"villager", &"petard"] or definition.attack <= 0:
 				continue
-			if ctx.profile.unique_unit_priority and definition.id in [&"chu_ko_nu", &"elite_chu_ko_nu", &"teutonic_knight", &"elite_teutonic_knight"]:
-				best = definition
+			candidates.append(definition)
+		candidates.sort_custom(func(a: UnitDef, b: UnitDef) -> bool:
+			var a_priority := _unit_priority(ctx, a)
+			var b_priority := _unit_priority(ctx, b)
+			if a_priority != b_priority:
+				return a_priority > b_priority
+			return _count_unit_id(ctx, a.id) < _count_unit_id(ctx, b.id)
+		)
+		for definition in candidates:
+			# Try an affordable alternative when the preferred gold unit is blocked.
+			if _try_enqueue(ctx, building, definition):
+				ctx.log_decision("PROD", "训练 %s" % definition.id)
 				break
-			if best == null or definition.required_age > best.required_age or (definition.required_age == best.required_age and _count_unit_id(ctx, definition.id) < _count_unit_id(ctx, best.id)):
-				best = definition
-		if best != null and _try_enqueue(ctx, building, best):
-			ctx.log_decision("PROD", "训练 %s" % best.id)
-			return
+
+
+func _unit_priority(ctx: AiRunContext, definition: UnitDef) -> int:
+	if ctx.profile.unique_unit_priority and definition.id in [&"chu_ko_nu", &"elite_chu_ko_nu", &"teutonic_knight", &"elite_teutonic_knight"]:
+		return 30
+	var record := Catalog.unit_record(definition.id)
+	var id := String(definition.id)
+	# Favor main fighting units over support counters, without locking out counters.
+	if id in ["militia", "man_at_arms", "long_swordsman", "two_handed_swordsman", "champion", "archer", "crossbowman", "arbalester", "scout_cavalry", "light_cavalry", "hussar", "knight", "cavalier", "paladin", "battering_ram", "capped_ram", "siege_ram"]:
+		return 20 + int(record.get("required_age", 0))
+	return 10 + definition.required_age

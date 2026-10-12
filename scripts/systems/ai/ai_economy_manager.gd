@@ -13,6 +13,8 @@ func assign_builders(ctx: AiRunContext) -> void:
 			continue
 		var assigned_builder: Node2D = null
 		for villager in ctx.blackboard.team_villagers:
+			if _worker_reserved(ctx, villager):
+				continue
 			if (
 				villager.get("order") == Enums.OrderType.BUILD
 				and villager.get("_build_target") == building
@@ -24,7 +26,11 @@ func assign_builders(ctx: AiRunContext) -> void:
 				break
 		if assigned_builder != null:
 			continue
-		var idle := AiEntityQueriesScript.idle_villager(ctx.blackboard.team_villagers)
+		var available: Array[Node2D] = []
+		for villager in ctx.blackboard.team_villagers:
+			if not _worker_reserved(ctx, villager):
+				available.append(villager)
+		var idle := AiEntityQueriesScript.idle_villager(available)
 		if idle != null:
 			ctx.issue_build(idle, building)
 			ctx.log_decision(
@@ -46,31 +52,42 @@ func assign_gatherers(ctx: AiRunContext) -> void:
 
 
 func _rebalance_discovered_type(ctx: AiRunContext) -> void:
-	# A scout can reveal ore after every worker already has a food/wood job.
-	# Move at most one empty-handed surplus worker to a newly visible kind.
+	# Existing assignments must track the economy's needs, including resources
+	# revealed later. Move only one empty-handed surplus worker per decision.
 	var counts := _count_active_gatherers(ctx)
+	var total := _total_gather_count(counts)
+	var ratios := _resource_ratios(ctx)
 	var reserved := {}
 	if ctx.capture_commands:
 		for command in ctx.pending_commands:
 			reserved[int(command.get("unit_id", -1))] = true
 			reserved[int(command.get("builder_id", -1))] = true
-	for type in [Enums.ResourceType.FOOD, Enums.ResourceType.WOOD, Enums.ResourceType.GOLD, Enums.ResourceType.STONE]:
-		if int(counts.get(type, 0)) > 0: continue
+	var targets: Array = ratios.keys()
+	targets.sort_custom(func(a: int, b: int) -> bool:
+		return float(ratios[a]) * total - int(counts[a]) > float(ratios[b]) * total - int(counts[b])
+	)
+	for type in targets:
+		if float(ratios[type]) * total - int(counts[type]) < 0.75:
+			continue
 		for villager in ctx.blackboard.team_villagers:
 			if villager.get("order") != Enums.OrderType.GATHER or villager.get("_gather_state") in ["to_drop_off", "searching_resource"] or float(villager.get("carry_amount")) > 0.001: continue
 			if reserved.has(EntityRegistry.id_of(villager)): continue
 			var previous := _last_live_resource(villager)
-			if previous == null or int(counts.get(previous.get("resource_type"), 0)) < 2: continue
+			if previous == null: continue
+			var source: int = previous.get("resource_type")
+			if source == type or int(counts[source]) - float(ratios.get(source, 0.0)) * total < 0.75: continue
 			var target := AiEntityQueriesScript.nearest_resource_near_base(villager, ctx.blackboard.resource_nodes, type, ctx.blackboard.own_tc_pos, BASE_RESOURCE_RADIUS)
 			if target == null: continue
 			ctx.issue_gather(villager, target)
-			ctx.log_decision("ECON", "调配空手村民采集新发现的 " + _resource_name(type))
+			ctx.log_decision("ECON", "调配空手村民补充 " + _resource_name(type))
 			return
 
 
 func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:
 	var result: Array[Node2D] = []
 	for villager in ctx.blackboard.team_villagers:
+		if _worker_reserved(ctx, villager):
+			continue
 		var order: Enums.OrderType = villager.get("order")
 		if order == Enums.OrderType.BUILD:
 			continue
@@ -97,6 +114,16 @@ func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:
 	return result
 
 
+func _worker_reserved(ctx: AiRunContext, villager: Node2D) -> bool:
+	if not ctx.capture_commands:
+		return false
+	var id := EntityRegistry.id_of(villager)
+	for command in ctx.pending_commands:
+		if int(command.get("unit_id", -1)) == id or int(command.get("builder_id", -1)) == id:
+			return true
+	return false
+
+
 func _assign_opening_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> void:
 	var base_pos := ctx.blackboard.own_tc_pos
 	for villager in villagers:
@@ -110,11 +137,7 @@ func _assign_opening_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> v
 
 
 func _assign_balanced_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> void:
-	var ratios := ctx.profile.ratios_for_phase(ctx.phase)
-	if ctx.match_state.progression_enabled:
-		ratios = {Enums.ResourceType.FOOD: 0.5, Enums.ResourceType.WOOD: 0.3, Enums.ResourceType.GOLD: 0.1, Enums.ResourceType.STONE: 0.1}
-		if ctx.match_state.age_of(ctx.team) >= 1:
-			ratios = {Enums.ResourceType.FOOD: 0.4, Enums.ResourceType.WOOD: 0.25, Enums.ResourceType.GOLD: 0.25, Enums.ResourceType.STONE: 0.1}
+	var ratios := _resource_ratios(ctx)
 	var counts := _count_active_gatherers(ctx)
 	var assigned := _total_gather_count(counts)
 	var base_pos := ctx.blackboard.own_tc_pos
@@ -131,6 +154,16 @@ func _assign_balanced_gatherers(ctx: AiRunContext, villagers: Array[Node2D]) -> 
 			counts[resource_type] = int(counts[resource_type]) + 1
 		assigned += 1
 		ctx.log_decision("ECON", "村民采集 %s" % _resource_name(resource_type))
+
+
+func _resource_ratios(ctx: AiRunContext) -> Dictionary:
+	if not ctx.match_state.progression_enabled:
+		return ctx.profile.ratios_for_phase(ctx.phase)
+	if AiEntityQueriesScript.find_complete_building(ctx.blackboard.team_buildings, &"barracks") == null or AiEntityQueriesScript.find_complete_building(ctx.blackboard.team_buildings, &"lumber_camp") == null:
+		return {Enums.ResourceType.FOOD: 0.5, Enums.ResourceType.WOOD: 0.4, Enums.ResourceType.GOLD: 0.1, Enums.ResourceType.STONE: 0.0}
+	if ctx.match_state.age_of(ctx.team) == 0:
+		return {Enums.ResourceType.FOOD: 0.5, Enums.ResourceType.WOOD: 0.3, Enums.ResourceType.GOLD: 0.1, Enums.ResourceType.STONE: 0.1}
+	return {Enums.ResourceType.FOOD: 0.4, Enums.ResourceType.WOOD: 0.25, Enums.ResourceType.GOLD: 0.25, Enums.ResourceType.STONE: 0.1}
 
 
 func _pick_gather_target(

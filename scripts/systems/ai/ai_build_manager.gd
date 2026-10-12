@@ -16,8 +16,11 @@ const AiEntityQueriesScript := preload("res://scripts/systems/ai/ai_entity_queri
 
 
 func tick(ctx: AiRunContext) -> void:
+	ensure_population_capacity(ctx)
 	ensure_food_supply(ctx)
-	if ctx.phase <= 0:  # ECO — farms above; Production handles population houses.
+	if ctx.profile == null:
+		return
+	if ctx.phase <= 0 and not ctx.match_state.progression_enabled:
 		return
 	_tick_build_order(ctx)
 	if ctx.phase >= 1:  # BOOM+
@@ -54,7 +57,12 @@ func ensure_food_supply(ctx: AiRunContext) -> bool:
 			active_farms += 1
 		elif exhausted == null:
 			exhausted = building
-	var desired := clampi(ceili(ctx.blackboard.team_villagers.size() / 2.0), 2, 4)
+	var food_ratio := 0.5 if ctx.match_state.age_of(ctx.team) == 0 else 0.4
+	var desired := clampi(ceili(ctx.blackboard.team_villagers.size() * food_ratio), 2, 10)
+	# Keep one food plot alive while saving wood for the first producer.
+	# Otherwise repeated 60-wood farms prevent reaching the barracks cost.
+	if ctx.profile != null and (AiEntityQueriesScript.find_complete_building(ctx.blackboard.team_buildings, &"barracks") == null or AiEntityQueriesScript.find_complete_building(ctx.blackboard.team_buildings, &"lumber_camp") == null):
+		desired = 1
 	if active_farms >= desired:
 		return false
 	var farm := Catalog.get_building("farm")
@@ -74,13 +82,24 @@ func ensure_food_supply(ctx: AiRunContext) -> bool:
 func ensure_house_if_pop_blocked(ctx: AiRunContext, unit_def: UnitDef) -> void:
 	if unit_def == null or ctx.match_state == null:
 		return
-	if not ctx.match_state.can_afford(
-		ctx.team, unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold
-	):
-		return
-	if int(ctx.match_state.population[ctx.team]) + int(ctx.match_state.population_reserved[ctx.team]) + unit_def.population <= int(ctx.match_state.population_cap[ctx.team]):
+	if ctx.population_used() + unit_def.population <= int(ctx.match_state.population_cap[ctx.team]):
 		return
 	ensure_building(ctx, HOUSE)
+
+
+func ensure_population_capacity(ctx: AiRunContext) -> void:
+	var cap := int(ctx.match_state.population_cap[ctx.team])
+	if cap >= 200:
+		return
+	var idle_producers := 0
+	for building in ctx.blackboard.team_buildings:
+		if bool(building.get("is_complete")) and (building.get("train_queue") as Array).is_empty():
+			for definition: UnitDef in building.call("get_trainable_units"):
+				if definition.id != &"villager" and definition.attack > 0:
+					idle_producers += 1
+					break
+	if cap - ctx.population_used() <= maxi(2, idle_producers):
+		ensure_building(ctx, HOUSE)
 
 
 func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
@@ -103,8 +122,7 @@ func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
 		ctx.blackboard.team_buildings, building_def.id
 	):
 		return false
-	if not ctx.match_state.can_afford(
-		ctx.team,
+	if not ctx.can_afford(
 		building_def.cost_food,
 		building_def.cost_wood,
 		building_def.cost_gold,
@@ -121,7 +139,9 @@ func ensure_building(ctx: AiRunContext, building_def: BuildingDef) -> bool:
 	if place_position == null:
 		return false
 	if ctx.capture_commands:
-		ctx.issue_place_building(building_def, place_position as Vector2, builder)
+		if not ctx.issue_place_building(building_def, place_position as Vector2, builder):
+			return false
+		_remove_pending_gather(ctx, builder)
 		ctx.log_decision("BUILD", "放置 %s @ %s" % [building_def.id, place_position])
 		return true
 	if not ctx.match_state.spend(
@@ -165,7 +185,14 @@ func _available_builder(ctx: AiRunContext) -> Node2D:
 		if float(candidate.get("carry_amount")) > 0.001:
 			continue
 		if ctx.capture_commands and reserved.has(EntityRegistry.id_of(candidate)):
-			continue
+			# A newly assigned empty-handed gatherer can instead build. Preserve
+			# construction, delivery and every non-gather command.
+			var protected := false
+			for command in ctx.pending_commands:
+				if (int(command.get("unit_id", -1)) == EntityRegistry.id_of(candidate) or int(command.get("builder_id", -1)) == EntityRegistry.id_of(candidate)) and command.get("op") != "gather":
+					protected = true
+			if protected:
+				continue
 		var order: int = candidate.get("order")
 		if order == Enums.OrderType.NONE:
 			return candidate
@@ -174,7 +201,19 @@ func _available_builder(ctx: AiRunContext) -> Node2D:
 	return gatherer
 
 
+func _remove_pending_gather(ctx: AiRunContext, builder: Node2D) -> void:
+	if not ctx.capture_commands:
+		return
+	for index in range(ctx.pending_commands.size() - 1, -1, -1):
+		var command: Dictionary = ctx.pending_commands[index]
+		if command.get("op") == "gather" and int(command.get("unit_id", -1)) == EntityRegistry.id_of(builder):
+			ctx.pending_commands.remove_at(index)
+
+
 func _tick_build_order(ctx: AiRunContext) -> void:
+	if ctx.match_state.progression_enabled:
+		if ensure_building(ctx, BARRACKS):
+			return
 	for building_id in ctx.profile.build_order:
 		var building_def := _def_for_id(building_id)
 		if building_def == null:

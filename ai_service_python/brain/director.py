@@ -49,6 +49,7 @@ class AiDirector:
         self._event_store.clear()
         self._scout.reset()
         self._economy.reset()
+        self._army.reset()
 
     def apply_events(self, events: list[dict[str, Any]]) -> None:
         self._event_store.apply(events)
@@ -71,16 +72,9 @@ class AiDirector:
         self._update_phase(ctx)
 
         self._economy.assign_builders(ctx, self._blackboard)
-        self._economy.assign_gatherers(ctx, self._blackboard, self.profile, self.phase)
 
         if self._blackboard.progression:
             self._land_progression.tick(ctx, self._blackboard, self.profile)
-            if self.phase in (PHASE_ATTACK, PHASE_DEFEND):
-                if self.phase == PHASE_DEFEND:
-                    self._army.rally_to_base(ctx, self._blackboard, self.profile)
-                else:
-                    self._army.rally(ctx, self._blackboard, self.profile)
-                self._combat.tick_army(ctx, self._blackboard, self.profile, enemy_team)
         elif self.phase == PHASE_ECO:
             self._build.tick(ctx, self._blackboard, self.profile, self.profile_id, self.phase)
             self._production.tick(
@@ -110,8 +104,6 @@ class AiDirector:
                 self.phase,
                 self._build,
             )
-            self._army.rally(ctx, self._blackboard, self.profile)
-            self._combat.tick_army(ctx, self._blackboard, self.profile, enemy_team)
         elif self.phase == PHASE_DEFEND:
             self._build.tick(ctx, self._blackboard, self.profile, self.profile_id, self.phase)
             self._production.tick(
@@ -122,9 +114,15 @@ class AiDirector:
                 self.phase,
                 self._build,
             )
-            self._army.rally_to_base(ctx, self._blackboard, self.profile)
-            self._combat.tick_army(ctx, self._blackboard, self.profile, enemy_team)
-
+        if self.phase in (PHASE_ATTACK, PHASE_DEFEND):
+            engaged = self._combat.tick_army(
+                ctx, self._blackboard, self.profile, enemy_team, self.phase
+            )
+            if self.phase == PHASE_DEFEND:
+                self._army.rally_to_base(ctx, self._blackboard, self.profile, engaged)
+            else:
+                self._army.rally(ctx, self._blackboard, self.profile, engaged)
+        self._economy.assign_gatherers(ctx, self._blackboard, self.profile, self.phase)
         self._scout.tick(ctx, self._blackboard, self.phase)
         self._next_build_slot = ctx.next_build_slot
         return TickResponse(
@@ -139,25 +137,22 @@ class AiDirector:
         bb = self._blackboard
         profile = self.profile
 
-        if self.phase == PHASE_ATTACK:
-            if bb.threat_near_base:
-                self._set_phase(PHASE_DEFEND, ctx)
-            return
-
-        if self.phase == PHASE_DEFEND:
-            if not bb.threat_near_base:
-                next_phase = (
-                    PHASE_BOOM
-                    if bb.military_count < profile.military_attack_count
-                    else PHASE_ATTACK
-                )
-                self._set_phase(next_phase, ctx)
+        # Raids must be answered during the opening as well as during attacks.
+        if bb.threat_near_base:
+            self._set_phase(PHASE_DEFEND, ctx)
             return
 
         military_ready = (
             bb.military_count >= profile.military_attack_count
             or bb.match_time >= profile.attack_time_seconds
         )
+        if self.phase == PHASE_ATTACK:
+            return
+
+        if self.phase == PHASE_DEFEND:
+            self._set_phase(PHASE_ATTACK if military_ready else PHASE_BOOM, ctx)
+            return
+
         if military_ready:
             self._set_phase(PHASE_ATTACK, ctx)
             return

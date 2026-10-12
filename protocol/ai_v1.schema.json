@@ -52,6 +52,11 @@
         "pop_used": {
           "type": "integer"
         },
+        "pop_reserved": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
         "pop_cap": {
           "type": "integer"
         },
@@ -303,6 +308,23 @@
       },
       "additionalProperties": false
     },
+    "placement_visibility": {
+      "type": "object",
+      "required": ["origin", "cell_size", "grid_size", "sources"],
+      "properties": {
+        "origin": {"$ref": "#/$defs/vec2"},
+        "cell_size": {"type": "number", "exclusiveMinimum": 0},
+        "grid_size": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "sources": {
+          "type": "array",
+          "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}
+        }
+      },
+      "additionalProperties": false
+    },
     "observation": {
       "type": "object",
       "required": [
@@ -313,6 +335,9 @@
       "properties": {
         "economy": {
           "$ref": "#/$defs/economy"
+        },
+        "placement_visibility": {
+          "$ref": "#/$defs/placement_visibility"
         },
         "derived": {
           "$ref": "#/$defs/derived"

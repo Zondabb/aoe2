@@ -1,4 +1,4 @@
-from brain.build_placement import can_place, can_plan_settlement, next_build_position
+from brain.build_placement import can_place, can_plan_settlement, next_build_position, footprint_visible
 
 
 DEFINITIONS = {
@@ -63,3 +63,20 @@ def test_small_map_returns_none_instead_of_building_outside_map():
     tc = {"def_id": "town_center", "pos": [0, 0]}
     assert next_build_position("house", tc, [tc], 0, DEFINITIONS, map_bounds=(-10, -10, 10, 10)) is None
     assert next_build_position("unknown", tc, [tc], 0, DEFINITIONS) is None
+
+
+def test_fog_checks_entire_footprint_and_can_use_overlapping_sight_sources():
+    visibility = {"origin": [-20, -20], "cell_size": 4, "grid_size": [10, 10], "sources": [[0, 0, 5]]}
+    assert footprint_visible((0, 0), (2, 2), visibility)
+    assert not footprint_visible((4, 0), (8, 8), visibility)
+    visibility["sources"].append([4, 0, 5])
+    assert footprint_visible((4, 0), (8, 8), visibility)
+    assert not footprint_visible((20, 0), (2, 2), visibility)
+
+
+def test_planner_skips_unseen_site_for_a_visible_alternative():
+    tc = {"def_id": "town_center", "pos": [0, 0]}
+    visibility = {"origin": [-100, -100], "cell_size": 4, "grid_size": [50, 50], "sources": [[0, 16, 5]]}
+    assert next_build_position("house", tc, [tc], 0, DEFINITIONS, placement_visibility=visibility) == (0, 16)
+    visibility["sources"] = []
+    assert next_build_position("house", tc, [tc], 0, DEFINITIONS, placement_visibility=visibility) is None

@@ -23,6 +23,9 @@ class CivAiProfile:
     opening_seconds: float = 120.0
     defend_radius: float = 20.0
 
+    def villagers_for_age(self, age: int) -> int:
+        return max(8, self.villager_target) + max(0, age) * 4
+
     def ratios_for_phase(self, phase: int) -> dict[int, float]:
         if phase == PHASE_ECO:
             return {FOOD: 0.6, WOOD: 0.3, GOLD: 0.1}

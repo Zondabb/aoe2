@@ -30,6 +30,7 @@ class Economy(BaseModel):
     gold: int
     stone: int = 0
     pop_used: int
+    pop_reserved: int = Field(default=0, ge=0)
     pop_cap: int
 
 
@@ -104,6 +105,7 @@ class Observation(BaseModel):
     entities: list[dict[str, Any]]
     progression: Progression | None = None
     map_bounds: dict[str, list[float]] | None = None
+    placement_visibility: dict[str, Any] | None = None
 
 
 class GameEvent(BaseModel):

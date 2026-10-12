@@ -35,6 +35,7 @@ class Blackboard:
     stone: int = 0
     progression: dict[str, Any] = field(default_factory=dict)
     map_bounds: tuple[float, float, float, float] | None = None
+    placement_visibility: dict[str, Any] | None = None
     pop_used: int = 0
     pop_cap: int = 0
     villager_count: int = 0
@@ -75,6 +76,7 @@ class ObservationStore:
         self.entities: list[dict[str, Any]] = []
         self.progression: dict[str, Any] = {}
         self.map_bounds: dict[str, Any] | None = None
+        self.placement_visibility: dict[str, Any] | None = None
 
     def load_from_dict(self, observation: dict[str, Any]) -> None:
         self.economy = observation.get("economy", {})
@@ -82,6 +84,7 @@ class ObservationStore:
         self.entities = observation.get("entities", [])
         self.progression = observation.get("progression") or {}
         self.map_bounds = observation.get("map_bounds")
+        self.placement_visibility = observation.get("placement_visibility")
 
     def apply_to_blackboard(
         self, blackboard: Blackboard, team: int, enemy_team: int
@@ -94,9 +97,10 @@ class ObservationStore:
         blackboard.gold = int(self.economy.get("gold", 0))
         blackboard.stone = int(self.economy.get("stone", 0))
         blackboard.progression = self.progression
+        blackboard.placement_visibility = self.placement_visibility
         box = self.map_bounds
         blackboard.map_bounds = (*map(float, box["min"]), *map(float, box["max"])) if box else None
-        blackboard.pop_used = int(self.economy.get("pop_used", 0))
+        blackboard.pop_used = int(self.economy.get("pop_used", 0)) + int(self.economy.get("pop_reserved", 0))
         blackboard.pop_cap = int(self.economy.get("pop_cap", 0))
         blackboard.villager_count = int(self.derived.get("villager_count", 0))
         blackboard.military_count = int(self.derived.get("military_count", 0))

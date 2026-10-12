@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import math
+
 from brain.command_builder import CommandContext
-from brain.entity_queries import find_enemy_town_center, nearest_hostile_in_radius
 from brain.profile_loader import CivAiProfile
-from brain.stores import ORDER_ATTACK, ORDER_BUILD, ORDER_GATHER, Blackboard
+from brain.stores import ORDER_ATTACK, ORDER_BUILD, ORDER_GATHER, PHASE_ATTACK, PHASE_DEFEND, Blackboard
 
 
 class CombatManager:
-    """Port of scripts/systems/ai/ai_combat_manager.gd."""
+    """Choose one tactical target from the current, fog-filtered observation."""
 
     def tick_army(
         self,
@@ -15,36 +16,65 @@ class CombatManager:
         blackboard: Blackboard,
         profile: CivAiProfile,
         enemy_team: int,
-    ) -> None:
-        enemy_tc = find_enemy_town_center(blackboard.all_entities, enemy_team)
+        phase: int = PHASE_ATTACK,
+    ) -> set[int]:
+        hostiles = [
+            entity for entity in blackboard.all_entities
+            if entity.get("kind") in ("unit", "building")
+            and int(entity.get("team", -1)) == enemy_team
+            and float(entity.get("hp", 0)) > 0
+            and not entity.get("is_placement_ghost", False)
+        ]
+        if phase == PHASE_DEFEND:
+            # Distant units also respond to a raid, without chasing the enemy TC.
+            hostiles = [
+                entity for entity in hostiles
+                if entity.get("kind") == "unit"
+                and math.dist(entity["pos"], blackboard.own_tc_pos) <= profile.defend_radius
+            ]
+        by_id = {int(entity["id"]): entity for entity in hostiles}
+        engaged: set[int] = set()
+        commanded = {command.unit_id for command in ctx.commands}
         attacks = 0
         for unit in blackboard.team_units:
-            if str(unit.get("def_id", "")) == "villager":
-                continue
+            unit_id = int(unit["id"])
             order = str(unit.get("order", ""))
-            if order in (ORDER_GATHER, ORDER_BUILD):
+            if unit.get("def_id") == "villager" or float(unit.get("hp", 1)) <= 0:
                 continue
-            nearby = nearest_hostile_in_radius(
-                unit,
-                blackboard.all_entities,
-                enemy_team,
-                profile.retarget_radius,
-            )
-            if nearby is not None:
-                target_id = int(nearby["id"])
-                if order != ORDER_ATTACK or int(unit.get("target_id", -1)) != target_id:
-                    ctx.issue_attack(int(unit["id"]), target_id)
-                    attacks += 1
+            if order in (ORDER_GATHER, ORDER_BUILD) or unit_id in commanded:
                 continue
-            if enemy_tc is not None:
-                target_id = int(enemy_tc["id"])
-                if order != ORDER_ATTACK or int(unit.get("target_id", -1)) != target_id:
-                    ctx.issue_attack(int(unit["id"]), target_id)
-                    attacks += 1
-            elif blackboard.enemy_tc_pos != (0.0, 0.0):
-                ctx.issue_move(
-                    int(unit["id"]),
-                    [blackboard.enemy_tc_pos[0], blackboard.enemy_tc_pos[1]],
+            current = by_id.get(int(unit.get("target_id") or -1)) if order == ORDER_ATTACK else None
+            nearby = [
+                entity for entity in hostiles
+                if math.dist(unit["pos"], entity["pos"]) <= profile.retarget_radius
+            ]
+            # Fight nearby troops before buildings, but keep a live target to
+            # avoid restarting attacks every time two enemies swap distances.
+            troops = [entity for entity in nearby if entity.get("kind") == "unit"]
+            if current in troops:
+                target = current
+            elif troops:
+                target = min(troops, key=lambda entity: math.dist(unit["pos"], entity["pos"]))
+            elif current is not None:
+                target = current
+            elif phase == PHASE_DEFEND:
+                target = min(hostiles, key=lambda entity: math.dist(unit["pos"], entity["pos"]), default=None)
+            else:
+                target = min(
+                    hostiles,
+                    key=lambda entity: (
+                        0 if entity.get("def_id") == "town_center" else 1,
+                        math.dist(unit["pos"], entity["pos"]),
+                    ),
+                    default=None,
                 )
-        if attacks > 0:
+            if target is None:
+                continue
+            engaged.add(unit_id)
+            target_id = int(target["id"])
+            if order != ORDER_ATTACK or int(unit.get("target_id") or -1) != target_id:
+                ctx.issue_attack(unit_id, target_id)
+                attacks += 1
+        if attacks:
             ctx.log_decision("COMBAT", f"下达 {attacks} 个攻击命令")
+        return engaged

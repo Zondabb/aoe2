@@ -90,6 +90,7 @@ class BuildManager:
             ctx.next_build_slot,
             resources=blackboard.resource_nodes,
             map_bounds=blackboard.map_bounds,
+            placement_visibility=blackboard.placement_visibility,
         )
         if place_position is None:
             return False

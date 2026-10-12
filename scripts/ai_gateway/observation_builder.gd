@@ -46,6 +46,17 @@ static func build(
 	var own_tc_pos := Vector2.ZERO
 	var vision := _vision_service(entities)
 	var observers := _team_observers(entities, team)
+	if match_state.fog_enabled and match_state.fog != null:
+		# Own sight circles let external planners use the same fog grid without
+		# exposing any hidden enemy, terrain or resource information.
+		var fog: RefCounted = match_state.fog
+		var sources: Array = []
+		for observer in observers:
+			var radius: float = FogOfWarService.radius_of(observer)
+			if radius > 0 and observer.get("is_placement_ghost") != true:
+				var pos: Vector2 = observer.get("sim_pos")
+				sources.append([pos.x, pos.y, radius])
+		observation["placement_visibility"] = {"origin": AiProtocolScript.vec2_to_array(fog.get("map_origin")), "cell_size": fog.get("cell_size"), "grid_size": [fog.get("grid_size").x, fog.get("grid_size").y], "sources": sources}
 
 	for node in entities.get_children():
 		var entity := node as Node2D
@@ -160,6 +171,7 @@ static func _build_economy(match_state: MatchState, team: Enums.Team) -> Diction
 		"gold": match_state.get_resource(team, Enums.ResourceType.GOLD),
 		"stone": match_state.get_resource(team, Enums.ResourceType.STONE),
 		"pop_used": int(match_state.population.get(team, 0)),
+		"pop_reserved": int(match_state.population_reserved.get(team, 0)),
 		"pop_cap": int(match_state.population_cap.get(team, 0)),
 	}
 

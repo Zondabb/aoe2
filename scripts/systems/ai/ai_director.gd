@@ -1,5 +1,5 @@
-## DEPRECATED (P5): In-process AI runtime. Production matches use AiGateway + Python service.
-## Kept for fallback adapter (local_ai_server.gd) and legacy unit tests.
+## In-process AI for local matches and the embedded gateway fallback.
+## The Python rules service uses the same production and combat policy.
 class_name AiDirector
 extends Node
 
@@ -67,6 +67,7 @@ func setup(
 	_next_build_slot = 0
 	_previous_phase = Phase.ECO
 	_scout.reset()
+	_army.reset()
 	enabled = true
 	decision_log = shared_log if shared_log != null else AiDecisionLogScript.new()
 	_blackboard = AiBlackboardScript.new()
@@ -105,7 +106,6 @@ func evaluate() -> void:
 	_ctx.phase = director_phase
 
 	_economy.assign_builders(_ctx)
-	_economy.assign_gatherers(_ctx)
 	_progression.tick(_ctx, _build)
 
 	match director_phase:
@@ -118,12 +118,13 @@ func evaluate() -> void:
 		Phase.ATTACK:
 			if match_state.progression_enabled: _build.tick(_ctx)
 			_production.tick(_ctx, _build)
-			_army.rally(_ctx)
-			_combat.tick_army(_ctx)
+
 		Phase.DEFEND:
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
-			_combat.tick_army(_ctx)
+	_tick_army()
+	_economy.assign_gatherers(_ctx)
+	_progression.tick_technologies(_ctx)
 	_scout.tick(_ctx)
 
 
@@ -147,7 +148,6 @@ func evaluate_capture(tick: int) -> Dictionary:
 	_ctx.begin_capture(tick)
 
 	_economy.assign_builders(_ctx)
-	_economy.assign_gatherers(_ctx)
 	_progression.tick(_ctx, _build)
 
 	match director_phase:
@@ -160,13 +160,14 @@ func evaluate_capture(tick: int) -> Dictionary:
 		Phase.ATTACK:
 			if match_state.progression_enabled: _build.tick(_ctx)
 			_production.tick(_ctx, _build)
-			_army.rally(_ctx)
-			_combat.tick_army(_ctx)
+
 		Phase.DEFEND:
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
-			_combat.tick_army(_ctx)
 
+	_tick_army()
+	_economy.assign_gatherers(_ctx)
+	_progression.tick_technologies(_ctx)
 	_scout.tick(_ctx)
 	_next_build_slot = _ctx.next_build_slot
 	return _ctx.end_capture()
@@ -187,7 +188,6 @@ func evaluate_from_observation(tick: int, observation: Dictionary) -> Dictionary
 	_ctx.begin_capture(tick)
 
 	_economy.assign_builders(_ctx)
-	_economy.assign_gatherers(_ctx)
 	_progression.tick(_ctx, _build)
 
 	match director_phase:
@@ -200,13 +200,14 @@ func evaluate_from_observation(tick: int, observation: Dictionary) -> Dictionary
 		Phase.ATTACK:
 			if match_state.progression_enabled: _build.tick(_ctx)
 			_production.tick(_ctx, _build)
-			_army.rally(_ctx)
-			_combat.tick_army(_ctx)
+
 		Phase.DEFEND:
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
-			_combat.tick_army(_ctx)
 
+	_tick_army()
+	_economy.assign_gatherers(_ctx)
+	_progression.tick_technologies(_ctx)
 	_scout.tick(_ctx)
 	_next_build_slot = _ctx.next_build_slot
 	return _ctx.end_capture()
@@ -226,46 +227,47 @@ func _bind_context() -> void:
 	_ctx.next_build_slot = _next_build_slot
 
 
-func _update_phase() -> void:
-	if director_phase == Phase.ATTACK:
-		if _blackboard.threat_near_base and profile != null:
-			if director_phase != Phase.DEFEND:
-				_log_phase_change(Phase.DEFEND)
-			director_phase = Phase.DEFEND
+func _tick_army() -> void:
+	if director_phase not in [Phase.ATTACK, Phase.DEFEND]:
 		return
+	var engaged: Dictionary = _combat.tick_army(_ctx)
 	if director_phase == Phase.DEFEND:
-		if not _blackboard.threat_near_base:
-			_log_phase_change(
-				Phase.BOOM
-				if _blackboard.military_count < profile.military_attack_count
-				else Phase.ATTACK
-			)
-			director_phase = (
-				Phase.BOOM
-				if _blackboard.military_count < profile.military_attack_count
-				else Phase.ATTACK
-			)
-		return
+		_army.rally_to_base(_ctx, engaged)
+	else:
+		_army.rally(_ctx, engaged)
 
+
+func _update_phase() -> void:
+	if profile == null:
+		return
+	# Answer raids in ECO and BOOM too; surviving troops defend before attacking.
+	if _blackboard.threat_near_base:
+		_set_phase(Phase.DEFEND)
+		return
 	var military_ready := (
 		_blackboard.military_count >= profile.military_attack_count
 		or match_time >= profile.attack_time_seconds
 	)
-	if military_ready:
-		if director_phase != Phase.ATTACK:
-			_log_phase_change(Phase.ATTACK)
-		director_phase = Phase.ATTACK
+	if director_phase == Phase.ATTACK:
 		return
-
+	if director_phase == Phase.DEFEND:
+		_set_phase(Phase.ATTACK if military_ready else Phase.BOOM)
+		return
+	if military_ready:
+		_set_phase(Phase.ATTACK)
+		return
 	var eco_ready := (
 		_blackboard.villager_count >= profile.villager_target
 		or _blackboard.food >= profile.high_food_stockpile
 	)
 	if director_phase == Phase.ECO and eco_ready:
-		if director_phase != Phase.BOOM:
-			_log_phase_change(Phase.BOOM)
-		director_phase = Phase.BOOM
+		_set_phase(Phase.BOOM)
 
+
+func _set_phase(new_phase: Phase) -> void:
+	if director_phase != new_phase:
+		_log_phase_change(new_phase)
+		director_phase = new_phase
 
 func _log_phase_change(new_phase: Phase) -> void:
 	if decision_log == null:

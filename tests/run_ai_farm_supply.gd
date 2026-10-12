@@ -57,6 +57,8 @@ func _run() -> void:
 	ctx.enemy_team = Enums.Team.PLAYER
 	ctx.blackboard = AiBlackboard.new()
 	state.resources[ctx.team][Enums.ResourceType.WOOD] = 2000
+	# Isolate food production with enough housing for the existing workforce.
+	state.register_pop(ctx.team, 0, 20)
 	refresh()
 	var manager := Manager.new()
 	check(not manager.ensure_food_supply(ctx), "farms require a completed mill")
