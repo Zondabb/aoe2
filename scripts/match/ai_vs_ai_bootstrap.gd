@@ -10,10 +10,9 @@
 extends Node
 
 const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+const TerrainVisual := preload("res://scripts/presentation/terrain_visual.gd")
 
 
-const GROUND_COLOR := Color(0.20, 0.48, 0.16)
-const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const VILLAGER_DEF := preload("res://data/units/villager.tres")
@@ -24,7 +23,6 @@ const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
 const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
-const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const AiGatewayScript := preload("res://scripts/ai_gateway/ai_gateway.gd")
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
 const GameSettingsScript := preload("res://scripts/core/game_settings.gd")
@@ -33,7 +31,6 @@ const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 
 const GROUND_MIN := -60
 const GROUND_MAX := 60
-const GROUND_STEP := 8
 
 var match_state := MatchState.new()
 ## 双方 AI 共用的决策日志，绑定右侧 AiDebugLog 面板。
@@ -119,35 +116,15 @@ func _focus_camera() -> void:
 		camera.call("focus_on", Vector2.ZERO)
 
 
-## 程序化铺草地贴图（与 match_2d 同逻辑）。
+## 与正常对局共用连续草地及原版贴图密度。
 func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D
 	if ground == null:
 		return
-	for child in ground.get_children():
-		child.free()
-	var texture: Texture2D = null
-	if ResourceLoader.exists(TERRAIN_TEXTURE):
-		texture = load(TERRAIN_TEXTURE) as Texture2D
-	var lx := GROUND_MIN
-	while lx <= GROUND_MAX:
-		var lz := GROUND_MIN
-		while lz <= GROUND_MAX:
-			var tile := Sprite2D.new()
-			tile.centered = true
-			tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			tile.z_index = -100
-			if texture != null:
-				tile.texture = texture
-				tile.modulate = Color(1.0, 1.0, 1.0, 1.0)
-				tile.scale = Vector2(0.35, 0.35)
-			else:
-				tile.modulate = GROUND_COLOR
-			tile.position = IsoMathScript.world_to_screen(Vector2(float(lx), float(lz)))
-			ground.add_child(tile)
-			lz += GROUND_STEP
-		lx += GROUND_STEP
-
+	TerrainVisual.setup_grass(
+		ground,
+		Rect2(Vector2(GROUND_MIN, GROUND_MIN), Vector2.ONE * (GROUND_MAX - GROUND_MIN))
+	)
 
 ## 对称生成双方开局：中国 (-40,-40) vs 条顿 (40,40)。
 func _spawn_entities() -> void:

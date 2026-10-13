@@ -8,6 +8,7 @@ const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const CHINESE := preload("res://data/civs/chinese.tres")
 const TEUTONS := preload("res://data/civs/teutons.tres")
 const TERRAIN := preload("res://scripts/entities/path_blocker.gd")
+const TerrainVisual := preload("res://scripts/presentation/terrain_visual.gd")
 const MAX_FILE_BYTES := 4 * 1024 * 1024
 
 static func load_file(path: String) -> Dictionary:
@@ -89,16 +90,4 @@ static func spawn_entities(data: Dictionary, parent: Node2D, state: MatchState, 
 		spawn_entity(record, parent, state, editing, civilizations)
 
 static func setup_ground(data: Dictionary, parent: Node2D) -> void:
-	for child in parent.get_children():
-		child.free()
-	var rect := Data.bounds(data)
-	var polygon := Polygon2D.new()
-	var points := PackedVector2Array()
-	for point in [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]:
-		points.append(IsoMath.world_to_screen(point))
-	polygon.polygon = points
-	polygon.texture = preload("res://assets/terrain/grass.png")
-	polygon.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
-	polygon.texture_scale = Vector2(0.35, 0.35)
-	polygon.z_index = -100
-	parent.add_child(polygon)
+	TerrainVisual.setup_grass(parent, Data.bounds(data))

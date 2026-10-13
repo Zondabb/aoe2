@@ -136,6 +136,9 @@ func _test_sandbox(editor: Node2D) -> void:
 	check(editor._nodes.sandbox_0.process_mode == Node.PROCESS_MODE_DISABLED, "editing mode disables terrain simulation")
 	editor.toggle_play()
 	var unit: UnitAgent = editor._nodes.sandbox_2
+	var water: PathBlocker = editor._nodes.sandbox_0
+	var shore := preload("res://scripts/world/shore_geometry.gd")
+	var radius := CollisionResolver.unit_radius(unit)
 	unit.set_physics_process(false)
 	editor._select_runtime(unit)
 	editor.command_at(Vector2(18, 0))
@@ -145,23 +148,23 @@ func _test_sandbox(editor: Node2D) -> void:
 	for step in 900:
 		editor._nav._process(1.0 / 30.0)
 		unit._physics_process(1.0 / 30.0)
-		remained_on_land = remained_on_land and not Rect2(-6, -8, 12, 16).has_point(unit.sim_pos)
+		remained_on_land = remained_on_land and not shore.circle_hits(unit.sim_pos, radius, water.get_water_contours())
 		greatest_detour = maxf(greatest_detour, absf(unit.sim_pos.y))
 		if unit.order == Enums.OrderType.NONE:
 			break
 	check(remained_on_land, "actual sandbox unit never steps into the lake")
-	check(greatest_detour > 8.0, "actual sandbox movement routes around the lake footprint")
+	check(greatest_detour > 5.0, "actual sandbox movement routes around the irregular water and uses the walkable beach")
 	check(unit.sim_pos.distance_to(Vector2(18, 0)) < 1.0, "unit reaches land on the far side of a lake")
 	editor.command_at(Vector2.ZERO)
 	remained_on_land = true
 	for step in 600:
 		editor._nav._process(1.0 / 30.0)
 		unit._physics_process(1.0 / 30.0)
-		remained_on_land = remained_on_land and not Rect2(-6, -8, 12, 16).has_point(unit.sim_pos)
+		remained_on_land = remained_on_land and not shore.circle_hits(unit.sim_pos, radius, water.get_water_contours())
 		if unit.order == Enums.OrderType.NONE:
 			break
 	check(remained_on_land and unit.order == Enums.OrderType.NONE, "clicking water stops the unit at a reachable shore")
-	check(unit.sim_pos.distance_to(Vector2.ZERO) > 6.0 and unit.sim_pos.distance_to(Vector2.ZERO) < 12.0, "water move goal resolves to the nearby land perimeter")
+	check(shore.signed_distance(unit.sim_pos, water.get_water_contours()) >= radius - 0.001 and unit.sim_pos.distance_to(Vector2.ZERO) < 12.0, "water move goal resolves to the actual reachable shore")
 	editor.command_at(Vector2(20, -20))
 	var remained_outside_cliff := true
 	for step in 750:

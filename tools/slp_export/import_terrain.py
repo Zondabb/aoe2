@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Import original HD ground water, rock, and an opaque original cliff face.
+"""Import original HD ground textures and an opaque original cliff face.
 
-The water and rock PNG files are copied unchanged. The face is a rectangular
+Grass, water, beach, shallows and rock PNG files are copied unchanged. The face is a rectangular
 opaque excerpt from SLP 226, frame 1; runtime repeats it along vertical walls.
 No painted substitute or enlarged animated shallows sprite is involved.
 """
@@ -17,6 +17,14 @@ from export_sprites import _read_slp, load_config
 
 ROOT = Path(__file__).resolve().parents[2]
 FACE_RECT = (95, 57, 191, 97)
+TEXTURES = [
+    ("grass", "g_grs_00_color.png", None),
+    ("water", "g_wtr_00_color.png", None),
+    ("beach", "g_bc3_00_color.png", {"terrain_id": 53, "terrain_name": "Beach 4", "blend_mode": 2}),
+    ("shallow", "g_sh2_00_color.png", {"terrain_id": 59, "terrain_name": "Shallows", "blend_mode": 4}),
+    ("rock", "g_rck_00_COLOR.png", None),
+]
+SHORE_DAT = "_common/dat/empires2_x2_p1.dat"
 
 
 def main():
@@ -28,7 +36,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     source_dir = resources / "_common/terrain/textures"
     records = {}
-    for key, filename in [("water", "g_wtr_00_color.png"), ("rock", "g_rck_00_COLOR.png")]:
+    for key, filename, terrain_record in TEXTURES:
         source = source_dir / filename
         shutil.copyfile(source, args.out / (key + ".png"))
         records[key] = {
@@ -36,6 +44,10 @@ def main():
             "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
             "pixels": "unmodified original texture",
         }
+        if terrain_record is not None:
+            records[key].update(terrain_record)
+            records[key]["dat_source"] = SHORE_DAT
+            records[key]["dat_sha256"] = hashlib.sha256((resources / SHORE_DAT).read_bytes()).hexdigest()
     frames, _meta, _masks, source, palette = _read_slp(resources, 226, 1)
     face = frames[1].crop(FACE_RECT)
     if face.getchannel("A").getextrema() != (255, 255):
@@ -53,7 +65,7 @@ def main():
         json.dumps({"edition": "Age of Empires II HD", "textures": records}, indent=2) + "\n",
         encoding="utf-8",
     )
-    print("Imported 2 original terrain textures and 1 original cliff face")
+    print(f"Imported {len(TEXTURES)} original terrain textures and 1 original cliff face")
 
 
 if __name__ == "__main__":

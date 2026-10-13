@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -33,7 +34,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("ai_service")
+_LLM_LOG_DIR = Path(__file__).resolve().parent / "logs"
 
 app = FastAPI(title="AoE2 RTS AI Service", version="1.0.0")
 
@@ -209,10 +212,55 @@ def _log_chat(
     )
 
 
-def _print_llm_json(title: str, payload: Any) -> None:
+def _llm_file_logger() -> logging.Logger:
+    log = logging.getLogger("ai_service.llm_file")
+    if not log.handlers:
+        _LLM_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(_LLM_LOG_DIR / "llm.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"))
+        log.addHandler(handler)
+        log.setLevel(logging.INFO)
+        log.propagate = False
+    return log
+
+
+def _write_llm_json(title: str, payload: Any) -> None:
     text = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
-    logger.info("%s\n%s", title, text)
-    # print(f"\n===== {title} =====\n{text}\n", flush=True)
+    _llm_file_logger().info("%s\n%s", title, text)
+
+
+def _summarize_llm_response(inbound: dict[str, Any]) -> dict[str, Any]:
+    message: dict[str, Any] = {}
+    choices = inbound.get("choices") or []
+    if choices and isinstance(choices[0], dict):
+        raw = choices[0].get("message")
+        if isinstance(raw, dict):
+            message = raw
+    return {
+        "reasoning_content": message.get("reasoning_content"),
+        "tool_calls": message.get("tool_calls"),
+    }
+
+
+def _print_game_commands(req: ChatCompletionRequest, wrapped: ChatCompletionResponse) -> None:
+    tool_calls = []
+    if wrapped.choices and wrapped.choices[0].message.tool_calls:
+        tool_calls = wrapped.choices[0].message.tool_calls
+    lines = [
+        f"===== commands match={req.metadata.match_id} team={req.metadata.team} tick={req.metadata.tick} ====="
+    ]
+    if not tool_calls:
+        lines.append("(none)")
+    else:
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                lines.append(str(call))
+                continue
+            fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+            name = fn.get("name", "?")
+            args = fn.get("arguments", "")
+            lines.append(f"{name} {args}")
+    print("\n".join(lines), flush=True)
 
 
 def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
@@ -224,7 +272,7 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
     if is_openai_backend(backend):
         try:
             outbound = build_openai_payload(req)
-            _print_llm_json(
+            _write_llm_json(
                 "LLM request (to model)",
                 {
                     **outbound,
@@ -234,7 +282,7 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
                 },
             )
             wrapped, _outbound, inbound = forward_openai(req)
-            _print_llm_json("LLM response (from model)", inbound)
+            _write_llm_json("LLM response (from model)", _summarize_llm_response(inbound))
             elapsed_ms = (time.perf_counter() - started) * 1000.0
             tool_call_count = 0
             if wrapped.choices and wrapped.choices[0].message.tool_calls:
@@ -248,12 +296,12 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
                 elapsed_ms,
                 backend,
             )
+            _print_game_commands(req, wrapped)
             return wrapped
         except HTTPException:
             raise
         except Exception as exc:
             logger.warning('{"event":"llm_proxy_error","error":"%s"}', str(exc).replace('"', "'"))
-            print(f"\n===== LLM error =====\n{exc}\n", flush=True)
             if observation_or_error(req) is None:
                 raise HTTPException(status_code=502, detail="llm_upstream_error") from exc
             backend = "rules_compat"
@@ -272,6 +320,7 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
     if wrapped.choices and wrapped.choices[0].message.tool_calls:
         tool_call_count = len(wrapped.choices[0].message.tool_calls)
     _log_chat(req.model, match_id, tick_req.team, tick_req.tick, tool_call_count, elapsed_ms, backend)
+    _print_game_commands(req, wrapped)
     return wrapped
 
 
@@ -313,4 +362,4 @@ if __name__ == "__main__":
     args = runtime_settings.build_parser().parse_args()
     runtime_settings.apply_args(args)
     _log_startup(args.host, args.port)
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port, access_log=False)

@@ -136,9 +136,12 @@ func _minimap() -> void:
 	var current: PackedByteArray = state.fog.visible_now[0]
 	var seen: Vector2i = state.fog.cell_at(Vector2(-5,0))
 	var remembered: Vector2i = state.fog.cell_at(Vector2(5,0))
+	var dry_corner: Vector2i = state.fog.cell_at(Vector2(9,3))
 	explored[seen.y * 40 + seen.x] = 1
 	current[seen.y * 40 + seen.x] = 1
 	explored[remembered.y * 40 + remembered.x] = 1
+	explored[dry_corner.y * 40 + dry_corner.x] = 1
+	current[dry_corner.y * 40 + dry_corner.x] = 1
 	state.fog.explored[0] = explored
 	state.fog.visible_now[0] = current
 	var holder := Holder.new()
@@ -151,6 +154,9 @@ func _minimap() -> void:
 	check(map._markers.is_empty() and map._terrain_shapes.size() == 1, "large lake is represented beneath fog rather than a visible marker quad")
 	var pixels := map._terrain_image(Vector2i(40,20))
 	check(_rgb8_matches(pixels.get_pixelv(seen), Color(0.18,0.4,0.6)), "visible lake cell is blue")
+	check(_rgb8_matches(pixels.get_pixelv(dry_corner), map.GRASS), "minimap keeps the walkable corner outside the irregular coast as grass")
+	var observed_coast: Array = map._terrain_shapes[0].coast.duplicate(true)
+	check(not observed_coast.is_empty() and observed_coast == lake.get_water_contours(), "minimap uses the actual observed water outline")
 	check(pixels.get_pixelv(remembered).b > 0 and pixels.get_pixelv(remembered).b < pixels.get_pixelv(seen).b, "remembered lake cell is dimmed")
 	var leaked := 0
 	for y in 20:
@@ -161,8 +167,10 @@ func _minimap() -> void:
 	state.fog.visible_now[0] = current
 	lake.sim_pos = Vector2(8,4)
 	lake.block_size = Vector2(2,2)
+	lake._setup_visual()
 	map.refresh_markers()
 	check(map._terrain_shapes[0].sim_pos == Vector2.ZERO and map._terrain_shapes[0].footprint == Vector2(20,8), "unseen terrain edits retain the last observed geometry")
+	check(map._terrain_shapes[0].coast == observed_coast and map._terrain_shapes[0].coast != lake.get_water_contours(), "unseen terrain edits cannot replace the remembered minimap shoreline")
 	lake.free()
 	map.refresh_markers()
 	check(map._markers.is_empty() and map._terrain_shapes.size() == 1, "unseen terrain removal preserves masked memory without marker leakage")

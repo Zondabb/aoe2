@@ -4,6 +4,7 @@
 dist/
 /web/
 ai_service_python/token.txt
+ai_service_python/logs/
 
 # Local SLP export config / raw dumps (never commit full game tree)
 tools/slp_export/config.json

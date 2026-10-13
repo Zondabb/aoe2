@@ -4,9 +4,10 @@ extends RefCounted
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
 
 ## Grid A* over logical xz (sim_pos). Buildings, ores, and terrain cells are
-## square solid blockers. Units are NOT baked into the grid (soft-sep remains).
+## static blockers; water follows its shared coast. Units are not baked in.
 
 const CELL_SIZE := 1.0
 const DEFAULT_MAP_MIN := -40
@@ -112,10 +113,13 @@ func rebuild_from_blockers(blockers: Array) -> bool:
 		var half := _blocker_half(blocker)
 		if half.x <= 0.0 or half.y <= 0.0:
 			continue
-		marks.append({
+		var mark := {
 			"center": center,
 			"half": half,
-		})
+		}
+		if blocker.has_method("get_water_contours") and not blocker.get_water_contours().is_empty():
+			mark["contours"] = blocker.get_water_contours()
+		marks.append(mark)
 	# Completion signals and repeated network snapshots often retain exactly
 	# the same geometry. Keep clearance layers and routes instead of rebuilding.
 	if marks == _blocker_marks and not _manual_changed:
@@ -453,7 +457,17 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 	for mark: Dictionary in _blocker_marks:
 		var center := mark["center"] as Vector2
 		var half := (mark["half"] as Vector2) + pad
-		_mark_aabb_on_layer(inflated, center, half, indices)
+		if mark.has("contours"):
+			var margin := radius + cell_size * 0.707107
+			var first := world_to_cell(center - half)
+			var last := world_to_cell(center + half)
+			for y in range(first.y, last.y + 1):
+				for x in range(first.x, last.x + 1):
+					var cell := Vector2i(x, y)
+					if _index_of(cell) >= 0 and ShoreGeometry.circle_hits(cell_to_world_center(cell), margin, mark.contours):
+						_mark_index_on_layer(inflated, _index_of(cell), indices)
+		else:
+			_mark_aabb_on_layer(inflated, center, half, indices)
 	_solid_by_radius[key] = inflated
 	_solid_indices_by_radius[key] = indices
 	_solid_radius_order.append(key)

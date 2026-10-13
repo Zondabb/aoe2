@@ -7,6 +7,7 @@ const Loader := preload("res://scripts/world/map_loader.gd")
 const Generator := preload("res://scripts/world/default_map_generator.gd")
 const Navigation := preload("res://scripts/systems/nav_grid_service.gd")
 const Collision := preload("res://scripts/systems/collision_resolver.gd")
+const Shore := preload("res://scripts/world/shore_geometry.gd")
 const Construction := preload("res://scripts/systems/build_system.gd")
 const Queries := preload("res://scripts/systems/ai/ai_entity_queries.gd")
 const Manager := preload("res://scripts/systems/ai/ai_build_manager.gd")
@@ -119,7 +120,17 @@ func _test_schema_and_overlap() -> void:
 	touching.entities = [lake, shore]
 	check(Data.validate(touching).is_empty(), "touching the shore without footprint intersection remains valid")
 	shore.pos[0] -= 0.01
-	check(not Data.validate(touching).is_empty(), "even a partial land-footprint overlap with water is rejected")
+	check(Data.validate(touching).is_empty(), "a building may overlap the authoring rectangle while remaining on the dry beach")
+	var shoreline := _rightmost(Shore.build_contours([Rect2(-6, -5, 12, 10)]))
+	shore.pos = [shoreline.x + half.x - 0.01, shoreline.y]
+	check(not Data.validate(touching).is_empty(), "even a partial land-footprint overlap with the actual water contour is rejected")
+
+func _rightmost(contours: Array) -> Vector2:
+	var result := Vector2(-INF, 0)
+	for contour: PackedVector2Array in contours:
+		for point in contour:
+			if point.x > result.x: result = point
+	return result
 
 func _test_files() -> void:
 	var example := Loader.load_file("res://data/maps/editor_demo.json")
@@ -195,12 +206,13 @@ func _test_loader_navigation() -> void:
 	var detour := 0.0
 	for point in route:
 		detour = maxf(detour, absf(point.y))
-	check(detour > 8, "water route actually detours beyond the lake footprint")
+	check(detour > 0.35, "water route bends around the irregular lake contour")
 	route = nav.find_path(Vector2(20, -20), Vector2(20, 0), 0.35)
 	check(not route.is_empty() and route[-1].distance_to(Vector2(20, 0)) < 0.1, "a route around cliffs reaches dry land behind them")
 	_check_path(nav, route, Vector2(20, -20), 0.35, "cliff route")
 	var shore := nav.nearest_walkable_world(Vector2.ZERO, 0.35)
-	check(not Rect2(-6, -8, 12, 16).has_point(shore) and nav.is_world_walkable_with_radius(shore, 0.35), "a clicked water point resolves to a walkable shore")
+	var lake := entities.get_child(0) as PathBlocker
+	check(not Shore.circle_hits(shore, 0.35, lake.get_water_contours()) and nav.is_world_walkable_with_radius(shore, 0.35), "a clicked water point resolves to dry land beyond the actual coast")
 
 func _check_path(nav: Navigation, route: PackedVector2Array, from: Vector2, radius: float, label: String) -> void:
 	var valid := not route.is_empty()
@@ -269,6 +281,7 @@ func _test_player_building() -> void:
 		check(not build._placement_valid and not build.confirm_placement(), "actual player construction cannot confirm on %s" % kind)
 		check(state.resources == before and build._ghost.is_placement_ghost, "rejected %s placement keeps resources and preview ownership intact" % kind)
 		var shoreline := position + Vector2(6 + house.footprint.x * 0.5 - 0.1, 0)
+		if kind == "water": shoreline = _rightmost(terrain.get_water_contours()) + Vector2(house.footprint.x * 0.5 - 0.1, 0)
 		build._ghost.sim_pos = shoreline
 		build._update_placement_validity()
 		check(not build.confirm_placement() and state.resources == before, "even partial house overlap with %s fails without charging resources" % kind)

@@ -1,6 +1,8 @@
 class_name Minimap
 extends Control
 
+const SHORE := preload("res://scripts/world/shore_geometry.gd")
+
 const Iso := preload("res://scripts/presentation/iso_math.gd")
 const Fog := preload("res://scripts/systems/fog_of_war_service.gd")
 const Colors := preload("res://scripts/presentation/team_color_catalog.gd")
@@ -163,6 +165,9 @@ func _terrain_image(dims: Vector2i) -> Image:
 			for x in range(first.x, last.x):
 				var index := y * dims.x + x
 				if hidden and (index >= explored.size() or explored[index] == 0): continue
+				if shape.kind == &"water" and not shape.get("coast", []).is_empty():
+					var logical := map_min + (Vector2(x, y) + Vector2.ONE * 0.5) / scale
+					if not SHORE.contains(logical, shape.coast): continue
 				var dimmed: bool = hidden and (index >= current.size() or current[index] == 0)
 				pixels.set_pixel(x, y, color.darkened(0.58) if dimmed else color)
 	return pixels
@@ -210,7 +215,8 @@ func refresh_markers() -> void:
 			continue
 		shown[entity.get_instance_id()] = true
 		if entity.is_in_group("terrain_regions"):
-			terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind})
+			terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind,
+				"coast":entity.get_water_contours() if entity.has_method("get_water_contours") and marker.kind == &"water" else []})
 			continue
 		_markers.append(marker)
 	for id in _static_marker_cache.keys():
@@ -223,7 +229,8 @@ func refresh_markers() -> void:
 				continue
 			var marker: Dictionary = known[id].duplicate()
 			if marker.get("terrain_region", false):
-				terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind})
+				terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind,
+					"coast":_remembered_coast(marker.get("parts", [])) if marker.kind == &"water" else []})
 				continue
 			marker["memory"] = true
 			_markers.append(marker)
@@ -238,6 +245,24 @@ func refresh_markers() -> void:
 	_markers.clear()
 	for layer in layers: _markers.append_array(layer)
 	_rebuild_marker_mesh()
+
+func _remembered_coast(parts: Array) -> Array[PackedVector2Array]:
+	# Use the captured outline, never hidden live geometry changed after seeing
+	# the shore. Shader edge order retains the individual closed contour loops.
+	var contours: Array[PackedVector2Array] = []
+	for part in parts:
+		var material: Variant = part.get("material")
+		if material is not ShaderMaterial or material.shader != preload("res://shaders/terrain_water.gdshader"): continue
+		var points: PackedVector2Array = material.get_shader_parameter("coast_points")
+		var ends: PackedVector2Array = material.get_shader_parameter("coast_ends")
+		var count: int = material.get_shader_parameter("coast_count")
+		var loop := PackedVector2Array()
+		for index in count:
+			loop.append(points[index])
+			if ends[index].is_equal_approx(loop[0]):
+				contours.append(loop)
+				loop = PackedVector2Array()
+	return contours
 
 func _resource_marker(resource: ResourceNode) -> Dictionary:
 	var id := resource.get_instance_id()

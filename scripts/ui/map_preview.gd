@@ -1,5 +1,7 @@
 extends Control
 
+const SHORE := preload("res://scripts/world/shore_geometry.gd")
+
 var data: Dictionary = {}
 
 func show_map(value: Dictionary) -> void:
@@ -15,8 +17,27 @@ func _draw() -> void:
 	if data.is_empty():
 		return
 	var bounds := MapData.bounds(data)
+	var water_rects: Array[Rect2] = []
 	for record in data.entities:
-		if record.type != "terrain": continue
+		if record.type == "terrain" and record.terrain_id == "water":
+			var half := MapCatalog.half_size(record)
+			water_rects.append(Rect2(MapData.position_of(record) - half, half * 2.0))
+	var coasts := SHORE.build_contours(water_rects)
+	var layers: Array[Dictionary] = []
+	for contour in coasts:
+		var depth := 0
+		for other in coasts:
+			if other != contour and Geometry2D.is_point_in_polygon(contour[0], other): depth += 1
+		layers.append({"contour":contour, "depth":depth})
+	layers.sort_custom(func(a: Dictionary, b: Dictionary): return a.depth < b.depth)
+	for layer in layers:
+		var polygon := PackedVector2Array()
+		for point in layer.contour: polygon.append(_preview_point(point, bounds))
+		draw_colored_polygon(polygon, Color("2e6699") if layer.depth % 2 == 0 else Color("586240"))
+		polygon.append(polygon[0])
+		draw_polyline(polygon, Color("ddd0b4"), 1.0, true)
+	for record in data.entities:
+		if record.type != "terrain" or record.terrain_id == "water": continue
 		var half := MapCatalog.half_size(record)
 		var center := MapData.position_of(record)
 		var polygon := PackedVector2Array()

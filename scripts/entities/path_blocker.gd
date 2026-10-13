@@ -1,12 +1,13 @@
 class_name PathBlocker
 extends Node2D
 
-## Square logical blocker used by pathfinding (and collision). Visual comes from
-## exported AoE2 terrain / resource sheets when available.
+## Rectangular authoring/broadphase footprint. Authored water uses a shared
+## inset shoreline for rendering, pathfinding, collision and placement.
 
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const TerrainVisualScript := preload("res://scripts/presentation/terrain_visual.gd")
+const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
 
 @export var sim_pos := Vector2.ZERO
 @export var block_size := Vector2(2.0, 2.0)
@@ -17,6 +18,49 @@ const TerrainVisualScript := preload("res://scripts/presentation/terrain_visual.
 
 var block_half := Vector2.ONE
 var _selection: Line2D
+var water_contours: Array[PackedVector2Array] = []
+
+func get_water_contours() -> Array[PackedVector2Array]:
+	return water_contours
+
+func _exit_tree() -> void:
+	if kind != &"water" or auto_block_size or get_parent() == null: return
+	for sibling in get_parent().get_children():
+		if sibling != self and sibling is PathBlocker and sibling.kind == &"water" and not sibling.auto_block_size:
+			sibling._refresh_water_regions(self)
+			sibling.call_deferred("_refresh_water_regions")
+			break
+
+func _refresh_water_regions(excluding: Node = null) -> void:
+	if not is_inside_tree() or get_parent() == null: return
+	var nodes: Array[PathBlocker] = []
+	for sibling in get_parent().get_children():
+		if sibling != excluding and sibling is PathBlocker and sibling.is_inside_tree() and sibling.kind == &"water" and not sibling.auto_block_size and not sibling.is_queued_for_deletion():
+			nodes.append(sibling)
+	var remaining := nodes.duplicate()
+	while not remaining.is_empty():
+		var component: Array[PathBlocker] = [remaining.pop_back()]
+		var rects: Array[Rect2] = [Rect2(component[0].sim_pos - component[0].block_size * 0.5, component[0].block_size)]
+		var index := 0
+		while index < component.size():
+			var base := Rect2(component[index].sim_pos - component[index].block_size * 0.5, component[index].block_size)
+			for candidate in remaining.duplicate():
+				var rect := Rect2(candidate.sim_pos - candidate.block_size * 0.5, candidate.block_size)
+				if base.grow(0.0001).intersects(rect):
+					component.append(candidate)
+					rects.append(rect)
+					remaining.erase(candidate)
+			index += 1
+		var contours := ShoreGeometry.build_contours(rects)
+		for actor in component:
+			if actor.water_contours == contours and actor.get_node_or_null("Billboard") != null: continue
+			actor.water_contours = contours
+			for label in ["Billboard", "Body", "Fallback"]:
+				var previous := actor.get_node_or_null(label)
+				if previous != null: previous.free()
+			TerrainVisualScript.populate(actor, actor.kind, actor.block_size, actor.sim_pos)
+	for holder in get_tree().get_nodes_in_group("nav_service"):
+		if holder.get_parent().is_ancestor_of(self): holder.invalidate_static_geometry()
 
 func _ready() -> void:
 	add_to_group("path_blockers")
@@ -69,7 +113,11 @@ func _setup_visual() -> void:
 		for label in ["Billboard", "Body", "Fallback"]:
 			var previous := get_node_or_null(label)
 			if previous != null: previous.free()
-		TerrainVisualScript.populate(self, kind, block_size, sim_pos)
+		water_contours = []
+		if kind == &"water": _refresh_water_regions()
+		else:
+			TerrainVisualScript.populate(self, kind, block_size, sim_pos)
+			_refresh_water_regions()
 		if is_instance_valid(_selection):
 			_selection.points = TerrainVisualScript.footprint(block_size)
 		return

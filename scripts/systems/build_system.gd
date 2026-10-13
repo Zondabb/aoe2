@@ -12,6 +12,7 @@ signal placement_changed(active: bool)
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const HOUSE: BuildingDef = preload("res://data/buildings/house.tres")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
 
 var match_state: MatchState
 var civ: CivDef
@@ -29,6 +30,9 @@ static func can_place(
 	for value in existing_buildings:
 		var building := value as Node2D
 		if building == null or building.is_queued_for_deletion() or building.get("is_placement_ghost") == true:
+			continue
+		if building.has_method("get_water_contours") and not building.get_water_contours().is_empty():
+			if ShoreGeometry.intersects_rect(Rect2(center - candidate_half, footprint), building.get_water_contours()): return false
 			continue
 		var building_def := building.get("def") as BuildingDef
 		var existing_footprint: Vector2 = (

@@ -1,0 +1,32 @@
+services:
+  multiplayer:
+    build:
+      context: .
+    # Rooms and the matching queue are held in one process; run one replica.
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    ports:
+      - "${AOE2_MP_BIND_IP:-0.0.0.0}:${AOE2_MP_PUBLIC_PORT:-8001}:8001"
+    environment:
+      AOE2_MP_HOST: "0.0.0.0"
+      AOE2_MP_PORT: "8001"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      AOE2_MP_MAX_CONNECTIONS: "${AOE2_MP_MAX_CONNECTIONS:-128}"
+      AOE2_MP_MAX_QUEUE: "${AOE2_MP_MAX_QUEUE:-128}"
+      AOE2_MP_IDLE_TIMEOUT: "${AOE2_MP_IDLE_TIMEOUT:-30}"
+      AOE2_MP_QUEUE_TIMEOUT: "${AOE2_MP_QUEUE_TIMEOUT:-120}"
+      AOE2_MP_READY_TIMEOUT: "${AOE2_MP_READY_TIMEOUT:-30}"
+      AOE2_MP_MATCH_TIMEOUT: "${AOE2_MP_MATCH_TIMEOUT:-10800}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

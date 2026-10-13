@@ -3,6 +3,7 @@ extends RefCounted
 
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
+const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
 
 const DEFAULT_RADIUS := 0.42
 const UNIT_SEPARATION_EXTRA := 0.0
@@ -95,7 +96,9 @@ static func static_step_safe(from: Vector2, to: Vector2, radius: float, solids: 
 		if half.x <= 0 or half.y <= 0:
 			continue
 		var center: Vector2 = solid.get("sim_pos")
-		if segment_hits_box(from - center, to - center, half):
+		if solid.has_method("get_water_contours") and not solid.get_water_contours().is_empty():
+			if ShoreGeometry.segment_hits(from, to, radius, solid.get_water_contours()): return false
+		elif segment_hits_box(from - center, to - center, half):
 			return false
 	return true
 
@@ -105,7 +108,9 @@ static func static_step_safe(from: Vector2, to: Vector2, radius: float, solids: 
 static func static_geometry_step_safe(from: Vector2, to: Vector2, geometry: Array[Dictionary]) -> bool:
 	for solid in geometry:
 		var center: Vector2 = solid.center
-		if segment_hits_box(from - center, to - center, solid.half):
+		if solid.has("contours"):
+			if ShoreGeometry.segment_hits(from, to, solid.radius, solid.contours): return false
+		elif segment_hits_box(from - center, to - center, solid.half):
 			return false
 	return true
 
@@ -169,6 +174,8 @@ static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 	return Vector2.ZERO
 
 static func _hits_building(pos: Vector2, radius: float, building: Object) -> bool:
+	if building != null and building.has_method("get_water_contours") and not building.get_water_contours().is_empty():
+		return ShoreGeometry.circle_hits(pos, radius, building.get_water_contours())
 	var half := _blocker_half(building, radius)
 	if half.x <= 0.0 or half.y <= 0.0:
 		return false

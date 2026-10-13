@@ -1,6 +1,8 @@
 class_name AiEntityQueries
 extends RefCounted
 
+const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
+
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 const BuildSystemScript := preload("res://scripts/systems/build_system.gd")
@@ -266,6 +268,10 @@ static func can_plan_settlement(
 	for value in existing:
 		var building := value as Node2D
 		if not is_instance_valid(building) or building.is_queued_for_deletion() or building.get("is_placement_ghost") == true:
+			continue
+		if building.has_method("get_water_contours") and not building.get_water_contours().is_empty():
+			var coast_half := half + Vector2.ONE * SETTLEMENT_LANE_WIDTH
+			if ShoreGeometry.intersects_rect(Rect2(center - coast_half, coast_half * 2.0), building.get_water_contours()): return false
 			continue
 		var definition := building.get("def") as BuildingDef
 		var other_half := (definition.footprint if definition != null else Vector2.ONE) * (SETTLEMENT_FOOTPRINT_SCALE * 0.5)

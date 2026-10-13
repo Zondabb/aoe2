@@ -1,9 +1,8 @@
 extends Node
 
 const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+const TerrainVisual := preload("res://scripts/presentation/terrain_visual.gd")
 
-const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
-const GROUND_COLOR := Color(0.20, 0.48, 0.16)
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const VILLAGER_DEF := preload("res://data/units/villager.tres")
@@ -12,10 +11,8 @@ const CHINESE_CIV := preload("res://data/civs/chinese.tres")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const NavServiceHolderScript := preload("res://scripts/systems/nav_service_holder.gd")
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
-const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const GROUND_MIN := -30
 const GROUND_MAX := 30
-const GROUND_STEP := 8
 
 var match_state := MatchState.new()
 var nav_holder: NavServiceHolderScript
@@ -50,28 +47,10 @@ func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D
 	if ground == null:
 		return
-	for child in ground.get_children():
-		child.free()
-	var texture: Texture2D = null
-	if ResourceLoader.exists(TERRAIN_TEXTURE):
-		texture = load(TERRAIN_TEXTURE) as Texture2D
-	var lx := GROUND_MIN
-	while lx <= GROUND_MAX:
-		var lz := GROUND_MIN
-		while lz <= GROUND_MAX:
-			var tile := Sprite2D.new()
-			tile.centered = true
-			tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			tile.z_index = -100
-			if texture != null:
-				tile.texture = texture
-				tile.scale = Vector2(0.35, 0.35)
-			else:
-				tile.modulate = GROUND_COLOR
-			tile.position = IsoMathScript.world_to_screen(Vector2(float(lx), float(lz)))
-			ground.add_child(tile)
-			lz += GROUND_STEP
-		lx += GROUND_STEP
+	TerrainVisual.setup_grass(
+		ground,
+		Rect2(Vector2(GROUND_MIN, GROUND_MIN), Vector2.ONE * (GROUND_MAX - GROUND_MIN))
+	)
 
 func _spawn_test_entities() -> void:
 	var entities := get_node_or_null("../Entities") as Node2D

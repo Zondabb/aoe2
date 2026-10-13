@@ -6,6 +6,7 @@ const GameSettingsScript := preload("res://scripts/core/game_settings.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var previous := Engine.time_scale
+	var previous_multiplayer_url: String = GameSession.online_server_url
 	var snap := _snapshot_ai_session()
 
 	if not is_equal_approx(GameSettingsScript.clamp_speed(0.01), GameSettingsScript.MIN_SPEED):
@@ -73,6 +74,7 @@ func run() -> Array[String]:
 		failures.append("apply_ai_to_game_session should sync ai_protocol_version")
 
 	_restore_ai_session(snap)
+	GameSession.online_server_url = previous_multiplayer_url
 	Engine.time_scale = previous
 	return failures
 

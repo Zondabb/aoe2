@@ -1,7 +1,7 @@
 extends SceneTree
 
 ## Run with a real GL backend. Adjacent water rectangles must have the same
-## original texture and footprint as one large rectangle, without grid nodes.
+## original texture and irregular coast as one large rectangle, without grid nodes.
 const BLOCKER := preload("res://scripts/entities/path_blocker.gd")
 const VISUAL := preload("res://scripts/presentation/terrain_visual.gd")
 const ISO := preload("res://scripts/presentation/iso_math.gd")
@@ -54,6 +54,15 @@ func changed_pixels(before: Image, after: Image) -> int:
 			if not before.get_pixel(x, y).is_equal_approx(after.get_pixel(x, y)): count += 1
 	return count
 
+func visibly_changed_pixels(before: Image, after: Image) -> int:
+	var count := 0
+	for y in before.get_height():
+		for x in before.get_width():
+			var a := before.get_pixel(x, y)
+			var b := after.get_pixel(x, y)
+			if maxf(absf(a.r - b.r), maxf(absf(a.g - b.g), absf(a.b - b.b))) > 2.01 / 255.0: count += 1
+	return count
+
 func _run() -> void:
 	check(DisplayServer.get_name() != "headless", "terrain render checks require a graphical backend")
 	if DisplayServer.get_name() == "headless":
@@ -76,8 +85,15 @@ func _run() -> void:
 	var water := region(&"water", Vector2(16, 12))
 	var surface := water.get_node("Billboard") as Polygon2D
 	check(surface.texture != null, "water uses the imported original terrain texture")
-	check(surface.polygon == VISUAL.footprint(water.block_size), "water occupies exactly its blocking footprint")
-	check(surface.z_index == -99, "water stays on the ground layer")
+	check(surface.polygon == VISUAL.footprint(water.block_size), "water render mesh preserves the logical rectangle before irregular coast clipping")
+	check(surface.material is ShaderMaterial and surface.material.shader.resource_path == "res://shaders/terrain_water.gdshader", "water uses the original-art beach and shallow-water shader")
+	if surface.material is ShaderMaterial:
+		var material := surface.material as ShaderMaterial
+		check(material.get_shader_parameter("coast_count") > 4, "water material receives a curved coastline")
+		for pair: Array in [["sand_texture", "res://assets/terrain/beach.png"], ["shallow_texture", "res://assets/terrain/shallow.png"]]:
+			var texture := material.get_shader_parameter(pair[0]) as Texture2D
+			check(texture != null and texture.resource_path == pair[1], "water transition loads original %s art" % pair[0])
+	check(surface.z_index == -49, "water stays below actors and above ground fog for one fragment tint")
 	check(water.get_child_count() == 2, "large water area uses one surface and one selection node")
 	check(surface.texture_repeat == CanvasItem.TEXTURE_REPEAT_ENABLED, "water repeats texture without stretching it over a lake")
 	await frame()
@@ -90,7 +106,7 @@ func _run() -> void:
 	var right := region(&"water", Vector2(8, 12), Vector2(4, 0))
 	await frame()
 	var adjoining := viewport.get_texture().get_image()
-	check(changed_pixels(single, adjoining) < 100, "two adjacent areas preserve the same seamless world-anchored water image")
+	check(visibly_changed_pixels(single, adjoining) == 0, "two adjacent areas preserve the same seamless world-anchored water and outer beach image")
 	adjoining.save_png("res://.godot/terrain-water.png")
 	left.free()
 	right.free()

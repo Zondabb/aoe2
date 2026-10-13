@@ -15,6 +15,9 @@ const PROJECTILE_VIEW := preload("res://scenes/entities/projectile_view.tscn")
 const PLAYER_COLOR_SHADER := preload("res://shaders/player_color.gdshader")
 const TERRAIN_SCRIPT := preload("res://scripts/entities/path_blocker.gd")
 const CLIFF_FOG_SHADER := preload("res://shaders/terrain_cliff_fog.gdshader")
+const WATER_SHADER := preload("res://shaders/terrain_water.gdshader")
+const WATER_COAST_LIMIT := 192
+const WATER_TEXTURE_PATHS := {"sand_texture":"res://assets/terrain/beach.png", "shallow_texture":"res://assets/terrain/shallow.png", "grass_texture":"res://assets/terrain/grass.png"}
 const POLYGON_VECTORS := ["polygon_offset", "texture_scale", "texture_offset"]
 const PART_COLORS := ["modulate", "self_modulate", "polygon_color"]
 const CHINESE := preload("res://data/civs/chinese.tres")
@@ -371,6 +374,18 @@ static func _capture_memory(memory: Dictionary, id: int) -> Dictionary:
 			encoded.material = {"type": "canvas", "blend_mode": part.material.blend_mode, "light_mode": part.material.light_mode}
 		elif part.get("material") is ShaderMaterial and part.material.shader == CLIFF_FOG_SHADER:
 			encoded.material = {"type":"terrain_cliff"}
+		elif part.get("material") is ShaderMaterial and part.material.shader == WATER_SHADER:
+			var material := part.material as ShaderMaterial
+			var count: int = material.get_shader_parameter("coast_count")
+			var points: PackedVector2Array = material.get_shader_parameter("coast_points")
+			var ends: PackedVector2Array = material.get_shader_parameter("coast_ends")
+			encoded.material = {"type":"terrain_water", "coast_count":count,
+				"coast_points":_vectors(points.slice(0,count)), "coast_ends":_vectors(ends.slice(0,count)),
+				"shore_width":material.get_shader_parameter("shore_width")}
+			for uniform in WATER_TEXTURE_PATHS:
+				encoded.material[uniform] = _capture_texture(material.get_shader_parameter(uniform))
+			# Fog textures, view-team state and screen_origin belong to the current
+			# match. The holder rebinds them after the value snapshot is restored.
 		record.parts.append(encoded)
 	return record
 
@@ -433,6 +448,18 @@ static func _restore_fog(root: Node, state: MatchState, data: Dictionary, nodes:
 					elif material_data.type == "terrain_cliff":
 						var material := ShaderMaterial.new()
 						material.shader = CLIFF_FOG_SHADER
+						part.material = material
+					elif material_data.type == "terrain_water":
+						var material := ShaderMaterial.new()
+						material.shader = WATER_SHADER
+						material.set_shader_parameter("coast_count",int(material_data.coast_count))
+						material.set_shader_parameter("shore_width",float(material_data.shore_width))
+						for uniform in ["coast_points", "coast_ends"]:
+							var vectors := _packed_vectors(material_data[uniform])
+							vectors.resize(WATER_COAST_LIMIT)
+							material.set_shader_parameter(uniform,vectors)
+						for uniform in WATER_TEXTURE_PATHS:
+							material.set_shader_parameter(uniform,_restore_texture(material_data[uniform]))
 						part.material = material
 					else:
 						var material := CanvasItemMaterial.new()
@@ -637,13 +664,27 @@ static func _validate_fog(data: Variant, bounds: Rect2) -> String:
 				else: return "存档迷雾轮廓已损坏。"
 				if part.has("material"):
 					var material: Variant = part.material
-					if not material is Dictionary or material.get("type") not in ["player_color", "canvas", "terrain_cliff"]: return "存档迷雾材质已损坏。"
+					if not material is Dictionary or material.get("type") not in ["player_color", "canvas", "terrain_cliff", "terrain_water"]: return "存档迷雾材质已损坏。"
 					if material.type == "player_color":
 						if not _valid_texture(material.get("player_mask")) or not _valid_texture(material.get("player_palette")) or not _integer_between(material.get("source_player"), 1, 8) or not _integer_between(material.get("target_player"), 1, 8) or not _integer_between(material.get("sprite_layer"), 0, 2): return "存档迷雾颜色已损坏。"
 					elif material.type == "terrain_cliff":
 						if not part.has("polygon") or not memory.get("terrain_region", false): return "存档地形材质已损坏。"
+					elif material.type == "terrain_water":
+						if not part.has("polygon") or not memory.get("terrain_region",false) or memory.get("kind") != "water" or not _valid_water_material(material): return "存档水域岸线材质已损坏。"
 					elif not _integer_between(material.get("blend_mode"), 0, 4) or not _integer_between(material.get("light_mode"), 0, 2): return "存档迷雾混合模式已损坏。"
 	return ""
+
+static func _valid_water_material(material: Dictionary) -> bool:
+	if not _integer_between(material.get("coast_count"),1,WATER_COAST_LIMIT): return false
+	for uniform in ["coast_points", "coast_ends"]:
+		if not _vector_list(material.get(uniform)) or material[uniform].size() != int(material.coast_count): return false
+		for point: Array in material[uniform]:
+			if not _vector(point).is_finite(): return false
+	if not MapDataScript.number(material.get("shore_width")) or material.shore_width <= 0.0 or material.shore_width > 2.6: return false
+	for uniform in WATER_TEXTURE_PATHS:
+		var texture: Variant = material.get(uniform)
+		if not texture is Dictionary or texture.size() != 1 or texture.get("path") != WATER_TEXTURE_PATHS[uniform]: return false
+	return true
 
 static func _valid_texture(data: Variant, depth := 0) -> bool:
 	if not data is Dictionary or depth > 4: return false

@@ -2,6 +2,7 @@ class_name MapData
 extends RefCounted
 
 const Catalog := preload("res://scripts/world/map_catalog.gd")
+const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
 const FORMAT := "aoe2-rts-map"
 const VERSION := 1
 const MIN_SIZE := 16
@@ -114,14 +115,22 @@ static func validate(data: Variant) -> PackedStringArray:
 		var half := Catalog.half_size(record)
 		if not rect.encloses(Rect2(point - half, half * 2.0)):
 			errors.append(prefix + "占地超出地图边界。")
-		footprints.append({"id": str(id), "type": kind, "rect": Rect2(point - half, half * 2.0)})
+			# Do not feed out-of-bounds / float32-overflow coordinates into the
+			# polygon union while collecting errors for an invalid document.
+			continue
+		footprints.append({"id": str(id), "type": kind, "water": kind == "terrain" and record.get("terrain_id") == "water", "rect": Rect2(point - half, half * 2.0)})
+	var water_rects: Array[Rect2] = []
+	for entry in footprints:
+		if entry.water: water_rects.append(entry.rect)
+	var contours := ShoreGeometry.build_contours(water_rects)
 	# Existing scenarios may overlap regular entities, but no land entity may start
 	# inside inaccessible terrain. Terrain rectangles may overlap to form regions.
 	for terrain in footprints:
 		if terrain.type != "terrain":
 			continue
 		for entity in footprints:
-			if entity.type != "terrain" and terrain.rect.intersects(entity.rect):
+			var overlap: bool = ShoreGeometry.intersects_rect(entity.rect, contours) if terrain.water else terrain.rect.intersects(entity.rect)
+			if entity.type != "terrain" and overlap:
 				errors.append("地形 %s 与对象 %s 的占地重叠。" % [terrain.id, entity.id])
 				break
 	return errors
@@ -134,13 +143,29 @@ static func placement_error(data: Dictionary, record: Dictionary, except_id := "
 	var footprint := Rect2(point - half, half * 2.0)
 	if not bounds(data).encloses(footprint):
 		return "对象占地超出地图边界。"
+	var water_rects: Array[Rect2] = []
+	for other in data.entities:
+		if other.id != except_id and other.type == "terrain" and other.terrain_id == "water":
+			var water_half := Catalog.half_size(other)
+			water_rects.append(Rect2(position_of(other) - water_half, water_half * 2.0))
+	var painting_water: bool = record.type == "terrain" and record.terrain_id == "water"
+	if painting_water: water_rects.append(footprint)
+	var contours := ShoreGeometry.build_contours(water_rects)
 	for other in data.entities:
 		if other.id == except_id:
 			continue
 		if record.type == "terrain" and other.type == "terrain":
 			continue
 		var other_half := Catalog.half_size(other)
-		if footprint.intersects(Rect2(position_of(other) - other_half, other_half * 2.0)):
+		var other_rect := Rect2(position_of(other) - other_half, other_half * 2.0)
+		var overlap: bool
+		if painting_water:
+			overlap = ShoreGeometry.intersects_rect(other_rect, contours)
+		elif other.type == "terrain" and other.terrain_id == "water":
+			overlap = ShoreGeometry.intersects_rect(footprint, contours)
+		else:
+			overlap = footprint.intersects(other_rect)
+		if overlap:
 			return "占地与 %s 重叠，请留出空隙。" % other.id
 	return ""
 

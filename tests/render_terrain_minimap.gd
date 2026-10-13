@@ -88,8 +88,10 @@ func _run() -> void:
 	var cliff_center: Vector2i = Vector2i(preview.position + preview._preview_point(Vector2(8,3), MapData.bounds(data)))
 	check(close_color(pixels.get_pixelv(lake_center), Color("2e6699")), "menu preview paints a blue lake rather than a red enemy dot")
 	check(close_color(pixels.get_pixelv(cliff_center), Color("8c8773")), "menu preview paints a grey cliff footprint")
-	var lake_edge: Vector2i = Vector2i(preview.position + preview._preview_point(Vector2(-12,0), MapData.bounds(data)))
+	var lake_edge: Vector2i = Vector2i(preview.position + preview._preview_point(Vector2(-10,0), MapData.bounds(data)))
 	check(close_color(pixels.get_pixelv(lake_edge), Color("2e6699")), "menu preview paints the actual terrain area beyond its center")
+	var dry_corner: Vector2i = Vector2i(preview.position + preview._preview_point(Vector2(-13,3), MapData.bounds(data)))
+	check(close_color(pixels.get_pixelv(dry_corner), Color("586240")), "menu preview shows grass in the authored corner outside the actual water")
 	pixels.save_png("res://.godot/terrain-minimap-preview.png")
 	state.fog_enabled = false
 	map._fog = null
@@ -99,9 +101,20 @@ func _run() -> void:
 	map.queue_redraw()
 	await frame()
 	pixels = viewport.get_texture().get_image()
-	check(close_color(pixels.get_pixelv(unknown), Color(0.18,0.4,0.6)), "non-fog view draws the full rectangular lake using both image dimensions")
+	check(close_color(pixels.get_pixelv(unknown), Color(0.18,0.4,0.6)), "non-fog view draws the full irregular lake using both image dimensions")
 	var outside: Vector2i = Vector2i(map.position + map.world_to_map(Vector2(0,7)))
 	check(close_color(pixels.get_pixelv(outside), Minimap.GRASS), "rectangular minimap terrain does not stretch water beyond its shore")
+	var ring := MapData.create(40,40)
+	ring.entities = []
+	for rect: Rect2 in [Rect2(-16,-16,32,8), Rect2(-16,8,32,8), Rect2(-16,-8,8,16), Rect2(8,-8,8,16)]:
+		ring.entities.append({"type":"terrain", "terrain_id":"water", "pos":[rect.get_center().x,rect.get_center().y], "block_size":[rect.size.x,rect.size.y]})
+	preview.show_map(ring)
+	await frame()
+	pixels = viewport.get_texture().get_image()
+	var island: Vector2i = Vector2i(preview.position + preview._preview_point(Vector2.ZERO, MapData.bounds(ring)))
+	var ring_water: Vector2i = Vector2i(preview.position + preview._preview_point(Vector2(12,0), MapData.bounds(ring)))
+	check(close_color(pixels.get_pixelv(island), Color("586240")), "menu preview preserves the dry island inside a water ring")
+	check(close_color(pixels.get_pixelv(ring_water), Color("2e6699")), "menu preview still draws the surrounding water barrier")
 	viewport.free()
 	print("Terrain minimap rendering: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)

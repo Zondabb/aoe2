@@ -1,6 +1,6 @@
 # 联机匹配与对战
 
-主菜单「联机对战」进入大厅，选择中国或条顿，输入昵称和 Python 服务的 WebSocket 地址后开始匹配。默认地址 `ws://127.0.0.1:8001/ws`。局域网使用服务所在电脑的 IP；启动与部署见 [Python 服务 README](../multiplayer_service_python/README.md)。
+主菜单「联机对战」进入大厅，选择中国或条顿，输入昵称后开始匹配。服务地址自动读取 `game_settings.cfg` 的 `[multiplayer] host/port/use_tls`，默认 `ws://127.0.0.1:8001/ws`，也可在大厅临时修改。局域网使用服务所在电脑的 IP；启动、Docker Compose 部署和客户端配置见 [部署文档](multiplayer_deployment.md)及 [Python 服务 README](../multiplayer_service_python/README.md)。
 
 匹配成功后自动加载默认 120 × 120 双营地地图。服务分配固定阵营 `0` 和 `1`，各自的相机、选择、指令、资源、迷雾、小地图和胜负展示使用本地阵营。对局不启动 AI 控制器或 AI 网关。右上角可「离开对局」，结束后可返回联机大厅再次匹配。
 

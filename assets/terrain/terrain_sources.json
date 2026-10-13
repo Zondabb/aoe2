@@ -1,10 +1,35 @@
 {
   "edition": "Age of Empires II HD",
   "textures": {
+    "grass": {
+      "source": "_common/terrain/textures/g_grs_00_color.png",
+      "sha256": "969cfdc1918d9ee7f49cc1b8e67e2ef99e67c842fae4fa687e5b60821ebc6e4f",
+      "pixels": "unmodified original texture"
+    },
     "water": {
       "source": "_common/terrain/textures/g_wtr_00_color.png",
       "sha256": "8973f0d6c95f82a9cfcba5e948c62ab606d411400bf8aeb5966491f93a14e479",
       "pixels": "unmodified original texture"
+    },
+    "beach": {
+      "source": "_common/terrain/textures/g_bc3_00_color.png",
+      "sha256": "e023c6d75361b3e45d2902ffda4468827964b5b9da71effd2bf8e85aa7cdd601",
+      "pixels": "unmodified original texture",
+      "terrain_id": 53,
+      "terrain_name": "Beach 4",
+      "blend_mode": 2,
+      "dat_source": "_common/dat/empires2_x2_p1.dat",
+      "dat_sha256": "21591ac67251d8674635d5634f2d8e9ff80ad90f3c792f9503d60dd658d61058"
+    },
+    "shallow": {
+      "source": "_common/terrain/textures/g_sh2_00_color.png",
+      "sha256": "44d03695d8e8d9edcd460f0aef1e6eb85b74e73708a3a640ddc5cfe01154741a",
+      "pixels": "unmodified original texture",
+      "terrain_id": 59,
+      "terrain_name": "Shallows",
+      "blend_mode": 4,
+      "dat_source": "_common/dat/empires2_x2_p1.dat",
+      "dat_sha256": "21591ac67251d8674635d5634f2d8e9ff80ad90f3c792f9503d60dd658d61058"
     },
     "rock": {
       "source": "_common/terrain/textures/g_rck_00_COLOR.png",

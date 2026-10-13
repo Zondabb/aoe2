@@ -33,7 +33,11 @@ static func step(unit: Object, preferred: Vector2, previous: Vector2, delta: flo
 		var half := footprint + Vector2.ONE * speed * maxf(HORIZON, delta)
 		var center: Vector2 = solid.get("sim_pos")
 		if Rect2(center - half, half * 2).has_point(from):
-			nearby_solids.append({"center": center, "half": footprint})
+			var geometry := {"center": center, "half": footprint}
+			if solid.has_method("get_water_contours") and not solid.get_water_contours().is_empty():
+				geometry["contours"] = solid.get_water_contours()
+				geometry["radius"] = radius
+			nearby_solids.append(geometry)
 	# Snapshot neighbor properties once, outside the candidate loop.
 	var bodies: Array[Dictionary] = []
 	for other in neighbors:

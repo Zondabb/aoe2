@@ -2,6 +2,7 @@ extends SceneTree
 
 ## Real-process test peer. Launch two against the Python relay using the runner.
 const Commands := preload("res://scripts/input/player_commands.gd")
+const Catalog := preload("res://scripts/data/game_catalog.gd")
 const VILLAGER := preload("res://data/units/villager.tres")
 const HOUSE := preload("res://data/buildings/house.tres")
 var network: Node
@@ -34,6 +35,9 @@ func _run() -> void:
 	# Exercise the actual training/construction paths without a 25-second wait.
 	VILLAGER.set("train_time", 0.5)
 	HOUSE.set("build_time", 0.5)
+	# Formal matches resolve training/building IDs through the catalog.
+	Catalog.get_unit("villager").train_time = 0.5
+	Catalog.get_building("house").build_time = 0.5
 	var args := OS.get_cmdline_user_args()
 	var url := args[0] if not args.is_empty() else "ws://127.0.0.1:8001/ws"
 	_check(network.join_queue(url, "Integration", "chinese") == OK, "connect request")
@@ -103,7 +107,7 @@ func _run_host() -> void:
 			combat_target = load("res://scenes/entities/unit_view.tscn").instantiate()
 			combat_target.set("def", load("res://data/units/swordsman.tres"))
 			combat_target.set("team", 0)
-			combat_target.set("sim_pos", Vector2(26, 38))
+			combat_target.set("sim_pos", _town_center(1).sim_pos + Vector2(-14, -2))
 			combat_target.set("match_state", state)
 			match_root.get_node("Entities").add_child(combat_target)
 			combat_target.hp = 1
@@ -132,7 +136,7 @@ func _run_guest() -> void:
 		hud._stop_selected_units()
 		var build: Node = match_root.get_node("BuildSystem")
 		_check(build.begin_placement(HOUSE), "guest begins construction preview")
-		build._ghost.sim_pos = Vector2(31, 39)
+		build._ghost.sim_pos = _town_center(1).sim_pos + Vector2(-16, 0)
 		_check(build.confirm_placement(), "guest submits foundation")
 		selection._clear_selection()
 		for node in match_root.get_node("Entities").get_children():
@@ -173,6 +177,12 @@ func _run_guest() -> void:
 func _house(team: int) -> Node2D:
 	for node in match_root.get_node("Entities").get_children():
 		if not node.is_queued_for_deletion() and node.get("def") is BuildingDef and node.def.id == &"house" and node.team == team and not node.is_placement_ghost:
+			return node
+	return null
+
+func _town_center(team: int) -> Node2D:
+	for node in match_root.get_node("Entities").get_children():
+		if node is BuildingAgent and node.team == team and node.def.id == &"town_center":
 			return node
 	return null
 

@@ -1,12 +1,11 @@
 extends Node
 
 const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
+const TerrainVisual := preload("res://scripts/presentation/terrain_visual.gd")
 
 ## F6 combat playground: fixed lanes for melee clash, projectile kite/miss,
 ## and building siege. R resets. AutoCombatDirector handles team auto-attack.
 
-const GROUND_COLOR := Color(0.20, 0.48, 0.16)
-const TERRAIN_TEXTURE := "res://assets/terrain/grass.png"
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const CHINESE_CIV := preload("res://data/civs/chinese.tres")
@@ -20,11 +19,9 @@ const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
 const AutoCombatDirectorScript := preload("res://scripts/systems/auto_combat_director.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const VisionServiceHolderScript := preload("res://scripts/systems/vision_service_holder.gd")
-const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 
 const GROUND_MIN := -36
 const GROUND_MAX := 36
-const GROUND_STEP := 8
 
 var match_state := MatchState.new()
 var player_civ: CivDef = CHINESE_CIV
@@ -183,28 +180,10 @@ func _setup_ground() -> void:
 	var ground := get_node_or_null("../Map/Ground") as Node2D
 	if ground == null:
 		return
-	for child in ground.get_children():
-		child.free()
-	var texture: Texture2D = null
-	if ResourceLoader.exists(TERRAIN_TEXTURE):
-		texture = load(TERRAIN_TEXTURE) as Texture2D
-	var lx := GROUND_MIN
-	while lx <= GROUND_MAX:
-		var lz := GROUND_MIN
-		while lz <= GROUND_MAX:
-			var tile := Sprite2D.new()
-			tile.centered = true
-			tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			tile.z_index = -100
-			if texture != null:
-				tile.texture = texture
-				tile.scale = Vector2(0.35, 0.35)
-			else:
-				tile.modulate = GROUND_COLOR
-			tile.position = IsoMathScript.world_to_screen(Vector2(float(lx), float(lz)))
-			ground.add_child(tile)
-			lz += GROUND_STEP
-		lx += GROUND_STEP
+	TerrainVisual.setup_grass(
+		ground,
+		Rect2(Vector2(GROUND_MIN, GROUND_MIN), Vector2.ONE * (GROUND_MAX - GROUND_MIN))
+	)
 
 func _focus_camera() -> void:
 	var camera := get_node_or_null("../Camera2D") as Camera2D

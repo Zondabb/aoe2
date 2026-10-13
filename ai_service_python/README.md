@@ -21,14 +21,24 @@ cd ai_service_python
 python main.py --host 127.0.0.1 --port 8765 --llm-token sk-your-deepseek-key --llm-base-url https://api.deepseek.com
 ```
 
+Kuailu-LLM（`test-newapi.kuailutech.cn`）示例：
+
+```bash
+python main.py --host 127.0.0.1 --port 8765 --backend openai \
+  --llm-token sk-your-openai-format-key \
+  --llm-base-url https://test-newapi.kuailutech.cn/v1
+```
+
+游戏侧 `data/game_settings.cfg` 的 `model` 必须用手册开放的模型名（当前为 `deepseek-v4-flash-0731`）；写成 `deepseek-v4-flash` 会收到上游 `503 model_not_found`。`--llm-base-url` 只填到 `/v1`，不要带 `/chat/completions`。
+
 常用参数：
 
 | 参数 | 作用 |
 |------|------|
 | `--host` / `--port` | 监听地址（默认 `127.0.0.1:8765`） |
-| `--llm-token` | 上游模型 API token（DeepSeek / OpenAI） |
+| `--llm-token` | 上游模型 API token（DeepSeek / OpenAI / Kuailu OpenAI 格式密钥） |
 | `--llm-token-file` | 从文件第一行读 token |
-| `--llm-base-url` | 兼容 Chat Completions 的根地址，例如 `https://api.deepseek.com` |
+| `--llm-base-url` | 兼容 Chat Completions 的根地址，例如 `https://api.deepseek.com` 或 `https://test-newapi.kuailutech.cn/v1` |
 | `--llm-timeout-sec` | 上游超时，默认 30 |
 | `--backend` | 强制 `openai` 或 `rules_compat` |
 | `--ai-token` | 游戏访问本服务时的 Bearer（可选） |

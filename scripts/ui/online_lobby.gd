@@ -78,7 +78,7 @@ func _build_ui() -> void:
 	_label("ServerTitle", "联机服务地址", Rect2(215, 197, 520, 30))
 	_server_url = _edit("ServerUrl", GameSession.online_server_url, Rect2(215, 235, 850, 48), 2048)
 	_server_url.placeholder_text = "ws://127.0.0.1:8001/ws"
-	_server_url.tooltip_text = "本机测试使用 127.0.0.1；局域网对战填写运行 Python 服务的电脑 IP。"
+	_server_url.tooltip_text = "默认地址来自 game_settings.cfg 的 [multiplayer] 配置；也可临时填写服务器的 ws:// 或 wss:// 地址。"
 	_label("NicknameTitle", "玩家昵称", Rect2(215, 311, 500, 30))
 	_nickname = _edit("Nickname", GameSession.online_player_name, Rect2(215, 350, 490, 48), 24)
 	_nickname.placeholder_text = "输入昵称（最多 24 个字符）"

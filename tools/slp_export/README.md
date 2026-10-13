@@ -107,8 +107,17 @@ Outputs:
 
 `regenerate_all.py` covers priority, combat, UI, existing extra SLP manifests,
 and the existing archer 1x/Scale2x 4x previews and individual frames. It does not
-recreate the standalone `assets/terrain/grass.png`, which is outside the SLP
-pipeline and has no source conversion manifest.
+recreate the standalone ground textures, which are outside the SLP pipeline.
+`import_terrain.py` copies original HD grass/water/beach/shallows/rock PNGs unchanged
+and records their paths and hashes in `assets/terrain/terrain_sources.json`.
+Run `python tools/slp_export/import_terrain.py` from the repository root to rebuild
+them. The pale sand uses `g_bc3_00_color.png`, terrain 53 **Beach 4** in the local
+HD expansion DAT; the shallow rim uses `g_sh2_00_color.png`, terrain 59
+**Shallows**. Both source terrain IDs, original names and DAT hash are recorded.
+`g_snd` is **Snow Dirt**, so it is not used as sand. The imported files retain
+their original 512×512 pixels. Godot enables mipmaps for grass, water, beach and
+shallows; the shared ground renderer samples world coordinates so adjoining
+regions retain the same texture phase and density.
 
 ### UI sheets (`--ui`)
 

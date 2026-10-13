@@ -20,6 +20,16 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 ## 局域网与部署
 
+推荐使用 [Docker Compose 部署文档](../docs/multiplayer_deployment.md)，包含启动、端口、客户端 IP 配置、WSS 代理和更新步骤。
+
+```sh
+cd multiplayer_service_python
+cp .env.example .env
+docker compose up -d --build
+```
+
+Godot 游戏读取 `data/game_settings.cfg` 的 `[multiplayer] host/port/use_tls`，并自动填写大厅服务器地址。桌面发行版也可通过可执行程序同目录的 `game_settings.cfg` 配置服务地址。
+
 ```powershell
 $env:AOE2_MP_HOST = "0.0.0.0"
 ./multiplayer_service_python/.venv/Scripts/python.exe -m multiplayer_service_python.main

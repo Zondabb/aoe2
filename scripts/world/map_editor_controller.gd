@@ -815,10 +815,17 @@ func _draw() -> void:
 	_draw_rect_iso(Rect2(point - half, half * 2.0), Color("86efac") if valid else Color("ff7068"), 2.0 / camera.zoom.x)
 
 func _draw_terrain_preview(rect: Rect2, terrain_id: String) -> void:
+	if terrain_id == "water":
+		var regions: Array[Rect2] = [rect]
+		for contour in preload("res://scripts/world/shore_geometry.gd").build_contours(regions):
+			var outline := PackedVector2Array()
+			for point in contour: outline.append(IsoMath.world_to_screen(point))
+			draw_colored_polygon(outline, Color(0.2, 0.6, 0.85, 0.35))
+		return
 	var points := PackedVector2Array()
 	for point in [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]:
 		points.append(IsoMath.world_to_screen(point))
-	draw_colored_polygon(points, Color(0.2, 0.6, 0.85, 0.35) if terrain_id == "water" else Color(0.6, 0.55, 0.45, 0.35))
+	draw_colored_polygon(points, Color(0.6, 0.55, 0.45, 0.35))
 
 func _draw_rect_iso(rect: Rect2, color: Color, width: float) -> void:
 	var points := PackedVector2Array()

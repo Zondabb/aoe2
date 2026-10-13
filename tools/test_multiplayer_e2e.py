@@ -10,11 +10,13 @@ import sys
 import tempfile
 import time
 from urllib.request import urlopen
+from urllib.parse import urlsplit, urlunsplit
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", required=True, help="Path to Godot 4 executable (console variant on Windows)")
+    parser.add_argument("--server-url", help="Existing relay WebSocket URL; omit to launch a temporary Python service")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     log_root = root / ".godot"
@@ -37,13 +39,20 @@ def main() -> int:
         return process
 
     try:
-        server = launch([sys.executable, "-m", "multiplayer_service_python.main"], "server")
+        server = None
+        endpoint = args.server_url or f"ws://127.0.0.1:{port}/ws"
+        parsed = urlsplit(endpoint)
+        if parsed.scheme not in ("ws", "wss") or not parsed.hostname:
+            raise RuntimeError("--server-url must be a ws:// or wss:// endpoint")
+        health_url = urlunsplit(("https" if parsed.scheme == "wss" else "http", parsed.netloc, "/healthz", "", ""))
+        if not args.server_url:
+            server = launch([sys.executable, "-m", "multiplayer_service_python.main"], "server")
         deadline = time.monotonic() + 15
         while True:
-            if server.poll() is not None:
+            if server is not None and server.poll() is not None:
                 raise RuntimeError("Python relay failed to start")
             try:
-                with urlopen(f"http://127.0.0.1:{port}/healthz", timeout=0.5) as response:
+                with urlopen(health_url, timeout=0.5) as response:
                     if response.status == 200:
                         break
             except OSError:
@@ -57,7 +66,7 @@ def main() -> int:
                 args.godot, "--headless", "--path", str(root),
                 "--log-file", (logs / f"godot-{side}.log").as_posix(),
                 "--script", "res://tests/run_multiplayer_peer.gd", "--",
-                f"ws://127.0.0.1:{port}/ws",
+                endpoint,
             ], f"peer-{side}"))
         deadline = time.monotonic() + 55
         while any(client.poll() is None for client in clients):

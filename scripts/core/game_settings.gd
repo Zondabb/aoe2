@@ -2,8 +2,10 @@ class_name GameSettings
 extends RefCounted
 
 ## Packaged defaults. Optional override: user://game_settings.cfg
+## Multiplayer also supports game_settings.cfg beside the desktop executable.
 const RES_PATH := "res://data/game_settings.cfg"
 const USER_PATH := "user://game_settings.cfg"
+const DEFAULT_MULTIPLAYER := {"host": "127.0.0.1", "port": 8001, "use_tls": false}
 
 const DEFAULT_SPEED := 1.0
 const MIN_SPEED := 0.1
@@ -39,6 +41,7 @@ const MAX_HISTORY_TURNS := 16
 
 static var last_loaded_speed := DEFAULT_SPEED
 static var last_loaded_ai: Dictionary = DEFAULT_AI.duplicate(true)
+static var last_loaded_multiplayer: Dictionary = DEFAULT_MULTIPLAYER.duplicate(true)
 
 
 static func clamp_speed(speed: float) -> float:
@@ -134,12 +137,72 @@ static func apply_ai_to_game_session() -> Dictionary:
 	return ai
 
 
-## Apply configured speed via Engine.time_scale and load AI settings into GameSession.
+## Apply speed, AI and multiplayer connection settings at startup.
 static func apply_from_config() -> float:
 	var speed := load_speed()
 	Engine.time_scale = speed
 	apply_ai_to_game_session()
+	apply_multiplayer_to_game_session()
 	return speed
+
+
+## Merge [multiplayer] per key: packaged defaults < beside desktop executable < user override.
+## Explicit paths allow verification without changing the player's config file.
+static func load_multiplayer_settings(default_path: String = RES_PATH, user_path: String = USER_PATH, external_path: String = "") -> Dictionary:
+	var out: Dictionary = DEFAULT_MULTIPLAYER.duplicate(true)
+	if external_path.is_empty() and not OS.has_feature("editor") and not OS.has_feature("web"):
+		external_path = OS.get_executable_path().get_base_dir().path_join("game_settings.cfg")
+	for path in [default_path, external_path, user_path]:
+		if path.is_empty() or not FileAccess.file_exists(path):
+			continue
+		var cfg := ConfigFile.new()
+		var error := cfg.load(path)
+		if error != OK:
+			push_warning("GameSettings: could not load multiplayer config %s (%s)" % [path, error_string(error)])
+			continue
+		for key in DEFAULT_MULTIPLAYER:
+			if cfg.has_section_key("multiplayer", key):
+				out[key] = cfg.get_value("multiplayer", key)
+	out = normalize_multiplayer_settings(out)
+	last_loaded_multiplayer = out.duplicate(true)
+	return out
+
+
+static func normalize_multiplayer_settings(settings: Dictionary) -> Dictionary:
+	var host := str(settings.get("host", DEFAULT_MULTIPLAYER.host)).strip_edges()
+	if host.begins_with("[") and host.ends_with("]"):
+		host = host.substr(1, host.length() - 2)
+	# Host is a bare IP/domain; URL paths and credentials belong to neither field.
+	var valid := not host.is_empty()
+	for forbidden in ["/", "\\", "@", "?", "#", " ", "\t", "\r", "\n", "[", "]"]:
+		valid = valid and not host.contains(forbidden)
+	if host.contains(":") and not host.is_valid_ip_address():
+		valid = false
+	if not valid:
+		push_warning("GameSettings: multiplayer.host must be an IP or domain; using 127.0.0.1")
+		host = DEFAULT_MULTIPLAYER.host
+	var raw_port: Variant = settings.get("port", DEFAULT_MULTIPLAYER.port)
+	var port := DEFAULT_MULTIPLAYER.port
+	if (raw_port is int or (raw_port is String and raw_port.is_valid_int())) and int(raw_port) >= 1 and int(raw_port) <= 65535:
+		port = int(raw_port)
+	else:
+		push_warning("GameSettings: multiplayer.port must be 1..65535; using 8001")
+	var raw_tls: Variant = settings.get("use_tls", false)
+	return {"host": host, "port": port, "use_tls": raw_tls if raw_tls is bool else false}
+
+
+static func multiplayer_server_url(settings: Dictionary) -> String:
+	var normalized := normalize_multiplayer_settings(settings)
+	var host: String = normalized.host
+	if host.contains(":"):
+		host = "[%s]" % host
+	return "%s://%s:%d/ws" % ["wss" if normalized.use_tls else "ws", host, normalized.port]
+
+
+static func apply_multiplayer_to_game_session() -> Dictionary:
+	var multiplayer := load_multiplayer_settings()
+	GameSession.online_server_url = multiplayer_server_url(multiplayer)
+	return multiplayer
 
 
 static func _load_config_file() -> ConfigFile:
