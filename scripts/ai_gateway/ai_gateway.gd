@@ -42,6 +42,8 @@ var _adapter: AiServiceAdapter
 var _pending_responses: Array[Dictionary] = []
 var _request_in_flight := false
 var _chat_histories: Dictionary = {}
+var _generation := 0
+var _event_subscriber := 0
 
 
 func setup(
@@ -51,6 +53,19 @@ func setup(
 	gateway_config: AiConfig = null,
 	shared_log: AiDecisionLog = null
 ) -> void:
+	if _http_client != null:
+		stop()
+		_http_client.queue_free()
+		if _local_server != null:
+			_local_server.queue_free()
+	_generation += 1
+	enabled = true
+	service_status = "starting"
+	match_time = 0.0
+	tick = 0
+	_tick_accum = 0.0
+	_pending_responses.clear()
+	_exec_contexts.clear()
 	match_state = state
 	entities = entities_root
 	config = gateway_config if gateway_config != null else AiConfigScript.from_game_session()
@@ -64,14 +79,32 @@ func setup(
 	set_process(true)
 
 
-func stop() -> void:
+func stop(status: String = "stopped") -> void:
+	_generation += 1
 	enabled = false
-	service_status = "stopped"
+	service_status = status
 	set_process(false)
+	_pending_responses.clear()
+	_request_in_flight = false
+	if _event_subscriber != 0:
+		EventBufferScript.unsubscribe(_event_subscriber)
+		_event_subscriber = 0
 	if _http_client != null and is_instance_valid(_http_client):
 		_http_client.cancel_requests()
-	if _local_server != null and _local_server.is_running():
+	if _local_server != null and is_instance_valid(_local_server) and _local_server.is_running():
 		_local_server.stop()
+
+
+func _exit_tree() -> void:
+	stop()
+
+
+func _is_current(generation: int) -> bool:
+	return enabled and generation == _generation and not is_queued_for_deletion()
+
+
+func _read_events() -> Array:
+	return EventBufferScript.read(_event_subscriber)
 
 
 func _init_runtime() -> void:
@@ -99,34 +132,47 @@ func _init_runtime() -> void:
 		ctx.metrics = metrics
 		_exec_contexts[team] = ctx
 
-	call_deferred("_on_match_start")
+	call_deferred("_on_match_start", _generation)
 
 
-func _on_match_start() -> void:
-	if not enabled:
+func _on_match_start(generation: int = -1) -> void:
+	if generation == -1:
+		generation = _generation
+	if not _is_current(generation):
 		return
-	match_id = "m_%d" % int(Time.get_unix_time_from_system())
-	EventBufferScript.clear()
+	match_id = "m_%d_%d_%d" % [int(Time.get_unix_time_from_system() * 1000.0), Time.get_ticks_usec(), get_instance_id()]
+	if _event_subscriber != 0:
+		EventBufferScript.unsubscribe(_event_subscriber)
+	_event_subscriber = EventBufferScript.subscribe()
 	metrics.clear()
 	_chat_histories.clear()
 	for ctx in _exec_contexts.values():
 		(ctx as CommandExecutionContext).clear_command_history()
 
-	if not await _ensure_ai_service():
-		service_status = "offline"
-		enabled = false
-		set_process(false)
+	var starting_server := _local_server
+	var available := await _ensure_ai_service()
+	if not _is_current(generation):
+		if starting_server != null and is_instance_valid(starting_server) and starting_server.is_running():
+			starting_server.stop()
+		return
+	if not available:
+		stop("unauthorized" if _http_client.last_error == "http_401" else "offline")
 		push_warning("AiGateway: AI service unavailable; AI decisions disabled")
 		return
 
-	service_status = "online"
-	await _http_client.post_match_start(
+	var start_result := await _http_client.post_match_start(
 		{
 			"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
 			"match_id": match_id,
 			"teams": _teams_payload(),
 		}
 	)
+	if not _is_current(generation):
+		return
+	if start_result.get("ok") != true:
+		stop("unauthorized" if start_result.get("reason") == "http_401" else "offline")
+		return
+	service_status = "online"
 	if decision_log != null:
 		decision_log.log(
 			0.0,
@@ -143,7 +189,10 @@ func _ensure_ai_service() -> bool:
 		_http_client.configure(config)
 		return await _local_server.start_async()
 
-	var health := await _http_client.get_health()
+	var client := _http_client
+	var health := await client.get_health()
+	if is_instance_valid(client):
+		client.last_error = String(health.get("reason", ""))
 	return health.get("ok") == true
 
 
@@ -154,6 +203,8 @@ func _process(delta: float) -> void:
 		stop()
 		return
 	match_time += delta
+	if service_status != "online":
+		return
 	_tick_accum += delta
 	if _tick_accum < _tick_interval():
 		return
@@ -165,20 +216,28 @@ func _process(delta: float) -> void:
 
 
 func _run_tick_requests(current_tick: int) -> void:
+	var generation := _generation
+	if not _is_current(generation) or _request_in_flight or service_status != "online":
+		return
 	_request_in_flight = true
+	var events := _read_events()
 	if config != null and config.uses_chat_protocol():
 		if _should_use_tick_batch():
-			await _request_chat_batch(current_tick)
+			await _request_chat_batch(current_tick, events)
 		else:
-			var events := EventBufferScript.drain()
 			for team_entry in _teams:
 				await _request_chat_for_team(team_entry, current_tick, events)
+				if not _is_current(generation):
+					return
 	elif _should_use_tick_batch():
-		await _request_tick_batch(current_tick)
+		await _request_tick_batch(current_tick, events)
 	else:
 		for team_entry in _teams:
-			await _request_tick_for_team(team_entry, current_tick, EventBufferScript.drain())
-	_request_in_flight = false
+			await _request_tick_for_team(team_entry, current_tick, events)
+			if not _is_current(generation):
+				return
+	if _is_current(generation):
+		_request_in_flight = false
 
 
 func _tick_interval() -> float:
@@ -192,6 +251,8 @@ func _should_use_tick_batch() -> bool:
 
 
 func _execute_due_commands(current_tick: int) -> void:
+	if not enabled:
+		return
 	var execute_through := current_tick - 1
 	if execute_through < 0:
 		return
@@ -205,13 +266,31 @@ func _execute_due_commands(current_tick: int) -> void:
 
 
 func _apply_response(response: Dictionary) -> void:
+	if not enabled:
+		return
 	var team := int(response.get("team", Enums.Team.AI))
 	var ctx: CommandExecutionContext = _exec_contexts.get(team)
 	if ctx == null:
 		return
 	for cmd in response.get("commands", []):
+		if not enabled:
+			return
 		if cmd is Dictionary:
-			CommandExecutorScript.execute(cmd, ctx)
+			var result := CommandExecutorScript.execute(cmd, ctx)
+			# Report acceptance/rejection to the issuing team's next decision.
+			# Acceptance is not completion; foundations and queues remain observed.
+			if cmd.get("op") != "noop" and result.get("reason") != "duplicate_skipped":
+				var feedback := {
+					"type":"command_result", "team":team,
+					"command_id":String(cmd.get("command_id", "")),
+					"op":String(cmd.get("op", "")), "ok":bool(result.get("ok", false)),
+					"reason":String(result.get("reason", "")), "_visible_to":[team],
+					"command":cmd.duplicate(true),
+				}
+				for key in ["unit_id", "builder_id", "building_id", "target_id"]:
+					if cmd.has(key): feedback[key] = cmd[key]
+				feedback["entity_id"] = cmd.get("unit_id", cmd.get("builder_id", cmd.get("building_id", null)))
+				EventBufferScript.push(feedback)
 	for debug_entry in response.get("debug", []):
 		if debug_entry is Dictionary and decision_log != null:
 			var label := _team_label(team)
@@ -223,8 +302,10 @@ func _apply_response(response: Dictionary) -> void:
 			)
 
 
-func _request_tick_batch(current_tick: int) -> void:
-	var events := EventBufferScript.drain()
+func _request_tick_batch(current_tick: int, events: Array = []) -> void:
+	var generation := _generation
+	if not _is_current(generation):
+		return
 	var requests: Array = []
 	for team_entry in _teams:
 		requests.append(_build_tick_payload(team_entry, current_tick, events))
@@ -235,6 +316,8 @@ func _request_tick_batch(current_tick: int) -> void:
 	}
 	var started_usec := Time.get_ticks_usec()
 	var responses := await _http_client.post_tick_batch(payload)
+	if not _is_current(generation):
+		return
 	if responses.is_empty() and config.use_local_embedded and _adapter != null:
 		responses = _adapter.handle_tick_batch(payload).get("responses", [])
 	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
@@ -252,10 +335,15 @@ func _request_tick_batch(current_tick: int) -> void:
 func _request_tick_for_team(
 	team_entry: Dictionary, current_tick: int, events: Array
 ) -> void:
+	var generation := _generation
+	if not _is_current(generation):
+		return
 	var team := int(team_entry.get("team", Enums.Team.AI))
 	var request := _build_tick_payload(team_entry, current_tick, events)
 	var started_usec := Time.get_ticks_usec()
 	var response := await _http_client.post_tick(request)
+	if not _is_current(generation):
+		return
 	if response.is_empty() and config.use_local_embedded and _adapter != null:
 		response = _adapter.handle_tick(request)
 	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
@@ -266,17 +354,21 @@ func _request_tick_for_team(
 		return
 	metrics.record_tick_success(last_tick_latency_ms)
 	response["team"] = team
-	_pending_responses.append(response)
+	_queue_response(response)
 
 
-func _request_chat_batch(current_tick: int) -> void:
-	var events := EventBufferScript.drain()
+func _request_chat_batch(current_tick: int, events: Array = []) -> void:
+	var generation := _generation
+	if not _is_current(generation):
+		return
 	var requests: Array = []
 	for team_entry in _teams:
 		requests.append(_build_chat_payload(team_entry, current_tick, events))
 	var payload := {"requests": requests}
 	var started_usec := Time.get_ticks_usec()
 	var completions := await _http_client.post_chat_completions_batch(payload)
+	if not _is_current(generation):
+		return
 	if completions.is_empty() and _should_fallback_embedded():
 		completions = _adapter.handle_chat_completions_batch(payload).get("responses", [])
 	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
@@ -301,10 +393,15 @@ func _request_chat_batch(current_tick: int) -> void:
 
 
 func _request_chat_for_team(team_entry: Dictionary, current_tick: int, events: Array) -> void:
+	var generation := _generation
+	if not _is_current(generation):
+		return
 	var team := int(team_entry.get("team", Enums.Team.AI))
 	var request := _build_chat_payload(team_entry, current_tick, events)
 	var started_usec := Time.get_ticks_usec()
 	var completion := await _http_client.post_chat_completions(request)
+	if not _is_current(generation):
+		return
 	if completion.is_empty() and _should_fallback_embedded():
 		completion = _adapter.handle_chat_completions(request)
 	last_tick_latency_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
@@ -342,6 +439,8 @@ func _build_chat_payload(team_entry: Dictionary, current_tick: int, events: Arra
 
 
 func _queue_chat_completion(completion: Dictionary, team: int, current_tick: int) -> void:
+	if not enabled:
+		return
 	var choices: Array = completion.get("choices", [])
 	if choices.is_empty():
 		_record_tick_skip("empty_choices")
@@ -384,12 +483,13 @@ func _handle_auth_failure() -> bool:
 		push_warning("AiGateway: 401 from AI service; using embedded adapter")
 		return false
 	push_warning("AiGateway: 401 unauthorized; AI decisions disabled")
-	service_status = "unauthorized"
-	stop()
+	stop("unauthorized")
 	return true
 
 
 func _queue_response(response: Dictionary) -> void:
+	if not enabled:
+		return
 	var team := int(response.get("team", Enums.Team.AI))
 	response["team"] = team
 	_pending_responses.append(response)

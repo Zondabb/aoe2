@@ -1,5 +1,7 @@
 # 大模型风格 AI Agent 交互设计
 
+2026-10-13 已扩展外部 Python LLM 的结构化观察、战略记忆、侦察、军队建设与执行反馈，当前实现见 [外部 LLM AI 设计](external_llm_ai.md)。下文保留原协议设计记录。
+
 **Date:** 2026-09-04  
 **Status:** 实施完成（P0–P3）；任务表见 [llm-agent-ai-tasks.md](llm-agent-ai-tasks.md)  
 **Related:** [AI 服务分离设计](ai-service-design.md)、协议 v1 `protocol/ai_v1.schema.json`、配置 `data/game_settings.cfg`

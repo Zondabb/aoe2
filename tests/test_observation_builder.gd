@@ -60,6 +60,7 @@ func _test_observation_matches_blackboard(failures: Array[String]) -> void:
 	villager.team = Enums.Team.PLAYER
 	villager.match_state = state
 	villager.sim_pos = Vector2(-38.0, -40.0)
+	villager.hp = float(VILLAGER_DEF.max_hp)
 	root.add_child(villager)
 
 	var swordsman := UNIT_VIEW.instantiate()
@@ -67,6 +68,7 @@ func _test_observation_matches_blackboard(failures: Array[String]) -> void:
 	swordsman.team = Enums.Team.PLAYER
 	swordsman.match_state = state
 	swordsman.sim_pos = Vector2(-36.0, -38.0)
+	swordsman.hp = float(SWORDSMAN_DEF.max_hp)
 	root.add_child(swordsman)
 
 	var enemy := UNIT_VIEW.instantiate()
@@ -74,6 +76,7 @@ func _test_observation_matches_blackboard(failures: Array[String]) -> void:
 	enemy.team = Enums.Team.AI
 	enemy.match_state = state
 	enemy.sim_pos = Vector2(-25.0, -40.0)
+	enemy.hp = float(SWORDSMAN_DEF.max_hp)
 	root.add_child(enemy)
 
 	var food := RESOURCE_NODE_SCRIPT.new()

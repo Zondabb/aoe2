@@ -41,12 +41,12 @@ static func tools_payload() -> Array:
 		),
 		_fn(
 			TOOL_TRAIN,
-			"在已完工建筑中排队训练单位。",
+			"在己方已完工建筑中训练其 trainable 兵种，依据 catalog 实际成本、人口预留、研究和队列容量。不要重复填满队列。",
 			{"building_id": {"type": "integer"}, "unit_def_id": {"type": "string"}},
 		),
 		_fn(
 			TOOL_PLACE_BUILDING,
-			"在指定坐标放置建筑地基。",
+			"用己方村民在 construction_options 的合法 pos 放地基，并自动令该村民建造；先满足时代/建筑前置，不重复已有地基。",
 			{
 				"builder_id": {"type": "integer"},
 				"building_def_id": {"type": "string"},
@@ -55,12 +55,12 @@ static func tools_payload() -> Array:
 		),
 		_fn(
 			TOOL_BUILD,
-			"派村民建造指定地基。",
+			"让己方村民继续己方未完工地基，优先完成已有兵营/房屋；不用等待 place_building 返回新 id 再建造。",
 			{"unit_id": {"type": "integer"}, "building_id": {"type": "integer"}},
 		),
 		_fn(
 			TOOL_MOVE,
-			"移动单位到指定坐标。",
+			"移动己方单位至 [x,y] 仿真坐标；可从 scouting.frontiers 自主探索或 army.rally_point 集结，目标必须在 map_bounds 内。相同 move_goal 尚在行进时无需重发。",
 			{
 				"unit_id": {"type": "integer"},
 				"pos": {"type": "array", "items": {"type": "number"}},
@@ -85,11 +85,15 @@ static func tools_payload() -> Array:
 
 
 static func _fn(name: String, description: String, properties: Dictionary) -> Dictionary:
+	for key in properties:
+		if properties[key].get("type") == "array":
+			properties[key]["minItems"] = 2
+			properties[key]["maxItems"] = 2
 	return {
 		"type": "function",
 		"function": {
 			"name": name,
 			"description": description,
-			"parameters": {"type": "object", "properties": properties},
+			"parameters": {"type": "object", "properties": properties, "required": properties.keys(), "additionalProperties": false},
 		},
 	}

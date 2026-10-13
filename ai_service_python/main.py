@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from brain import runtime_settings
 from brain.director import AiDirector
+from brain.llm_commander import LlmCommander
 from brain.stores import PHASE_ATTACK, PHASE_BOOM, PHASE_DEFEND, PHASE_ECO
 from brain.llm_proxy import build_openai_payload, forward_openai, is_openai_backend, resolve_backend
 from brain.rules_compat import observation_or_error, to_tick_request, wrap_tick_response
@@ -20,6 +22,7 @@ from protocol.models import (
     ChatCompletionBatchResponse,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    DebugEntry,
     HealthResponse,
     MatchEndRequest,
     MatchStartRequest,
@@ -41,6 +44,13 @@ _LLM_LOG_DIR = Path(__file__).resolve().parent / "logs"
 app = FastAPI(title="AoE2 RTS AI Service", version="1.0.0")
 
 _directors: dict[tuple[str, int], AiDirector] = {}
+_commanders: dict[tuple[str, int], tuple[LlmCommander, threading.RLock]] = {}
+_commander_registry_lock = threading.RLock()
+_COMMANDER_IDLE_TTL_SECONDS = 15 * 60
+_commander_last_access: dict[tuple[str, int], float] = {}
+# Count requests as soon as they look up a commander, including requests waiting
+# for the team's lock. Entries removed by match/end remain leased until completion.
+_commander_requests: dict[threading.RLock, int] = {}
 
 _PHASE_NAMES = {
     PHASE_ECO: "ECO",
@@ -65,6 +75,69 @@ def _clear_match(match_id: str) -> None:
     keys = [key for key in _directors if key[0] == match_id]
     for key in keys:
         del _directors[key]
+    with _commander_registry_lock:
+        for key in [key for key in _commanders if key[0] == match_id]:
+            _commander, lock = _commanders.pop(key)
+            if not _commander_requests.get(lock, 0):
+                _commander_requests.pop(lock, None)
+        for key in [key for key in _commander_last_access if key[0] == match_id]:
+            del _commander_last_access[key]
+
+
+def _prune_idle_llm_commanders(now: float) -> None:
+    # The caller holds the registry lock. Never wait for a team's request lock:
+    # a model response must not block a different team's registry lookup.
+    for key, last_access in list(_commander_last_access.items()):
+        if now - last_access < _COMMANDER_IDLE_TTL_SECONDS:
+            continue
+        current = _commanders.get(key)
+        if current is None:
+            _commander_last_access.pop(key, None)
+            continue
+        lock = current[1]
+        if _commander_requests.get(lock, 0) or not lock.acquire(blocking=False):
+            continue
+        try:
+            del _commanders[key]
+            del _commander_last_access[key]
+            _commander_requests.pop(lock, None)
+        finally:
+            lock.release()
+
+
+def _get_llm_commander(req: ChatCompletionRequest) -> tuple[LlmCommander, threading.RLock]:
+    # Sync FastAPI routes can run concurrently. Keep a team's prepare/response
+    # transition together, while different teams keep independent plan state.
+    key = _director_key(req.metadata.match_id.strip() or "chat", req.metadata.team)
+    profile = req.metadata.profile_id or "default"
+    with _commander_registry_lock:
+        now = time.monotonic()
+        _prune_idle_llm_commanders(now)
+        current = _commanders.get(key)
+        if current is None or current[0].profile_id != profile:
+            if current is not None and not _commander_requests.get(current[1], 0):
+                _commander_requests.pop(current[1], None)
+            current = (LlmCommander(profile), threading.RLock())
+            _commanders[key] = current
+        _commander_last_access[key] = now
+        _commander_requests[current[1]] = _commander_requests.get(current[1], 0) + 1
+        return current
+
+
+def _release_llm_commander(req: ChatCompletionRequest, commander: LlmCommander,
+                           lock: threading.RLock) -> None:
+    key = _director_key(req.metadata.match_id.strip() or "chat", req.metadata.team)
+    with _commander_registry_lock:
+        remaining = _commander_requests.get(lock, 0) - 1
+        if remaining > 0:
+            _commander_requests[lock] = remaining
+        else:
+            _commander_requests.pop(lock, None)
+        current = _commanders.get(key)
+        if current is not None and current[0] is commander and current[1] is lock:
+            # Idle lifetime starts after completion, even if an upstream call
+            # takes longer than the TTL. An ended/replaced session stays removed.
+            _commander_last_access[key] = time.monotonic()
 
 
 def _expected_token() -> str:
@@ -270,19 +343,38 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
     backend = resolve_backend(req)
     started = time.perf_counter()
     if is_openai_backend(backend):
+        commander: LlmCommander | None = None
         try:
-            outbound = build_openai_payload(req)
-            _write_llm_json(
-                "LLM request (to model)",
-                {
-                    **outbound,
+            commander, commander_lock = _get_llm_commander(req)
+            with commander_lock:
+                cached = commander.cached_response(req)
+                if cached is not None:
+                    _log_chat(req.model, req.metadata.match_id or "chat", req.metadata.team,
+                              req.metadata.tick, len(cached.choices[0].message.tool_calls or []),
+                              (time.perf_counter() - started) * 1000.0, "llm_cached")
+                    _print_game_commands(req, cached)
+                    return cached
+                prepared = commander.prepare_request(req)
+                outbound = build_openai_payload(prepared)
+                _write_llm_json(
+                    "LLM request (to model)",
+                    {
+                        **outbound,
+                        "team": req.metadata.team,
+                        "tick": req.metadata.tick,
+                        "match_id": req.metadata.match_id,
+                    },
+                )
+                wrapped, _outbound, inbound = forward_openai(prepared)
+                _write_llm_json("LLM response (from model)", _summarize_llm_response(inbound))
+                wrapped = commander.finish_response(req, wrapped)
+                _write_llm_json("Commander actions (to game)", {
+                    "match_id": req.metadata.match_id,
                     "team": req.metadata.team,
                     "tick": req.metadata.tick,
-                    "match_id": req.metadata.match_id,
-                },
-            )
-            wrapped, _outbound, inbound = forward_openai(req)
-            _write_llm_json("LLM response (from model)", _summarize_llm_response(inbound))
+                    "tool_calls": wrapped.choices[0].message.tool_calls if wrapped.choices else [],
+                    "debug": [entry.model_dump() for entry in wrapped.debug],
+                })
             elapsed_ms = (time.perf_counter() - started) * 1000.0
             tool_call_count = 0
             if wrapped.choices and wrapped.choices[0].message.tool_calls:
@@ -304,7 +396,23 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
             logger.warning('{"event":"llm_proxy_error","error":"%s"}', str(exc).replace('"', "'"))
             if observation_or_error(req) is None:
                 raise HTTPException(status_code=502, detail="llm_upstream_error") from exc
+            if commander is not None and req.observation is not None and req.observation.decision_context:
+                # Keep the last model-selected plan moving during an outage.
+                # This is explicit deterministic continuation, not a model reply.
+                try:
+                    with commander_lock:
+                        wrapped = commander.continue_on_failure(req, "upstream_unavailable")
+                    _log_chat(req.model, req.metadata.match_id or "chat", req.metadata.team,
+                              req.metadata.tick, len(wrapped.choices[0].message.tool_calls or []),
+                              (time.perf_counter() - started) * 1000.0, "llm_continuation")
+                    _print_game_commands(req, wrapped)
+                    return wrapped
+                except Exception:
+                    logger.exception("LLM plan continuation failed; using rules fallback")
             backend = "rules_compat"
+        finally:
+            if commander is not None:
+                _release_llm_commander(req, commander, commander_lock)
 
     if observation_or_error(req) is None:
         raise HTTPException(status_code=400, detail="missing_observation")
@@ -316,6 +424,8 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     completion_id = f"chatcmpl_{match_id}_{tick_req.tick}_{tick_req.team}"
     wrapped = wrap_tick_response(tick_response, req.model, completion_id)
+    if is_openai_backend(resolve_backend(req)):
+        wrapped.debug.append(DebugEntry(category="LLM_FALLBACK", message="上游模型不可用，本回合由规则策略接管。"))
     tool_call_count = 0
     if wrapped.choices and wrapped.choices[0].message.tool_calls:
         tool_call_count = len(wrapped.choices[0].message.tool_calls)

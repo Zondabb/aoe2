@@ -77,6 +77,59 @@ def test_role_spoofing_and_replayed_sequence_are_rejected():
         assert guest.receive_json() == {"type": "pong"}
 
 
+def test_external_ai_control_relay_is_bound_to_guest_and_synchronized():
+    async def scenario():
+        matchmaker = Matchmaker(Settings())
+        host, guest = await matchmaker.register(), await matchmaker.register()
+        for player in (host, guest):
+            await matchmaker.handle(player, JOIN)
+        for player in (host, guest):
+            while not player.outbox.empty():
+                player.outbox.get_nowait()
+        request = {"type": "command", "seq": 1, "command": {"op": "set_ai_control", "enabled": True}}
+        with pytest.raises(ProtocolError, match="ready"):
+            await matchmaker.handle(guest, parse_message(json.dumps(request), Settings()))
+        assert guest.seq == 0
+        for player in (host, guest):
+            await matchmaker.handle(player, {"type": "ready"})
+        for player in (host, guest):
+            assert player.outbox.get_nowait()["type"] == "start"
+        with pytest.raises(ProtocolError, match="Only team 1"):
+            await matchmaker.handle(host, request)
+        for sequence, enabled in [(1, True), (2, False)]:
+            command = {"op": "set_ai_control", "enabled": enabled}
+            request = {"type": "command", "seq": sequence, "command": command}
+            await matchmaker.handle(guest, parse_message(json.dumps(request), Settings()))
+            assert host.outbox.get_nowait() == {"type": "command", "seq": sequence, "team": 1, "command": command}
+            snapshot = {"type": "snapshot", "seq": sequence, "state": {"ai_control": {
+                "0": {"enabled": True, "status": "active", "message": "外部 AI 托管"},
+                "1": {"enabled": enabled, "status": "active" if enabled else "off", "message": ""},
+            }}}
+            await matchmaker.handle(host, parse_message(json.dumps(snapshot), Settings()))
+            assert guest.outbox.get_nowait() == snapshot
+        with pytest.raises(ProtocolError, match="increase"):
+            await matchmaker.handle(guest, {"type": "command", "seq": 2, "command": {"op": "set_ai_control", "enabled": True}})
+        assert host.outbox.empty()
+        await matchmaker.handle(host, {"type": "finish_match", "winner": 1})
+        with pytest.raises(ProtocolError, match="not in a match"):
+            await matchmaker.handle(guest, {"type": "command", "seq": 3, "command": {"op": "set_ai_control", "enabled": True}})
+        await matchmaker.shutdown()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("command", [
+    {"op": "set_ai_control"},
+    {"op": "set_ai_control", "enabled": 1},
+    {"op": "set_ai_control", "enabled": "false"},
+    {"op": "set_ai_control", "enabled": None},
+    {"op": "set_ai_control", "enabled": True, "team": 0},
+    {"op": "set_ai_control", "enabled": True, "unit_id": 5},
+])
+def test_external_ai_control_rejects_ambiguous_flags_and_spoofed_identity(command):
+    with pytest.raises(ProtocolError, match="AI control|identity"):
+        parse_message(json.dumps({"type": "command", "seq": 1, "command": command}), Settings())
+
+
 def test_queue_cancel_and_cancel_after_match_race_cleanup():
     with TestClient(create_app()) as client, client.websocket_connect("/ws") as host, client.websocket_connect("/ws") as guest:
         host.send_json(JOIN)

@@ -93,6 +93,9 @@ def parse_message(raw: str, settings: Settings) -> dict:
         if kind == "command":
             if any(key in data[field] for key in ("team", "player_id", "match_id", "host_team")):
                 raise ProtocolError("invalid_payload", "Command identity is assigned by the service")
+            if data[field].get("op") == "set_ai_control":
+                if set(data[field]) != {"op", "enabled"} or type(data[field]["enabled"]) is not bool:
+                    raise ProtocolError("invalid_payload", "AI control requires only op and a boolean enabled field")
             if len(json.dumps(data[field], ensure_ascii=True).encode()) > settings.max_command_bytes:
                 raise ProtocolError("invalid_payload", "Command exceeds the size limit")
     elif kind == "finish_match":

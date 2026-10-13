@@ -14,6 +14,7 @@ const VisionServiceHolderScript := preload("res://scripts/systems/vision_service
 const NavDebugOverlayScript := preload("res://scripts/presentation/nav_debug_overlay.gd")
 const AiGatewayScript := preload("res://scripts/ai_gateway/ai_gateway.gd")
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
+const PlayerAiControlScript := preload("res://scripts/ai_gateway/player_ai_control.gd")
 const MapLoaderScript := preload("res://scripts/world/map_loader.gd")
 const MapDataScript := preload("res://scripts/world/map_data.gd")
 const DefaultMap := preload("res://scripts/world/default_map_generator.gd")
@@ -110,6 +111,10 @@ func _finish_setup() -> void:
 			get_tree().call_deferred("change_scene_to_file", "res://scenes/civ_select.tscn")
 			return
 	setup_ready = true
+	var player_ai := PlayerAiControlScript.new()
+	player_ai.name = "PlayerAiControl"
+	get_parent().add_child(player_ai)
+	player_ai.setup(self)
 	if GameSession.online_active:
 		var network := load("res://scripts/network/network_match.gd").new() as Node
 		network.name = "NetworkMatch"

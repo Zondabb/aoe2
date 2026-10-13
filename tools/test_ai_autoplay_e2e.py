@@ -1,0 +1,162 @@
+"""Test real single-player and online opt-in through Python LLM and a local mock.
+
+Starts temporary AI/relay services and Godot peers, uses no paid endpoint or token
+file, and cleans up every helper process. Run with the AI service Python venv.
+"""
+from __future__ import annotations
+
+import argparse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from urllib.request import urlopen
+
+from test_external_llm_e2e import MockStrategist
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--godot", required=True)
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+    logs = Path(tempfile.mkdtemp(prefix="ai-autoplay-e2e-", dir=root / ".godot"))
+    mock = MockStrategist()
+    mock_lock = threading.Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            if self.path != "/v1/chat/completions":
+                self.send_error(404)
+                return
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            # Ensure cancellation occurs while a real upstream HTTP call is pending.
+            time.sleep(0.25)
+            with mock_lock:
+                response = json.dumps(mock.complete(payload)).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            try:
+                self.wfile.write(response)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    upstream = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+    thread.start()
+    ai_port, relay_port, dead_port = free_port(), free_port(), free_port()
+    env = dict(os.environ)
+    env.update(AOE2_AI_BACKEND="openai", AOE2_LLM_TOKEN="test-dummy-never-paid",
+               AOE2_LLM_BASE_URL=f"http://127.0.0.1:{upstream.server_port}/v1",
+               AOE2_AI_TOKEN="", AOE2_AI_URL=f"http://127.0.0.1:{ai_port}",
+               AOE2_AI_LOG_OBSERVATION="false", AOE2_MP_HOST="127.0.0.1",
+               AOE2_MP_PORT=str(relay_port))
+    # The game URL override would defeat the explicit dead-endpoint test.
+    game_env = dict(env)
+    game_env.pop("AOE2_AI_URL", None)
+    processes: list[subprocess.Popen] = []
+    handles = []
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+    def launch(command: list[str], label: str, cwd: Path = root, game: bool = False) -> subprocess.Popen:
+        output = (logs / f"{label}.txt").open("w", encoding="utf-8")
+        handles.append(output)
+        child_env = dict(game_env if game else env)
+        child_env["APPDATA"] = str(logs / f"profile-{label}")
+        Path(child_env["APPDATA"]).mkdir()
+        process = subprocess.Popen(command, cwd=cwd, env=child_env, stdout=output,
+                                   stderr=subprocess.STDOUT, creationflags=flags)
+        processes.append(process)
+        return process
+
+    def wait_health(url: str, process: subprocess.Popen) -> None:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError("temporary service exited")
+            try:
+                with urlopen(url, timeout=0.5) as response:
+                    if response.status == 200:
+                        return
+            except OSError:
+                pass
+            time.sleep(0.1)
+        raise RuntimeError("temporary service startup timed out")
+
+    def wait_clients(clients: list[subprocess.Popen], labels: list[str], marker: str) -> None:
+        deadline = time.monotonic() + 45
+        while any(client.poll() is None for client in clients):
+            if time.monotonic() > deadline:
+                raise RuntimeError("Godot autoplay timed out")
+            for label in labels:
+                output = (logs / f"{label}.txt").read_text(encoding="utf-8", errors="replace")
+                if "SCRIPT ERROR:" in output:
+                    print(output[-12000:])
+                    raise RuntimeError("Godot script error")
+            time.sleep(0.1)
+        for client, label in zip(clients, labels):
+            output = (logs / f"{label}.txt").read_text(encoding="utf-8", errors="replace")
+            print(output[-8000:])
+            if client.returncode != 0 or marker not in output or "failures" not in output or "FAILED:" in output:
+                raise RuntimeError(f"{label} failed ({client.returncode})")
+
+    def godot(script: str, label: str, script_args: list[str]) -> subprocess.Popen:
+        return launch([args.godot, "--headless", "--path", str(root),
+                       "--log-file", (logs / f"{label}.log").as_posix(),
+                       "--script", f"res://tests/{script}", "--", *script_args], label, game=True)
+
+    try:
+        service = launch([sys.executable, "main.py", "--host", "127.0.0.1", "--port", str(ai_port),
+                          "--backend", "openai", "--llm-token", "test-dummy-never-paid",
+                          "--llm-base-url", env["AOE2_LLM_BASE_URL"]], "ai-service", root / "ai_service_python")
+        relay = launch([sys.executable, "-m", "multiplayer_service_python.main"], "relay")
+        wait_health(f"http://127.0.0.1:{ai_port}/health", service)
+        wait_health(f"http://127.0.0.1:{relay_port}/healthz", relay)
+        ai_url = f"http://127.0.0.1:{ai_port}"
+        single = godot("run_ai_autoplay.gd", "single", [ai_url, f"http://127.0.0.1:{dead_port}"])
+        wait_clients([single], ["single"], "AI AUTOPLAY SINGLE:")
+        peers = [godot("run_ai_autoplay_peer.gd", f"peer-{side}",
+                       [f"ws://127.0.0.1:{relay_port}/ws", ai_url]) for side in range(2)]
+        wait_clients(peers, ["peer-0", "peer-1"], "AI AUTOPLAY PEER:")
+        if mock.calls < 4 or not mock.offered_strategy or not mock.saw_commander_context:
+            raise RuntimeError("external Python commander did not reach the mock strategic model")
+        print(f"AI AUTOPLAY E2E PASSED; {mock.calls} local model calls; logs: {logs}")
+        return 0
+    except (OSError, RuntimeError) as error:
+        print(f"AI AUTOPLAY E2E FAILED: {error}; logs: {logs}", file=sys.stderr)
+        return 1
+    finally:
+        for process in reversed(processes):
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+        for handle in handles:
+            handle.close()
+        upstream.shutdown()
+        upstream.server_close()
+        thread.join(timeout=2)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

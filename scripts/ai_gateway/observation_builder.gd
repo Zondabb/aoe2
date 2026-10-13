@@ -6,6 +6,7 @@ const FogAccess := preload("res://scripts/systems/fog_access.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const VisionServiceScript := preload("res://scripts/systems/vision_service.gd")
+const DecisionContext := preload("res://scripts/ai_gateway/decision_context_builder.gd")
 
 const DEFAULT_DEFEND_RADIUS := 20.0
 
@@ -19,6 +20,7 @@ static func build(
 	defend_radius: float = DEFAULT_DEFEND_RADIUS
 ) -> Dictionary:
 	var observation := {
+		"team": int(team),
 		"economy": _build_economy(match_state, team),
 		"derived": {},
 		"entities": [] as Array,
@@ -46,6 +48,12 @@ static func build(
 	var own_tc_pos := Vector2.ZERO
 	var vision := _vision_service(entities)
 	var observers := _team_observers(entities, team)
+	for observer in observers:
+		if observer.get("def") is BuildingDef and observer.get("def").id == &"town_center":
+			own_tc_pos = observer.get("sim_pos")
+			derived["own_tc_id"] = EntityRegistryScript.register(observer)
+			derived["own_tc_pos"] = AiProtocolScript.vec2_to_array(own_tc_pos)
+			break
 	if match_state.fog_enabled and match_state.fog != null:
 		# Own sight circles let external planners use the same fog grid without
 		# exposing any hidden enemy, terrain or resource information.
@@ -60,7 +68,9 @@ static func build(
 
 	for node in entities.get_children():
 		var entity := node as Node2D
-		if entity == null or entity.get("is_placement_ghost") == true:
+		if entity == null or entity.is_queued_for_deletion() or entity.get("is_placement_ghost") == true:
+			continue
+		if entity.get("hp") != null and float(entity.get("hp")) <= 0.0:
 			continue
 		if not FogAccess.state_can_see(match_state, team, entity):
 			continue
@@ -90,7 +100,11 @@ static func build(
 			if building_team != team:
 				if not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
 					continue
-				entity_snapshots.append(serialize_entity(building, building_id))
+				var visible_building := serialize_entity(building, building_id)
+				# Queue contents and research are private orders, not visible enemy art.
+				for key in ["train_queue_empty", "train_queue", "train_progress", "trainable", "train_blocked_reasons", "is_researching", "technologies", "age_upgrade_reason"]:
+					visible_building.erase(key)
+				entity_snapshots.append(visible_building)
 				continue
 			entity_snapshots.append(serialize_entity(building, building_id))
 			if not bool(building.get("is_complete")):
@@ -103,8 +117,13 @@ static func build(
 			if unit_team != team:
 				if not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
 					continue
-				entity_snapshots.append(serialize_entity(unit, unit_id))
-				if float(unit.get("hp")) > 0.0 and own_tc_pos != Vector2.ZERO:
+				var visible_unit := serialize_entity(unit, unit_id)
+				visible_unit.erase("move_goal")
+				visible_unit.erase("gather_resource_type")
+				visible_unit["target_id"] = null
+				visible_unit["last_resource_id"] = null
+				entity_snapshots.append(visible_unit)
+				if float(unit.get("hp")) > 0.0 and int(derived["own_tc_id"]) >= 0:
 					var dist: float = own_tc_pos.distance_to(unit.get("sim_pos"))
 					if dist <= defend_radius:
 						derived["threat_near_base"] = true
@@ -118,6 +137,12 @@ static func build(
 
 	observation["derived"] = derived
 	observation["entities"] = entity_snapshots
+	var observed_ids := {}
+	for snapshot: Dictionary in entity_snapshots: observed_ids[snapshot.id] = true
+	for snapshot: Dictionary in entity_snapshots:
+		for key in ["target_id", "last_resource_id"]:
+			if snapshot.get(key) != null and not observed_ids.has(snapshot[key]): snapshot[key] = null
+	observation["decision_context"] = DecisionContext.build(match_state, entities, team, entity_snapshots, derived, defend_radius)
 	return observation
 
 
@@ -190,12 +215,18 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["max_hp"] = _building_max_hp(entity)
 	snapshot["is_complete"] = bool(entity.get("is_complete"))
 	snapshot["build_progress"] = float(entity.get("build_progress"))
+	snapshot["build_time"] = float(entity.get("def").build_time)
 	var train_queue: Array = entity.get("train_queue") as Array
 	snapshot["train_queue_empty"] = train_queue.is_empty()
+	snapshot["train_queue"] = train_queue.map(func(definition): return String(definition.id))
+	snapshot["train_progress"] = float(entity.get("train_progress"))
+	snapshot["is_researching"] = entity.is_age_researching() or entity.is_technology_researching()
+	snapshot["trainable"] = entity.get_trainable_units().map(func(u): return String(u.id))
+	var blocked_reasons := {}
+	for definition in entity.get_trainable_units(): blocked_reasons[String(definition.id)] = entity.train_blocked_reason(definition)
+	snapshot["train_blocked_reasons"] = blocked_reasons
 	var state: MatchState = entity.get("match_state")
 	if state != null and state.progression_enabled:
-		snapshot["is_researching"] = entity.is_age_researching() or entity.is_technology_researching()
-		snapshot["trainable"] = entity.get_trainable_units().map(func(u): return String(u.id))
 		if state.age_progression != null and entity.get("def").id == &"town_center":
 			snapshot["age_upgrade_reason"] = state.age_progression.blocked_reason(entity)
 		if state.technology_progression != null:
@@ -210,6 +241,8 @@ static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
 	var order: Enums.OrderType = entity.get("order")
 	snapshot["order"] = AiProtocolScript.order_name(order)
 	snapshot["gather_state"] = String(entity.get("_gather_state"))
+	var gather_type: int = int(entity.get("_gather_resource_type"))
+	snapshot["gather_resource_type"] = AiProtocolScript.resource_type_name(gather_type as Enums.ResourceType) if order == Enums.OrderType.GATHER and gather_type >= 0 else null
 	var carry_type: int = int(entity.get("carry_type"))
 	if carry_type >= 0:
 		snapshot["carry_type"] = AiProtocolScript.resource_type_name(
@@ -221,6 +254,7 @@ static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["stuck_frames"] = int(entity.get("_no_progress_frames"))
 	snapshot["last_resource_id"] = _entity_id_or_null(entity.get("_last_resource"))
 	snapshot["target_id"] = _resolve_unit_target_id(entity, order)
+	snapshot["move_goal"] = AiProtocolScript.vec2_to_array(entity.get("_requested_move_target")) if order == Enums.OrderType.MOVE else null
 
 
 static func _resolve_unit_target_id(entity: Node2D, order: Enums.OrderType) -> Variant:

@@ -106,6 +106,16 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 	if command.get("op") is not String:
 		return false
 	var op := String(command.op)
+	if op == "set_ai_control":
+		# The relay owns sender_team; a peer cannot select another player's team.
+		if command.size() != 2 or command.get("enabled") is not bool:
+			return false
+		var controller := _ai_controller()
+		if controller == null or not controller.has_method("set_team_enabled"):
+			return false
+		var accepted := bool(controller.call("set_team_enabled", sender_team, command.enabled))
+		_snapshot_elapsed = SNAPSHOT_INTERVAL
+		return accepted
 	var required: Dictionary = {
 		"move": ["unit_id"], "stop": ["unit_id"], "gather": ["unit_id", "target_id"],
 		"build": ["unit_id", "building_id"], "attack": ["unit_id", "target_id"],
@@ -269,9 +279,13 @@ func capture_snapshot() -> Dictionary:
 					progress["building_id"] = entity_id(entity)
 					progress["team"] = int(entity.get("team"))
 					technology_research.append(progress)
-	return {"entities": records, "economies": economies, "winner": match_state.winner,
+	var snapshot := {"entities": records, "economies": economies, "winner": match_state.winner,
 		"progression": {"enabled": match_state.progression_enabled, "ages": [match_state.age_of(0), match_state.age_of(1)],
 		"research": research, "technologies": technologies, "technology_research": technology_research}}
+	var controller := _ai_controller()
+	if controller != null and controller.has_method("capture_states"):
+		snapshot["ai_control"] = controller.call("capture_states")
+	return snapshot
 
 
 
@@ -285,6 +299,8 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 	if not _valid_enum(snapshot.get("winner", -1), -1, 1):
 		return false
 	if snapshot.has("progression") and not _valid_progression(snapshot.progression):
+		return false
+	if snapshot.has("ai_control") and not _valid_ai_control(snapshot.ai_control):
 		return false
 	var seen: Dictionary = {}
 	for record in snapshot.entities:
@@ -338,6 +354,10 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 			match_state.age_progression.apply_network_state(progression.research)
 		if match_state.technology_progression != null:
 			match_state.technology_progression.apply_network_state(progression.technology_research)
+	if snapshot.has("ai_control"):
+		var controller := _ai_controller()
+		if controller != null and controller.has_method("apply_remote_states"):
+			controller.call("apply_remote_states", snapshot.ai_control)
 	_last_snapshot_sequence = sequence
 	_snapshot_wait = 0.0
 	if match_state.fog != null:
@@ -559,6 +579,7 @@ static func _vec(value: Array) -> Vector2:
 
 
 func _on_winner(winner: int) -> void:
+	_stop_ai_control()
 	if is_host and not _terminal and session != null:
 		session.call("send_snapshot", capture_snapshot())
 		session.call("finish_match", winner)
@@ -567,6 +588,7 @@ func _on_winner(winner: int) -> void:
 func _on_ended(info: Dictionary) -> void:
 	_terminal = true
 	_playing = false
+	_stop_ai_control()
 	if match_state != null:
 		match_state.frozen = true
 		var winner := int(info.get("winner", -1))
@@ -617,8 +639,33 @@ func _set_status(message: String) -> void:
 
 
 func _exit_tree() -> void:
+	_stop_ai_control()
 	if session != null and is_instance_valid(session):
 		session.call("leave")
+
+
+func _ai_controller() -> Node:
+	return get_parent().get_node_or_null("PlayerAiControl") if get_parent() != null else null
+
+
+func _stop_ai_control() -> void:
+	var controller := _ai_controller()
+	if controller != null and controller.has_method("stop_all"):
+		controller.call("stop_all")
+
+
+func _valid_ai_control(value: Variant) -> bool:
+	if value is not Dictionary or value.size() != 2 or not value.has("0") or not value.has("1"):
+		return false
+	for team_key in ["0", "1"]:
+		var state: Variant = value[team_key]
+		if state is not Dictionary or state.size() != 3 or state.get("enabled") is not bool:
+			return false
+		if state.get("status") is not String or String(state.status).length() > 64:
+			return false
+		if state.get("message") is not String or String(state.message).length() > 256:
+			return false
+	return true
 
 
 func _valid_progression(value: Variant) -> bool:

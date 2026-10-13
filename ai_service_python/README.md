@@ -2,6 +2,8 @@
 
 独立 Python 进程，实现协议 v1 tick 与 v2 Chat Completions（`/v1/ai/tick`、`/v1/ai/tick_batch`、`/v1/chat/completions`、`/v1/chat/completions_batch`）。
 
+`backend=openai` 现在使用有记忆的外部 LLM 指挥器：模型选择发展、屯兵、进攻或防守计划，服务持续推进侦察、兵营建设、军队训练与集结，并把游戏执行失败的原因带回下一回合。完整设计见 [外部 LLM AI 设计](../docs/external_llm_ai.md)。更新后请重启 Python 服务并开始新对局。
+
 ## 依赖
 
 ```bash
@@ -87,7 +89,7 @@ backend="rules_compat"
 |-----------------|------|
 | `history_turns=2` | 每队保留最近 K 条 assistant 摘要 |
 | `log_observation=true` / `AOE2_AI_LOG_OBSERVATION=1` | 打印 messages 长度与 entity 数量（不打满 observation） |
-| `backend=openai` + `--llm-base-url` + `--llm-token` | 透传 messages/tools 到兼容 Chat Completions 的模型；失败且带 observation 时回退规则脑 |
+| `backend=openai` + `--llm-base-url` + `--llm-token` | 在观察中加入战略记忆和合法行动选项，向模型提供 `set_strategy`，将计划展开为游戏指令；上游失败时继续已建立的计划，旧观察仍可回退规则脑 |
 | `timeout_sec=15` | 真 LLM 建议加大超时 |
 
 ## Docker（P6）

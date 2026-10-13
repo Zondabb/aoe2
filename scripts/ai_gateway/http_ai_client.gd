@@ -8,6 +8,9 @@ var config: AiConfig
 var _http: HTTPRequest
 var _active := false
 var _active_result: Dictionary = {}
+var _active_request: Dictionary = {}
+var _cancel_generation := 0
+var _active_generation := -1
 var last_error := ""
 
 
@@ -16,7 +19,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	_active = false
+	cancel_requests()
 
 
 func configure(new_config: AiConfig) -> void:
@@ -26,8 +29,13 @@ func configure(new_config: AiConfig) -> void:
 
 
 func cancel_requests() -> void:
+	_cancel_generation += 1
 	_active = false
-	if _http != null:
+	_active_result = {"ok": false, "reason": "cancelled"}
+	if not _active_request.is_empty():
+		_active_request["result"] = _active_result
+		_active_request["done"] = true
+	if _http != null and is_instance_valid(_http):
 		_http.cancel_request()
 
 
@@ -44,81 +52,54 @@ func post_match_end(payload: Dictionary) -> Dictionary:
 
 
 func post_tick(request_dict: Dictionary, retry: bool = true) -> Dictionary:
-	var response := await _request_json("POST", config.tick_url(), request_dict)
-	if response.get("ok") == true:
-		last_error = ""
-		return response.get("body", {}) as Dictionary
-	if retry and _should_retry(response):
-		push_warning("AI tick request failed (%s), retrying once" % response.get("reason", ""))
-		response = await _request_json("POST", config.tick_url(), request_dict)
-		if response.get("ok") == true:
-			last_error = ""
-			return response.get("body", {}) as Dictionary
-	last_error = String(response.get("reason", "unknown"))
-	push_warning("AI tick skipped: %s" % last_error)
-	return {}
+	return await _request_ai_body(config.tick_url(), request_dict, retry, "tick")
 
 
 func post_chat_completions(request_dict: Dictionary, retry: bool = true) -> Dictionary:
-	var url := config.chat_completions_url()
-	var response := await _request_json("POST", url, request_dict)
+	return await _request_ai_body(
+		config.chat_completions_url(), request_dict, retry, "chat completions"
+	)
+
+
+func post_chat_completions_batch(request_dict: Dictionary, retry: bool = true) -> Array:
+	var body := await _request_ai_body(
+		config.chat_completions_batch_url(), request_dict, retry, "chat completions_batch"
+	)
+	return body.get("responses", [])
+
+
+func post_tick_batch(request_dict: Dictionary, retry: bool = true) -> Array:
+	var body := await _request_ai_body(config.tick_batch_url(), request_dict, retry, "tick_batch")
+	return body.get("responses", [])
+
+
+func _request_ai_body(url: String, payload: Dictionary, retry: bool, label: String) -> Dictionary:
+	var generation := _cancel_generation
+	var response := await _request_json("POST", url, payload, generation)
+	if _was_cancelled(response, generation):
+		return {}
 	if response.get("ok") == true:
 		last_error = ""
 		return response.get("body", {}) as Dictionary
 	if retry and _should_retry(response):
+		if generation != _cancel_generation:
+			return {}
 		push_warning(
-			"AI chat completions request failed (%s), retrying once" % response.get("reason", "")
+			"AI %s request failed (%s), retrying once" % [label, response.get("reason", "")]
 		)
-		response = await _request_json("POST", url, request_dict)
+		response = await _request_json("POST", url, payload, generation)
+		if _was_cancelled(response, generation):
+			return {}
 		if response.get("ok") == true:
 			last_error = ""
 			return response.get("body", {}) as Dictionary
 	last_error = String(response.get("reason", "unknown"))
-	push_warning("AI chat completions skipped: %s" % last_error)
+	push_warning("AI %s skipped: %s" % [label, last_error])
 	return {}
 
 
-func post_chat_completions_batch(request_dict: Dictionary, retry: bool = true) -> Array:
-	var url := config.chat_completions_batch_url()
-	var response := await _request_json("POST", url, request_dict)
-	if response.get("ok") == true:
-		last_error = ""
-		var body: Dictionary = response.get("body", {}) as Dictionary
-		var responses: Array = body.get("responses", [])
-		return responses
-	if retry and _should_retry(response):
-		push_warning(
-			"AI chat completions_batch failed (%s), retrying once" % response.get("reason", "")
-		)
-		response = await _request_json("POST", url, request_dict)
-		if response.get("ok") == true:
-			last_error = ""
-			var body: Dictionary = response.get("body", {}) as Dictionary
-			return body.get("responses", [])
-	last_error = String(response.get("reason", "unknown"))
-	push_warning("AI chat completions_batch skipped: %s" % last_error)
-	return []
-
-
-func post_tick_batch(request_dict: Dictionary, retry: bool = true) -> Array:
-	var response := await _request_json("POST", config.tick_batch_url(), request_dict)
-	if response.get("ok") == true:
-		last_error = ""
-		var body: Dictionary = response.get("body", {}) as Dictionary
-		var responses: Array = body.get("responses", [])
-		return responses
-	if retry and _should_retry(response):
-		push_warning(
-			"AI tick_batch request failed (%s), retrying once" % response.get("reason", "")
-		)
-		response = await _request_json("POST", config.tick_batch_url(), request_dict)
-		if response.get("ok") == true:
-			last_error = ""
-			var body: Dictionary = response.get("body", {}) as Dictionary
-			return body.get("responses", [])
-	last_error = String(response.get("reason", "unknown"))
-	push_warning("AI tick_batch skipped: %s" % last_error)
-	return []
+func _was_cancelled(response: Dictionary, generation: int) -> bool:
+	return generation != _cancel_generation or response.get("reason") in ["cancelled", "tree_exited"]
 
 
 func _should_retry(response: Dictionary) -> bool:
@@ -145,32 +126,48 @@ func _apply_timeout() -> void:
 	_http.timeout = int(maxf(1.0, config.timeout_sec))
 
 
-func _request_json(method: String, url: String, payload: Dictionary) -> Dictionary:
+func _request_json(method: String, url: String, payload: Dictionary, generation: int = -1) -> Dictionary:
+	if generation == -1:
+		generation = _cancel_generation
+	if generation != _cancel_generation:
+		return {"ok": false, "reason": "cancelled"}
 	if not _ensure_http():
 		return {"ok": false, "reason": "http_not_ready"}
-	while _active:
+	while _active and generation == _cancel_generation:
 		if not await _wait_frame():
 			return {"ok": false, "reason": "tree_exited"}
+	if generation != _cancel_generation:
+		return {"ok": false, "reason": "cancelled"}
 	_active = true
+	_active_generation = generation
 	_active_result = {}
+	# Each waiter retains its own result if the next queued request starts first.
+	var request := {"done":false, "result":{}}
+	_active_request = request
 	last_error = ""
 	var headers := _auth_headers()
 	var body := ""
 	if method != "GET":
 		body = JSON.stringify(AiProtocolScript.json_safe(payload))
+	if generation != _cancel_generation:
+		return {"ok": false, "reason": "cancelled"}
 	var http_method := HTTPClient.METHOD_GET if method == "GET" else HTTPClient.METHOD_POST
 	var err := _http.request(url, headers, http_method, body)
 	if err != OK:
 		_active = false
-		return {"ok": false, "reason": "network_error", "error_code": err}
-	while _active:
+		request["done"] = true
+		request["result"] = {"ok": false, "reason": "network_error", "error_code": err}
+		return request["result"]
+	while not request["done"] and generation == _cancel_generation:
 		if not is_instance_valid(self) or not is_inside_tree():
 			_active = false
 			return {"ok": false, "reason": "tree_exited"}
 		if not await _wait_frame():
 			_active = false
 			return {"ok": false, "reason": "tree_exited"}
-	return _active_result
+	if generation != _cancel_generation:
+		return {"ok": false, "reason": "cancelled"}
+	return request["result"]
 
 
 func _wait_frame() -> bool:
@@ -194,6 +191,8 @@ func _on_request_completed(
 	_headers: PackedStringArray,
 	body: PackedByteArray
 ) -> void:
+	if not _active or _active_generation != _cancel_generation:
+		return
 	var parsed: Variant = {}
 	if not body.is_empty():
 		var json := JSON.new()
@@ -233,6 +232,8 @@ func _on_request_completed(
 			"status": response_code,
 			"body": parsed if parsed is Dictionary else {},
 		}
+	_active_request["result"] = _active_result
+	_active_request["done"] = true
 	_active = false
 
 

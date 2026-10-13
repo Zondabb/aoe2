@@ -106,6 +106,7 @@ class Observation(BaseModel):
     progression: Progression | None = None
     map_bounds: dict[str, list[float]] | None = None
     placement_visibility: dict[str, Any] | None = None
+    decision_context: dict[str, Any] = Field(default_factory=dict)
 
 
 class GameEvent(BaseModel):
@@ -115,6 +116,10 @@ class GameEvent(BaseModel):
     entity: dict[str, Any] | None = None
     resource_type: str | None = None
     reason: str | None = None
+
+    # Executor feedback carries command_id, op, and success. Preserve those
+    # fields so the next LLM decision can repair a rejected action.
+    model_config = {"extra": "allow"}
 
 
 class Command(BaseModel):
