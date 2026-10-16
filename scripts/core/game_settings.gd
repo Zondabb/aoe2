@@ -28,6 +28,9 @@ const DEFAULT_AI := {
 	"history_turns": 0,
 	"log_observation": false,
 	"llm_base_url": "",
+	"multi_agent_enabled": true,
+	"fast_tick_interval_sec": 1.0,
+	"fast_timeout_sec": 3.0,
 }
 
 const MIN_TIMEOUT_SEC := 0.5
@@ -50,16 +53,22 @@ static func clamp_speed(speed: float) -> float:
 
 static func normalize_protocol(raw: String) -> String:
 	var p := raw.strip_edges().to_lower()
+	if p in ["v3_multi_agent", "v3", "3"]:
+		return "v3_multi_agent"
 	if p == "v2_chat" or p == "v2" or p == "2" or p == "chat":
 		return "v2_chat"
 	return "v1_tick"
 
 
 static func protocol_to_version(protocol: String) -> int:
+	if normalize_protocol(protocol) == "v3_multi_agent":
+		return 3
 	return 2 if normalize_protocol(protocol) == "v2_chat" else 1
 
 
 static func version_to_protocol(version: int) -> String:
+	if version >= 3:
+		return "v3_multi_agent"
 	return "v2_chat" if version >= 2 else "v1_tick"
 
 
@@ -107,6 +116,9 @@ static func load_ai_settings() -> Dictionary:
 		)
 		out["log_observation"] = bool(cfg.get_value("ai", "log_observation", out["log_observation"]))
 		out["llm_base_url"] = String(cfg.get_value("ai", "llm_base_url", out["llm_base_url"])).strip_edges()
+		out["multi_agent_enabled"] = bool(cfg.get_value("ai", "multi_agent_enabled", out["multi_agent_enabled"]))
+		out["fast_tick_interval_sec"] = clampf(float(cfg.get_value("ai", "fast_tick_interval_sec", out["fast_tick_interval_sec"])), 0.25, 5.0)
+		out["fast_timeout_sec"] = clampf(float(cfg.get_value("ai", "fast_timeout_sec", out["fast_timeout_sec"])), 0.5, 10.0)
 	_apply_ai_env_override(out)
 	if String(out.get("backend", "")).is_empty():
 		out["backend"] = DEFAULT_AI["backend"]
@@ -134,6 +146,9 @@ static func apply_ai_to_game_session() -> Dictionary:
 	GameSession.ai_history_turns = int(ai["history_turns"])
 	GameSession.ai_log_observation = bool(ai["log_observation"])
 	GameSession.ai_llm_base_url = String(ai["llm_base_url"])
+	GameSession.ai_multi_agent_enabled = bool(ai["multi_agent_enabled"])
+	GameSession.ai_fast_tick_interval_sec = float(ai["fast_tick_interval_sec"])
+	GameSession.ai_fast_timeout_sec = float(ai["fast_timeout_sec"])
 	return ai
 
 

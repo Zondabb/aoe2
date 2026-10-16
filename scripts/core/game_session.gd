@@ -25,7 +25,7 @@ var ai_chat_url := ""
 var ai_service_timeout_sec := 2.0
 var ai_tick_interval_sec := 0.5
 var ai_use_local_embedded := true
-## v1_tick | v2_chat
+## v1_tick | v2_chat | v3_multi_agent (external OpenAI can opt in independently).
 var ai_protocol := "v1_tick"
 ## 与 ai_protocol 同步的整数版本（tick 载荷 protocol_version）。
 var ai_protocol_version := 1
@@ -39,6 +39,9 @@ var ai_use_tick_batch := true
 var ai_history_turns := 0
 var ai_log_observation := false
 var ai_llm_base_url := ""
+var ai_multi_agent_enabled := true
+var ai_fast_tick_interval_sec := 1.0
+var ai_fast_timeout_sec := 3.0
 
 
 func _ready() -> void:

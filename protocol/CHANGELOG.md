@@ -1,8 +1,39 @@
 # AI Protocol CHANGELOG
 
+## v3 — Multi-agent fast control (2026-10-15)
+
+`POST /v3/ai/tick` advances six persistent role executors without waiting for
+model HTTP. Bounded asynchronous planners update role plans. The game enables
+this path for external LLM opponents and player autoplay with
+`multi_agent_enabled=true`. Legacy v1/v2 endpoints remain available.
+
+- Request: existing `ChatCompletionRequest` with a required full `observation`;
+  metadata adds `protocol_version=3`, string `session_epoch`, integer
+  `observation_seq` equal to `tick`, and `event_delivery` sequence/gap metadata.
+  `messages` and `tools` can be empty. Streaming is unsupported.
+- Response: `protocol_version`, `match_id`, `team`, `session_epoch`, `for_tick`,
+  `acknowledged_observation_seq`, `commands`, `debug`, `agent_status`, `goals`,
+  and `planning`. This endpoint returns commands directly, not chat choices.
+- Commands retain primitive operations and add session/task/observation lineage
+  and `expires_at_sim_time`. Godot validates and deduplicates before execution.
+- Identical observation retries return cached commands; conflicting sequence
+  reuse, stale observations, closed sessions and epoch changes return HTTP 409.
+  Invalid v3 envelopes return HTTP 422. Existing Bearer authentication applies.
+- Events use peek/ack delivery, bounded retention and explicit gap reporting.
+  Acceptance is distinct from completion; foundation IDs, production queue IDs,
+  unit births, stalls and human overrides allow snapshot reconciliation.
+- Observation adds `capabilities` and `victory_conditions`, plus owned production,
+  research and movement details. Enemy internal state stays filtered.
+- Existing `/v1/ai/match/start` and `/v1/ai/match/end` also open/close v3 state.
+
+The implementation contract is validated by `test_multi_agent_scheduler.py`
+and `run_multi_agent_gateway.gd`; setup and limitations are documented in
+[the multi-agent implementation guide](../docs/multi_agent_ai.md).
+
 ## v2 — DRAFT (2026-09-04)
 
-Non-streaming Chat Completions adapter. v1 tick endpoints stay frozen and remain the default production path.
+Non-streaming Chat Completions adapter. v1 tick endpoints stay frozen. External
+LLM play now defaults to the opt-out v3 path described above.
 
 ### Endpoints
 

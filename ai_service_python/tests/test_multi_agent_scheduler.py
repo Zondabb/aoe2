@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+import copy
+import json
+import threading
+import time
+
+from fastapi.testclient import TestClient
+import pytest
+
+from brain.multi_agent.scheduler import MultiAgentService, ROLES, SessionError
+from protocol.models import ChatCompletionResponse
+from test_llm_commander import request
+
+
+def tick_request(seq=1, match="multi-test", team=0, epoch="epoch-a", backend="rules_compat"):
+    req = request(seq)
+    req.metadata = req.metadata.model_copy(update={"protocol_version": 3, "match_id": match,
+        "team": team, "session_epoch": epoch, "observation_seq": seq, "backend": backend})
+    return req
+
+
+class Runtime:
+    def __init__(self, profile):
+        self.calls = 0
+        self.plans = []
+        self.version = 1
+
+    def tick(self, req):
+        self.calls += 1
+        return {"commands": [{"command_id": f"command-{req.metadata.tick}", "op": "noop"}],
+                "agent_status": {}, "goals": {"version": self.version}}
+
+    def planning_context(self, role):
+        return {"goal_version": self.version, "role": role, "own_count": 4}
+
+    def apply_plan(self, role, plan):
+        self.plans.append((role, copy.deepcopy(plan)))
+        return True
+
+
+@pytest.fixture
+def schemas(monkeypatch):
+    import brain.multi_agent.runtime as runtime
+    schema = {"type": "object", "additionalProperties": False,
+              "properties": {"value": {"type": "integer", "minimum": 0, "maximum": 2}},
+              "required": ["value"]}
+    monkeypatch.setattr(runtime, "ROLE_SCHEMAS", {role: schema for role in ROLES})
+    monkeypatch.setattr(runtime, "ROLE_PROMPTS", {role: role for role in ROLES})
+
+
+def completion(arguments='{"value":1}', finish="tool_calls"):
+    raw = {"id": "mock", "choices": [{"finish_reason": finish, "message": {
+        "role": "assistant", "tool_calls": [{"type": "function", "function": {
+            "name": "propose_plan", "arguments": arguments}}]}}],
+        "usage": {"prompt_tokens": 40, "completion_tokens": 10, "total_tokens": 50}}
+    return ChatCompletionResponse.model_validate(raw), {}, raw
+
+
+def wait_idle(service):
+    deadline = time.monotonic() + 3
+    while service._inflight_count and time.monotonic() < deadline:
+        time.sleep(.005)
+    assert service._inflight_count == 0
+
+
+def test_idempotent_retry_conflict_old_sequence_and_epoch(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "rules_compat")
+    service = MultiAgentService(runtime_factory=Runtime)
+    try:
+        req = tick_request()
+        first = service.tick(req)
+        assert first["session_epoch"] == "epoch-a"
+        assert first["acknowledged_observation_seq"] == 1
+        assert service.tick(req) == first
+        assert service._sessions[("multi-test", 0)].runtime.calls == 1
+        changed = req.model_copy(deep=True)
+        changed.observation.economy.food += 1
+        with pytest.raises(SessionError, match="observation_seq_conflict"):
+            service.tick(changed)
+        with pytest.raises(SessionError, match="session_changed"):
+            service.tick(tick_request(2, epoch="epoch-b"))
+        service.tick(tick_request(20))
+        with pytest.raises(SessionError, match="stale_observation"):
+            service.tick(tick_request(2))
+        service.close_match("multi-test")
+        with pytest.raises(SessionError, match="match_ended"):
+            service.tick(tick_request(21))
+        service.open_match("multi-test")
+        assert service.tick(tick_request(0, epoch="epoch-b"))["session_epoch"] == "epoch-b"
+    finally:
+        service.shutdown()
+
+
+def test_slow_model_does_not_block_ticks_and_late_result_cannot_revive(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    entered, release = threading.Event(), threading.Event()
+    logs = []
+
+    def forward(req):
+        assert len(req.messages) == 2
+        assert req.observation is None
+        assert req.messages[1].content.count("goal_version") == 1
+        assert sum(len(msg.content) for msg in req.messages) < 2000
+        entered.set()
+        assert release.wait(3)
+        return completion()
+
+    service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=1,
+                                log=lambda event, data: logs.append((event, data)))
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            first = executor.submit(service.tick, tick_request(backend="openai")).result(timeout=1)
+            assert first["commands"]
+            assert entered.wait(1)
+            for seq in range(2, 9):
+                assert executor.submit(service.tick, tick_request(seq, backend="openai")).result(timeout=1)["commands"]
+        old = service._sessions[("multi-test", 0)]
+        service.close_match("multi-test")
+        release.set()
+        wait_idle(service)
+        assert old.runtime.plans == []
+        assert not service._sessions
+        assert any(data.get("state") == "session_closed" for event, data in logs if event == "model_result")
+    finally:
+        release.set()
+        service.shutdown()
+
+
+def test_role_plans_apply_and_log_usage_with_global_bounded_calls(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    logs, calls = [], []
+    clock = [100.0]
+
+    def forward(req):
+        calls.append(req.metadata.model_dump()["agent"])
+        return completion()
+
+    service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=2,
+        calls_per_minute=6, clock=lambda: clock[0], log=lambda event, data: logs.append((event, data)))
+    try:
+        for seq in range(1, 10):
+            service.tick(tick_request(seq, backend="openai"))
+            wait_idle(service)
+        assert set(calls) == set(ROLES)
+        assert len(calls) == 6
+        assert len(service._sessions[("multi-test", 0)].runtime.plans) == 6
+        results = [data for event, data in logs if event == "model_result"]
+        assert all(data["state"] == "applied" for data in results)
+        assert all(data["usage"]["total_tokens"] == 50 for data in results)
+        assert len({data["request_id"] for data in results}) == 6
+    finally:
+        service.shutdown()
+
+
+@pytest.mark.parametrize("arguments,finish", [('"primitive"', "stop"), ('{"value":99}', "tool_calls"),
+    ('{"value":1,"commands":[]}', "tool_calls"), ('{', "tool_calls"), ('{"value":1}', "length")])
+def test_invalid_or_truncated_model_plan_never_applies(schemas, monkeypatch, arguments, finish):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    service = MultiAgentService(forward=lambda req: completion(arguments, finish), runtime_factory=Runtime, max_workers=1)
+    try:
+        service.tick(tick_request(backend="openai"))
+        wait_idle(service)
+        assert service._sessions[("multi-test", 0)].runtime.plans == []
+    finally:
+        service.shutdown()
+
+
+def test_obsolete_objective_and_expired_model_plan_rejected(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    for change in ("goal", "time"):
+        release = threading.Event()
+
+        def forward(req):
+            assert release.wait(3)
+            return completion()
+
+        service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=1)
+        try:
+            service.tick(tick_request(backend="openai"))
+            session = service._sessions[("multi-test", 0)]
+            with session.lock:
+                if change == "goal":
+                    session.runtime.version += 1
+                else:
+                    session.last_sim_time += 181
+            release.set()
+            wait_idle(service)
+            assert session.runtime.plans == []
+            expected = "goal_changed" if change == "goal" else "plan_expired"
+            assert session.plan_status["commander"]["state"] == expected
+        finally:
+            release.set()
+            service.shutdown()
+
+
+def test_two_teams_and_matches_share_bounded_pool_without_state_leaks(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    release = threading.Event()
+
+    def forward(req):
+        assert release.wait(3)
+        return completion()
+
+    service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=2)
+    try:
+        for match, team in (("one", 0), ("one", 1), ("two", 0)):
+            out = service.tick(tick_request(match=match, team=team, backend="openai"))
+            assert out["team"] == team and out["match_id"] == match
+        assert service._inflight_count == 2
+        assert len(service._sessions) == 3
+        assert len({id(entry.runtime) for entry in service._sessions.values()}) == 3
+    finally:
+        release.set()
+        wait_idle(service)
+        service.shutdown()
+
+
+class ControlledPool:
+    """Complete model jobs at known times to reproduce saturated scheduling."""
+    def __init__(self):
+        self.jobs = []
+
+    def submit(self, function, *args):
+        self.jobs.append((function, args))
+
+    def finish(self):
+        jobs, self.jobs = self.jobs, []
+        for function, args in jobs:
+            function(*args)
+
+    def shutdown(self, **kwargs):
+        self.jobs.clear()
+
+
+def test_saturated_pool_is_fair_when_one_team_always_ticks_first(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    clock, calls = [0.0], []
+
+    def forward(req):
+        calls.append(req.metadata.team)
+        return completion()
+
+    service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=2,
+                                clock=lambda: clock[0])
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        for second in range(181):
+            clock[0] = float(second)
+            if second and second % 30 == 0:
+                service._pool.finish()
+            for team in (0, 1):
+                service.tick(tick_request(second, match="fair", team=team, backend="openai"))
+            assert service._inflight_count <= 2
+        # Previously all 12 completions belonged to team 0 and team 1 never planned.
+        assert calls.count(0) >= 4 and calls.count(1) >= 4
+        assert abs(calls.count(0) - calls.count(1)) <= 2
+    finally:
+        service.shutdown()
+
+
+def test_single_team_uses_both_slots_and_inactive_waiter_does_not_reserve_them(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    clock = [0.0]
+    service = MultiAgentService(forward=lambda req: completion(), runtime_factory=Runtime,
+                                max_workers=2, clock=lambda: clock[0])
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        service.tick(tick_request(0, match="one", team=0, backend="openai"))
+        assert len(service._sessions[("one", 0)].inflight) == 2
+        service.tick(tick_request(0, match="one", team=1, backend="openai"))
+        assert ("one", 1) in service._waiting
+        service._pool.finish()
+        clock[0] = 6.0
+        service.tick(tick_request(1, match="one", team=0, backend="openai"))
+        assert len(service._sessions[("one", 0)].inflight) == 2
+        assert ("one", 1) not in service._waiting
+        service.close_match("one")
+        assert all(key[0] != "one" for key in service._waiting)
+        service._pool.finish()
+        service.tick(tick_request(0, match="two", team=0, backend="openai"))
+        assert len(service._sessions[("two", 0)].inflight) == 2
+    finally:
+        service.shutdown()
+
+
+def test_v3_http_contract_auth_and_session_end(monkeypatch):
+    import main
+    service = MultiAgentService(runtime_factory=Runtime)
+    monkeypatch.setattr(main, "_multi_agent_service", service)
+    monkeypatch.setenv("AOE2_AI_BACKEND", "rules_compat")
+    monkeypatch.setenv("AOE2_AI_TOKEN", "test-ai-secret")
+    client = TestClient(main.app)
+    headers = {"Authorization": "Bearer test-ai-secret"}
+    try:
+        payload = tick_request().model_dump()
+        assert client.post("/v3/ai/tick", json=payload).status_code == 401
+        response = client.post("/v3/ai/tick", json=payload, headers=headers)
+        assert response.status_code == 200
+        assert response.json()["protocol_version"] == 3
+        payload["metadata"]["session_epoch"] = ""
+        assert client.post("/v3/ai/tick", json=payload, headers=headers).status_code == 422
+        assert client.post("/v1/ai/match/end", json={"match_id": "multi-test"}, headers=headers).status_code == 200
+        payload = tick_request(2).model_dump()
+        assert client.post("/v3/ai/tick", json=payload, headers=headers).status_code == 409
+    finally:
+        service.shutdown()
+
+
+def test_log_failure_does_not_interrupt_tasks_or_session_cleanup(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "rules_compat")
+
+    def broken_log(event, data):
+        raise OSError("volume unavailable")
+
+    service = MultiAgentService(runtime_factory=Runtime, log=broken_log)
+    try:
+        assert service.tick(tick_request())["commands"]
+        service.close_match("multi-test")
+        assert not service._sessions
+    finally:
+        service.shutdown()

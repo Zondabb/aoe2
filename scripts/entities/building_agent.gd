@@ -64,6 +64,7 @@ var _sprite_sheet_base := ""
 var block_half := Vector2.ONE
 var _visual_age := 0
 var _spawn_retry_remaining := 0.0
+var _production_exit_blocked := false
 
 func _ready() -> void:
 	_visual_age = match_state.age_of(team) if match_state != null else 0
@@ -124,7 +125,9 @@ func _physics_process(delta: float) -> void:
 			# A shoreline or a crowd can temporarily leave no legal exit. Keep
 			# the completed item/payment/population reservation and retry locally.
 			_spawn_retry_remaining = TRAIN_SPAWN_RETRY_INTERVAL
+			_production_exit_blocked = true
 			return
+		_production_exit_blocked = false
 		_train_payments.erase(train_queue_ids[0])
 		train_queue.pop_front()
 		train_queue_ids.pop_front()
@@ -135,7 +138,7 @@ func _physics_process(delta: float) -> void:
 	set_physics_process(not train_queue.is_empty())
 
 func accepts_resource(resource_type: Enums.ResourceType) -> bool:
-	return accepts_all_resources or accepted_resource_type == resource_type or (def != null and def.id == &"mining_camp" and resource_type == Enums.ResourceType.STONE)
+	return accepts_all_resources or (def != null and def.id == &"town_center") or accepted_resource_type == resource_type or (def != null and def.id == &"mining_camp" and resource_type == Enums.ResourceType.STONE)
 
 func start_construction() -> void:
 	if _population_cap_registered and match_state != null and def != null:
@@ -199,6 +202,7 @@ func enqueue_train(unit_def: UnitDef) -> bool:
 	if train_queue.size() == 1:
 		train_progress = 0.0
 		_spawn_retry_remaining = 0.0
+		_production_exit_blocked = false
 	set_physics_process(true)
 	train_queue_changed.emit()
 	return true
@@ -226,6 +230,19 @@ func is_training_population_blocked() -> bool:
 func training_progress_ratio() -> float:
 	return 0.0 if train_queue.is_empty() else clampf(train_progress / maxf(_train_time(train_queue[0]), 0.001), 0.0, 1.0)
 
+## Queue admission is distinct from active production and from a usable exit.
+## Observers and event sampling use this without repeating expensive spawn searches.
+func production_status() -> Dictionary:
+	var status := "idle"
+	if not is_complete: status = "constructing"
+	elif is_age_researching() or is_technology_researching(): status = "researching"
+	elif not train_queue.is_empty():
+		status = "population_blocked" if is_training_population_blocked() else "exit_blocked" if _production_exit_blocked else "training"
+	return {"state": status, "queue_ids": train_queue_ids.duplicate(),
+		"active_queue_id": train_queue_ids[0] if not train_queue_ids.is_empty() else null,
+		"progress": training_progress_ratio(), "elapsed": train_progress,
+		"duration": _train_time(train_queue[0]) if not train_queue.is_empty() else 0.0}
+
 func cancel_train(queue_id: int) -> bool:
 	# Stable IDs prevent a delayed network cancellation from removing the next unit.
 	var index := train_queue_ids.find(queue_id)
@@ -238,6 +255,7 @@ func cancel_train(queue_id: int) -> bool:
 	if index == 0:
 		train_progress = 0.0
 		_spawn_retry_remaining = 0.0
+		_production_exit_blocked = false
 	_reserved_population -= int(payment.population)
 	match_state.reserve_pop(team, -int(payment.population))
 	for type in 4:
@@ -425,7 +443,13 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	_reserved_population -= reserved
 	unit.call("register_population")
 	unit.set("sim_pos", spawn_position)
+	var queue_id: int = train_queue_ids[0]
+	var lineage: Dictionary = get_meta("ai_queue_lineage", {}).get(queue_id, {}).duplicate(true)
+	unit.set_meta("ai_production_lineage", {"building_id": EntityRegistryScript.id_of(self), "queue_id": queue_id, "lineage": lineage})
 	parent.add_child(unit)
+	AiEventBufferScript.push({"type": "train_completed", "team": int(team), "_visible_to": [int(team)],
+		"building_id": EntityRegistryScript.id_of(self), "queue_id": queue_id,
+		"created_entity_id": EntityRegistryScript.id_of(unit), "unit_def_id": String(unit_def.id), "lineage": lineage})
 	return true
 
 func _training_spawn_position(unit_def: UnitDef, parent: Node2D) -> Variant:

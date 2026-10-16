@@ -55,6 +55,12 @@ func post_tick(request_dict: Dictionary, retry: bool = true) -> Dictionary:
 	return await _request_ai_body(config.tick_url(), request_dict, retry, "tick")
 
 
+func post_multi_agent_tick(request_dict: Dictionary) -> Dictionary:
+	# A failed fast tick retries next boundary with current observations; events
+	# remain pending until acknowledged. Never wait for an upstream model here.
+	return await _request_ai_body(config.multi_agent_tick_url(), request_dict, false, "multi-agent tick")
+
+
 func post_chat_completions(request_dict: Dictionary, retry: bool = true) -> Dictionary:
 	return await _request_ai_body(
 		config.chat_completions_url(), request_dict, retry, "chat completions"
@@ -123,7 +129,7 @@ func _ensure_http() -> bool:
 func _apply_timeout() -> void:
 	if _http == null or config == null:
 		return
-	_http.timeout = int(maxf(1.0, config.timeout_sec))
+	_http.timeout = maxf(0.5, config.fast_timeout_sec if config.uses_multi_agent_protocol() else config.timeout_sec)
 
 
 func _request_json(method: String, url: String, payload: Dictionary, generation: int = -1) -> Dictionary:

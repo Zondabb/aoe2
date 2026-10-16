@@ -10,7 +10,12 @@ const Build := preload("res://scripts/systems/build_system.gd")
 const Nav := preload("res://scripts/systems/nav_grid_service.gd")
 const Age := preload("res://scripts/systems/age_progression.gd")
 const MAX_FRONTIERS := 12
-const POSITIONS_PER_BUILDING := 2
+const POSITIONS_PER_BUILDING := 3
+const MAX_ROUTE_CHECKS_PER_BUILDING := 4
+const MILITARY_BUILDINGS := ["barracks", "archery_range", "stable", "siege_workshop", "castle"]
+const PLANNING_SCALE := 4.0
+const FARM_RESERVE_RADIUS := 22.0
+const LANE_WIDTH := 3.0
 const BUILD_PRIORITY := ["barracks", "house", "farm", "mill", "lumber_camp", "mining_camp", "archery_range", "stable", "blacksmith", "market", "siege_workshop", "castle", "town_center", "monastery", "university"]
 
 class ObservationNav extends NavGridService:
@@ -81,7 +86,8 @@ static func build(state: MatchState, entities: Node2D, team: int, snapshots: Arr
 	var army := _army(own, snapshots, derived, team, defend_radius, bounds, nav)
 	return {
 		"catalog": catalog,
-		"construction_options": _construction_options(state, team, builders, catalog.buildings, placement_blockers, bounds, nav, derived),
+		"construction_options": _construction_options(state, team, builders, catalog.buildings, placement_blockers, bounds, nav, derived, snapshots),
+		"layout": {"base": derived.get("own_tc_pos", [0, 0]), "farm_reserve_radius": FARM_RESERVE_RADIUS, "lane_width": LANE_WIDTH, "planning_scale": PLANNING_SCALE},
 		"scouting": _scouting(state, team, own, bounds, nav, army.scout_ids, derived),
 		"army": army,
 	}
@@ -97,11 +103,17 @@ static func _catalog(state: MatchState, entities: Node2D, team: int, civ: CivDef
 		if civ_id != &"" and not definition.civilizations.is_empty() and civ_id not in definition.civilizations: continue
 		var reason := Catalog.building_reason(state, team, civ, definition, entities)
 		buildings.append({"id": id, "cost": _cost(definition), "footprint": Protocol.vec2_to_array(definition.footprint), "build_time": definition.build_time, "population_provided": definition.population_provided, "required_age": definition.required_age, "prerequisites": definition.prerequisites, "required_technology": Catalog.building_record(definition.id).get("required_technology", ""), "available": reason.is_empty(), "blocked_reason": reason})
+		buildings[-1]["planning_footprint"] = Protocol.vec2_to_array(planning_footprint(definition))
+		buildings[-1]["blocks_movement"] = definition.blocks_movement
+		buildings[-1]["has_drop_off"] = definition.has_drop_off
 	var units: Array = []
 	for definition: UnitDef in Catalog.units().values():
 		if state.progression_enabled and definition.required_age > age + 1: continue
 		if civ_id != &"" and not definition.civilizations.is_empty() and civ_id not in definition.civilizations: continue
 		units.append({"id": String(definition.id), "cost": _cost(definition), "population": definition.population, "train_at": String(definition.train_at), "train_time": definition.train_time, "required_age": definition.required_age, "required_technology": String(definition.required_technology), "unlocked": state.unit_unlocked(team, definition, civ_id), "attack": definition.attack, "attack_range": definition.attack_range, "vision_radius": definition.resolved_vision_radius(age)})
+		units[-1]["is_ranged"] = definition.is_ranged
+		units[-1]["minimum_range"] = definition.minimum_attack_range
+		units[-1]["attack_class_bonuses"] = definition.attack_class_bonuses
 	var technologies: Array = []
 	for id in Catalog.technologies():
 		if not state.progression_enabled: break
@@ -124,43 +136,124 @@ static func _cost(definition: Resource) -> Dictionary:
 	return {"food": definition.get("cost_food"), "wood": definition.get("cost_wood"), "gold": definition.get("cost_gold"), "stone": definition.get("cost_stone")}
 
 
-static func _construction_options(state: MatchState, team: int, builders: Array[Node2D], records: Array, blockers: Array, bounds: Rect2, nav: RefCounted, derived: Dictionary) -> Array:
+static func planning_footprint(definition: BuildingDef) -> Vector2:
+	# Original sprites cover four simulation units per source tile. This is a
+	# planning preference, never a change to authoritative placement legality.
+	return definition.footprint * PLANNING_SCALE
+
+
+static func _construction_options(state: MatchState, team: int, builders: Array[Node2D], records: Array, blockers: Array, bounds: Rect2, nav: RefCounted, derived: Dictionary, snapshots: Array = []) -> Array:
 	var result: Array = []
 	var free_builders := builders.filter(func(unit): return unit.get("order") in [Enums.OrderType.NONE, Enums.OrderType.GATHER] and float(unit.get("carry_amount")) <= 0.001 and String(unit.get("_gather_state")) != "to_drop_off")
 	if free_builders.is_empty(): return result
 	var base := Protocol.array_to_vec2(derived.get("own_tc_pos", [0, 0])) as Vector2
 	if int(derived.get("own_tc_id", -1)) < 0: base = free_builders[0].get("sim_pos")
-	var anchors: Array[Vector2] = [base]
-	for unit in free_builders:
-		var pos: Vector2 = unit.get("sim_pos")
-		if pos.distance_to(base) > 16 and anchors.size() < 4: anchors.append(pos)
+	var direction := (bounds.get_center() - base).normalized()
+	if direction == Vector2.ZERO: direction = Vector2.RIGHT
 	for record: Dictionary in records:
 		# Resource shortages do not invalidate geometry: the planner can save up.
 		if not record.available and record.blocked_reason != "资源不足": continue
 		var definition := Catalog.get_building(record.id)
-		var found := 0
-		for anchor in anchors:
-			for radius in [6.0, 10.0, 15.0, 22.0]:
-				for sector in 12:
-					var point: Vector2 = (anchor + Vector2.from_angle(TAU * sector / 12.0) * float(radius)).round()
-					if not bounds.encloses(Rect2(point - definition.footprint * 0.5, definition.footprint)): continue
+		var zone := "military" if record.id in MILITARY_BUILDINGS else "farm" if record.id == "farm" else "residential"
+		var anchors: Array = [{"pos": base, "resource_id": null}]
+		var radii: Array = [26.0, 30.0, 34.0, 44.0]
+		if zone == "farm":
+			radii = [18.0, 22.0, 28.0, 36.0, 44.0]
+			anchors = _farm_anchors(snapshots, team, base, int(derived.get("own_tc_id", -1)))
+		if record.id in ["lumber_camp", "mining_camp", "mill"]:
+			zone = "resource_drop_off"
+			anchors = _resource_anchors(record.id, snapshots, base)
+			radii = [10.0, 14.0, 18.0]
+			if anchors.is_empty() and record.id == "mill": anchors = [{"pos": base, "resource_id": null}]
+			if record.id == "mill" and anchors.size() == 1 and anchors[0].resource_id == null: radii = [26.0, 34.0]
+		var candidates: Array = []
+		var seen := {}
+		for anchor: Dictionary in anchors:
+			for radius in anchor.get("radii", radii):
+				for sector in 16:
+					var point: Vector2 = (anchor.pos + Vector2.from_angle(TAU * (sector + 0.5) / 16.0) * float(radius)).round()
+					if seen.has(point): continue
+					seen[point] = true
+					if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue
+					if not _planning_clear(definition, point, base, blockers, bounds): continue
 					if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): continue
 					if not Build.can_place(definition.footprint, point, blockers) or not _footprint_walkable(point, definition.footprint, nav): continue
-					var builder: Node2D = null
-					var distance := INF
-					for unit in free_builders:
-						var candidate_distance: float = unit.get("sim_pos").distance_squared_to(point)
-						if candidate_distance < distance:
-							builder = unit
-							distance = candidate_distance
-					var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, builder.get("def").resolved_footprint_radius())
-					if route.is_empty() or route[-1].distance_to(point) > 2: continue
-					result.append({"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point)})
-					found += 1
-					if found >= POSITIONS_PER_BUILDING: break
-				if found >= POSITIONS_PER_BUILDING: break
-			if found >= POSITIONS_PER_BUILDING: break
+					var facing := (point - base).normalized().dot(direction)
+					var score: float = 100.0 - point.distance_to(anchor.pos) - point.distance_to(base) * 0.1 + float(anchor.get("score_bonus", 0))
+					if zone == "military": score += facing * 10.0
+					elif zone == "residential": score -= facing * 8.0
+					candidates.append({"point": point, "score": score, "resource_id": anchor.resource_id, "drop_off_id": anchor.get("drop_off_id")})
+		candidates.sort_custom(func(a, b): return a.score > b.score)
+		var found := 0
+		var checked := 0
+		for candidate: Dictionary in candidates:
+			if found >= POSITIONS_PER_BUILDING or checked >= MAX_ROUTE_CHECKS_PER_BUILDING: break
+			var point: Vector2 = candidate.point
+			var builder: Node2D = free_builders[0]
+			for unit in free_builders:
+				if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
+			checked += 1
+			var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, builder.get("def").resolved_footprint_radius())
+			if route.is_empty() or route[-1].distance_to(point) > 2: continue
+			var exit_pos := point + Vector2.RIGHT * (definition.footprint.x * 0.5 + 2.0)
+			if definition.id in MILITARY_BUILDINGS and not nav.is_world_walkable_with_radius(exit_pos, 0.6): continue
+			result.append({"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point),
+				"zone": zone, "planning_footprint": Protocol.vec2_to_array(planning_footprint(definition)),
+				"score": snappedf(candidate.score, 0.1), "resource_target_id": candidate.resource_id,
+				"drop_off_id": candidate.drop_off_id,
+				"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "farm_and_lane_reserve"]})
+			found += 1
 	return result
+
+
+static func _farm_anchors(snapshots: Array, team: int, base: Vector2, tc_id: int) -> Array:
+	# Housing and military can occupy the first TC rings. Existing food drop-offs
+	# provide bounded secondary farm districts instead of stopping food production.
+	var result: Array = [{"pos": base, "resource_id": null, "drop_off_id": tc_id, "score_bonus": 4.0}]
+	var drop_offs: Array = snapshots.filter(func(item): return item.get("kind") == "building" and int(item.get("team", -1)) == team and item.get("def_id") in ["mill", "town_center"] and bool(item.get("is_complete", false)) and int(item.get("id", -1)) != tc_id)
+	drop_offs.sort_custom(func(a, b): return Protocol.array_to_vec2(a.pos).distance_squared_to(base) < Protocol.array_to_vec2(b.pos).distance_squared_to(base))
+	for drop_off: Dictionary in drop_offs:
+		var point: Vector2 = Protocol.array_to_vec2(drop_off.pos)
+		if result.any(func(anchor): return anchor.pos.distance_to(point) < 12.0): continue
+		result.append({"pos": point, "resource_id": null, "drop_off_id": drop_off.id,
+			"radii": [14.0, 18.0, 22.0, 28.0] if drop_off.def_id == "mill" else [18.0, 22.0, 28.0, 36.0]})
+		if result.size() >= 3: break
+	return result
+
+
+static func _resource_anchors(building_id: String, snapshots: Array, base: Vector2) -> Array:
+	var allowed: Array = ["WOOD"] if building_id == "lumber_camp" else ["GOLD", "STONE"] if building_id == "mining_camp" else ["FOOD"]
+	var resources: Array = snapshots.filter(func(item): return item.get("kind") == "resource" and String(item.get("resource_type", "")).to_upper() in allowed and float(item.get("amount", 0)) > 0)
+	resources.sort_custom(func(a, b): return Protocol.array_to_vec2(a.pos).distance_squared_to(base) < Protocol.array_to_vec2(b.pos).distance_squared_to(base))
+	var result: Array = []
+	for resource: Dictionary in resources:
+		var point: Vector2 = Protocol.array_to_vec2(resource.pos)
+		if result.any(func(anchor): return anchor.pos.distance_to(point) < 12.0): continue
+		result.append({"pos": point, "resource_id": resource.id})
+		if result.size() >= 3: break
+	return result
+
+
+static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, blockers: Array, bounds: Rect2) -> bool:
+	var size := planning_footprint(definition)
+	var area := Rect2(pos - size * 0.5, size)
+	if not bounds.encloses(area.grow(1.0)): return false
+	# Reserve cross-base traffic lanes even around walkable farms; this keeps
+	# future walls and solid foundations from sealing the base's four exits.
+	var offset := pos - base
+	if absf(offset.x) < size.x * 0.5 + LANE_WIDTH * 0.5 or absf(offset.y) < size.y * 0.5 + LANE_WIDTH * 0.5: return false
+	for blocker in blockers:
+		var other: BuildingDef = blocker.get("def")
+		if other == null: continue
+		var other_pos: Vector2 = blocker.get("sim_pos")
+		var other_size := planning_footprint(other)
+		if area.grow(LANE_WIDTH * 0.5).intersects(Rect2(other_pos - other_size * 0.5, other_size)): return false
+		if String(other.id) in MILITARY_BUILDINGS:
+			# Preserve the default east-facing production exit. The authoritative
+			# producer can use other exits, but planners should not force a retry.
+			var exit := Rect2(other_pos + Vector2(other.footprint.x * 0.5, -1.5), Vector2(5.0, 3.0))
+			if area.intersects(exit): return false
+	return true
 
 
 static func _footprint_walkable(pos: Vector2, footprint: Vector2, nav: RefCounted) -> bool:
@@ -275,10 +368,12 @@ static func _scouting(state: MatchState, team: int, own: Array[Node2D], bounds: 
 
 
 static func _append_frontiers(candidates: Array, selected: Array, scout: Node2D, nav: RefCounted, limit: int) -> void:
+	var route_checks := 0
 	for candidate: Dictionary in candidates:
-		if selected.size() >= limit: return
+		if selected.size() >= limit or route_checks >= 12: return
 		var point := Protocol.array_to_vec2(candidate.pos) as Vector2
 		if selected.any(func(item): return point.distance_to(Protocol.array_to_vec2(item.pos)) < 10): continue
+		route_checks += 1
 		var path: PackedVector2Array = nav.find_path(scout.get("sim_pos"), point, scout.get("def").resolved_footprint_radius())
 		if path.is_empty() or path[-1].distance_to(point) > 2: continue
 		var entry := candidate.duplicate()

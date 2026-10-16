@@ -6,7 +6,6 @@ signal state_changed
 const Gateway := preload("res://scripts/ai_gateway/ai_gateway.gd")
 const Config := preload("res://scripts/ai_gateway/ai_config.gd")
 const Commands := preload("res://scripts/input/player_commands.gd")
-const HttpClient := preload("res://scripts/ai_gateway/http_ai_client.gd")
 
 var match_state: MatchState
 var entities: Node2D
@@ -172,28 +171,8 @@ func _remove_gateway(team: int) -> void:
 	var gateway: Node = _gateways.get(team)
 	_gateways.erase(team)
 	if is_instance_valid(gateway):
-		var session_id: String = gateway.match_id
-		var config: AiConfig = gateway.config
 		gateway.stop()
 		gateway.queue_free()
-		if not session_id.is_empty() and is_inside_tree():
-			_end_session(session_id, config)
-
-
-func _end_session(session_id: String, config: AiConfig) -> void:
-	# Cleanup uses a separate client so cancelling decisions stays immediate.
-	# It is best effort; the service also expires abandoned sessions.
-	var client := HttpClient.new()
-	add_child(client)
-	var end_config := Config.new()
-	end_config.service_url = config.service_url
-	end_config.api_token = config.api_token
-	end_config.timeout_sec = 2.0
-	end_config.use_local_embedded = false
-	client.configure(end_config)
-	await client.post_match_end({"match_id": session_id})
-	if is_instance_valid(client):
-		client.queue_free()
 
 
 func _set_state(team: int, enabled: bool, status: String, message: String) -> void:

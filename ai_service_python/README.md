@@ -1,8 +1,20 @@
 # AoE2 RTS — Python AI Service
 
-独立 Python 进程，实现协议 v1 tick 与 v2 Chat Completions（`/v1/ai/tick`、`/v1/ai/tick_batch`、`/v1/chat/completions`、`/v1/chat/completions_batch`）。
+独立 Python 进程，实现 v3 多 Agent 快速决策（`/v3/ai/tick`），兼容 v1 tick 与 v2 Chat Completions（`/v1/ai/tick`、`/v1/ai/tick_batch`、`/v1/chat/completions`、`/v1/chat/completions_batch`）。
 
-`backend=openai` 现在使用有记忆的外部 LLM 指挥器：模型选择发展、屯兵、进攻或防守计划，服务持续推进侦察、兵营建设、军队训练与集结，并把游戏执行失败的原因带回下一回合。完整设计见 [外部 LLM AI 设计](../docs/external_llm_ai.md)。更新后请重启 Python 服务并开始新对局。
+游戏默认启用六角色 AI：战略、建设、经济、科技、侦察、作战。每个快速观察都推进任务，`backend=openai` 在有界后台线程中调用外部模型更新专业计划。完整配置、事件语义和实际限制见 [多 Agent AI 实现说明](../docs/multi_agent_ai.md)。更新后请重启 Python 服务并开始新对局。
+
+```ini
+[ai]
+service_url="http://127.0.0.1:8765"
+backend="openai"
+use_local_embedded=false
+multi_agent_enabled=true
+fast_tick_interval_sec=1.0
+fast_timeout_sec=3.0
+```
+
+这是游戏侧 `data/game_settings.cfg` 的配置。开启 `multi_agent_enabled` 后，外部模型模式自动走 v3；原有 `protocol="v2_chat"` 可保留。单人和联机的 AI 托管也使用此通道。需要回归旧版时设置 `multi_agent_enabled=false`、`protocol="v2_chat"`。
 
 ## 依赖
 
@@ -71,11 +83,12 @@ curl -s http://127.0.0.1:8765/v1/chat/completions_batch -H "Content-Type: applic
 
 ## 游戏切到 v2 chat
 
-在 `data/game_settings.cfg`（或 `user://game_settings.cfg`）设置：
+以下为旧版同步接口配置；新部署优先使用上方的多 Agent 配置。在 `data/game_settings.cfg`（或 `user://game_settings.cfg`）设置：
 
 ```ini
 [ai]
 protocol="v2_chat"
+multi_agent_enabled=false
 use_local_embedded=false
 service_url="http://127.0.0.1:8765"
 backend="rules_compat"
@@ -134,12 +147,14 @@ python tools/load_test_tick_batch.py --base-url http://127.0.0.1:8765
 
 ## 协议
 
+- v3：`POST /v3/ai/tick`，见 [实现契约与变更记录](../protocol/CHANGELOG.md)
 - Schema：`protocol/ai_v1.schema.json`（v1 FROZEN）、`protocol/ai_v2_chat.schema.json`（v2 draft）
 - 变更日志：`protocol/CHANGELOG.md`
 - 示例：`protocol/examples/tick_request.json`
 
 ## 范围（P4–P6）
 
+- ✅ v3 六角色快速任务与有界后台模型规划、可靠事件反馈和托管让权
 - ✅ GET `/health`
 - ✅ POST `/v1/ai/match/start`, `/match/end`, `/tick`, `/tick_batch`
 - ✅ POST `/v1/chat/completions`、`/v1/chat/completions_batch`（非流式；RulesCompat / openai 代理）

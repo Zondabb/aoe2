@@ -12,6 +12,7 @@ const DEFAULT_BACKEND := "rules_compat"
 const DEFAULT_MODEL := "aoe2-rules-v1"
 const PROTOCOL_V1_TICK := "v1_tick"
 const PROTOCOL_V2_CHAT := "v2_chat"
+const PROTOCOL_V3_MULTI_AGENT := "v3_multi_agent"
 const ENV_AI_URL := "AOE2_AI_URL"
 const ENV_AI_TOKEN := "AOE2_AI_TOKEN"
 
@@ -20,7 +21,7 @@ var chat_url := ""
 var timeout_sec := DEFAULT_TIMEOUT_SEC
 var tick_interval_sec := DEFAULT_TICK_INTERVAL_SEC
 var use_local_embedded := true
-## v1_tick | v2_chat
+## v1_tick | v2_chat | v3_multi_agent; multi_agent_enabled upgrades external OpenAI.
 var protocol := PROTOCOL_V1_TICK
 ## Derived from protocol for v1 tick payloads.
 var protocol_version := 1
@@ -33,6 +34,10 @@ var use_tick_batch := true
 var history_turns := 0
 var log_observation := false
 var llm_base_url := ""
+## Explicit in-memory legacy configurations remain legacy unless enabled.
+var multi_agent_enabled := false
+var fast_tick_interval_sec := 1.0
+var fast_timeout_sec := 3.0
 
 ## Alias for older call sites / docs that used bearer_token.
 var bearer_token: String:
@@ -55,7 +60,7 @@ static func from_game_session() -> AiConfig:
 	config.use_local_embedded = bool(GameSession.ai_use_local_embedded)
 	config.protocol = GameSettingsScript.normalize_protocol(String(GameSession.ai_protocol))
 	if config.protocol == PROTOCOL_V1_TICK and int(GameSession.ai_protocol_version) >= 2:
-		config.protocol = PROTOCOL_V2_CHAT
+		config.protocol = GameSettingsScript.version_to_protocol(int(GameSession.ai_protocol_version))
 	config.protocol_version = GameSettingsScript.protocol_to_version(config.protocol)
 	config.api_token = String(GameSession.ai_service_token).strip_edges()
 	config.backend = String(GameSession.ai_backend).strip_edges()
@@ -77,6 +82,9 @@ static func from_game_session() -> AiConfig:
 	)
 	config.log_observation = bool(GameSession.ai_log_observation)
 	config.llm_base_url = String(GameSession.ai_llm_base_url).strip_edges()
+	config.multi_agent_enabled = bool(GameSession.ai_multi_agent_enabled)
+	config.fast_tick_interval_sec = float(GameSession.ai_fast_tick_interval_sec)
+	config.fast_timeout_sec = float(GameSession.ai_fast_timeout_sec)
 	config.apply_env_override()
 	config.finalize_urls()
 	return config
@@ -112,6 +120,9 @@ static func from_game_settings() -> AiConfig:
 	)
 	config.log_observation = bool(ai.get("log_observation", false))
 	config.llm_base_url = String(ai.get("llm_base_url", "")).strip_edges()
+	config.multi_agent_enabled = bool(ai.get("multi_agent_enabled", true))
+	config.fast_tick_interval_sec = float(ai.get("fast_tick_interval_sec", 1.0))
+	config.fast_timeout_sec = float(ai.get("fast_timeout_sec", 3.0))
 	config.finalize_urls()
 	return config
 
@@ -159,6 +170,9 @@ func save_to_game_session() -> void:
 	GameSession.ai_history_turns = history_turns
 	GameSession.ai_log_observation = log_observation
 	GameSession.ai_llm_base_url = llm_base_url
+	GameSession.ai_multi_agent_enabled = multi_agent_enabled
+	GameSession.ai_fast_tick_interval_sec = fast_tick_interval_sec
+	GameSession.ai_fast_timeout_sec = fast_timeout_sec
 
 
 static func from_civ_select(
@@ -187,6 +201,9 @@ static func from_civ_select(
 	config.history_turns = int(GameSession.ai_history_turns)
 	config.log_observation = bool(GameSession.ai_log_observation)
 	config.llm_base_url = String(GameSession.ai_llm_base_url).strip_edges()
+	config.multi_agent_enabled = bool(GameSession.ai_multi_agent_enabled)
+	config.fast_tick_interval_sec = float(GameSession.ai_fast_tick_interval_sec)
+	config.fast_timeout_sec = float(GameSession.ai_fast_timeout_sec)
 	if config.service_url.is_empty():
 		config.use_local_embedded = true
 	config.apply_env_override()
@@ -213,6 +230,14 @@ func allows_embedded_fallback() -> bool:
 
 func uses_chat_protocol() -> bool:
 	return protocol == PROTOCOL_V2_CHAT
+
+
+func uses_multi_agent_protocol() -> bool:
+	return not use_local_embedded and (protocol == PROTOCOL_V3_MULTI_AGENT or (multi_agent_enabled and uses_openai_backend()))
+
+
+func multi_agent_tick_url() -> String:
+	return "%s/v3/ai/tick" % _base_url()
 
 
 func tick_url() -> String:

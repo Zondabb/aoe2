@@ -107,6 +107,8 @@ class Observation(BaseModel):
     map_bounds: dict[str, list[float]] | None = None
     placement_visibility: dict[str, Any] | None = None
     decision_context: dict[str, Any] = Field(default_factory=dict)
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    victory_conditions: dict[str, Any] = Field(default_factory=dict)
 
 
 class GameEvent(BaseModel):

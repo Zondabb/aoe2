@@ -33,6 +33,9 @@ func _run() -> void:
 	session.ai_model = "mock-strategist"
 	session.ai_tick_interval_sec = 0.2
 	session.ai_service_timeout_sec = 10.0
+	session.ai_multi_agent_enabled = args.size() < 3 or args[2] != "v2"
+	session.ai_fast_tick_interval_sec = 0.25
+	session.ai_fast_timeout_sec = 3.0
 	network.matched.connect(_matched)
 	network.ended.connect(_ended)
 	network.message_received.connect(func(message: Dictionary):
@@ -76,6 +79,7 @@ func _process(delta: float) -> bool:
 		check(checkbox.button_pressed and not checkbox.disabled, "authoritative active state returns to checkbox")
 		if session.online_team == 0:
 			check(control._gateways.size() == 2, "host owns separate external AI gateways for both teams")
+			check(control._gateways[0].config.uses_multi_agent_protocol() == session.ai_multi_agent_enabled and control._gateways[1].config.uses_multi_agent_protocol() == session.ai_multi_agent_enabled, "both authoritative gateways honor v3 or explicit legacy mode")
 		else:
 			check(control._gateways.is_empty(), "guest never creates or executes local AI")
 		phase = 2

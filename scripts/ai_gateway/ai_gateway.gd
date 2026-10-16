@@ -44,6 +44,13 @@ var _request_in_flight := false
 var _chat_histories: Dictionary = {}
 var _generation := 0
 var _event_subscriber := 0
+var _event_delivery: Dictionary = {}
+var _event_manual_revision := 0
+var _delivery_succeeded := false
+var _remote_session_ended := false
+var agent_status: Dictionary = {}
+var planning_status: Dictionary = {}
+var goals: Dictionary = {}
 
 
 func setup(
@@ -64,6 +71,10 @@ func setup(
 	match_time = 0.0
 	tick = 0
 	_tick_accum = 0.0
+	_remote_session_ended = false
+	agent_status.clear()
+	planning_status.clear()
+	goals.clear()
 	_pending_responses.clear()
 	_exec_contexts.clear()
 	match_state = state
@@ -80,6 +91,7 @@ func setup(
 
 
 func stop(status: String = "stopped") -> void:
+	var stopped_epoch := _generation
 	_generation += 1
 	enabled = false
 	service_status = status
@@ -93,6 +105,27 @@ func stop(status: String = "stopped") -> void:
 		_http_client.cancel_requests()
 	if _local_server != null and is_instance_valid(_local_server) and _local_server.is_running():
 		_local_server.stop()
+	if not _remote_session_ended and not match_id.is_empty() and config != null and not config.use_local_embedded and is_inside_tree():
+		_remote_session_ended = true
+		_close_remote_session(get_tree(), config, match_id, stopped_epoch)
+
+
+static func _close_remote_session(tree: SceneTree, source: AiConfig, session_id: String, epoch: int) -> void:
+	# Root-owned cleanup survives removing an autoplay Gateway or its scene.
+	var client := HttpAiClientScript.new()
+	tree.root.add_child.call_deferred(client)
+	await tree.process_frame
+	if not is_instance_valid(client) or not client.is_inside_tree():
+		return
+	var cleanup_config := AiConfigScript.new()
+	cleanup_config.service_url = source.service_url
+	cleanup_config.api_token = source.api_token
+	cleanup_config.timeout_sec = 2.0
+	cleanup_config.use_local_embedded = false
+	client.configure(cleanup_config)
+	await client.post_match_end({"match_id": session_id, "session_epoch": str(epoch)})
+	if is_instance_valid(client):
+		client.queue_free()
 
 
 func _exit_tree() -> void:
@@ -104,7 +137,9 @@ func _is_current(generation: int) -> bool:
 
 
 func _read_events() -> Array:
-	return EventBufferScript.read(_event_subscriber)
+	_event_delivery = EventBufferScript.peek(_event_subscriber)
+	_event_manual_revision = EntityRegistryScript.manual_revision
+	return _event_delivery.get("events", [])
 
 
 func _init_runtime() -> void:
@@ -130,6 +165,8 @@ func _init_runtime() -> void:
 		ctx.team = team
 		ctx.civ = civ
 		ctx.metrics = metrics
+		ctx.session_epoch = str(_generation)
+		ctx.require_session_epoch = config.uses_multi_agent_protocol()
 		_exec_contexts[team] = ctx
 
 	call_deferred("_on_match_start", _generation)
@@ -148,6 +185,8 @@ func _on_match_start(generation: int = -1) -> void:
 	_chat_histories.clear()
 	for ctx in _exec_contexts.values():
 		(ctx as CommandExecutionContext).clear_command_history()
+		ctx.match_id = match_id
+		ctx.session_epoch = str(generation)
 
 	var starting_server := _local_server
 	var available := await _ensure_ai_service()
@@ -162,8 +201,9 @@ func _on_match_start(generation: int = -1) -> void:
 
 	var start_result := await _http_client.post_match_start(
 		{
-			"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
+			"protocol_version": 3 if config.uses_multi_agent_protocol() else AiProtocolScript.PROTOCOL_VERSION,
 			"match_id": match_id,
+			"session_epoch": str(generation),
 			"teams": _teams_payload(),
 		}
 	)
@@ -178,7 +218,7 @@ func _on_match_start(generation: int = -1) -> void:
 			0.0,
 			"Gateway",
 			"SETUP",
-			"AI Gateway 已连接 %s (%s)" % [config.display_url(), config.protocol],
+			"AI Gateway 已连接 %s (%s)" % [config.display_url(), "v3_multi_agent" if config.uses_multi_agent_protocol() else config.protocol],
 		)
 	call_deferred("_run_tick_requests", tick)
 
@@ -220,8 +260,16 @@ func _run_tick_requests(current_tick: int) -> void:
 	if not _is_current(generation) or _request_in_flight or service_status != "online":
 		return
 	_request_in_flight = true
+	_delivery_succeeded = true
+	for entry in _teams:
+		EntityRegistryScript.sample_owned_state(entities, int(entry.get("team", Enums.Team.AI)), match_time)
 	var events := _read_events()
-	if config != null and config.uses_chat_protocol():
+	if config != null and config.uses_multi_agent_protocol():
+		for team_entry in _teams:
+			await _request_multi_agent_for_team(team_entry, current_tick, events)
+			if not _is_current(generation):
+				return
+	elif config != null and config.uses_chat_protocol():
 		if _should_use_tick_batch():
 			await _request_chat_batch(current_tick, events)
 		else:
@@ -237,12 +285,16 @@ func _run_tick_requests(current_tick: int) -> void:
 			if not _is_current(generation):
 				return
 	if _is_current(generation):
+		if _delivery_succeeded:
+			EventBufferScript.acknowledge(_event_subscriber, int(_event_delivery.get("to_seq", 0)))
 		_request_in_flight = false
 
 
 func _tick_interval() -> float:
 	if config == null:
 		return DEFAULT_TICK_INTERVAL
+	if config.uses_multi_agent_protocol():
+		return clampf(config.fast_tick_interval_sec, 0.25, 5.0)
 	return maxf(DEFAULT_TICK_INTERVAL * 0.1, float(config.tick_interval_sec))
 
 
@@ -268,10 +320,13 @@ func _execute_due_commands(current_tick: int) -> void:
 func _apply_response(response: Dictionary) -> void:
 	if not enabled:
 		return
+	if int(response.get("protocol_version", 1)) >= 3 and not _valid_multi_agent_response(response):
+		return
 	var team := int(response.get("team", Enums.Team.AI))
 	var ctx: CommandExecutionContext = _exec_contexts.get(team)
 	if ctx == null:
 		return
+	ctx.sim_time = match_time
 	for cmd in response.get("commands", []):
 		if not enabled:
 			return
@@ -286,10 +341,15 @@ func _apply_response(response: Dictionary) -> void:
 					"op":String(cmd.get("op", "")), "ok":bool(result.get("ok", false)),
 					"reason":String(result.get("reason", "")), "_visible_to":[team],
 					"command":cmd.duplicate(true),
+					"task_id":String(cmd.get("task_id", "")), "session_epoch":str(_generation),
+					"time_sec":match_time, "tick":tick,
 				}
 				for key in ["unit_id", "builder_id", "building_id", "target_id"]:
 					if cmd.has(key): feedback[key] = cmd[key]
 				feedback["entity_id"] = cmd.get("unit_id", cmd.get("builder_id", cmd.get("building_id", null)))
+				for key in ["created_entity_id", "building_id", "queue_id", "queue_ids"]:
+					if result.has(key):
+						feedback[key] = result[key]
 				EventBufferScript.push(feedback)
 	for debug_entry in response.get("debug", []):
 		if debug_entry is Dictionary and decision_log != null:
@@ -300,6 +360,58 @@ func _apply_response(response: Dictionary) -> void:
 				String(debug_entry.get("category", "")),
 				String(debug_entry.get("message", "")),
 			)
+
+
+func _request_multi_agent_for_team(team_entry: Dictionary, current_tick: int, events: Array) -> void:
+	var generation := _generation
+	var team := int(team_entry.get("team", Enums.Team.AI))
+	var payload := _build_multi_agent_payload(team_entry, current_tick, events)
+	var started := Time.get_ticks_usec()
+	var response := await _http_client.post_multi_agent_tick(payload)
+	if not _is_current(generation):
+		return
+	last_tick_latency_ms = float(Time.get_ticks_usec() - started) / 1000.0
+	if response.is_empty() or not _valid_multi_agent_response(response, team, current_tick):
+		if _handle_auth_failure():
+			return
+		_record_tick_skip(_http_client.last_error if response.is_empty() else "invalid_v3_response")
+		return
+	metrics.record_tick_success(last_tick_latency_ms)
+	agent_status = response.get("agent_status", {})
+	planning_status = response.get("planning", {})
+	goals = response.get("goals", {})
+	# v3 is already a fast deterministic command batch; no extra 10-second tick.
+	_apply_response(response)
+
+
+func _valid_multi_agent_response(response: Dictionary, expected_team: int = -1, expected_seq: int = -1) -> bool:
+	if int(response.get("protocol_version", 0)) != 3 or String(response.get("match_id", "")) != match_id:
+		return false
+	if str(response.get("session_epoch", "")) != str(_generation):
+		return false
+	var team := int(response.get("team", -1))
+	if not _exec_contexts.has(team) or (expected_team >= 0 and team != expected_team):
+		return false
+	if expected_seq >= 0 and (int(response.get("acknowledged_observation_seq", -1)) != expected_seq or int(response.get("for_tick", -1)) != expected_seq):
+		return false
+	return response.get("commands") is Array and response.get("agent_status", {}) is Dictionary and response.get("goals", {}) is Dictionary and response.get("planning", {}) is Dictionary
+
+
+func _build_multi_agent_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
+	var payload := _build_tick_payload(team_entry, current_tick, events)
+	var delivery := _event_delivery.duplicate(true)
+	delivery.erase("events")
+	return {
+		"model": config.model, "temperature": 0.2, "max_tokens": config.max_tokens,
+		"messages": [], "tools": [], "observation": payload.observation, "events": payload.events,
+		"metadata": {
+			"protocol_version": 3, "match_id": match_id, "session_epoch": str(_generation),
+			"observation_seq": current_tick, "tick": current_tick, "time_sec": match_time,
+			"team": payload.team, "enemy_team": payload.enemy_team,
+			"profile_id": payload.profile_id, "backend": config.backend,
+			"llm_base_url": config.llm_base_url, "event_delivery": delivery,
+		},
+	}
 
 
 func _request_tick_batch(current_tick: int, events: Array = []) -> void:
@@ -327,9 +439,13 @@ func _request_tick_batch(current_tick: int, events: Array = []) -> void:
 		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
 		return
 	metrics.record_tick_success(last_tick_latency_ms)
+	if responses.size() != requests.size():
+		_delivery_succeeded = false
 	for response in responses:
 		if response is Dictionary:
 			_queue_response(response)
+		else:
+			_delivery_succeeded = false
 
 
 func _request_tick_for_team(
@@ -378,6 +494,8 @@ func _request_chat_batch(current_tick: int, events: Array = []) -> void:
 		_record_tick_skip(_http_client.last_error if _http_client != null else "empty_response")
 		return
 	metrics.record_tick_success(last_tick_latency_ms)
+	if completions.size() != requests.size():
+		_delivery_succeeded = false
 	var index := 0
 	for team_entry in _teams:
 		if index >= completions.size():
@@ -389,6 +507,8 @@ func _request_chat_batch(current_tick: int, events: Array = []) -> void:
 				int(team_entry.get("team", Enums.Team.AI)),
 				current_tick,
 			)
+		else:
+			_delivery_succeeded = false
 		index += 1
 
 
@@ -497,6 +617,12 @@ func _queue_response(response: Dictionary) -> void:
 
 func _build_tick_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
 	var team := int(team_entry.get("team", Enums.Team.AI))
+	var context: CommandExecutionContext = _exec_contexts.get(team)
+	if context != null:
+		# All teams share this delivery snapshot. A later team's observation may
+		# be built after awaiting earlier HTTP, but it has not received human
+		# events created during that wait. Keep its execution fence at the batch.
+		context.observed_manual_revision = _event_manual_revision if _request_in_flight else EntityRegistryScript.manual_revision
 	var enemy_team := int(team_entry.get("enemy_team", Enums.Team.PLAYER))
 	var civ: CivDef = team_entry.get("civ")
 	var profile := CivAiProfileScript.for_civ(civ)
@@ -521,6 +647,7 @@ func _build_tick_payload(team_entry: Dictionary, current_tick: int, events: Arra
 
 
 func _record_tick_skip(reason: String) -> void:
+	_delivery_succeeded = false
 	if metrics == null:
 		return
 	if reason in ["timeout", "http_408", "http_503", "network_error"]:

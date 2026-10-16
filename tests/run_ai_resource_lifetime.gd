@@ -33,6 +33,8 @@ func _run() -> void:
 	worker._last_resource = removed
 	removed.free()
 	check(not is_instance_valid(worker.get("_last_resource")), "fixture retains an actually freed resource reference")
+	check(EntityRegistry.order_signature(worker).contains("/-1/"), "event sampler safely signs an order whose resource was freed")
+	check(EntityRegistry._unit_progress(worker, Enums.Team.AI) is String, "event sampler can measure progress after its resource was freed")
 	var counts: Variant = economy._count_active_gatherers(ctx)
 	check(counts is Dictionary and counts.get(Enums.ResourceType.FOOD) == 0, "freed resource is excluded from active gatherer counts")
 	var idle: Variant = economy._villagers_needing_gather(ctx)
@@ -73,7 +75,7 @@ func _run() -> void:
 	for node in [worker, other, third, food, wood]: node.free()
 	await process_frame
 	EntityRegistry.clear()
-	check(checks == 12, "all resource lifetime scenarios ran to completion")
+	check(checks == 14, "all resource lifetime scenarios ran to completion")
 	print("AI RESOURCE LIFETIME: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)
 

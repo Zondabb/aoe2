@@ -158,8 +158,9 @@ func confirm_placement() -> bool:
 	var placed := _ghost
 	_ghost = null
 	placed.call("clear_ghost_visual")
+	PlayerCommands.Registry.report_manual_command({"op": "place_building", "builder_id": PlayerCommands.Registry.id_of(builders[0]), "building_def_id": String(building_def.id), "pos": [placed.sim_pos.x, placed.sim_pos.y]}, PlayerCommands.local_team(self), {"created_entity_id": PlayerCommands.Registry.id_of(placed)})
 	for unit in builders:
-		unit.call("command_build", placed)
+		PlayerCommands.unit_order(self, unit, "build", placed)
 	placement_changed.emit(false)
 	return true
 

@@ -1,5 +1,7 @@
 extends RefCounted
 
+const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
+
 ## Match-local routing keeps offline scenes and test arenas independent of a lobby.
 static func local_team(node: Node) -> Enums.Team:
 	var parent := node
@@ -48,6 +50,12 @@ static func unit_order(source: Node, unit: Node2D, op: String, target: Variant =
 		unit.call("command_stop")
 	else:
 		unit.call("command_" + op, target)
+	if not is_online(source):
+		var command := {"op": op, "unit_id": Registry.id_of(unit)}
+		if op == "move": command["pos"] = [target.x, target.y]
+		elif op == "build": command["building_id"] = Registry.id_of(target)
+		elif op in ["attack", "gather"]: command["target_id"] = Registry.id_of(target)
+		Registry.report_manual_command(command, local_team(source))
 
 
 static func research_age(source: Node, building: Node2D, cancel: bool = false) -> bool:
@@ -55,7 +63,10 @@ static func research_age(source: Node, building: Node2D, cancel: bool = false) -
 		return false
 	if is_online(source):
 		return submit(source, {"op": "cancel_research_age" if cancel else "research_age", "building_id": entity_id(source, building)})
-	return bool(building.call("cancel_age_upgrade" if cancel else "start_age_upgrade"))
+	var accepted := bool(building.call("cancel_age_upgrade" if cancel else "start_age_upgrade"))
+	if accepted:
+		Registry.report_manual_command({"op": "cancel_research_age" if cancel else "research_age", "building_id": Registry.id_of(building)}, local_team(source))
+	return accepted
 
 
 static func research_technology(source: Node, building: Node2D, technology_id: String, cancel: bool = false) -> bool:
@@ -66,4 +77,7 @@ static func research_technology(source: Node, building: Node2D, technology_id: S
 	var state := building.get("match_state") as MatchState
 	if state == null or state.technology_progression == null:
 		return false
-	return bool(state.technology_progression.cancel_research(building)) if cancel else bool(state.technology_progression.start_research(building, technology_id))
+	var accepted := bool(state.technology_progression.cancel_research(building)) if cancel else bool(state.technology_progression.start_research(building, technology_id))
+	if accepted:
+		Registry.report_manual_command({"op": "cancel_technology" if cancel else "research_technology", "building_id": Registry.id_of(building), "technology_id": technology_id}, local_team(source))
+	return accepted

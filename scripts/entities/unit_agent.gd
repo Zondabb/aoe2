@@ -113,7 +113,6 @@ func _ready() -> void:
 	if match_state != null and not match_state.team_color_changed.is_connected(_on_team_color_changed):
 		match_state.team_color_changed.connect(_on_team_color_changed)
 	add_to_group("units")
-	EntityRegistryScript.register(self)
 	if sim_pos == Vector2.ZERO:
 		sim_pos = position
 	_sync_visual()
@@ -128,6 +127,8 @@ func _ready() -> void:
 	UnitOcclusion.ensure_for(self)
 	set_selected(false)
 	_vision_register()
+	# Spawn snapshots must contain initialized position, health and armor.
+	EntityRegistryScript.register(self)
 
 
 func register_population() -> void:

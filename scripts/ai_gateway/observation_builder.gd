@@ -29,6 +29,13 @@ static func build(
 		return observation
 	if match_state.map_bounds.has_area():
 		observation["map_bounds"] = {"min": AiProtocolScript.vec2_to_array(match_state.map_bounds.position), "max": AiProtocolScript.vec2_to_array(match_state.map_bounds.end)}
+	observation["capabilities"] = {"schema_version": 3, "zoned_construction": true,
+		"production_status": true, "farm_depletion_frees_plot": true,
+		"ram_building_class_damage": true, "wall_segments": false,
+		"gate_control": false, "trebuchet_pack_unpack": false}
+	observation["victory_conditions"] = {"type": "destroy_any_enemy_town_center",
+		"target_def_id": "town_center", "winner": match_state.winner,
+		"match_over": match_state.winner >= 0}
 
 	if match_state.progression_enabled:
 		observation["progression"] = {"age":match_state.age_of(team),"researched_technologies":match_state.researched_technologies.get(team,{}),"age_research":match_state.age_progression.progress_for(team) if match_state.age_progression != null else {}}
@@ -102,7 +109,7 @@ static func build(
 					continue
 				var visible_building := serialize_entity(building, building_id)
 				# Queue contents and research are private orders, not visible enemy art.
-				for key in ["train_queue_empty", "train_queue", "train_progress", "trainable", "train_blocked_reasons", "is_researching", "technologies", "age_upgrade_reason"]:
+				for key in ["train_queue_empty", "train_queue", "train_progress", "trainable", "train_blocked_reasons", "is_researching", "technologies", "age_upgrade_reason", "production", "research"]:
 					visible_building.erase(key)
 				entity_snapshots.append(visible_building)
 				continue
@@ -120,6 +127,8 @@ static func build(
 				var visible_unit := serialize_entity(unit, unit_id)
 				visible_unit.erase("move_goal")
 				visible_unit.erase("gather_resource_type")
+				visible_unit.erase("movement")
+				visible_unit.erase("combat_action")
 				visible_unit["target_id"] = null
 				visible_unit["last_resource_id"] = null
 				entity_snapshots.append(visible_unit)
@@ -216,10 +225,19 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["is_complete"] = bool(entity.get("is_complete"))
 	snapshot["build_progress"] = float(entity.get("build_progress"))
 	snapshot["build_time"] = float(entity.get("def").build_time)
+	snapshot["footprint"] = AiProtocolScript.vec2_to_array(entity.get("def").footprint)
+	snapshot["planning_footprint"] = AiProtocolScript.vec2_to_array(DecisionContext.planning_footprint(entity.get("def")))
+	snapshot["blocks_movement"] = bool(entity.get("def").blocks_movement)
+	snapshot["drop_off_resources"] = []
+	if entity.get("def").has_drop_off:
+		for resource_type in Enums.ResourceType.values():
+			if entity.accepts_resource(resource_type): snapshot.drop_off_resources.append(AiProtocolScript.resource_type_name(resource_type))
 	var train_queue: Array = entity.get("train_queue") as Array
 	snapshot["train_queue_empty"] = train_queue.is_empty()
 	snapshot["train_queue"] = train_queue.map(func(definition): return String(definition.id))
 	snapshot["train_progress"] = float(entity.get("train_progress"))
+	snapshot["production"] = entity.production_status()
+	snapshot["research"] = {}
 	snapshot["is_researching"] = entity.is_age_researching() or entity.is_technology_researching()
 	snapshot["trainable"] = entity.get_trainable_units().map(func(u): return String(u.id))
 	var blocked_reasons := {}
@@ -229,8 +247,12 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
 	if state != null and state.progression_enabled:
 		if state.age_progression != null and entity.get("def").id == &"town_center":
 			snapshot["age_upgrade_reason"] = state.age_progression.blocked_reason(entity)
+			if entity.is_age_researching(): snapshot["research"] = state.age_progression.progress_for(entity.team)
 		if state.technology_progression != null:
 			snapshot["technologies"] = state.technology_progression.available(entity).map(func(id): return {"id":id,"reason":state.technology_progression.blocked_reason(entity,id)})
+			if entity.is_technology_researching():
+				snapshot["research"] = state.technology_progression.progress_for(entity)
+				snapshot.research["building_id"] = EntityRegistryScript.id_of(entity)
 
 
 static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
@@ -238,6 +260,12 @@ static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["team"] = int(entity.get("team"))
 	snapshot["hp"] = float(entity.get("hp"))
 	snapshot["max_hp"] = _unit_max_hp(entity)
+	var definition: UnitDef = entity.get("def")
+	snapshot["combat"] = {"attack": definition.attack, "range": definition.attack_range,
+		"minimum_range": definition.minimum_attack_range, "cooldown": definition.attack_cooldown,
+		"is_ranged": definition.is_ranged, "attack_class_bonuses": definition.attack_class_bonuses,
+		"melee_armor": entity.get("melee_armor"), "pierce_armor": entity.get("pierce_armor")}
+	snapshot["footprint_radius"] = definition.resolved_footprint_radius()
 	var order: Enums.OrderType = entity.get("order")
 	snapshot["order"] = AiProtocolScript.order_name(order)
 	snapshot["gather_state"] = String(entity.get("_gather_state"))
@@ -255,6 +283,11 @@ static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["last_resource_id"] = _entity_id_or_null(entity.get("_last_resource"))
 	snapshot["target_id"] = _resolve_unit_target_id(entity, order)
 	snapshot["move_goal"] = AiProtocolScript.vec2_to_array(entity.get("_requested_move_target")) if order == Enums.OrderType.MOVE else null
+	snapshot["movement"] = {"path_pending": bool(entity.get("_path_pending")),
+		"stuck_seconds": float(entity.get("_stuck_seconds")),
+		"repath_attempts": int(entity.get("_stuck_repath_attempts")),
+		"distance_to_goal": entity.get("sim_pos").distance_to(entity.get("_requested_move_target")) if order == Enums.OrderType.MOVE else null}
+	snapshot["combat_action"] = String(entity.get("_combat_action"))
 
 
 static func _resolve_unit_target_id(entity: Node2D, order: Enums.OrderType) -> Variant:
@@ -317,7 +350,11 @@ static func _team_observers(entities: Node2D, team: Enums.Team) -> Array:
 		return observers
 	for node in entities.get_children():
 		var entity := node as Node2D
-		if entity == null:
+		if entity == null or entity.is_queued_for_deletion():
+			continue
+		# Projectiles share team/sim_pos with actors, but have no health or sight.
+		# Check observer capability before reading actor-only properties.
+		if not (entity.get("def") is UnitDef or entity.get("def") is BuildingDef):
 			continue
 		if entity.get("team") != team:
 			continue
@@ -325,8 +362,7 @@ static func _team_observers(entities: Node2D, team: Enums.Team) -> Array:
 			continue
 		if entity.get("is_placement_ghost") == true:
 			continue
-		if entity.get("def") is UnitDef or entity.get("def") is BuildingDef:
-			observers.append(entity)
+		observers.append(entity)
 	return observers
 
 

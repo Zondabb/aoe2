@@ -172,7 +172,11 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if not _valid_id(command.get("queue_id")):
 			return false
 		var building := _resolve(int(command.building_id)) as BuildingAgent
-		return building != null and int(building.team) == sender_team and building.cancel_train(int(command.queue_id))
+		var cancelled := building != null and int(building.team) == sender_team and building.cancel_train(int(command.queue_id))
+		if cancelled:
+			translated["queue_id"] = int(command.queue_id)
+			Registry.report_manual_command(translated, sender_team)
+		return cancelled
 	if op == "research_technology":
 		if command.get("technology_id") is not String or String(command.technology_id).length() > 128:
 			return false
@@ -182,7 +186,10 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 	context.entities = entities
 	context.team = sender_team as Enums.Team
 	context.civ = _civs.get(sender_team) as CivDef
-	return bool(Executor.execute(translated, context).get("ok", false))
+	var result := Executor.execute(translated, context)
+	if bool(result.get("ok", false)):
+		Registry.report_manual_command(translated, sender_team, result)
+	return bool(result.get("ok", false))
 
 
 func _process(delta: float) -> void:

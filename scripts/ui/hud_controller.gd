@@ -757,7 +757,8 @@ func _cancel_queued_train(queue_id: int) -> void:
 	if PlayerCommands.is_online(self):
 		PlayerCommands.submit(self, {"op": "cancel_train", "building_id": PlayerCommands.entity_id(self, _selected_building), "queue_id": queue_id})
 	else:
-		_selected_building.cancel_train(queue_id)
+		if _selected_building.cancel_train(queue_id):
+			PlayerCommands.Registry.report_manual_command({"op": "cancel_train", "building_id": PlayerCommands.Registry.id_of(_selected_building), "queue_id": queue_id}, PlayerCommands.local_team(self))
 
 func _enqueue_train(unit_def: UnitDef) -> void:
 	if not _can_enqueue(unit_def):
@@ -770,7 +771,8 @@ func _enqueue_train(unit_def: UnitDef) -> void:
 				"unit_def_id": String(unit_def.id),
 			})
 		else:
-			_selected_building.call("enqueue_train", unit_def)
+			if _selected_building.call("enqueue_train", unit_def):
+				PlayerCommands.Registry.report_manual_command({"op": "train", "building_id": PlayerCommands.Registry.id_of(_selected_building), "unit_def_id": String(unit_def.id), "queue_id": _selected_building.train_queue_ids[-1]}, PlayerCommands.local_team(self))
 
 func _can_enqueue(unit_def: UnitDef) -> bool:
 	return (

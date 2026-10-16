@@ -19,6 +19,7 @@ import time
 from urllib.request import urlopen
 
 from test_external_llm_e2e import MockStrategist
+from test_multi_agent_e2e import RolePlanner
 
 
 def free_port() -> int:
@@ -30,10 +31,14 @@ def free_port() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", required=True)
+    parser.add_argument("--protocol", choices=("v3", "v2"), default="v3",
+                        help="v3 specialist planning (default), or legacy v2 commander regression")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     logs = Path(tempfile.mkdtemp(prefix="ai-autoplay-e2e-", dir=root / ".godot"))
     mock = MockStrategist()
+    planner = RolePlanner()
+    offered_plan = set()
     mock_lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -45,7 +50,17 @@ def main() -> int:
             # Ensure cancellation occurs while a real upstream HTTP call is pending.
             time.sleep(0.25)
             with mock_lock:
-                response = json.dumps(mock.complete(payload)).encode("utf-8")
+                if args.protocol == "v3":
+                    tools = [tool.get("function", {}).get("name") for tool in payload.get("tools", [])]
+                    if "propose_plan" not in tools:
+                        self.send_error(400, "v3 must offer propose_plan")
+                        return
+                    context = json.loads(payload["messages"][-1]["content"])
+                    offered_plan.add(context["role"])
+                    result = planner.complete(payload)
+                else:
+                    result = mock.complete(payload)
+                response = json.dumps(result).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(response)))
@@ -130,14 +145,21 @@ def main() -> int:
         wait_health(f"http://127.0.0.1:{ai_port}/health", service)
         wait_health(f"http://127.0.0.1:{relay_port}/healthz", relay)
         ai_url = f"http://127.0.0.1:{ai_port}"
-        single = godot("run_ai_autoplay.gd", "single", [ai_url, f"http://127.0.0.1:{dead_port}"])
+        single = godot("run_ai_autoplay.gd", "single", [ai_url, f"http://127.0.0.1:{dead_port}", args.protocol])
         wait_clients([single], ["single"], "AI AUTOPLAY SINGLE:")
         peers = [godot("run_ai_autoplay_peer.gd", f"peer-{side}",
-                       [f"ws://127.0.0.1:{relay_port}/ws", ai_url]) for side in range(2)]
+                       [f"ws://127.0.0.1:{relay_port}/ws", ai_url, args.protocol]) for side in range(2)]
         wait_clients(peers, ["peer-0", "peer-1"], "AI AUTOPLAY PEER:")
-        if mock.calls < 4 or not mock.offered_strategy or not mock.saw_commander_context:
-            raise RuntimeError("external Python commander did not reach the mock strategic model")
-        print(f"AI AUTOPLAY E2E PASSED; {mock.calls} local model calls; logs: {logs}")
+        if args.protocol == "v3":
+            expected = {"commander", "construction", "economy", "technology", "scout", "combat"}
+            if planner.calls < 6 or planner.roles != expected or offered_plan != expected:
+                raise RuntimeError(f"six role planners did not reach real propose_plan HTTP calls: {planner.roles}")
+            calls = planner.calls
+        else:
+            if mock.calls < 4 or not mock.offered_strategy or not mock.saw_commander_context:
+                raise RuntimeError("external Python commander did not reach the mock strategic model")
+            calls = mock.calls
+        print(f"AI AUTOPLAY E2E PASSED ({args.protocol}); {calls} local model calls; logs: {logs}")
         return 0
     except (OSError, RuntimeError) as error:
         print(f"AI AUTOPLAY E2E FAILED: {error}; logs: {logs}", file=sys.stderr)

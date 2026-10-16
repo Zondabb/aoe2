@@ -56,6 +56,10 @@ static func units() -> Dictionary:
 		u.attack_range = maxf(0.4, float(r.get("attack_range", 0.4)))
 		u.is_ranged = u.attack_range > 1.5
 		u.preferred_attack_range = u.attack_range * 0.85 if u.is_ranged else 0.0
+		# Rams use the same class-damage resolution as projectile siege. Their
+		# ordinary melee attack is only 2; the original building bonus is essential.
+		if key in ["battering_ram", "capped_ram", "siege_ram"]:
+			u.attack_class_bonuses = r.get("source_attacks", {}).duplicate()
 		var projectile: Dictionary = siege_projectiles().get(String(key), {})
 		if not projectile.is_empty():
 			u.attack_range = float(r.get("attack_range", 0.0)) * SIEGE_DISTANCE_SCALE

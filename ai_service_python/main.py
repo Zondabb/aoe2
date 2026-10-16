@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import threading
 import time
+from time import time as wall_time
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from fastapi.responses import JSONResponse
 from brain import runtime_settings
 from brain.director import AiDirector
 from brain.llm_commander import LlmCommander
+from brain.multi_agent.scheduler import MultiAgentService, SessionError
 from brain.stores import PHASE_ATTACK, PHASE_BOOM, PHASE_DEFEND, PHASE_ECO
 from brain.llm_proxy import build_openai_payload, forward_openai, is_openai_backend, resolve_backend
 from brain.rules_compat import observation_or_error, to_tick_request, wrap_tick_response
@@ -40,6 +43,26 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("ai_service")
 _LLM_LOG_DIR = Path(__file__).resolve().parent / "logs"
+_file_log_lock = threading.Lock()
+
+
+def _write_multi_agent_event(event: str, data: dict[str, Any]) -> None:
+    """One correlated JSON object per line, bounded files, no provider credentials."""
+    log = logging.getLogger("ai_service.multi_agent_file")
+    with _file_log_lock:
+        if not log.handlers:
+            _LLM_LOG_DIR.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(_LLM_LOG_DIR / "multi_agent.jsonl", maxBytes=20_000_000,
+                                          backupCount=3, encoding="utf-8")
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            log.addHandler(handler)
+            log.setLevel(logging.INFO)
+            log.propagate = False
+    log.info(json.dumps({"event": event, "wall_time": wall_time(), **data}, ensure_ascii=False,
+                        separators=(",", ":"), default=str))
+
+
+_multi_agent_service = MultiAgentService(log=_write_multi_agent_event)
 
 app = FastAPI(title="AoE2 RTS AI Service", version="1.0.0")
 
@@ -72,6 +95,7 @@ def _get_or_create_director(match_id: str, team: int, profile_id: str) -> AiDire
 
 
 def _clear_match(match_id: str) -> None:
+    _multi_agent_service.close_match(match_id)
     keys = [key for key in _directors if key[0] == match_id]
     for key in keys:
         del _directors[key]
@@ -198,6 +222,7 @@ def health() -> HealthResponse:
 @app.post("/v1/ai/match/start")
 def match_start(payload: MatchStartRequest) -> dict[str, Any]:
     _clear_match(payload.match_id)
+    _multi_agent_service.open_match(payload.match_id)
     logger.info('{"event":"match_start","match_id":"%s","teams":%d}', payload.match_id, len(payload.teams))
     return {"ok": True, "match_id": payload.match_id}
 
@@ -207,6 +232,14 @@ def match_end(payload: MatchEndRequest) -> dict[str, Any]:
     _clear_match(payload.match_id)
     logger.info('{"event":"match_end","match_id":"%s"}', payload.match_id)
     return {"ok": True}
+
+
+@app.post("/v3/ai/tick")
+def multi_agent_tick(req: ChatCompletionRequest) -> dict[str, Any]:
+    try:
+        return _multi_agent_service.tick(req)
+    except SessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
 
 
 @app.post("/v1/ai/tick", response_model=TickResponse)
@@ -310,6 +343,8 @@ def _summarize_llm_response(inbound: dict[str, Any]) -> dict[str, Any]:
         if isinstance(raw, dict):
             message = raw
     return {
+        "finish_reason": choices[0].get("finish_reason") if choices and isinstance(choices[0], dict) else None,
+        "usage": inbound.get("usage"),
         "reasoning_content": message.get("reasoning_content"),
         "tool_calls": message.get("tool_calls"),
     }
@@ -366,7 +401,9 @@ def _complete_chat(req: ChatCompletionRequest) -> ChatCompletionResponse:
                     },
                 )
                 wrapped, _outbound, inbound = forward_openai(prepared)
-                _write_llm_json("LLM response (from model)", _summarize_llm_response(inbound))
+                _write_llm_json("LLM response (from model)", {
+                    "match_id": req.metadata.match_id, "team": req.metadata.team,
+                    "tick": req.metadata.tick, **_summarize_llm_response(inbound)})
                 wrapped = commander.finish_response(req, wrapped)
                 _write_llm_json("Commander actions (to game)", {
                     "match_id": req.metadata.match_id,

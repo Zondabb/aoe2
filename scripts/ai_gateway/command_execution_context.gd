@@ -11,6 +11,11 @@ var civ: CivDef
 var next_build_slot: int = 0
 var executed_command_ids: Dictionary = {}
 var metrics
+var session_epoch := ""
+var require_session_epoch := false
+var sim_time := 0.0
+var observed_manual_revision := 0
+var last_execution_details: Dictionary = {}
 
 
 func clear_command_history() -> void:

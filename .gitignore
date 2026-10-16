@@ -8,7 +8,7 @@ ai_service_python/logs/
 
 # Local SLP export config / raw dumps (never commit full game tree)
 tools/slp_export/config.json
-tools/slp_export/**/__pycache__/
+tools/**/__pycache__/
 ai_service_python/**/__pycache__/
 ai_service_python/.pytest_cache/
 multiplayer_service_python/**/__pycache__/

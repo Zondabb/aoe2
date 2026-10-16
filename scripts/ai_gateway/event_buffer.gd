@@ -34,6 +34,12 @@ static func for_team(events: Array, team: int, fog_enabled: bool) -> Array:
 			continue
 		var copy: Dictionary = event.duplicate(true)
 		copy.erase("_visible_to")
+		# A visible spawn is public art, not access to an enemy's private orders.
+		if copy.get("entity") is Dictionary:
+			var snapshot: Dictionary = copy.entity
+			if int(snapshot.get("team", team)) != team:
+				for key in ["train_queue_empty", "train_queue", "train_queue_ids", "train_progress", "trainable", "train_blocked_reasons", "is_researching", "technologies", "age_upgrade_reason", "production", "production_status", "research", "move_goal", "movement", "gather_state", "gather_resource_type", "target_id", "last_resource_id", "ai_command_lineage", "order_status"]:
+					snapshot.erase(key)
 		result.append(copy)
 	return result
 
@@ -64,16 +70,32 @@ static func unsubscribe(subscriber: int) -> void:
 
 
 static func read(subscriber: int) -> Array:
+	# Legacy destructive consumer. HTTP gateways use peek + acknowledge instead.
+	var delivery := peek(subscriber)
+	acknowledge(subscriber, int(delivery.get("to_seq", 0)))
+	return delivery.get("events", [])
+
+
+static func peek(subscriber: int) -> Dictionary:
 	if not _subscribers.has(subscriber):
-		return []
+		return {"events": [], "from_seq": 0, "to_seq": 0, "gap": false, "resync_required": false}
 	var cursor := int(_subscribers[subscriber])
 	var result: Array = []
+	var oldest := int(_subscriber_events[0]["seq"]) if not _subscriber_events.is_empty() else _seq + 1
 	for event in _subscriber_events:
 		if int(event["seq"]) > cursor:
 			result.append(event.duplicate(true))
-	_subscribers[subscriber] = _seq
+	var gap := cursor + 1 < oldest
+	return {"events": result, "from_seq": cursor + 1, "to_seq": _seq, "oldest_available_seq": oldest, "gap": gap, "resync_required": gap}
+
+
+static func acknowledge(subscriber: int, through_seq: int) -> void:
+	if not _subscribers.has(subscriber):
+		return
+	# A response can only acknowledge its snapshot, never events published while
+	# HTTP was in flight. Old/retried responses cannot move a cursor backwards.
+	_subscribers[subscriber] = maxi(int(_subscribers[subscriber]), mini(through_seq, _seq))
 	_prune_subscriber_events()
-	return result
 
 
 static func _prune_subscriber_events() -> void:
