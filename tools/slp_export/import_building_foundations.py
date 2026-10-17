@@ -20,6 +20,7 @@ from PIL import Image
 from export_sprites import _read_slp, composite_hotspot_images, load_config, pack_sheet
 from import_civilizations import AGE_KEYS, CIVS, read_dat
 from player_color import composite_player_masks, pack_masks, save_player_mask
+from farm_terrain import project_farm_terrain
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -111,17 +112,13 @@ class FoundationExporter:
 
     def farm(self):
         source = self.resources / "_common/terrain/textures/g_fc1_00_color.png"
-        # Match the existing farm_ground atlas projection and hotspot so the
-        # ground texture does not jump or resize when construction completes.
-        texture = Image.open(source).convert("RGBA").resize((192, 192), Image.Resampling.NEAREST)
-        image = texture.transform((384, 192), Image.Transform.AFFINE,
-                                  (0.5, 1, -96, -0.5, 1, 96), Image.Resampling.NEAREST)
+        image, hotspot, details = project_farm_terrain(source)
         mask = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        return self.save("farm_construction_ground", image, mask, (192, 96),
-                         includes_shadow=False, terrain_source_id=29,
+        return self.save("farm_construction_ground", image, mask, hotspot,
+                         terrain_source_id=29,
                          source=source.relative_to(self.resources).as_posix(),
-                         derived_composite=True, footprint=[3, 3],
-                         notes="Original Farm Cnst1 terrain; same affine projection as the completed farm atlas.")
+                         derived_composite=True, **details,
+                         notes="Original Farm Cnst1 terrain sample; same ground footprint and texel density as the completed farm.")
 
 
 def main():

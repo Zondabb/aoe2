@@ -1,8 +1,10 @@
 extends BuildingAgent
 
 func extract(delta: float) -> float:
-	if not is_complete or hp <= 0 or amount <= 0 or has_meta("network_replica"): return 0.0
+	if is_placement_ghost or not is_complete or hp <= 0 or amount <= 0 or has_meta("network_replica"): return 0.0
 	var value := minf(amount, maxf(0,delta) * gather_rate)
+	if value > 0.0:
+		farm_has_crops = true
 	amount -= value
 	if amount <= 0.001:
 		amount = 0.0

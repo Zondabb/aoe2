@@ -92,6 +92,9 @@ const BUILDING_SHEETS := {
 		&"chinese": "res://assets/sprites/buildings/stable_asian_feudal",
 		&"default": "res://assets/sprites/buildings/stable_ne_feudal",
 	},
+	&"farm": {
+		&"default": "res://assets/sprites/civilizations/farm_ground",
+	},
 }
 
 const RESOURCE_SHEETS := {

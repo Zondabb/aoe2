@@ -114,6 +114,99 @@ def test_role_specific_context_is_bounded_copied_and_has_goal_version():
     json.dumps([runtime.planning_context(role) for role in runtime.roles], allow_nan=False)
 
 
+def test_identical_model_plan_records_source_without_changing_version():
+    runtime = MultiAgentRuntime()
+    runtime.now = 12.5
+    initial = copy.deepcopy(runtime.roles["economy"].plan)
+    assert runtime.apply_plan("economy", initial)
+    assert runtime.apply_plan("economy", initial)
+    status = runtime._statuses()["economy"]
+    assert status["plan_source"] == "llm" and status["model_updates"] == 2
+    assert status["plan_version"] == 0 and status["last_model_plan_at"] == 12.5
+    assert status["plan"] == initial
+    status["plan"]["worker_target"] = 60
+    assert runtime.roles["economy"].plan == initial
+    assert not runtime.apply_plan("economy", {})
+    assert runtime.roles["economy"].model_updates == 2
+
+
+def test_large_planning_context_keeps_force_totals_and_samples_valid_records():
+    runtime = MultiAgentRuntime()
+    workers = [unit(10 + i, order="GATHER", gather_resource_type="WOOD") for i in range(60)]
+    soldiers = [unit(100 + i, "militia") for i in range(60)]
+    enemies = [unit(1000 + i, "knight", [40 + i, 40], team=1) for i in range(30)]
+    buildings = [building(300 + i, "barracks", technologies=[{"id": "forging", "reason": "x" * 1000}] * 30) for i in range(30)]
+    catalog = {category: [{"id": name, **copy.deepcopy(record), "description": "long text " * 1000}
+                          for name, record in CATALOG[category].items()]
+               for category in ("buildings", "units", "technologies")}
+    sites = [{"building_def_id": name, "builder_id": 10, "pos": [24 + i, 16], "zone": "military", "reasons": ["verbose " * 1000]}
+             for name in CATALOG["buildings"] for i in range(3)]
+    req = frame(entities=workers + soldiers + enemies + buildings, catalog=catalog, construction_options=sites)
+    runtime.last_req = req
+    runtime.enemy_knowledge = {enemy["id"]: {**enemy, "visible": True, "last_seen": 1} for enemy in enemies}
+    runtime.enemy_knowledge[2000] = {"id": 2000, "kind": "building", "def_id": "town_center", "pos": [80, 80], "visible": False, "last_seen": 0}
+    for state in runtime.roles.values():
+        state.events.extend([{"type": "command_result", "ok": True}] * 10)
+        state.events.append({"type": "command_rejected", "ok": False, "reason": "failure " * 1000})
+    for role in runtime.roles:
+        context = runtime.planning_context(role)
+        encoded = json.dumps(context, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        assert len(encoded) <= 14000
+        assert json.loads(encoded)["force_summary"]["own_units"] == {"villager": 60, "militia": 60}
+        assert context["force_summary"]["workers"]["allocation"] == {"wood": 60}
+        assert context["force_summary"]["visible_enemy_units"] == {"knight": 30}
+        assert context["shared_plans"]["economy"]["worker_target"] == runtime.roles["economy"].plan["worker_target"]
+        assert "description" not in encoded and "verbose" not in encoded
+        assert any(event["type"] == "command_rejected" for event in context["events"])
+        context["shared_plans"]["economy"]["worker_target"] = 60
+        assert runtime.roles["economy"].plan["worker_target"] != 60
+        if "visible_enemies" in context:
+            assert {e["id"] for e in context["enemy_knowledge"]} == {2000}
+            assert len(context["visible_enemies"]) <= 12
+        if "sites" in context:
+            for name in {site["building_def_id"] for site in context["sites"]}:
+                assert sum(site["building_def_id"] == name for site in context["sites"]) <= 2
+        if "catalog" in context:
+            assert context["catalog"]["buildings"][0]["cost"]
+
+
+def test_economy_worker_target_changes_training_for_the_same_observation():
+    req = frame(entities=[building(1, "town_center"), building(2, "barracks")] + [unit(10 + i) for i in range(10)],
+                construction_options=[], catalog={"progression_enabled": False})
+    trained = {}
+    for target in (8, 12):
+        runtime = MultiAgentRuntime()
+        plan(runtime, "economy", worker_target=target)
+        trained[target] = [command["unit_def_id"] for command in issued(runtime.tick(req), "train")]
+    assert "villager" not in trained[8]
+    assert "villager" in trained[12]
+
+
+def test_construction_builder_limit_changes_assignment_for_the_same_observation():
+    req = frame(entities=[unit(10, order="BUILD", target_id=2), unit(11),
+                          building(2, "barracks", [24, 0], complete=False), building(3, "house", [0, 24], complete=False)],
+                construction_options=[])
+    assignments = {}
+    for limit in (1, 2):
+        runtime = MultiAgentRuntime()
+        plan(runtime, "construction", max_builders=limit)
+        assignments[limit] = issued(runtime.tick(req), "build")
+    assert assignments[1] == []
+    assert [(command["unit_id"], command["building_id"]) for command in assignments[2]] == [(11, 3)]
+
+
+def test_commander_stance_changes_departure_without_moving_frozen_force_target():
+    results = {}
+    for stance in ("pressure", "defend"):
+        runtime = MultiAgentRuntime()
+        plan(runtime, "commander", stance=stance, army_target=8, muster_timeout=120)
+        first = runtime.tick(frame(entities=army(4) + [enemy_tc()], time=0))
+        results[stance] = runtime.tick(frame(2, entities=army(4) + [enemy_tc()], time=45, events=accept(first)))
+    assert results["pressure"]["goals"]["sortie_target"] == results["defend"]["goals"]["sortie_target"] == 8
+    assert issued(results["pressure"], "attack")
+    assert not issued(results["defend"], "attack")
+
+
 def test_muster_size_frozen_and_departure_has_deadline_without_model_response():
     runtime = MultiAgentRuntime()
     plan(runtime, "commander", army_target=8, muster_timeout=20)

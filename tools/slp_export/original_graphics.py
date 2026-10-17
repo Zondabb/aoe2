@@ -6,6 +6,7 @@ from PIL import Image
 from export_sprites import (_read_slp, pack_sheet, composite_hotspot_images,
                             export_one, resolve_palette)
 from player_color import composite_player_masks, pack_masks, save_player_mask
+from farm_terrain import project_farm_terrain
 
 
 ANIMATION_COMPOSITING_VERSION = 2
@@ -146,12 +147,10 @@ class GraphicExporter:
     def export_farm(self):
         # Farms are original terrain textures; their SLP footprint is transparent.
         source = self.resources/'_common/terrain/textures/g_fm1_00_color.png'
-        texture = Image.open(source).convert('RGBA').resize((192,192),Image.Resampling.NEAREST)
-        # Map the square foundation onto the game's 2:1 isometric ground plane.
-        canvas = texture.transform((384,192),Image.Transform.AFFINE,(0.5,1,-96,-0.5,1,96),Image.Resampling.NEAREST)
+        canvas, hotspot, details = project_farm_terrain(source)
         key='farm_ground'
         canvas.save(self.out/(key+'.png'))
-        meta=dict(key=key,source=source.name,cols=1,rows=1,frame_w=384,frame_h=192,frame_count=1,directions=1,frames_per_direction=1,hotspots=[{'x':192,'y':96}],player_color={'mode':'none'})
+        meta=dict(key=key,source=source.name,cols=1,rows=1,frame_w=canvas.width,frame_h=canvas.height,frame_count=1,directions=1,frames_per_direction=1,hotspots=[{'x':hotspot[0],'y':hotspot[1]}],player_color={'mode':'none'}, **details)
         (self.out/(key+'.json')).write_text(json.dumps(meta,indent=2),encoding='utf-8')
         base = 'res://'+(self.out/key).relative_to(self.root).as_posix()
         self._record(255, base, meta, cached=False)

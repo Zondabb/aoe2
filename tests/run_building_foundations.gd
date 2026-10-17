@@ -59,6 +59,8 @@ func _foundation(building: BuildingAgent) -> String:
 
 
 func _finished(building: BuildingAgent) -> String:
+	if building.def.id == &"farm" and not building.farm_has_crops:
+		return _foundation(building)
 	return Sprites.building_sheet_base(building.def.id, building.civ.id, building.match_state.age_of(building.team))
 
 
@@ -111,7 +113,7 @@ func _test_every_building_and_age() -> void:
 				building.set_physics_process(false)
 				var foundation := _foundation(building)
 				var final_art := _finished(building)
-				check(foundation != final_art, label + " has separate foundation and completed art")
+				check(foundation == final_art if id == &"farm" else foundation != final_art, label + " has bare farm soil until harvesting or separate completed building art")
 				_check_art(building, foundation, label + " initial")
 				check(not building.is_complete and is_zero_approx(building.build_progress), label + " starts unfinished")
 				check(state.population_cap[building.team] == 0, label + " adds no population before completion")

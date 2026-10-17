@@ -3,18 +3,33 @@
   "source": "g_fm1_00_color.png",
   "cols": 1,
   "rows": 1,
-  "frame_w": 384,
-  "frame_h": 192,
+  "frame_w": 288,
+  "frame_h": 144,
   "frame_count": 1,
   "directions": 1,
   "frames_per_direction": 1,
   "hotspots": [
     {
-      "x": 192,
-      "y": 96
+      "x": 144,
+      "y": 72
     }
   ],
   "player_color": {
     "mode": "none"
-  }
+  },
+  "ground_terrain": true,
+  "footprint": [
+    3,
+    3
+  ],
+  "includes_shadow": false,
+  "source_sha256": "9e86121cddde8dba075ebef189f43cf7d1aaccb1937d520362ef55e32273b7e3",
+  "source_sample_rect": [
+    0,
+    0,
+    154,
+    154
+  ],
+  "reference_calibrated": true,
+  "row_direction": "screen_up_right"
 }

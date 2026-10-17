@@ -544,8 +544,7 @@ func _attack_target_available() -> bool:
 
 func _process_build(delta: float) -> void:
 	if not is_instance_valid(_build_target) or bool(_build_target.get("is_complete")):
-		_build_target = null
-		order = Enums.OrderType.NONE
+		_finish_build_order()
 		return
 	if _distance_to(_build_target) > _building_interaction_range(_build_target):
 		_move_toward(_build_approach_point(_build_target), delta)
@@ -553,8 +552,17 @@ func _process_build(delta: float) -> void:
 	_face_toward(_build_target.get("sim_pos"), delta, true)
 	_build_target.call("add_build_progress", delta)
 	if bool(_build_target.get("is_complete")):
-		_build_target = null
-		order = Enums.OrderType.NONE
+		_finish_build_order()
+
+func _finish_build_order() -> void:
+	var completed := _build_target
+	_build_target = null
+	order = Enums.OrderType.NONE
+	if not is_instance_valid(completed) or completed.is_queued_for_deletion():
+		return
+	var building_def := completed.get("def") as BuildingDef
+	if building_def != null and building_def.id == &"farm" and bool(completed.get("is_complete")) and completed.get("team") == team and completed.has_method("extract"):
+		command_gather(completed)
 
 func _process_gather(delta: float) -> void:
 	if _gather_state == "searching_resource":

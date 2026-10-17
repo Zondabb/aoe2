@@ -155,6 +155,7 @@ static func _capture_entity(entity: Node2D, ids: Dictionary) -> Dictionary:
 			if id != 0: record.gather_candidates.append(id)
 	elif entity is BuildingAgent:
 		record.merge({"type": "building", "definition": String(entity.def.id), "team": entity.team, "fields": _object_fields(entity, BUILDING_NUMBERS + BUILDING_BOOLS), "queue": []})
+		if entity.def.id == &"farm": record.fields["farm_has_crops"] = entity.farm_has_crops
 		record.fields["_spawn_retry_remaining"] = entity._spawn_retry_remaining
 		for i in entity.train_queue.size():
 			var id: int = entity.train_queue_ids[i]
@@ -205,6 +206,7 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 				entity.is_complete = record.fields.is_complete
 				entity.build_progress = float(record.fields.build_progress)
 				entity._construction_started = record.fields._construction_started
+				if record.definition == "farm": entity.farm_has_crops = _farm_crops_from_fields(record.fields)
 			"resource":
 				entity = ResourceNode.new()
 				entity.resource_type = int(record.resource_type)
@@ -313,6 +315,12 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 		if is_instance_valid(state.age_progression): state.age_progression._emit_progress(team)
 	if state.winner >= 0: state.winner_decided.emit(state.winner)
 	return ""
+
+
+static func _farm_crops_from_fields(fields: Dictionary) -> bool:
+	# Version 1 saves predate the crop flag. Infer prior gathering from depletion,
+	# while completed untouched farms and unfinished foundations remain bare.
+	return bool(fields.get("farm_has_crops", bool(fields.is_complete) and float(fields.amount) < 175.0))
 
 
 static func capture_ai(root: Node) -> Dictionary:
@@ -566,6 +574,7 @@ static func validate(data: Variant) -> String:
 					if not _integer_between(record.refs.get(field), 0, MAX_ENTITIES): return "存档单位引用已损坏。"
 				if not _vector_list(record.get("path")) or not _vector_list(record.get("gather_work_points")) or not record.get("gather_candidates") is Array: return "存档单位路径已损坏。"
 			else:
+				if record.fields.has("farm_has_crops") and record.fields.farm_has_crops is not bool: return "存档农田庄稼状态已损坏。"
 				if not record.get("queue") is Array or record.queue.size() > BuildingAgent.MAX_TRAIN_QUEUE: return "存档生产队列已损坏。"
 				if record.fields.has("_spawn_retry_remaining") and (not MapDataScript.number(record.fields._spawn_retry_remaining) or record.fields._spawn_retry_remaining < 0 or record.fields._spawn_retry_remaining > BuildingAgent.TRAIN_SPAWN_RETRY_INTERVAL): return "存档建筑出口等待进度已损坏。"
 				var queue_ids := {}

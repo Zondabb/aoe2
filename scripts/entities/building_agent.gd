@@ -17,6 +17,8 @@ const CollisionResolverScript := preload("res://scripts/systems/collision_resolv
 # Keep the entity origin/footprint unchanged; only its artwork covers walkers.
 const TOWN_CENTER_SOLID_Z := 1
 const TOWN_CENTER_SHADOW_Z := -3
+# Soil is below selection rings, building shadows and unit foot shadows.
+const FARM_GROUND_Z := -4
 const MAX_TRAIN_QUEUE := 15
 const TRAIN_SPAWN_RETRY_INTERVAL := 0.25
 
@@ -28,6 +30,15 @@ const TRAIN_SPAWN_RETRY_INTERVAL := 0.25
 var amount := 175.0
 var resource_type := Enums.ResourceType.FOOD
 var gather_rate := 4.0
+var farm_has_crops := false:
+	set(value):
+		if farm_has_crops == value:
+			return
+		farm_has_crops = value
+		if match_state != null and match_state.fog != null:
+			match_state.fog.dirty = true
+		if is_node_ready() and def != null and def.id == &"farm":
+			_configure_visuals()
 
 var match_state: MatchState
 var sim_pos := Vector2.ZERO
@@ -141,6 +152,8 @@ func accepts_resource(resource_type: Enums.ResourceType) -> bool:
 	return accepts_all_resources or (def != null and def.id == &"town_center") or accepted_resource_type == resource_type or (def != null and def.id == &"mining_camp" and resource_type == Enums.ResourceType.STONE)
 
 func start_construction() -> void:
+	if def != null and def.id == &"farm":
+		farm_has_crops = false
 	if _population_cap_registered and match_state != null and def != null:
 		match_state.register_pop(team, 0, -def.population_provided)
 		_population_cap_registered = false
@@ -514,6 +527,7 @@ func _configure_visuals() -> void:
 	var base := ""
 	var meta := {}
 	var foundation := _uses_foundation_visual()
+	var ground_farm := def != null and def.id == &"farm"
 	if def != null:
 		var age := match_state.age_of(team) if match_state != null and match_state.progression_enabled else -1
 		base = SpriteCatalogScript.foundation_sheet_base(def.id, civ_id, age, def.footprint) if foundation else SpriteCatalogScript.building_sheet_base(def.id, civ_id, age)
@@ -527,6 +541,8 @@ func _configure_visuals() -> void:
 			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
 			var pixel_scale := SpriteCatalogScript.building_pixel_scale(def, meta)
 			SpriteCatalogScript.configure_sprite_2d(billboard, pixel_scale, offset)
+			if ground_farm:
+				billboard.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 			billboard.modulate = Color.WHITE
 			billboard.visible = true
 			_use_billboard = true
@@ -541,14 +557,22 @@ func _configure_visuals() -> void:
 		billboard.visible = false
 	if def != null:
 		SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
+		if ground_farm:
+			# Soil uses the original art scale, like the other building atlases.
+			# Follow its displayed boundary instead of shrinking it to sim tiles.
+			var bounds := billboard.transform * billboard.get_rect() if _use_billboard else Rect2(-66, -33, 132, 66)
+			var center := bounds.get_center()
+			var points := PackedVector2Array([Vector2(center.x, bounds.position.y),
+				Vector2(bounds.end.x, center.y), Vector2(center.x, bounds.end.y), Vector2(bounds.position.x, center.y)])
+			SpriteCatalogScript._apply_selection_line(get_node("SelectionRing") as Line2D, points)
 	var has_sprite_shadow := bool(meta.get("includes_shadow", false))
 	var layered_town_center := def != null and def.id == &"town_center" and not foundation
 	if billboard != null:
-		billboard.z_index = -1 if foundation else (TOWN_CENTER_SOLID_Z if layered_town_center else 0)
+		billboard.z_index = FARM_GROUND_Z if ground_farm else (-1 if foundation else (TOWN_CENTER_SOLID_Z if layered_town_center else 0))
 	if body != null:
-		body.z_index = TOWN_CENTER_SOLID_Z if layered_town_center else 0
+		body.z_index = FARM_GROUND_Z if ground_farm else (TOWN_CENTER_SOLID_Z if layered_town_center else 0)
 	var ground_shadow := get_node_or_null("GroundShadow") as CanvasItem
-	if foundation:
+	if foundation or ground_farm:
 		if ground_shadow != null:
 			ground_shadow.visible = false
 	elif layered_town_center and has_sprite_shadow and _use_billboard:
@@ -567,6 +591,10 @@ func _configure_visuals() -> void:
 
 
 func _uses_foundation_visual() -> bool:
+	if def != null and def.id == &"farm":
+		# Preview, construction and an unworked completed field are bare soil.
+		# Only an actual food extraction plants the visible crops.
+		return is_placement_ghost or not is_complete or not farm_has_crops
 	return not is_placement_ghost and not is_complete
 
 func _configure_sprite_shadow(billboard: Sprite2D) -> void:

@@ -9,7 +9,7 @@ import time
 from fastapi.testclient import TestClient
 import pytest
 
-from brain.multi_agent.scheduler import MultiAgentService, ROLES, SessionError
+from brain.multi_agent.scheduler import MultiAgentService, ROLES, SessionError, _decode_plan
 from protocol.models import ChatCompletionResponse
 from test_llm_commander import request
 
@@ -150,6 +150,9 @@ def test_role_plans_apply_and_log_usage_with_global_bounded_calls(schemas, monke
         assert all(data["state"] == "applied" for data in results)
         assert all(data["usage"]["total_tokens"] == 50 for data in results)
         assert len({data["request_id"] for data in results}) == 6
+        io = [data for event, data in logs if event == "llm_io"]
+        assert len(io) == 6
+        assert all(data["output"]["usage"]["total_tokens"] == 50 for data in io)
     finally:
         service.shutdown()
 
@@ -163,6 +166,111 @@ def test_invalid_or_truncated_model_plan_never_applies(schemas, monkeypatch, arg
         service.tick(tick_request(backend="openai"))
         wait_idle(service)
         assert service._sessions[("multi-test", 0)].runtime.plans == []
+    finally:
+        service.shutdown()
+
+
+@pytest.mark.parametrize("content,valid", [
+    ('{"value":1}', True),
+    ('{"value":1.0}', True),
+    ('{"action":"propose_plan","parameters":{"value":1}}', True),
+    ('{"action":"attack","parameters":{"value":1}}', False),
+    ('Here is the plan: {"value":1}', False),
+    ('{"value":1,"commands":[]}', False),
+    ('{"value":NaN}', False),
+    ('{"value":true}', False),
+    ('{"value":99}', False),
+    ('{"value":1', False),
+])
+def test_complete_json_content_uses_the_same_strict_schema(schemas, content, valid):
+    from brain.multi_agent.runtime import ROLE_SCHEMAS
+    response = ChatCompletionResponse.model_validate({"id": "local-json", "choices": [{
+        "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}]})
+    plan, output_format, parse_state = _decode_plan(response.choices[0], ROLE_SCHEMAS["commander"])
+    assert (plan == {"value": 1}) == valid
+    assert (parse_state == "valid") == valid
+    assert output_format.startswith("json_")
+    if valid:
+        assert type(plan["value"]) is int
+
+
+def test_goal_discovery_keeps_economy_plan_but_still_rejects_combat_plan(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    logs = []
+    service = MultiAgentService(forward=lambda req: completion(), runtime_factory=Runtime, max_workers=1,
+                                log=lambda event, data: logs.append((event, data)))
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        service.tick(tick_request(backend="openai"))
+        session = service._sessions[("multi-test", 0)]
+        session.runtime.version += 1
+        service._pool.finish()
+        assert session.plan_status["commander"]["state"] == "goal_changed"
+        session.next_role = ROLES.index("economy")
+        service.tick(tick_request(2, backend="openai"))
+        session.runtime.version += 1
+        service._pool.finish()
+        assert session.runtime.plans == [("economy", {"value": 1})]
+        applied = [data for event, data in logs if event == "model_result"][-1]
+        assert applied["parse_state"] == "valid"
+        assert applied["applied_observation_seq"] == 2
+        assert applied["changed_fields"] == ["value"]
+    finally:
+        service.shutdown()
+
+
+def test_expired_invalid_output_reports_both_failures(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    logs = []
+    service = MultiAgentService(forward=lambda req: completion('{'), runtime_factory=Runtime, max_workers=1,
+                                log=lambda event, data: logs.append((event, data)))
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        service.tick(tick_request(backend="openai"))
+        service._sessions[("multi-test", 0)].last_sim_time += 181
+        service._pool.finish()
+        result = next(data for event, data in logs if event == "model_result")
+        assert result["state"] == "plan_expired"
+        assert result["parse_state"] == "invalid_json"
+        assert result["plan_age_sim_sec"] == 181
+    finally:
+        service.shutdown()
+
+
+def test_finished_match_ticks_do_not_start_more_model_requests(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "rules_compat")
+    calls = []
+    service = MultiAgentService(forward=lambda req: calls.append(req), runtime_factory=Runtime, max_workers=1)
+    try:
+        service.tick(tick_request())
+        service._sessions[("multi-test", 0)].runtime.goals = {"match_over": True}
+        monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+        assert service.tick(tick_request(2, backend="openai"))["commands"]
+        assert not calls and service._inflight_count == 0
+    finally:
+        service.shutdown()
+
+
+def test_native_failure_log_keeps_actual_context_and_thinking_options(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    logs = []
+
+    def unavailable(req):
+        raise TimeoutError("local inference timeout")
+
+    service = MultiAgentService(forward=unavailable, runtime_factory=Runtime, max_workers=1,
+                                log=lambda event, data: logs.append((event, data)))
+    try:
+        service.tick(tick_request(backend="openai"))
+        wait_idle(service)
+        entry = next(data for event, data in logs if event == "llm_io")
+        assert entry["input"]["think"] is False
+        assert entry["input"]["options"]["num_predict"] == 256
+        assert "format" in entry["input"] and "tool_choice" not in entry["input"]
+        assert entry["output"] == {"error": "TimeoutError"}
     finally:
         service.shutdown()
 

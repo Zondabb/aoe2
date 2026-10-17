@@ -265,7 +265,16 @@ failure does not replace the previous catalog with incomplete references.
   is Castle Age. Trebuchet movement uses the packed source, while idle/attack
   artwork and combat attributes use the unpacked source.
 - Farm's transparent SLP overlay is replaced by a projection of the original
-  `g_fm1_00_color.png` farm terrain texture. Stone's graphic is read from Gaia's
+  `g_fm1_00_color.png` farm terrain texture. `farm_terrain.py` samples 154x154
+  source texels, calibrated to the supplied original-game screenshots' plant
+  spacing. It rotates the HD texture axes so furrows rise to screen-right and
+  stalks remain upright. Both stages use the native three-tile 288x144 atlas,
+  central hotspot and shared 1.2 original-art zoom. Do not fit them to the
+  demo's smaller simulation grid. Farm previews, construction and completed
+  unworked fields use original bare `g_fc1` soil; `g_fm1` crops appear on the
+  first successful extraction and their lifecycle flag persists in saves and
+  network snapshots. Terrain filtering and mipmaps remain enabled.
+  Stone's graphic is read from Gaia's
   stone resource definition.
 - The generated catalog retains original attack/armor-class arrays for future
   use, but the current runtime does not implement every original combat effect

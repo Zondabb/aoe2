@@ -266,6 +266,8 @@ func capture_snapshot() -> Dictionary:
 					for definition in entity.get("train_queue"):
 						queue.append(String(definition.id))
 					record.merge({"complete": entity.get("is_complete"), "build_progress": entity.get("build_progress"), "train_progress": entity.get("train_progress"), "train_queue": queue, "train_queue_ids": entity.get("train_queue_ids").duplicate(), "accepts_all": entity.get("accepts_all_resources"), "farm_food": entity.get("amount")})
+					if record.def == "farm":
+						record["farm_has_crops"] = entity.get("farm_has_crops")
 		records.append(record)
 	var economies: Array = []
 	for side in [0, 1]:
@@ -385,6 +387,7 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 			entity = BUILDING_VIEW.instantiate()
 			if record.def == "farm": entity.set_script(load("res://scripts/entities/farm_agent.gd"))
 			entity.set("def", Protocol.building_def_for_id(String(record.def)))
+			if record.def == "farm": entity.set("farm_has_crops", _farm_crops_from_record(record))
 			entity.set("accepts_all_resources", bool(record.get("accepts_all", false)))
 			entity.set("is_complete", bool(record.complete))
 			entity.set("build_progress", float(record.build_progress))
@@ -452,6 +455,7 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 			entity.set("carry_amount", float(record.get("carry_amount", 0.0)))
 			entity.call("apply_network_presentation", record.get("presentation", {}))
 		else:
+			if record.def == "farm": entity.set("farm_has_crops", _farm_crops_from_record(record))
 			entity.set("is_complete", bool(record.complete))
 			entity.set("build_progress", float(record.build_progress))
 			entity.set("train_progress", float(record.train_progress))
@@ -525,10 +529,18 @@ func _valid_record(record: Dictionary) -> bool:
 		seen_ids[int(id)] = true
 	if record.has("farm_food") and (not _finite_number(record.farm_food) or float(record.farm_food) < 0.0):
 		return false
+	if record.has("farm_has_crops") and record.farm_has_crops is not bool:
+		return false
 	for id in record.train_queue:
 		if id is not String or Protocol.unit_def_for_id(id) == null:
 			return false
 	return true
+
+
+func _farm_crops_from_record(record: Dictionary) -> bool:
+	# Older hosts did not transmit the visual lifecycle. Depletion is the only
+	# evidence that gathering began; a fresh or unfinished farm stays bare.
+	return bool(record.get("farm_has_crops", bool(record.complete) and float(record.get("farm_food", 175.0)) < 175.0))
 
 
 func _index_host_entities() -> void:

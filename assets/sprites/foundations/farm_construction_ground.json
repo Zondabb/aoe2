@@ -2,8 +2,8 @@
   "key": "farm_construction_ground",
   "cols": 1,
   "rows": 1,
-  "frame_w": 384,
-  "frame_h": 192,
+  "frame_w": 288,
+  "frame_h": 144,
   "frame_count": 1,
   "source_frame_count": 1,
   "directions": 1,
@@ -11,20 +11,30 @@
   "construction_stage": 0,
   "hotspots": [
     {
-      "x": 192,
-      "y": 96
+      "x": 144,
+      "y": 72
     }
   ],
   "player_color": {
     "mode": "none"
   },
-  "includes_shadow": false,
   "terrain_source_id": 29,
   "source": "_common/terrain/textures/g_fc1_00_color.png",
   "derived_composite": true,
+  "ground_terrain": true,
   "footprint": [
     3,
     3
   ],
-  "notes": "Original Farm Cnst1 terrain; same affine projection as the completed farm atlas."
+  "includes_shadow": false,
+  "source_sha256": "5248a47652198d2f2e666845720b9e007893a093cb13465ea8eb84ec376d25c4",
+  "source_sample_rect": [
+    0,
+    0,
+    154,
+    154
+  ],
+  "reference_calibrated": true,
+  "row_direction": "screen_up_right",
+  "notes": "Original Farm Cnst1 terrain sample; same ground footprint and texel density as the completed farm."
 }

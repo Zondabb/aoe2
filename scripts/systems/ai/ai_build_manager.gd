@@ -73,6 +73,7 @@ func ensure_food_supply(ctx: AiRunContext) -> bool:
 	if exhausted != null and not ctx.capture_commands:
 		if ctx.match_state.spend(ctx.team, farm.cost_food, farm.cost_wood, farm.cost_gold, farm.cost_stone):
 			exhausted.set("amount", FARM_FOOD_AMOUNT)
+			exhausted.set("farm_has_crops", false)
 			ctx.log_decision("ECON", "重播农田")
 			return true
 		return false

@@ -103,9 +103,15 @@ flowchart LR
 | `AOE2_AI_MODEL_CALLS_PER_MINUTE` | 6 | 每队每分钟模型请求数上限，范围 1–60 |
 | `AOE2_AI_LOG_FULL_PROMPTS` | 关闭 | 设为 `1` 时额外记录角色模型提示，用于本地排障 |
 
-角色最短重规划间隔为：战略/建设/科技 45 墙钟秒，经济 30 秒，侦察/战斗 20 秒；总预算和并发限制优先。队伍与对局之间按等待顺序轮转分配空闲槽位，避免先请求的一队持续占满并发。没有按 tick 无界排队模型请求。上游响应超过 180 游戏秒或目标版本变化时，计划被丢弃并记录原因。
+角色最短重规划间隔为：战略/建设/科技 45 墙钟秒，经济 30 秒，侦察/战斗 20 秒；总预算和并发限制优先。队伍与对局之间按等待顺序轮转分配空闲槽位，避免先请求的一队持续占满并发。没有按 tick 无界排队模型请求。上游响应超过 180 游戏秒时被丢弃；战略/侦察/作战还检查目标版本，经济/建设/科技参数不会仅因发现敌 TC 失效。终局停止启动新规划。
 
-新通道写入 `ai_service_python/logs/multi_agent.jsonl`，单文件 20 MB，保留 3 个轮转备份。日志包含 match/team/epoch、观察序号、角色、命令、状态、耗时、上游 `finish_reason` 和实际返回的 usage。没有 usage 时不估算 token 数。默认不记录整段提示；旧 `llm.log` 继续服务旧版 v2。
+新通道写入 `ai_service_python/logs/multi_agent.jsonl`，单文件 20 MB，保留 3 个轮转备份。日志包含 match/team/epoch、观察序号、角色、命令、状态、耗时、上游 `finish_reason` 和实际返回的 usage。没有 usage 时不估算 token 数。`model_request` 默认不重复记录完整提示，`llm_io` 记录实际发送体和原始返回；旧 `llm.log` 继续服务旧版 v2。
+
+`model_result.parse_state` 独立表示输出是否通过校验，`state` 表示是否提交，避免格式错误被过期原因掩盖。`changed_fields` / `plan_changed` / `plan_version_before/after` / `applied_observation_seq` 显示参数是否真的改变及提交时的观察序号。`agent_status` 包含当前 `plan`、`plan_source`、`model_updates`；相同计划也会记录来源为 `llm`，但不增加计划版本。不同参数产生不同实际命令已有经济人数、施工人数和战略姿态的行为对照测试。
+
+本地 Qwen3 使用 `ai_service_python/start_qwen3_proxy.ps1`：单并发、原生 Ollama JSON Schema、关闭思考、显式上下文与短输出预算。其余 OpenAI 兼容服务保留原调用方输出预算。所有路径均验证角色 schema；纯 JSON 或准确的 `propose_plan` JSON 封装也能接受，解说文本和截断输出仍拒绝。
+
+快速统计：`ai_service_python/.venv/Scripts/python.exe ai_service_python/tools/analyze_multi_agent_log.py`，可追加多个日志路径与 `--json`。历史日志可能缺少新诊断字段，工具会保留 unknown，而不把所有 `applied` 算成策略改变。
 
 排障先对照 `agent_status.reason`、`planning.state` 和事件拒绝原因，区分模型规划失败、资源不足、队列等待、路径无进展与目标失去视野。日志写入失败不会让快速控制停止。
 

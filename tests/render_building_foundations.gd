@@ -127,7 +127,8 @@ func _run() -> void:
 	var preview := viewport.get_texture().get_image()
 	preview.save_png("res://.godot/building-foundations-preview.png")
 	for actor in actors:
-		check_native_alignment(actor, SPRITES.building_sheet_base(actor.def.id, actor.civ.id, 2), "preview %s/%s" % [actor.civ.id, actor.def.id])
+		var preview_base := SPRITES.foundation_sheet_base(actor.def.id, actor.civ.id, 2) if actor.def.id == &"farm" else SPRITES.building_sheet_base(actor.def.id, actor.civ.id, 2)
+		check_native_alignment(actor, preview_base, "preview %s/%s" % [actor.civ.id, actor.def.id])
 		check(not renderer.get("_static_actors").has(actor.get_instance_id()), "preview is excluded from the static occlusion registry")
 		actor.clear_ghost_visual()
 	await frame()
@@ -137,12 +138,12 @@ func _run() -> void:
 		var actor := actors[index]
 		var base := SPRITES.foundation_sheet_base(actor.def.id, actor.civ.id, 2, actor.def.footprint)
 		check_native_alignment(actor, base, "foundation %s/%s" % [actor.civ.id, actor.def.id])
-		check((actor.get_node("Billboard") as Sprite2D).z_index == -1, "foundation remains below walking units")
+		check((actor.get_node("Billboard") as Sprite2D).z_index < 0, "foundation remains below walking units")
 		var shadow := actor.get_node_or_null("GroundShadow") as CanvasItem
 		check(shadow == null or not shadow.visible, "foundation has no completed-building ground shadow")
 		check(renderer.get("_static_actors").has(actor.get_instance_id()), "confirmed preview enters the renderer registry")
 		check(ink_pixels(foundation, boxes[index]) > 100, "foundation is present in the actual framebuffer")
-		check(changed_pixels(preview, foundation, boxes[index]) > 100, "confirmation replaces the completed preview in the framebuffer")
+		check(changed_pixels(preview, foundation, boxes[index]) > 100, "confirmation removes placement tint and displays the foundation in the framebuffer")
 		actor.add_build_progress(actor.def.build_time * 0.5)
 	await frame()
 	var half := viewport.get_texture().get_image()
@@ -162,8 +163,14 @@ func _run() -> void:
 	for index in actors.size():
 		var actor := actors[index]
 		check(actor.is_complete, "100% construction reaches the completed state")
-		check_native_alignment(actor, SPRITES.building_sheet_base(actor.def.id, actor.civ.id, 2), "completed %s/%s" % [actor.civ.id, actor.def.id])
-		check(changed_pixels(nearly, complete, boxes[index]) > 100, "completion reveals the full building in the actual framebuffer")
+		var complete_base := SPRITES.foundation_sheet_base(actor.def.id, actor.civ.id, 2) if actor.def.id == &"farm" else SPRITES.building_sheet_base(actor.def.id, actor.civ.id, 2)
+		check_native_alignment(actor, complete_base, "completed %s/%s" % [actor.civ.id, actor.def.id])
+		if actor.def.id == &"farm":
+			# A neighboring completed castle can extend into this preview cell.
+			# The isolated farm runner compares the unchanged soil framebuffer.
+			check(not actor.farm_has_crops and actor._uses_foundation_visual(), "farm completion retains bare soil until first harvest")
+		else:
+			check(changed_pixels(nearly, complete, boxes[index]) > 100, "completion reveals the full building in the framebuffer")
 		if actor.def.id == &"town_center":
 			var shadow := actor.get_node_or_null("GroundShadow") as Sprite2D
 			check(shadow != null and shadow.visible, "completed town center restores its separate original ground shadow")

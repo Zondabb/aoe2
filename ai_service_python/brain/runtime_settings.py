@@ -38,6 +38,11 @@ def llm_base_url() -> str:
     return get_value("llm_base_url", "AOE2_LLM_BASE_URL")
 
 
+def llm_model() -> str:
+    """Upstream model override. Empty means forward the name sent by the game."""
+    return get_value("llm_model", "AOE2_LLM_MODEL")
+
+
 def ai_token() -> str:
     return get_value("ai_token", "AOE2_AI_TOKEN")
 
@@ -63,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--llm-token", default="", help="Upstream model API token (DeepSeek/OpenAI)")
     parser.add_argument("--llm-token-file", default="", help="Read --llm-token from the first line of a file")
     parser.add_argument("--llm-base-url", default="", help="OpenAI-compatible base, e.g. https://api.deepseek.com")
+    parser.add_argument("--llm-model", default="", help="Override the model name sent upstream, e.g. qwen3:8b")
     parser.add_argument("--llm-timeout-sec", default="", help="Upstream LLM HTTP timeout (default 30)")
     parser.add_argument("--ai-token", default="", help="Optional Bearer token required from the game")
     parser.add_argument("--backend", default="", help="Force backend: openai | rules_compat")
@@ -80,6 +86,7 @@ def apply_args(args: argparse.Namespace) -> None:
     set_cli(
         llm_token=token,
         llm_base_url=getattr(args, "llm_base_url", ""),
+        llm_model=getattr(args, "llm_model", ""),
         llm_timeout_sec=str(getattr(args, "llm_timeout_sec", "") or ""),
         ai_token=getattr(args, "ai_token", ""),
         backend=getattr(args, "backend", ""),
@@ -89,6 +96,9 @@ def apply_args(args: argparse.Namespace) -> None:
     base = str(getattr(args, "llm_base_url", "") or "").strip()
     if base:
         os.environ["AOE2_LLM_BASE_URL"] = base
+    model = str(getattr(args, "llm_model", "") or "").strip()
+    if model:
+        os.environ["AOE2_LLM_MODEL"] = model
     timeout = str(getattr(args, "llm_timeout_sec", "") or "").strip()
     if timeout:
         os.environ["AOE2_LLM_TIMEOUT_SEC"] = timeout

@@ -28,6 +28,15 @@ pip install -r requirements.txt
 
 ## 启动
 
+本地 Ollama `qwen3:8b`：
+
+```powershell
+cd ai_service_python
+.\start_qwen3_proxy.ps1
+```
+
+六角色规划自动使用 Ollama 原生 `/api/chat`：JSON Schema 约束、`think=false`、8192 上下文、最多 256 输出 token；启动脚本限制单个 GPU 同时一个请求。这样避免兼容接口忽略 `tool_choice`、思考耗尽输出预算和长观察被截断。`-NumCtx 16384` 可调整上下文，其他兼容服务继续走原接口。详细排查与实测见[Qwen3 决策排查](../docs/qwen3_decision_diagnosis.md)。
+
 `uvicorn main:app` 读不到自定义参数。请用 `python main.py`，token 和 host 一样用 `--` 传入：
 
 ```bash
@@ -53,11 +62,12 @@ python main.py --host 127.0.0.1 --port 8765 --backend openai \
 | `--llm-token` | 上游模型 API token（DeepSeek / OpenAI / Kuailu OpenAI 格式密钥） |
 | `--llm-token-file` | 从文件第一行读 token |
 | `--llm-base-url` | 兼容 Chat Completions 的根地址，例如 `https://api.deepseek.com` 或 `https://test-newapi.kuailutech.cn/v1` |
+| `--llm-model` | 覆盖游戏传来的模型名，例如 `qwen3:8b` |
 | `--llm-timeout-sec` | 上游超时，默认 30 |
 | `--backend` | 强制 `openai` 或 `rules_compat` |
 | `--ai-token` | 游戏访问本服务时的 Bearer（可选） |
 
-环境变量 `AOE2_LLM_TOKEN` / `AOE2_LLM_BASE_URL` 仍可用，但命令行优先。系统里设了环境变量后，**必须新开终端**再启动进程才会生效。
+环境变量 `AOE2_LLM_TOKEN` / `AOE2_LLM_BASE_URL` / `AOE2_LLM_MODEL` 仍可用，但命令行优先。原生 Ollama 规划读取 `AOE2_LLM_NUM_CTX`（默认 8192，范围 2048–32768）。系统里设了环境变量后，**必须新开终端**再启动进程才会生效。
 
 健康检查：
 
@@ -65,6 +75,16 @@ python main.py --host 127.0.0.1 --port 8765 --backend openai \
 curl http://127.0.0.1:8765/health
 # {"status":"ok"}
 ```
+
+实时观察 LLM 输入摘要、输出计划、实际参数变化和执行器指令：
+
+```powershell
+.\.venv\Scripts\python.exe tools\watch_multi_agent_log.py --follow --commands
+# 查看最近一次完整输入输出
+.\.venv\Scripts\python.exe tools\watch_multi_agent_log.py --last 1 --full-io
+```
+
+查看工具只读日志，无需重启服务。完整说明见[LLM 观察指南](../docs/llm_observation.md)；模型返回高层计划，`tick.commands` 是执行器下发的具体游戏命令。
 
 Chat Completions（非流式，`rules_compat` 用 `observation` 跑现有 Director）：
 
