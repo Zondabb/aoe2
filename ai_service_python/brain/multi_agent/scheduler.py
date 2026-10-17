@@ -6,7 +6,7 @@ latest observation, while epoch, objective and expiry guards reject stale work.
 """
 from __future__ import annotations
 
-from collections import OrderedDict, deque
+from collections import Counter, OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import copy
@@ -252,6 +252,13 @@ class MultiAgentService:
             self._emit("tick", match_id=req.metadata.match_id, team=req.metadata.team,
                        session_epoch=epoch, observation_seq=seq, sim_time=req.metadata.time_sec,
                        commands=result.get("commands", []), agent_status=result.get("agent_status", {}),
+                       goals=result.get("goals", {}),
+                       observation_summary={
+                           "economy": req.observation.economy.model_dump(),
+                           "age": req.observation.progression.age if req.observation.progression else 0,
+                           "own_entities": dict(Counter(e.get("def_id", "unknown") for e in req.observation.entities if e.get("team") == req.metadata.team)),
+                           "town_centers": [{k: e[k] for k in ("id", "team", "hp", "max_hp") if k in e} for e in req.observation.entities if e.get("def_id") == "town_center"],
+                           "victory_conditions": getattr(req.observation, "victory_conditions", {}) or req.observation.decision_context.get("victory_conditions", {})},
                        elapsed_ms=round((self.clock() - start) * 1000, 3))
             return result
 

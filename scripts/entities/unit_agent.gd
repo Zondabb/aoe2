@@ -58,6 +58,7 @@ var carry_amount := 0.0
 @export var carry_capacity := 10.0
 var match_state: MatchState
 var _move_target := Vector2.ZERO
+var _formation_move_speed := 0.0
 var _gather_target: Node2D
 var _last_resource: Node2D
 var _drop_off_target: Node2D
@@ -223,7 +224,7 @@ func _process_move(delta: float) -> void:
 		# A temporary crowd detour may end at a nearby free cell, not our goal.
 		_request_nav_path(_move_target)
 		return
-	var step := minf(def.move_speed * delta, distance)
+	var step := minf(_movement_speed() * delta, distance)
 	var velocity := offset.normalized() * step
 	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
 	_sync_visual()
@@ -243,6 +244,7 @@ func _finish_move() -> void:
 func command_move(target: Vector2) -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
+	_formation_move_speed = 0.0
 	if order == Enums.OrderType.MOVE and _requested_move_target.is_equal_approx(target):
 		return
 	_cancel_gather_search()
@@ -266,6 +268,15 @@ func command_move(target: Vector2) -> void:
 	_request_nav_path(_move_target)
 	order = Enums.OrderType.MOVE
 	_unit_log("order", "MOVE target=%s" % target)
+
+func set_formation_move_speed(speed: float) -> void:
+	if def != null and is_finite(speed):
+		_formation_move_speed = clampf(speed, 0.0, def.move_speed)
+
+func _movement_speed() -> float:
+	if order == Enums.OrderType.MOVE and _formation_move_speed > 0.0:
+		return minf(def.move_speed, _formation_move_speed)
+	return def.move_speed
 
 func command_stop() -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
@@ -1102,7 +1113,7 @@ func _move_toward(target: Vector2, delta: float) -> void:
 		else:
 			_apply_billboard_frame(false)
 		return
-	var step := minf(def.move_speed * delta, distance)
+	var step := minf(_movement_speed() * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
@@ -1120,7 +1131,7 @@ func _direct_step_toward(target: Vector2, delta: float) -> void:
 		else:
 			_apply_billboard_frame(false)
 		return
-	var step := minf(def.move_speed * delta, distance)
+	var step := minf(_movement_speed() * delta, distance)
 	var velocity := offset.normalized() * step
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
@@ -1346,7 +1357,7 @@ func _steer_velocity_toward(delta: float) -> Vector2:
 	var distance := offset.length()
 	if distance <= 0.0001:
 		return Vector2.ZERO
-	var step := minf(def.move_speed * delta, distance)
+	var step := minf(_movement_speed() * delta, distance)
 	return offset / distance * step
 
 
@@ -1439,6 +1450,33 @@ func set_selected(selected: bool) -> void:
 	var selection_ring := get_node_or_null("SelectionRing") as CanvasItem
 	if selection_ring != null:
 		selection_ring.visible = selected
+	var badge := get_node_or_null("ControlGroupBadge") as Label
+	if badge != null:
+		badge.visible = selected and not badge.text.is_empty()
+
+
+## Local input state only; group membership is not simulation/network state.
+func set_control_group_ids(groups: Array[int]) -> void:
+	var badge := get_node_or_null("ControlGroupBadge") as Label
+	if badge == null and groups.is_empty():
+		return
+	if badge == null:
+		badge = Label.new()
+		badge.name = "ControlGroupBadge"
+		badge.position = Vector2(18, -14)
+		badge.z_index = 2
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.add_theme_font_size_override("font_size", 12)
+		badge.add_theme_color_override("font_color", Color.WHITE)
+		badge.add_theme_color_override("font_outline_color", Color.BLACK)
+		badge.add_theme_constant_override("outline_size", 3)
+		add_child(badge)
+	var numbers := PackedStringArray()
+	for group in groups:
+		numbers.append(str(group))
+	badge.text = ",".join(numbers)
+	var ring := get_node_or_null("SelectionRing") as CanvasItem
+	badge.visible = ring != null and ring.visible and not groups.is_empty()
 
 func _sync_visual() -> void:
 	IsoMathScript.sync_node(self, sim_pos)
@@ -1496,6 +1534,10 @@ func _configure_selection_ring() -> void:
 	var radius := 0.42
 	if def != null:
 		radius = def.resolved_footprint_radius()
+		# Authored maps use older, oversized collision radii. Match the original
+		# actor's visual footprint without changing movement/collision balance.
+		var visual_def := GameCatalog.get_unit(&"militia" if def.id == &"swordsman" else def.id)
+		if visual_def != null: radius = visual_def.resolved_footprint_radius()
 	SpriteCatalogScript.configure_selection_circle(self, radius)
 
 

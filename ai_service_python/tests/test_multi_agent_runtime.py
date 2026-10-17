@@ -658,3 +658,129 @@ def test_first_sortie_food_protection_does_not_freeze_worker_growth_after_losses
     req.observation.economy.food, req.observation.economy.wood = 50, 0
     out = runtime.tick(req)
     assert any(c["unit_def_id"] == "villager" for c in issued(out, "train")), "After the initial sortie, military losses must not reset the opening civilian embargo"
+
+
+def test_model_reaffirmation_does_not_cancel_age_based_worker_growth():
+    runtime = MultiAgentRuntime()
+    entities = [building(1, "town_center")] + [unit(10 + i) for i in range(8)]
+    req = frame(entities=entities, construction_options=[])
+    req.observation.progression.age = 1
+    before = runtime.tick(req)
+    plan(runtime, "economy")
+    later = frame(2, entities=entities, events=accept(before), construction_options=[])
+    later.observation.progression.age = 1
+    runtime.tick(later)
+    context = runtime.planning_context("economy")
+    assert context["force_summary"]["workers"]["target"] == 12
+    assert context["strategy_signals"]["minimum_workers"] == 12
+    assert any(c.get("unit_def_id") == "villager" for c in issued(before, "train"))
+
+
+def test_first_sortie_opens_economic_growth_even_when_model_keeps_eight():
+    runtime = MultiAgentRuntime()
+    plan(runtime, "economy", worker_target=8)
+    runtime.tick(frame(entities=army() + [enemy_tc()]))
+    req = frame(2, entities=[building(1, "town_center")] + [unit(10 + i) for i in range(8)], construction_options=[])
+    req.observation.economy.food = 50
+    assert any(c.get("unit_def_id") == "villager" for c in issued(runtime.tick(req), "train"))
+
+
+def test_opening_barracks_saves_wood_against_repeated_cheap_purchases():
+    runtime = MultiAgentRuntime()
+    previous = {"commands": []}
+    for tick, wood in enumerate((60, 100, 140, 180), 1):
+        entities = [building(1, "town_center"), building(2, "mill"), building(3, "farm", amount=300)] + [unit(10 + i) for i in range(6)]
+        req = frame(tick, entities=entities, time=tick * 25, events=accept(previous, tick * 100), construction_options=[
+            {"building_def_id": "barracks", "builder_id": 10, "pos": [24, 0]},
+            {"building_def_id": "farm", "builder_id": 11, "pos": [12, 12]}])
+        req.observation.economy.wood = wood
+        previous = runtime.tick(req)
+        placed = issued(previous, "place_building")
+        assert not any(c["building_def_id"] == "farm" for c in placed)
+    assert placed[0]["building_def_id"] == "barracks"
+
+
+def test_food_transition_saves_for_mill_before_berries_are_exhausted():
+    runtime = MultiAgentRuntime()
+    entities = [building(1, "town_center"), building(2, "barracks")] + [unit(10 + i) for i in range(8)]
+    entities += [{"id": 100, "kind": "resource", "resource_type": "FOOD", "amount": 250, "pos": [10, 0]}]
+    def make(tick, wood, events=()):
+        req = frame(tick, entities=entities, events=events, construction_options=[
+            {"building_def_id": "mill", "builder_id": 10, "pos": [12, 12]},
+            {"building_def_id": "house", "builder_id": 11, "pos": [0, 24]}])
+        req.observation.economy.wood = wood
+        req.observation.economy.pop_cap = 6  # headroom, not a hard population block
+        return req
+    first = runtime.tick(make(1, 60))
+    assert not issued(first, "place_building")
+    assert runtime.construction_reserve["wood"] == 60
+    second = runtime.tick(make(2, 100, accept(first)))
+    assert issued(second, "place_building")[0]["building_def_id"] == "mill"
+
+
+def test_positive_slow_age_savings_survive_ninety_seconds():
+    runtime = MultiAgentRuntime()
+    for tick, now, food in ((1, 0, 200), (2, 60, 250), (3, 100, 300)):
+        entities = [building(1, "town_center", age_upgrade_reason="resources"), building(2, "barracks"), building(3, "mill")]
+        req = frame(tick, entities=entities + [unit(10 + i) for i in range(8)], time=now, construction_options=[])
+        req.observation.economy.food = food
+        req.observation.decision_context["catalog"]["age_upgrade"] = {"cost": {"food": 500}, "buildings": ["mill", "barracks"], "required_distinct_buildings": 2}
+        runtime.tick(req)
+    assert runtime.tech_reserve["food"] > 150
+    assert runtime.roles["technology"].memory["reserve_started"] == 0
+
+
+def test_age_savings_release_when_income_stalls():
+    runtime = MultiAgentRuntime()
+    for tick, now in ((1, 0), (2, 100)):
+        entities = [building(1, "town_center", age_upgrade_reason="resources"), building(2, "barracks"), building(3, "mill")]
+        req = frame(tick, entities=entities + [unit(10 + i) for i in range(8)], time=now, construction_options=[])
+        req.observation.economy.food = 100
+        req.observation.decision_context["catalog"]["age_upgrade"] = {"cost": {"food": 500}, "buildings": ["mill", "barracks"], "required_distinct_buildings": 2}
+        runtime.tick(req)
+    assert runtime.tech_reserve == {}
+    assert runtime.roles["technology"].memory["reserve_started"] > 100
+
+
+def test_heavy_sortie_losses_regroup_survivor_and_new_reinforcement():
+    runtime = MultiAgentRuntime()
+    first = runtime.tick(frame(entities=army() + [enemy_tc()]))
+    assert first["goals"]["sortie_departed"] is not None
+    units = [unit(30, "militia", [30, 30]), unit(90, "militia", [0, 0])]
+    out = runtime.tick(frame(2, entities=units + [enemy_tc()], time=50, events=accept(first)))
+    assert out["goals"]["sortie_departed"] is None
+    assert not issued(out, "attack")
+    assert {c["unit_id"] for c in issued(out, "move")} == {30, 90}
+
+
+@pytest.mark.parametrize("progress", ("stationary", "moving", "harvesting", "human"))
+def test_loaded_worker_recovers_only_after_confirmed_stall(progress):
+    runtime = MultiAgentRuntime()
+    worker = unit(10, pos=[20, 0], order="GATHER", target_id=100, carry_amount=10,
+                  carry_type="WOOD", gather_resource_type="WOOD", gather_state="to_drop_off")
+    resources = [{"id": 100, "kind": "resource", "resource_type": "WOOD", "amount": 500, "pos": [24, 0]},
+                 {"id": 101, "kind": "resource", "resource_type": "FOOD", "amount": 500, "pos": [10, 10]}]
+    first = runtime.tick(frame(entities=[worker] + resources, time=0, construction_options=[]))
+    assert not issued(first, "gather")
+    for tick, now in ((2, 20), (3, 35)):
+        if progress == "moving":
+            worker["pos"][0] -= 3
+        elif progress == "harvesting":
+            worker["carry_amount"] -= 1  # any observed cargo change is progress
+        events = [{"type": "manual_command", "seq": tick, "unit_ids": [10]}] if progress == "human" else ()
+        out = runtime.tick(frame(tick, entities=[worker] + resources, time=now, events=events, construction_options=[]))
+    if progress == "stationary":
+        assert [(c["unit_id"], c["target_id"]) for c in issued(out, "gather")] == [(10, 101)]
+    else:
+        assert not issued(out, "gather")
+
+
+def test_zero_demand_stone_is_not_an_overflow_job_and_old_miners_rebalance():
+    runtime = MultiAgentRuntime()
+    workers = [unit(10 + i, order="GATHER", target_id=101, gather_resource_type="WOOD") for i in range(7)]
+    workers += [unit(50, order="GATHER", target_id=102, gather_resource_type="STONE"), unit(51)]
+    resources = [{"id": 101, "kind": "resource", "resource_type": "WOOD", "amount": 500, "pos": [10, 0]},
+                 {"id": 102, "kind": "resource", "resource_type": "STONE", "amount": 500, "pos": [0, 10]}]
+    out = runtime.tick(frame(entities=workers + resources, construction_options=[]))
+    assert not any(c["target_id"] == 102 for c in issued(out, "gather"))
+    assert {c["unit_id"] for c in issued(out, "gather")} >= {50, 51}

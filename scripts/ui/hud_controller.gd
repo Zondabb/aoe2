@@ -31,6 +31,7 @@ var _hovered_command: BaseButton
 var _production_queue: GridContainer
 var _production_progress: ProgressBar
 var _shown_production_key := ""
+var _control_group_bar: HBoxContainer
 
 @onready var _resources_label := %ResourcesLabel as Label
 @onready var _wood_digits := %WoodDigits as Aoe2DigitRow
@@ -112,6 +113,11 @@ func setup(
 	if selection != null:
 		if not selection.is_connected("selection_changed", _on_selection_changed):
 			selection.connect("selection_changed", _on_selection_changed)
+		if selection.has_signal("control_groups_changed") and not selection.is_connected("control_groups_changed", _refresh_control_groups):
+			selection.connect("control_groups_changed", _refresh_control_groups)
+		if selection.has_signal("formation_changed") and not selection.is_connected("formation_changed", _on_formation_changed):
+			selection.connect("formation_changed", _on_formation_changed)
+	_setup_control_groups()
 	if match_state != null and not match_state.winner_decided.is_connected(_on_winner_decided):
 		match_state.winner_decided.connect(_on_winner_decided)
 	if _return_button != null and not _return_button.pressed.is_connected(_return_to_civ_select):
@@ -152,6 +158,11 @@ func _sync_hud_layout() -> void:
 	_sync_top_bar_layout()
 	_sync_command_panel_layout()
 	_sync_minimap_layout()
+	_refresh_control_groups()
+	if is_instance_valid(selection):
+		var top := UiCatalogScript.panel_scaled_top_band(size.x)
+		var bottom := UiCatalogScript.panel_scaled_bottom_band(size.x)
+		selection.set_meta("world_screen_rect", Rect2(0, top, size.x, maxf(0, size.y - top - bottom)))
 
 func _sync_minimap_layout() -> void:
 	var minimap := get_node_or_null("Minimap") as Control
@@ -239,6 +250,56 @@ func _on_selection_changed(_selected: Array) -> void:
 			_selected_building.connect("tree_exited", _on_selected_building_exited)
 	_refresh_info_panel()
 	_rebuild_command_grid()
+	_refresh_control_groups()
+
+func _setup_control_groups() -> void:
+	if _control_group_bar != null or not is_instance_valid(selection) or not selection.has_method("get_control_group"):
+		return
+	_control_group_bar = HBoxContainer.new()
+	_control_group_bar.name = "ControlGroups"
+	_control_group_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_control_group_bar.add_theme_constant_override("separation", 4)
+	add_child(_control_group_bar)
+	for index in [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]:
+		var button := Button.new()
+		button.name = "Group%d" % index
+		button.custom_minimum_size = Vector2(54, 32)
+		button.focus_mode = Control.FOCUS_NONE
+		button.set_meta("group_index", index)
+		button.toggle_mode = true
+		button.pressed.connect(_activate_control_group.bind(index))
+		_control_group_bar.add_child(button)
+	_refresh_control_groups()
+
+func _refresh_control_groups() -> void:
+	if _control_group_bar == null or not is_instance_valid(selection): return
+	_control_group_bar.position = Vector2(12, UiCatalogScript.panel_scaled_top_band(size.x) + 6)
+	_control_group_bar.visible = not read_only
+	var selected_groups: Array = selection.call("selected_control_groups")
+	for button: Button in _control_group_bar.get_children():
+		var index: int = button.get_meta("group_index")
+		var members: Array = selection.call("get_control_group", index)
+		button.visible = not members.is_empty()
+		button.text = "%d · %d" % [index, members.size()]
+		button.set_pressed_no_signal(index in selected_groups)
+		button.tooltip_text = "编队 %d（%d 个）\n点击或按 %d 选取；连按 %d 定位\nCtrl+%d 重设；Shift+%d 追加" % [index, members.size(), index, index, index, index]
+
+func _activate_control_group(index: int) -> void:
+	if not _commands_enabled(): return
+	if Input.is_key_pressed(KEY_CTRL):
+		selection.call("assign_control_group", index, Input.is_key_pressed(KEY_SHIFT))
+	elif Input.is_key_pressed(KEY_SHIFT):
+		selection.call("assign_control_group", index, true)
+	else:
+		selection.call("recall_control_group", index)
+	_refresh_control_groups()
+
+func _on_formation_changed(_kind: StringName) -> void:
+	_refresh_command_grid_states()
+
+func _set_formation(kind: StringName) -> void:
+	if _commands_enabled() and is_instance_valid(selection) and selection.has_method("set_formation"):
+		selection.call("set_formation", kind)
 
 func _disconnect_selected_building() -> void:
 	if _selected_building == null or not is_instance_valid(_selected_building):
@@ -342,7 +403,7 @@ func _refresh_status_label(focus: Node2D, units: Array) -> void:
 		elif is_instance_valid(focus) and focus.get("team") != null and focus.get("team") != PlayerCommands.local_team(self):
 			_status_label.text = "敌方%s：仅可查看信息。" % ("建筑" if focus.is_in_group("buildings") else "单位")
 		else:
-			_status_label.text = "右键移动、采集或攻击；B 经济建筑 / V 军事建筑。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) and units[0].get("def").id == &"villager" else "右键下达指令。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) else ""
+			_status_label.text = "右键下令；双击选同类；Ctrl+数字编队，数字选组，连按定位。" if not units.is_empty() and units[0].get("team") == PlayerCommands.local_team(self) else ""
 		return
 	if focus == null:
 		_status_label.text = ""
@@ -536,10 +597,12 @@ func _rebuild_command_grid() -> void:
 	var units: Array = selection.call("get_selected_units")
 	var has_player_villager := false
 	var has_player_units := false
+	var player_unit_count := 0
 	for unit in units:
 		if not is_instance_valid(unit) or unit.get("team") != PlayerCommands.local_team(self):
 			continue
 		has_player_units = true
+		player_unit_count += 1
 		var unit_def := unit.get("def") as UnitDef
 		if unit_def != null and unit_def.id == &"villager":
 			has_player_villager = true
@@ -551,6 +614,18 @@ func _rebuild_command_grid() -> void:
 			_add_build_commands()
 	if has_player_units and _command_page == "root":
 		_add_command_button(9, "stop", "停止", UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_STOP, KEY_S, _stop_selected_units)
+		if player_unit_count > 1 and selection.has_method("set_formation"):
+			var kinds := [&"line", &"box", &"staggered", &"flank"]
+			var labels := ["横队", "方阵", "疏散队形", "两翼队形"]
+			var keys := [KEY_I, KEY_O, KEY_P, KEY_L]
+			for index in kinds.size():
+				_add_command_button(5 + index, "formation_" + kinds[index], labels[index], UiCatalogScript.ICONS_COMMANDS_BASE, UiCatalogScript.FRAME_FORMATION_LINE + index, keys[index], _set_formation.bind(kinds[index]), "formation_kind", kinds[index])
+				(_command_grid.get_child(5 + index) as Button).toggle_mode = true
+				var active := StyleBoxFlat.new()
+				active.bg_color = Color("5b4826")
+				active.border_color = Color("fff0b3")
+				active.set_border_width_all(2)
+				(_command_grid.get_child(5 + index) as Button).add_theme_stylebox_override("pressed", active)
 	if is_instance_valid(_selected_building) and _selected_building.get("team") == PlayerCommands.local_team(self) and bool(_selected_building.get("is_complete")):
 		if match_state.progression_enabled:
 			_add_production_commands()
@@ -814,6 +889,8 @@ func _refresh_command_grid_states() -> void:
 		elif button.has_meta("technology_id"):
 			reason = match_state.technology_progression.blocked_reason(_selected_building, button.get_meta("technology_id")) if is_instance_valid(match_state.technology_progression) else "正在初始化对局"
 			button.disabled = not reason.is_empty() or not _commands_enabled()
+		if button.has_meta("formation_kind"):
+			button.set_pressed_no_signal(selection.get("formation_mode") == button.get_meta("formation_kind"))
 		var hotkey: Key = button.get_meta("hotkey")
 		button.tooltip_text = "%s [%s]" % [button.get_meta("label"), "Esc" if hotkey == KEY_ESCAPE else OS.get_keycode_string(hotkey)]
 		if definition != null:

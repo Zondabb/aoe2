@@ -35,6 +35,11 @@ const FRAME_STOP := 3
 const FRAME_BACK := 0
 const FRAME_ECONOMY := 30
 const FRAME_MILITARY := 31
+## Last row of the original 50721 command sheet, verified visually.
+const FRAME_FORMATION_LINE := 65
+const FRAME_FORMATION_BOX := 66
+const FRAME_FORMATION_STAGGERED := 67
+const FRAME_FORMATION_FLANK := 68
 const FRAME_BUILD_TOWN_CENTER := 28
 const FRAME_BUILD_HOUSE := 34
 const FRAME_BUILD_BARRACKS := 2

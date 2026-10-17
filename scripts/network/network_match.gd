@@ -151,6 +151,14 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if not map_bounds.has_point(pos):
 			return false
 		translated["pos"] = [pos.x, pos.y]
+	if command.has("formation_speed"):
+		if op != "move" or not (command.formation_speed is int or command.formation_speed is float):
+			return false
+		var speed := float(command.formation_speed)
+		var mover := _resolve(int(command.unit_id))
+		var definition := mover.get("def") as UnitDef
+		if definition == null or not is_finite(speed) or speed <= 0.0 or speed > definition.move_speed:
+			return false
 	if op == "place_building":
 		if command.get("building_def_id") is not String:
 			return false
@@ -188,6 +196,10 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 	context.civ = _civs.get(sender_team) as CivDef
 	var result := Executor.execute(translated, context)
 	if bool(result.get("ok", false)):
+		if op == "move" and command.has("formation_speed"):
+			var mover := _resolve(int(command.unit_id))
+			if mover.has_method("set_formation_move_speed"):
+				mover.call("set_formation_move_speed", float(command.formation_speed))
 		Registry.report_manual_command(translated, sender_team, result)
 	return bool(result.get("ok", false))
 

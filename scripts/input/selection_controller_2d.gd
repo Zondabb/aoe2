@@ -2,17 +2,21 @@ class_name SelectionController2D
 extends Control
 
 const PlayerCommands := preload("res://scripts/input/player_commands.gd")
+const Formation := preload("res://scripts/input/unit_formation.gd")
+const MoveOrderMarker := preload("res://scripts/presentation/move_order_marker.gd")
 
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 signal selection_changed(selected: Array)
+signal control_groups_changed
+signal formation_changed(kind: StringName)
 
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const UnitDebugFocusScript := preload("res://scripts/debug/unit_debug_focus.gd")
 const DRAG_THRESHOLD := 6.0
 const CLICK_RADIUS := 28.0
-const MOVE_MARKER_DURATION := 1.35
+const GROUP_DOUBLE_PRESS_MS := 350
 ## Group-move slot spacing (logical xz); keep > 2 * default unit radius.
 const FORMATION_SPACING := 3.3
 
@@ -27,50 +31,74 @@ var _selected: Array[Node2D] = []
 var _drag_start := Vector2.ZERO
 var _drag_current := Vector2.ZERO
 var _dragging := false
+var _drag_serial := 0
 var _move_marker: Node2D
-var _move_marker_ttl := 0.0
+var formation_mode: StringName = &"line"
+var _control_groups: Dictionary = {}
+var _badged_units: Dictionary = {}
+var _last_group := -1
+var _last_group_time := -1000
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_camera = get_node_or_null(camera_path) as Camera2D
 	set_process(true)
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	var changed := false
 	# Remove by index: comparing/erasing a freed Object reference is unreliable.
 	for index in range(_selected.size() - 1, -1, -1):
 		var entity = _selected[index]
-		if not is_instance_valid(entity) or entity.is_queued_for_deletion() or not FogAccess.view_can_see(entity):
+		if not _is_live_entity(entity) or not FogAccess.view_can_see(entity):
 			if is_instance_valid(entity):
 				entity.call("set_selected", false)
 			_selected.remove_at(index)
 			changed = true
 	if changed:
 		_emit_selection_changed()
-	if _move_marker_ttl <= 0.0:
-		return
-	_move_marker_ttl = maxf(0.0, _move_marker_ttl - delta)
-	if _move_marker != null and is_instance_valid(_move_marker):
-		var fade := clampf(_move_marker_ttl / MOVE_MARKER_DURATION, 0.0, 1.0)
-		_move_marker.modulate.a = 0.85 * fade
-		if _move_marker_ttl <= 0.0:
-			_move_marker.visible = false
+	_prune_control_groups()
+
+func _input(event: InputEvent) -> void:
+	# GUI can consume a release after a drag started on the map. Defer until
+	# unhandled input has had its turn, then discard any unfinished gesture.
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and _dragging:
+		call_deferred("_cancel_unfinished_drag", _drag_serial)
+
+func _cancel_unfinished_drag(serial: int) -> void:
+	if serial == _drag_serial:
+		cancel_selection_drag()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		cancel_selection_drag()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		_handle_group_key(event)
+		return
 	if event is InputEventMouseButton:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
 			if mouse_event.pressed:
+				_drag_serial += 1
+				_last_group = -1
+				if mouse_event.double_click:
+					cancel_selection_drag()
+					_select_same_type(mouse_event.position, mouse_event.shift_pressed)
+					get_viewport().set_input_as_handled()
+					return
 				_drag_start = mouse_event.position
 				_drag_current = mouse_event.position
 				_dragging = true
 				queue_redraw()
 			elif _dragging:
 				_finish_selection(mouse_event.position, mouse_event.shift_pressed)
+				get_viewport().set_input_as_handled()
 		elif (
 			mouse_event.pressed
 			and mouse_event.button_index == MOUSE_BUTTON_RIGHT
 		):
+			cancel_selection_drag()
 			if read_only:
 				return
 			var enemy := _enemy_at_screen(mouse_event.position)
@@ -94,8 +122,8 @@ func _draw() -> void:
 	if not _dragging or _drag_start.distance_to(_drag_current) < DRAG_THRESHOLD:
 		return
 	var box := Rect2(_drag_start, _drag_current - _drag_start).abs()
-	draw_rect(box, Color(0.2, 0.8, 1.0, 0.14), true)
-	draw_rect(box, Color(0.2, 0.8, 1.0, 0.9), false, 2.0)
+	draw_rect(box, Color(0, 0, 0, 0.65), false, 3.0)
+	draw_rect(box, Color.WHITE, false, 1.0)
 
 func _finish_selection(screen_position: Vector2, additive: bool) -> void:
 	_drag_current = screen_position
@@ -107,18 +135,47 @@ func _finish_selection(screen_position: Vector2, additive: bool) -> void:
 	queue_redraw()
 
 func _select_click(screen_position: Vector2, additive: bool) -> void:
+	var closest := _entity_at_screen(screen_position)
+	if not additive:
+		_clear_selection(false)
+	if closest != null:
+		if additive and closest in _selected:
+			_selected.erase(closest)
+			closest.call("set_selected", false)
+		else:
+			_add_selection(closest, false)
+	_emit_selection_changed()
+
+func _entity_at_screen(screen_position: Vector2) -> Node2D:
 	var canvas_pos := _viewport_to_canvas(screen_position)
 	var closest: Node2D
 	var closest_distance := INF
 	for entity in _selectable_entities():
+		if not _is_live_entity(entity):
+			continue
 		var distance := _pick_distance(entity, canvas_pos)
 		if distance < closest_distance:
 			closest = entity
 			closest_distance = distance
+	return closest
+
+func _select_same_type(screen_position: Vector2, additive: bool) -> void:
+	var hit := _entity_at_screen(screen_position)
+	if hit == null or not hit.is_in_group("units") or _is_enemy_entity(hit):
+		_select_click(screen_position, additive)
+		return
+	var definition := hit.get("def") as UnitDef
+	if definition == null:
+		return
 	if not additive:
 		_clear_selection(false)
-	if closest != null:
-		_add_selection(closest, false)
+	var viewport_box: Rect2 = get_meta("world_screen_rect", get_viewport().get_visible_rect())
+	for unit in _selectable_units():
+		if not _is_live_entity(unit) or unit.get("team") != hit.get("team"):
+			continue
+		var candidate := unit.get("def") as UnitDef
+		if candidate != null and candidate.id == definition.id and _entity_intersects_screen_box(unit, viewport_box):
+			_add_selection(unit, false)
 	_emit_selection_changed()
 
 func _select_box(box: Rect2, additive: bool) -> void:
@@ -137,22 +194,47 @@ func cancel_selection_drag() -> void:
 	_dragging = false
 	queue_redraw()
 
-func _issue_move(target: Vector2) -> void:
+func _issue_move(target: Vector2, show_marker := true) -> void:
 	if read_only or FogAccess.local_read_only(self):
 		return
 	var movers: Array[Node2D] = []
 	for unit in _selected.duplicate():
-		if not is_instance_valid(unit):
-			_selected.erase(unit)
+		if not _is_live_entity(unit):
 			continue
 		if unit.get("team") == PlayerCommands.local_team(self) and unit.has_method("command_move"):
 			movers.append(unit)
 	if movers.is_empty():
 		return
+	var destinations := Formation.destinations(movers, target, formation_mode)
+	var group_speed := INF
+	for unit in movers:
+		var definition := unit.get("def") as UnitDef
+		if definition != null: group_speed = minf(group_speed, definition.move_speed)
+	if not is_finite(group_speed) or movers.size() <= 1: group_speed = 0.0
 	for index in movers.size():
-		var slot := formation_offset(index, movers.size(), FORMATION_SPACING)
-		PlayerCommands.unit_order(self, movers[index], "move", target + slot)
-	_show_move_marker(target)
+		movers[index].set_meta("manual_formation", formation_mode)
+		PlayerCommands.unit_order(self, movers[index], "move", destinations[index], group_speed)
+	if show_marker:
+		_show_move_marker(target)
+
+func set_formation(kind: StringName) -> void:
+	if read_only or FogAccess.local_read_only(self):
+		return
+	formation_mode = Formation.normalize_kind(kind)
+	var movers: Array[Node2D] = []
+	var destination := Vector2.ZERO
+	var all_moving := true
+	for unit in get_selected_units():
+		if unit.get("team") != PlayerCommands.local_team(self): continue
+		unit.set_meta("manual_formation", formation_mode)
+		movers.append(unit)
+		if unit.get("order") == Enums.OrderType.MOVE:
+			destination += unit.get("_move_target")
+		else:
+			all_moving = false
+	if movers.size() > 1:
+		_issue_move(destination / movers.size() if all_moving else Formation.center(movers), false)
+	formation_changed.emit(formation_mode)
 
 
 ## Square packing around the click point so group moves don't share one cell.
@@ -171,10 +253,7 @@ func _show_move_marker(logical_target: Vector2) -> void:
 	_ensure_move_marker()
 	if _move_marker == null:
 		return
-	IsoMathScript.sync_node(_move_marker, logical_target)
-	_move_marker.visible = true
-	_move_marker.modulate = Color(0.95, 0.9, 0.2, 0.85)
-	_move_marker_ttl = MOVE_MARKER_DURATION
+	_move_marker.call("play_at", logical_target)
 
 func _ensure_move_marker() -> void:
 	if _move_marker != null and is_instance_valid(_move_marker):
@@ -182,7 +261,13 @@ func _ensure_move_marker() -> void:
 	var match_root := _match_root()
 	if match_root == null:
 		return
-	_move_marker = match_root.get_node_or_null("MoveMarker") as Node2D
+	var legacy := match_root.get_node_or_null("MoveMarker")
+	if legacy != null:
+		match_root.remove_child(legacy)
+		legacy.queue_free()
+	_move_marker = MoveOrderMarker.new()
+	_move_marker.name = "MoveMarker"
+	match_root.add_child(_move_marker)
 
 func _match_root() -> Node:
 	var node: Node = self
@@ -366,8 +451,150 @@ func get_primary_selection() -> Node2D:
 			return entity
 	return null
 
+func _is_live_entity(entity: Variant) -> bool:
+	if not is_instance_valid(entity) or entity.is_queued_for_deletion():
+		return false
+	if entity.get("is_placement_ghost") == true or not entity.visible:
+		return false
+	if entity.is_inside_tree() and not entity.is_visible_in_tree():
+		return false
+	var health: Variant = entity.get("hp")
+	# SceneTree._initialize fixtures may select before _ready sets initial HP.
+	return not entity.is_inside_tree() or health == null or float(health) > 0.0
+
+func _can_group(entity: Variant) -> bool:
+	return _is_live_entity(entity) and entity.is_inside_tree() and entity.get("team") == PlayerCommands.local_team(self) and (entity.is_in_group("units") or entity.is_in_group("buildings"))
+
+func get_control_group(index: int) -> Array[Node2D]:
+	var members: Array[Node2D] = []
+	for reference: WeakRef in _control_groups.get(index, []):
+		var entity := reference.get_ref() as Node2D
+		if _can_group(entity):
+			members.append(entity)
+	return members
+
+func selected_control_groups() -> Array[int]:
+	var result: Array[int] = []
+	for index in 10:
+		var members := get_control_group(index)
+		if not members.is_empty() and members.size() == _selected.size():
+			var matches := true
+			for entity in members:
+				if entity not in _selected: matches = false
+			if matches: result.append(index)
+	return result
+
+func assign_control_group(index: int, append := false) -> void:
+	if index < 0 or index > 9 or read_only or FogAccess.local_read_only(self):
+		return
+	var members: Array[Node2D] = []
+	if append: members = get_control_group(index)
+	var valid_selection: Array[Node2D] = []
+	for entity in _selected:
+		if _can_group(entity): valid_selection.append(entity)
+	if valid_selection.is_empty():
+		return
+	# A saved building group and a unit group have different command panels.
+	if append and not members.is_empty() and members[0].is_in_group("units") != valid_selection[0].is_in_group("units"):
+		members.clear()
+	for entity in valid_selection:
+		if entity not in members: members.append(entity)
+	var references: Array[WeakRef] = []
+	for entity in members: references.append(weakref(entity))
+	_control_groups[index] = references
+	_sync_group_badges()
+	control_groups_changed.emit()
+
+func recall_control_group(index: int, additive := false, focus := false) -> void:
+	var members := get_control_group(index)
+	if members.is_empty(): return
+	cancel_selection_drag()
+	if not additive: _clear_selection(false)
+	for entity in members: _add_selection(entity, false)
+	_emit_selection_changed()
+	if focus: _focus_group(members)
+
+func _focus_group(members: Array[Node2D]) -> void:
+	if members.is_empty() or not is_instance_valid(_camera): return
+	var logical := Formation.center(members)
+	if _camera.has_method("focus_on"):
+		_camera.call("focus_on", logical)
+	else:
+		_camera.global_position = IsoMathScript.world_to_screen(logical)
+	_camera.reset_smoothing()
+	_camera.force_update_scroll()
+
+func _handle_group_key(event: InputEventKey) -> void:
+	if not event.pressed or event.echo or event.meta_pressed: return
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused is LineEdit or focused is TextEdit: return
+	var key := event.physical_keycode if event.physical_keycode != 0 else event.keycode
+	var index := -1
+	if key >= KEY_0 and key <= KEY_9: index = key - KEY_0
+	elif key >= KEY_KP_0 and key <= KEY_KP_9: index = key - KEY_KP_0
+	if index < 0:
+		_last_group = -1
+		return
+	if event.ctrl_pressed:
+		assign_control_group(index, event.shift_pressed)
+		_last_group = -1
+	elif event.shift_pressed:
+		assign_control_group(index, true)
+		_last_group = -1
+	elif event.alt_pressed:
+		_focus_group(get_control_group(index))
+		_last_group = -1
+	else:
+		var now := Time.get_ticks_msec()
+		var double_press := index == _last_group and now - _last_group_time <= GROUP_DOUBLE_PRESS_MS
+		recall_control_group(index, false, double_press)
+		_last_group = -1 if double_press else index
+		_last_group_time = now
+	get_viewport().set_input_as_handled()
+
+func _prune_control_groups() -> void:
+	var changed := false
+	for index in _control_groups.keys():
+		var members := get_control_group(index)
+		if members.size() == _control_groups[index].size(): continue
+		changed = true
+		if members.is_empty():
+			_control_groups.erase(index)
+		else:
+			var references: Array[WeakRef] = []
+			for entity in members: references.append(weakref(entity))
+			_control_groups[index] = references
+	if changed:
+		_sync_group_badges()
+		control_groups_changed.emit()
+
+func _sync_group_badges() -> void:
+	for reference: WeakRef in _badged_units.values():
+		var entity: Variant = reference.get_ref()
+		if is_instance_valid(entity) and entity.has_method("set_control_group_ids"):
+			var empty: Array[int] = []
+			entity.call("set_control_group_ids", empty)
+	_badged_units.clear()
+	var memberships: Dictionary = {}
+	for index in 10:
+		for entity in get_control_group(index):
+			var id := entity.get_instance_id()
+			if not memberships.has(id):
+				var numbers: Array[int] = []
+				memberships[id] = numbers
+				_badged_units[id] = weakref(entity)
+			memberships[id].append(index)
+	for id in memberships:
+		var entity: Node = _badged_units[id].get_ref()
+		if entity.has_method("set_control_group_ids"):
+			entity.call("set_control_group_ids", memberships[id])
+
+func _exit_tree() -> void:
+	_control_groups.clear()
+	_sync_group_badges()
+
 func _add_selection(unit: Node2D, notify := true) -> void:
-	if not is_instance_valid(unit) or unit.is_queued_for_deletion() or unit.get("is_placement_ghost") == true or not FogAccess.view_can_see(unit):
+	if not _is_live_entity(unit) or not FogAccess.view_can_see(unit):
 		return
 	if unit in _selected:
 		return
@@ -381,6 +608,12 @@ func _add_selection(unit: Node2D, notify := true) -> void:
 				if is_instance_valid(selected) and _is_enemy_entity(selected):
 					_clear_selection(false)
 					break
+		# Resources are inspected alone; units and buildings have separate orders.
+		for selected in _selected:
+			if not is_instance_valid(selected): continue
+			if unit.is_in_group("units") != selected.is_in_group("units") or unit.is_in_group("buildings") != selected.is_in_group("buildings") or unit.is_in_group("resource_nodes") and not unit.is_in_group("buildings"):
+				_clear_selection(false)
+				break
 	_selected.append(unit)
 	unit.call("set_selected", true)
 	if notify:
@@ -403,12 +636,16 @@ func _clear_selection(notify := true) -> void:
 func _emit_selection_changed() -> void:
 	# Other input paths may emit between a unit's deletion and the next frame.
 	for index in range(_selected.size() - 1, -1, -1):
-		if not is_instance_valid(_selected[index]) or _selected[index].is_queued_for_deletion():
+		if not _is_live_entity(_selected[index]):
 			_selected.remove_at(index)
 	var snapshot: Array = []
 	snapshot.assign(_selected)
 	UnitDebugFocusScript.set_focus_from_selection(snapshot)
 	_sync_nav_debug_focus(snapshot)
+	for entity in _selected:
+		if entity.is_in_group("units") and entity.get("team") == PlayerCommands.local_team(self):
+			formation_mode = Formation.normalize_kind(entity.get_meta("manual_formation", &"line"))
+			break
 	selection_changed.emit(snapshot)
 
 

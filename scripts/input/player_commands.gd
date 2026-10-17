@@ -36,11 +36,12 @@ static func submit(node: Node, command: Dictionary) -> bool:
 	var network := runtime(node)
 	return bool(network.submit_command(command)) if network != null else false
 
-static func unit_order(source: Node, unit: Node2D, op: String, target: Variant = null) -> void:
+static func unit_order(source: Node, unit: Node2D, op: String, target: Variant = null, formation_speed := 0.0) -> void:
 	if is_online(source):
 		var command := {"op": op, "unit_id": entity_id(source, unit)}
 		if op == "move":
 			command["pos"] = [target.x, target.y]
+			if formation_speed > 0.0: command["formation_speed"] = formation_speed
 		elif op == "build":
 			command["building_id"] = entity_id(source, target)
 		elif op in ["attack", "gather"]:
@@ -50,6 +51,8 @@ static func unit_order(source: Node, unit: Node2D, op: String, target: Variant =
 		unit.call("command_stop")
 	else:
 		unit.call("command_" + op, target)
+		if op == "move" and formation_speed > 0.0 and unit.has_method("set_formation_move_speed"):
+			unit.call("set_formation_move_speed", formation_speed)
 	if not is_online(source):
 		var command := {"op": op, "unit_id": Registry.id_of(unit)}
 		if op == "move": command["pos"] = [target.x, target.y]

@@ -55,10 +55,10 @@ _COMMON_PROMPT = (
 ROLE_PROMPTS = {
     "commander": _COMMON_PROMPT + "Own victory and tempo. stance=pressure shortens muster, defend delays departure briefly; defend only observed threats. army_target sets a finite sortie size; an already-started sortie keeps its frozen size and later plans affect the next. muster_timeout bounds waiting in seconds.",
     "construction": _COMMON_PROMPT + "Own placement and builders. military_zone prefers front or flank among legal sites; farm_reserve_radius keeps military buildings outside the TC farm core. max_builders limits simultaneous builders: balance income against unfinished infrastructure and preserve delivery lanes/exits.",
-    "economy": _COMMON_PROMPT + "Own civilian production and staffing. worker_target caps villager growth; raise it for sustained income, lower it when military spending must lead. food_workers_ratio sets the baseline food share and farm demand; reserve_wood raises the wood stock target. Match spending demand and avoid surplus food/unoccupied farms.",
-    "technology": _COMMON_PROMPT + "Own age and dependency goals. target_age controls advancement (siege needs may require age 2); budget_fraction controls savings/research affordability, trading current production for progress. priority orders available economy, military or siege upgrades. Use catalog prerequisites and supported capabilities.",
+    "economy": _COMMON_PROMPT + "Own civilian production and staffing. worker_target sets villager growth above the stage minimum in strategy_signals; 8 is an opening target, not a sustainable late economy. Increase it toward recommended_worker_target when safe, especially after the first army leaves. food_workers_ratio sets food staffing and farm demand; increase it when food supply or age savings lag. reserve_wood raises the wood stock target. Match spending demand and avoid surplus food/unoccupied farms.",
+    "technology": _COMMON_PROMPT + "Own age and dependency goals. target_age controls advancement (siege needs may require age 2). Once a target age is reached, reassess the next age using income and threats instead of repeating a completed goal forever. budget_fraction controls savings/research affordability, trading current production for progress. priority orders available economy, military or siege upgrades. Use catalog prerequisites and supported capabilities.",
     "scout": _COMMON_PROMPT + "Own information missions. focus prioritizes enemy_base probes, resource frontiers or attack_route information. scout_count uses up to that many available scouts; revisit_seconds sets the delay before checking remembered buildings. Respond to missing resources/route information using observed knowledge only.",
-    "combat": _COMMON_PROMPT + "Own military capacity and a persistent destroy-TC objective. producer/producer_count request that building type and total count; choose supported production suited to visible enemies and income. army_target affects the next sortie once the current size is frozen. retreat_hp_fraction retreats a wounded force below that health share; lower it for commitment, raise it to preserve units.",
+    "combat": _COMMON_PROMPT + "Own military capacity and a persistent destroy-TC objective. producer/producer_count request that building type and total count; choose supported production suited to visible enemies and income. army_target affects the next sortie once the current size is frozen. Use strategy_signals and failed_sorties to rebuild after losses; raise capacity only when income can fund it. retreat_hp_fraction retreats a wounded force below that health share; lower it for commitment, raise it to preserve units.",
 }
 
 
@@ -117,6 +117,29 @@ class MultiAgentRuntime:
     @property
     def goal_version(self) -> int:
         return self.goals["goal_version"]
+
+    def _worker_targets(self, age: int) -> tuple[int, int]:
+        # Model attribution must never change the meaning of an identical plan.
+        # Protect a small post-opening economy; the model still chooses growth
+        # above this floor, staffing ratios and resource reserves.
+        minimum = min(60, max(8, self.validator.profile.villager_target)
+                      + 4 * age + (4 if self.roles["combat"].memory.get("initial_force") else 0))
+        return minimum, min(60, max(minimum, self.roles["economy"].plan["worker_target"]))
+
+    def _strategy_signals(self, f: _DecisionFrame) -> dict:
+        workers = [u for u in f.units if u.get("def_id") == "villager"]
+        minimum, target = self._worker_targets(f.age)
+        natural = sum(float(e.get("amount", 0)) for e in f.obs.entities
+                      if e.get("kind") == "resource" and self._resource_kind(e) == "food"
+                      and self._delivery_distance(f, e) <= 48)
+        farms = sum(b.get("def_id") == "farm" and b.get("is_complete") and float(b.get("amount", 0)) > 0 for b in f.buildings)
+        return {"minimum_workers": minimum, "effective_worker_target": target,
+                "recommended_worker_target": min(60, max(target, minimum + (4 if self.now >= 300 else 0))),
+                "local_natural_food": round(natural, 1), "usable_farms": farms,
+                "food_transition_needed": natural < max(200, len(workers) * 40) and farms < math.ceil(len(workers) * self.roles["economy"].plan["food_workers_ratio"]),
+                "base_threat_count": len(self.roles["commander"].memory.get("threat_ids", [])),
+                "failed_sorties": self.roles["combat"].memory.get("failed_sorties", 0),
+                "technology_reserve": dict(self.tech_reserve)}
 
     def apply_plan(self, role: str, plan: dict) -> bool:
         """Strict schema without executable expressions or arbitrary commands."""
@@ -195,8 +218,7 @@ class MultiAgentRuntime:
         own_buildings = [e for e in own if e.get("kind") == "building"]
         workers = [e for e in own_units if e.get("def_id") == "villager"]
         age = obs.progression.age if obs.progression else 0
-        economy_plan = self.roles["economy"]
-        worker_target = min(60, economy_plan.plan["worker_target"] + (4 * age if economy_plan.plan_source == "default_policy" else 0))
+        _, worker_target = self._worker_targets(age)
         entities = {e["id"]: e for e in obs.entities}
         allocation = Counter()
         for worker in workers:
@@ -249,6 +271,8 @@ class MultiAgentRuntime:
                      "capabilities": bounded(getattr(obs, "capabilities", {}) or ctx.get("capabilities", {})),
                      "victory_conditions": bounded(getattr(obs, "victory_conditions", {}) or ctx.get("victory_conditions", {})),
                      "resource_demand": dict(self.demands), "force_summary": force_summary})
+        if self.frame is not None:
+            base["strategy_signals"] = self._strategy_signals(self.frame)
         if role in ("commander", "combat", "scout"):
             # Current entities already carry live HP; memory supplies only
             # non-visible sites, avoiding duplicated/stale enemy records.
@@ -278,8 +302,11 @@ class MultiAgentRuntime:
             base["requests"] = self.build_requests[:12]
         if role == "economy":
             base["workers"] = [compact(e) for e in workers[:12]]
-            base["resources"] = [{k: e[k] for k in ("id", "pos", "resource_type", "amount") if k in e}
-                                 for e in obs.entities if e.get("kind") == "resource" or e.get("def_id") == "farm"][:12]
+            resources = [e for e in obs.entities if (e.get("kind") == "resource" or e.get("def_id") == "farm" and e.get("team") == req.metadata.team)
+                         and float(e.get("amount", 0)) > 0]
+            resources.sort(key=lambda e: (self._resource_kind(e), _distance(e["pos"], _vec(obs.derived.own_tc_pos) or [0, 0])))
+            samples = [e for kind in RESOURCES for e in [item for item in resources if self._resource_kind(item) == kind][:3]]
+            base["resources"] = [{k: e[k] for k in ("id", "pos", "resource_type", "def_id", "amount") if k in e} for e in samples]
             base["reserved"] = dict(self.tech_reserve)
         if role == "combat":
             base["units"] = [compact(e) for e in military[:12]]
@@ -361,7 +388,7 @@ class MultiAgentRuntime:
         self.failures = {k: v for k, v in self.failures.items() if self.now - v["last_failure"] < 300}
         self.leases = {uid: lease for uid, lease in self.leases.items() if lease["until"] > self.now and uid in f.entities}
         for role in self.roles.values():
-            for key in ("movement", "reported_stalls"):
+            for key in ("movement", "reported_stalls", "worker_progress"):
                 if key in role.memory:
                     role.memory[key] = {uid: value for uid, value in role.memory[key].items() if uid in f.entities}
         return copy.deepcopy(self.cached)
@@ -784,13 +811,20 @@ class MultiAgentRuntime:
             self.goals["sortie_departed"] = self.now
             self.goals["phase"] = "march"
             role.memory["initial_force"] = [u["id"] for u in ready]
+            role.memory["sortie_ids"] = [u["id"] for u in ready]
         elif unsafe and self.goals["sortie_departed"] is None:
             self._status("combat", "blocked", "observed_defenders_require_reinforcements")
-        if self.goals["sortie_departed"] is not None and not army:
+        departed_ids = set(role.memory.get("sortie_ids", []))
+        survivors = departed_ids & {u["id"] for u in army}
+        heavy_losses = len(departed_ids) >= 4 and len(survivors) <= len(departed_ids) // 3 and len(ready) < minimum_timed_force
+        if self.goals["sortie_departed"] is not None and (not army or heavy_losses and not threats):
             if objective:
                 self.goals["needs_siege"] = True
                 role.memory["failed_sorties"] = role.memory.get("failed_sorties", 0) + 1
             self.goals.update(sortie_departed=None, sortie_started=None, phase="rebuild", sortie_target=self.next_sortie_target)
+            role.memory.pop("sortie_ids", None)
+            role.memory.pop("damage", None)
+            role.memory.pop("damage_window", None)
         if elapsed >= timeout and self.goals["sortie_departed"] is None and len(ready) < minimum_timed_force and not unsafe:
             self.goals["phase"] = "rebuild"
             self._status("combat", "blocked", "insufficient_ready_force_rebuild_support")
@@ -942,10 +976,18 @@ class MultiAgentRuntime:
             prereqs_ready = castle_alternative or len(set(eligible_buildings) & completed_types) >= required_count
             if prereqs_ready and not any(b.get("is_researching") for b in tcs):
                 start = role.memory.setdefault("reserve_started", self.now)
-                # Reservations expire and yield a short economic window.
-                if self.now - start > 90:
+                # Slow but positive income must be allowed to reach 500 food.
+                # Resetting every 90s repeatedly released the bank to militia.
+                balance = sum(min(f.budget[r], amount) for r, amount in cost.items())
+                if balance > role.memory.get("reserve_high_water", -1):
+                    role.memory["reserve_high_water"] = balance
+                    role.memory["reserve_progress_at"] = self.now
+                stalled = self.now - role.memory.get("reserve_progress_at", start) > 90
+                if self.now - start > 300 or stalled:
                     role.memory["reserve_started"] = self.now + 15
                     role.memory["saved_budget"] = {}
+                    role.memory["reserve_high_water"] = 0
+                    role.memory["reserve_progress_at"] = self.now + 15
                 if role.memory["reserve_started"] <= self.now:
                     saved = role.memory.get("saved_budget", {}) if role.memory.get("saved_age") == f.age else {}
                     # Carry the reservation forward. Recomputing 50% of each
@@ -966,6 +1008,8 @@ class MultiAgentRuntime:
         if not eligible:
             role.memory.pop("saved_budget", None)
             role.memory.pop("reserve_started", None)
+            role.memory.pop("reserve_high_water", None)
+            role.memory.pop("reserve_progress_at", None)
         options = [(b, t) for b in f.buildings for t in b.get("technologies", [])
                    if t.get("reason") == "" and t.get("id") in f.tech_defs]
         priority = role.plan["priority"]
@@ -990,12 +1034,19 @@ class MultiAgentRuntime:
         dropoffs = [b["pos"] for b in f.buildings if b.get("def_id") in ("town_center", "mill") and b.get("is_complete")]
         natural_food = sum(float(e.get("amount", 0)) for e in f.obs.entities if e.get("kind") == "resource" and str(e.get("resource_type", "")).upper() == "FOOD"
                            and min((_distance(e["pos"], p) for p in dropoffs), default=_distance(e["pos"], f.base)) <= 48)
-        if natural_food < max(100, len(workers) * 15):
-            self._request_building(f, "mill", 105 if f.budget["food"] < 150 else 55, "farm_prerequisite")
+        if natural_food < max(200, len(workers) * 40):
+            usable_farms = sum(b.get("def_id") == "farm" and b.get("is_complete") and float(b.get("amount", 0)) > 0 for b in f.buildings)
+            # Transition before the final berries run out. Save the first food
+            # bridge even when 60/100 wood would otherwise be spent elsewhere.
+            mill_priority = 105 if f.budget["food"] < 150 else 55
+            farm_priority = 105 if f.budget["food"] < 150 else 45
+            if not usable_farms:
+                mill_priority = farm_priority = 112 if f.budget["food"] < 100 and not self._food_bridge(f) else 108
+            self._request_building(f, "mill", mill_priority, "farm_prerequisite")
             farmer_target = max(1, min(len(workers), math.ceil(len(workers) * self.roles["economy"].plan["food_workers_ratio"])))
             if f.budget["food"] > 800:
                 farmer_target = min(farmer_target, 2)
-            self._request_building(f, "farm", 105 if f.budget["food"] < 150 else 45, "staffed_food_supply", farmer_target)
+            self._request_building(f, "farm", farm_priority, "staffed_food_supply", farmer_target)
         known = {str(e.get("resource_type", "")).lower() for e in f.obs.entities if e.get("kind") == "resource" and float(e.get("amount", 0)) > 0}
         if "wood" in known:
             distant_lumberjacks = 0
@@ -1030,7 +1081,9 @@ class MultiAgentRuntime:
         # a high priority: a 60-wood farm otherwise consumes every delivery
         # before a 100-wood camp / 175-wood age prerequisite becomes affordable.
         reservable = [(p, name, reason) for p, name, reason in self.build_requests
-                      if p >= 107 and reason in ("long_wood_delivery", "age_prerequisite")
+                      if p >= 107 and (reason in ("long_wood_delivery", "age_prerequisite", "farm_prerequisite", "staffed_food_supply")
+                                      or reason == "opening_military_capacity" and self._food_bridge(f))
+                      and f._unlock(f.building_defs[name])
                       and not any(b.get("def_id") == name and not b.get("is_complete") for b in f.buildings)
                       and any(o.get("building_def_id") == name for o in f.context.get("construction_options", []))]
         saved = role.memory.get("purchase_reservation", {})
@@ -1101,8 +1154,7 @@ class MultiAgentRuntime:
 
     def _production(self, f: _DecisionFrame) -> None:
         workers = [u for u in f.units if u.get("def_id") == "villager"]
-        eco = self.roles["economy"]
-        desired = min(60, eco.plan["worker_target"] + (4 * f.age if eco.plan_source == "default_policy" else 0))
+        _, desired = self._worker_targets(f.age)
         soldiers = [u for u in f.units if u.get("def_id") != "villager" and u.get("def_id") not in SCOUT_TYPES]
         first_force_needed = len(soldiers) < self.goals["sortie_target"] and len(workers) >= 6 and not self.roles["combat"].memory.get("initial_force")
         producers = [b for b in f.buildings if b.get("def_id") in MILITARY_BUILDINGS and b.get("is_complete")]
@@ -1151,11 +1203,38 @@ class MultiAgentRuntime:
         return sum(float(e.get("amount", 0)) for e in f.obs.entities if e.get("kind") == "resource"
                    and self._resource_kind(e) == "food" and self._delivery_distance(f, e) <= 48) >= 100
 
+    def _recover_loaded_worker(self, f: _DecisionFrame, worker: dict, resources: list[dict]) -> bool:
+        """A healthy delivery keeps its order; a stationary load gets a new route.
+
+        Godot's gather command retains carried resources and deposits them first
+        when the next resource type differs. No primitive discard/teleport is used.
+        """
+        tracking = self.roles["economy"].memory.setdefault("worker_progress", {})
+        uid, carried = worker["id"], float(worker.get("carry_amount", 0))
+        old = tracking.get(uid)
+        if not old or _distance(worker["pos"], old["pos"]) > 1 or abs(carried - old["carried"]) > .05:
+            tracking[uid] = {"pos": list(worker["pos"]), "carried": carried, "at": self.now}
+            return False
+        if carried <= .001 or self.now - old["at"] < 30:
+            return False
+        kind = str(worker.get("carry_type") or worker.get("gather_resource_type") or "").lower()
+        # Switching type explicitly restarts delivery; same-type alternatives
+        # are useful when that is the only observed resource still available.
+        target = min(resources, key=lambda e: (self._resource_kind(e) == kind,
+                     e["id"] in (worker.get("target_id"), worker.get("last_resource_id")),
+                     _distance(worker["pos"], e["pos"]) + 2 * self._delivery_distance(f, e)), default=None)
+        if target and self._emit(f, "economy", "gather", {"unit_id": uid, "target_id": target["id"]}):
+            old["at"] = self.now
+            self.debug.append({"category": "MULTI_AGENT", "message": f"economy: recover_stalled_delivery unit={uid}"})
+            return True
+        return False
+
     def _economy(self, f: _DecisionFrame) -> None:
         role = self.roles["economy"]
         workers = [u for u in f.units if u.get("def_id") == "villager"]
         resources = [e for e in f.obs.entities if (e.get("kind") == "resource" or e.get("def_id") == "farm" and e.get("team") == f.team and e.get("is_complete"))
-                     and float(e.get("amount", 0)) > 0 and _vec(e.get("pos")) and e["id"] not in self.validator.resource_cooldowns]
+                     and float(e.get("amount", 0)) > 0 and _vec(e.get("pos")) and e["id"] not in self.validator.resource_cooldowns
+                     and (self._resource_kind(e) != "stone" or self.demands["stone"] > 0)]
         ratios = {"food": role.plan["food_workers_ratio"], "wood": .35, "gold": .2, "stone": .05 if self.demands["stone"] else 0}
         for r in RESOURCES:
             target_stock = self.demands[r] * 2 + (role.plan["reserve_wood"] if r == "wood" else 100 if r == "food" else 0)
@@ -1173,7 +1252,11 @@ class MultiAgentRuntime:
         local_food_goal = any(b.get("def_id") == "farm" for b in f.buildings) or any(name == "farm" for _, name, _ in self.build_requests)
         rebalanced = 0
         for worker in workers:
-            if worker["id"] in f.actors or worker.get("order") == "BUILD" or worker.get("gather_state") == "to_drop_off" or float(worker.get("carry_amount", 0)) > .001:
+            if worker["id"] in f.actors or worker.get("order") == "BUILD":
+                continue
+            if self._recover_loaded_worker(f, worker, resources):
+                continue
+            if worker.get("gather_state") == "to_drop_off" or float(worker.get("carry_amount", 0)) > .001:
                 continue
             # Pick a resource type *after* filtering occupied farm slots. A
             # nominal food deficit with no assignable food must not leave every
@@ -1191,7 +1274,9 @@ class MultiAgentRuntime:
             remote_food_order = current == "food" and local_food_goal and previous_pos is not None and self._delivery_distance(f, {"pos": previous_pos, "resource_type": "FOOD"}) > 64
             reported = role.memory.get("reported_stalls", {}).get(worker["id"], -100)
             stalled = worker["id"] in self.validator.stalled_workers or int(worker.get("stuck_frames", 0)) >= 12 or self.now - reported < 3
-            rebalance = worker.get("order") == "GATHER" and current != desired and rebalanced < 2 and assigned.get(current, 0) > ratios.get(current, 0) * len(workers) + .5
+            unnecessary_stone = current == "stone" and not self.demands["stone"]
+            overstaffed = assigned.get(current, 0) > ratios.get(current, 0) * len(workers) + .5
+            rebalance = worker.get("order") == "GATHER" and current != desired and rebalanced < 2 and (unnecessary_stone or overstaffed)
             if worker.get("order", "NONE") != "NONE" and not stalled and not rebalance and not remote_food_order:
                 continue
             choices = [e for e in available if self._resource_kind(e) == desired]

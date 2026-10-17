@@ -792,7 +792,7 @@ static func ensure_ground_shadow_2d(parent: Node2D, radius_px: float) -> void:
 
 ## Selection visuals: dynamic units → white circle; static entities → white footprint box.
 const SELECTION_LINE_WIDTH := 1.0
-const UNIT_SELECTION_LINE_WIDTH := 1.0
+const UNIT_SELECTION_LINE_WIDTH := 2.0
 const SELECTION_LINE_COLOR := Color(1.0, 1.0, 1.0, 1.0)
 const SELECTION_Z_INDEX := -2
 const UNIT_SELECTION_Z_INDEX := -2
@@ -849,13 +849,25 @@ static func configure_selection_footprint(parent: Node2D, half_sim: Vector2) -> 
 static func configure_selection_circle(parent: Node2D, radius_sim: float = 0.42) -> void:
 	if parent == null:
 		return
-	var radius := maxf(radius_sim, 0.2)
+	# The projection of a sim-space circle has sqrt(2) larger screen axes.
+	# Pad beyond the feet/shadow so selection stays readable at normal zoom.
+	var radius := maxf(radius_sim * 1.35, 0.68) * sqrt(2.0)
 	var line := _ensure_selection_line(parent)
-	line.y_sort_enabled = true
+	line.y_sort_enabled = false
 	line.z_index = UNIT_SELECTION_Z_INDEX
 	var rx := radius * IsoMath.SCALE_X
 	var ry := radius * IsoMath.SCALE_Y
 	_apply_selection_line(line, _ellipse_points(rx, ry, 36), UNIT_SELECTION_LINE_WIDTH)
+	var outline := line.get_node_or_null("Outline") as Line2D
+	if outline == null:
+		outline = Line2D.new()
+		outline.name = "Outline"
+		outline.show_behind_parent = true
+		outline.antialiased = true
+		line.add_child(outline)
+	outline.points = line.points
+	outline.width = UNIT_SELECTION_LINE_WIDTH + 2.0
+	outline.default_color = Color(0.07, 0.06, 0.03, 0.8)
 
 
 static func _ellipse_points(radius_x: float, radius_y: float, segments: int) -> PackedVector2Array:
