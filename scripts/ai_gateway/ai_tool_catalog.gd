@@ -16,6 +16,8 @@ const TOOL_NAMES := [
 	TOOL_GATHER,
 	TOOL_TRAIN,
 	TOOL_PLACE_BUILDING,
+	"place_wall",
+	"set_gate_state",
 	TOOL_BUILD,
 	TOOL_MOVE,
 	TOOL_ATTACK,
@@ -53,6 +55,8 @@ static func tools_payload() -> Array:
 				"pos": {"type": "array", "items": {"type": "number"}},
 			},
 		),
+		_fn("place_wall", "按 defense_options 的起终点建造整排城墙并安排连续施工，整排收费且保留出入口。", {"builder_id":{"type":"integer"}, "building_def_id":{"type":"string"}, "start":{"type":"array", "items":{"type":"number"}}, "end":{"type":"array", "items":{"type":"number"}}, "include_gate":{"type":"boolean"}}),
+		_fn("set_gate_state", "设置己方城门的自动、常开或锁闭状态。", {"building_id":{"type":"integer"}, "gate_state":{"type":"string", "enum":["auto", "open", "locked"]}}),
 		_fn(
 			TOOL_BUILD,
 			"让己方村民继续己方未完工地基，优先完成已有兵营/房屋；不用等待 place_building 返回新 id 再建造。",

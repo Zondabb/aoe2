@@ -1,0 +1,675 @@
+{
+  "key": "chinese_stone_wall_construction",
+  "source": "AoE2 HD DAT + original SLP pixels",
+  "cols": 5,
+  "rows": 4,
+  "frame_w": 116,
+  "frame_h": 144,
+  "frame_count": 20,
+  "directions": 1,
+  "frames_per_direction": 20,
+  "includes_shadow": true,
+  "player_color": {
+    "mode": "indexed",
+    "mask": "chinese_stone_wall_construction_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "hotspots": [
+    {
+      "x": 59,
+      "y": 126
+    },
+    {
+      "x": 61,
+      "y": 125
+    },
+    {
+      "x": 62,
+      "y": 125
+    },
+    {
+      "x": 64,
+      "y": 125
+    },
+    {
+      "x": 58,
+      "y": 125
+    },
+    {
+      "x": 64,
+      "y": 125
+    },
+    {
+      "x": 62,
+      "y": 126
+    },
+    {
+      "x": 65,
+      "y": 126
+    },
+    {
+      "x": 58,
+      "y": 120
+    },
+    {
+      "x": 60,
+      "y": 121
+    },
+    {
+      "x": 63,
+      "y": 121
+    },
+    {
+      "x": 66,
+      "y": 121
+    },
+    {
+      "x": 58,
+      "y": 134
+    },
+    {
+      "x": 59,
+      "y": 135
+    },
+    {
+      "x": 61,
+      "y": 135
+    },
+    {
+      "x": 66,
+      "y": 135
+    },
+    {
+      "x": 58,
+      "y": 119
+    },
+    {
+      "x": 61,
+      "y": 119
+    },
+    {
+      "x": 63,
+      "y": 119
+    },
+    {
+      "x": 65,
+      "y": 119
+    }
+  ],
+  "content_bounds": [
+    {
+      "x": 21,
+      "y": 98,
+      "w": 73,
+      "h": 45
+    },
+    {
+      "x": 19,
+      "y": 102,
+      "w": 77,
+      "h": 41
+    },
+    {
+      "x": 17,
+      "y": 84,
+      "w": 81,
+      "h": 59
+    },
+    {
+      "x": 16,
+      "y": 76,
+      "w": 83,
+      "h": 67
+    },
+    {
+      "x": 20,
+      "y": 97,
+      "w": 75,
+      "h": 46
+    },
+    {
+      "x": 19,
+      "y": 93,
+      "w": 76,
+      "h": 50
+    },
+    {
+      "x": 17,
+      "y": 82,
+      "w": 80,
+      "h": 61
+    },
+    {
+      "x": 14,
+      "y": 73,
+      "w": 86,
+      "h": 70
+    },
+    {
+      "x": 11,
+      "y": 88,
+      "w": 93,
+      "h": 55
+    },
+    {
+      "x": 11,
+      "y": 51,
+      "w": 93,
+      "h": 92
+    },
+    {
+      "x": 4,
+      "y": 1,
+      "w": 107,
+      "h": 142
+    },
+    {
+      "x": 1,
+      "y": 1,
+      "w": 113,
+      "h": 142
+    },
+    {
+      "x": 9,
+      "y": 115,
+      "w": 98,
+      "h": 28
+    },
+    {
+      "x": 7,
+      "y": 112,
+      "w": 101,
+      "h": 31
+    },
+    {
+      "x": 5,
+      "y": 96,
+      "w": 105,
+      "h": 47
+    },
+    {
+      "x": 0,
+      "y": 84,
+      "w": 115,
+      "h": 59
+    },
+    {
+      "x": 37,
+      "y": 85,
+      "w": 41,
+      "h": 58
+    },
+    {
+      "x": 35,
+      "y": 77,
+      "w": 44,
+      "h": 66
+    },
+    {
+      "x": 35,
+      "y": 61,
+      "w": 45,
+      "h": 82
+    },
+    {
+      "x": 32,
+      "y": 53,
+      "w": 50,
+      "h": 90
+    }
+  ],
+  "frames": [
+    {
+      "layers": [
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 0,
+          "reason": "transparent placeholder"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 1,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 1,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 2,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 2,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 3,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 3,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 4,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 4,
+          "reason": "transparent placeholder"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 5,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 5,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 6,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 6,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 7,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 7,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 8,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 8,
+          "reason": "transparent placeholder"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 9,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 9,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 10,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 10,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 11,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 11,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 12,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 12,
+          "reason": "transparent placeholder"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 13,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 13,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 14,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 14,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 15,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 15,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 16,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 16,
+          "reason": "transparent placeholder"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 17,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 17,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 18,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 18,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3315,
+          "slp_id": 3739,
+          "frame": 19,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3739.slp"
+        },
+        {
+          "graphic_id": 3319,
+          "slp_id": 3743,
+          "frame": 19,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3743.slp"
+        }
+      ],
+      "skipped": []
+    }
+  ]
+}

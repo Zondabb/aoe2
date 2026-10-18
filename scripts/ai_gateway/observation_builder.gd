@@ -31,8 +31,8 @@ static func build(
 		observation["map_bounds"] = {"min": AiProtocolScript.vec2_to_array(match_state.map_bounds.position), "max": AiProtocolScript.vec2_to_array(match_state.map_bounds.end)}
 	observation["capabilities"] = {"schema_version": 3, "zoned_construction": true,
 		"production_status": true, "farm_depletion_frees_plot": true,
-		"ram_building_class_damage": true, "wall_segments": false,
-		"gate_control": false, "trebuchet_pack_unpack": false}
+		"ram_building_class_damage": true, "wall_segments": true,
+		"gate_control": true, "trebuchet_pack_unpack": false}
 	observation["victory_conditions"] = {"type": "destroy_any_enemy_town_center",
 		"target_def_id": "town_center", "winner": match_state.winner,
 		"match_over": match_state.winner >= 0}
@@ -108,6 +108,7 @@ static func build(
 				if not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
 					continue
 				var visible_building := serialize_entity(building, building_id)
+				visible_building.erase("gate_state")
 				# Queue contents and research are private orders, not visible enemy art.
 				for key in ["train_queue_empty", "train_queue", "train_progress", "trainable", "train_blocked_reasons", "is_researching", "technologies", "age_upgrade_reason", "production", "research"]:
 					visible_building.erase(key)
@@ -129,6 +130,7 @@ static func build(
 				visible_unit.erase("gather_resource_type")
 				visible_unit.erase("movement")
 				visible_unit.erase("combat_action")
+				visible_unit.erase("build_queue_ids")
 				visible_unit["target_id"] = null
 				visible_unit["last_resource_id"] = null
 				entity_snapshots.append(visible_unit)
@@ -225,9 +227,12 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["is_complete"] = bool(entity.get("is_complete"))
 	snapshot["build_progress"] = float(entity.get("build_progress"))
 	snapshot["build_time"] = float(entity.get("def").build_time)
-	snapshot["footprint"] = AiProtocolScript.vec2_to_array(entity.get("def").footprint)
+	snapshot["footprint"] = AiProtocolScript.vec2_to_array(entity.get_placement_footprint())
+	snapshot["orientation"] = entity.wall_orientation
+	snapshot["gate_state"] = entity.gate_state
+	snapshot["gate_open"] = entity.gate_open
 	snapshot["planning_footprint"] = AiProtocolScript.vec2_to_array(DecisionContext.planning_footprint(entity.get("def")))
-	snapshot["blocks_movement"] = bool(entity.get("def").blocks_movement)
+	snapshot["blocks_movement"] = entity.get_movement_half() != Vector2.ZERO
 	snapshot["drop_off_resources"] = []
 	if entity.get("def").has_drop_off:
 		for resource_type in Enums.ResourceType.values():
@@ -268,6 +273,7 @@ static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["footprint_radius"] = definition.resolved_footprint_radius()
 	var order: Enums.OrderType = entity.get("order")
 	snapshot["order"] = AiProtocolScript.order_name(order)
+	snapshot["build_queue_ids"] = entity.get_build_queue_ids()
 	snapshot["gather_state"] = String(entity.get("_gather_state"))
 	var gather_type: int = int(entity.get("_gather_resource_type"))
 	snapshot["gather_resource_type"] = AiProtocolScript.resource_type_name(gather_type as Enums.ResourceType) if order == Enums.OrderType.GATHER and gather_type >= 0 else null

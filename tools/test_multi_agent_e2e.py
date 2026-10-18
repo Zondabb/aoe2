@@ -36,6 +36,8 @@ class RolePlanner:
             plan.update(army_target=6, producer="barracks", producer_count=2)
         elif role == "economy":
             plan.update(worker_target=18, food_workers_ratio=.4)
+        elif role == "defense":
+            plan.update(policy="fortify")
         with self.lock:
             self.roles.add(role)
             self.calls += 1
@@ -54,6 +56,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--planner-delay", type=float, default=2)
     parser.add_argument("--require-victory", action="store_true", help="Require actual enemy TC destruction, not only damage")
+    parser.add_argument("--require-walls", action="store_true", help="Require a completed AI wall built through the defense role")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     logs = Path(tempfile.mkdtemp(prefix="multi-agent-e2e-", dir=root / ".godot"))
@@ -84,7 +87,7 @@ def main() -> int:
     env = dict(os.environ)
     env.update(AOE2_AI_BACKEND="openai", AOE2_LLM_TOKEN="local-dummy-test-token",
                AOE2_LLM_BASE_URL=f"http://127.0.0.1:{upstream.server_port}/v1", AOE2_AI_TOKEN="",
-               AOE2_AI_MODEL_CALLS_PER_MINUTE="12", APPDATA=str(logs / "profile"))
+               AOE2_AI_MODEL_CALLS_PER_MINUTE="12", APPDATA=str(logs / "profile"), LOCALAPPDATA=str(logs / "cache"))
     Path(env["APPDATA"]).mkdir()
     processes, handles = [], []
 
@@ -112,7 +115,7 @@ def main() -> int:
             raise RuntimeError("AI service startup timed out")
         game = launch([args.godot, "--headless", "--path", str(root), "--log-file", str(logs / "game.log"),
             "--script", "res://tests/run_multi_agent_match.gd", "--", f"http://127.0.0.1:{port}",
-            str(args.duration), str(logs / "observation.json"), str(int(args.require_victory))], "game", root)
+            str(args.duration), str(logs / "observation.json"), str(int(args.require_victory)), str(int(args.require_walls))], "game", root)
         deadline, last_print = time.monotonic() + args.timeout, time.monotonic()
         while game.poll() is None:
             output = (logs / "game.txt").read_text(encoding="utf-8", errors="replace")
@@ -130,8 +133,8 @@ def main() -> int:
                         if line.startswith(("MULTI AGENT RESULT:", "MULTI AGENT MATCH:")) or "ERROR:" in line))
         if game.returncode != 0 or "0 failures" not in output:
             raise RuntimeError(f"Godot test failed ({game.returncode})")
-        if len(planner.roles) != 6:
-            raise RuntimeError(f"Not all six planners were called: {sorted(planner.roles)}")
+        if len(planner.roles) != 7:
+            raise RuntimeError(f"Not all seven planners were called: {sorted(planner.roles)}")
         print(f"MULTI AGENT E2E PASSED: roles={sorted(planner.roles)} calls={planner.calls}; logs: {logs}")
         return 0
     except (OSError, RuntimeError) as error:

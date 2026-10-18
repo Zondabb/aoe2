@@ -23,9 +23,9 @@ fast_timeout_sec=3.0
 
 `fast_tick_interval_sec` 使用游戏时间，默认每 1 游戏秒产生一轮快速观察；它不是上游模型调用间隔。`fast_timeout_sec` 是快速 HTTP 的墙钟超时。原有 `timeout_sec`、`tick_interval_sec` 继续控制旧版同步通道；上游模型超时仍由 Python 的 `--llm-timeout-sec` 等设置控制。
 
-## 六角色如何合作
+## 七角色如何合作
 
-六个角色各自保存计划、状态、近期事件和任务。它们共享队伍观察、敌情地点记忆、资源预算和单位使用权，在每轮快速观察中共同推进任务。
+七个角色各自保存计划、状态、近期事件和任务。它们共享队伍观察、敌情地点记忆、资源预算和单位使用权，在每轮快速观察中共同推进任务。
 
 | 角色 | 模型规划内容 | 快速执行责任 |
 | --- | --- | --- |
@@ -34,6 +34,7 @@ fast_timeout_sec=3.0
 | Economy 经济 | 工人目标、粮食工人占比、木材储备 | 补村民、按支出需求调配资源、控制农田数量、恢复闲置或停滞采集 |
 | Technology 科技 | 目标时代、储备比例、科技方向 | 使用真实前置条件，预留资源与 TC 研究窗口，研究已有目录中的科技 |
 | Scout 侦察 | 敌基地、资源或进攻路线，侦察人数与复查间隔 | 战略探点、探索前沿、任务去重、卡路换点、复查已知建筑位置 |
+| Defense 城墙防守 | reactive / balanced / fortify、防线材料与规模、木材储备、城门模式 | 根据可见合法防线整排下单、连续施工与断工恢复，保留通行和经济军费 |
 | Combat 作战 | 军队规模、生产建筑与数量、撤退血量 | 及时补兵、限时出发、行军与绕行、清理近处守军、持续攻击 TC |
 
 LLM 只通过每个角色专属的 `propose_plan` schema 返回有界计划。计划不能填写任意实体 ID、坐标、资源价格或原子指令。Python 使用本轮真实目录和合法候选把计划转换成行动；Godot 再验证所有权、视野、资源、时代、施工和生产条件。模型失败或返回非法计划时，快速任务仍继续执行上一个有效计划或初始策略。
@@ -41,11 +42,11 @@ LLM 只通过每个角色专属的 `propose_plan` schema 返回有界计划。�
 ```mermaid
 flowchart LR
     G[Godot 本队观察与事件] --> T[快速 tick]
-    T --> R[六角色任务与统一预算]
+    T --> R[七角色任务与统一预算]
     R --> E[Godot 最终校验执行]
     E --> G
     R --> S[有界后台模型调度]
-    S --> P[六角色独立计划]
+    S --> P[七角色独立计划]
     P --> R
 ```
 
@@ -63,7 +64,7 @@ flowchart LR
 
 ## 观察和事件协议
 
-请求沿用 `ChatCompletionRequest` 容器，但快速 tick 不需要发送模型 messages/tools。metadata 包含 `protocol_version=3`、`match_id`、`team`、字符串 `session_epoch`、相同的 `tick/observation_seq`、`time_sec`，以及事件投递范围 `event_delivery`。响应包含观察确认序号、命令、六角色状态 `agent_status`、战略目标 `goals` 和后台规划状态 `planning`。
+请求沿用 `ChatCompletionRequest` 容器，但快速 tick 不需要发送模型 messages/tools。metadata 包含 `protocol_version=3`、`match_id`、`team`、字符串 `session_epoch`、相同的 `tick/observation_seq`、`time_sec`，以及事件投递范围 `event_delivery`。响应包含观察确认序号、命令、七角色状态 `agent_status`、战略目标 `goals` 和后台规划状态 `planning`。
 
 同一序号、同一内容的重试返回缓存结果，命令 ID 保持不变；同序号内容冲突或过期观察会被拒绝。命令还携带会话、任务、依据观察和模拟时间期限。游戏执行器对命令去重，避免重试重复扣资源。
 
@@ -155,3 +156,6 @@ ai_service_python/.venv/Scripts/python.exe tools/test_ai_autoplay_e2e.py --godot
 专项回归通过：Gateway 60 项、生命周期 55 项、游戏机制 116 项、决策上下文 70 项、观察可见性 12 项、资源对象生命周期 15 项。真实 v3 托管验收单人 22 项、联机主机/客机 9/13 项；旧 v2 对应 21、9/13 项。
 
 最终 Python 全量测试 215 项通过，包含 48 项多角色行为测试和 14 项异步调度测试；保留两条现有测试依赖弃用提示，无测试失败。
+
+
+2026-10-18 新增城墙防守角色，操作、指令与验证见 [连续城墙与城门](walls_and_gates.md)。历史对局的六角色统计保留为当时记录。

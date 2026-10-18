@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "source": {
+    "edition": "Age of Empires II HD / The Conquerors",
+    "dat": "resources/_common/dat/empires2_x1_p1.dat",
+    "dat_version": "VER 5.7",
+    "sha256": "28b50786d62cc956679bf56b42b272ec04eb93642268e997484dbc63bb24e6cb"
+  },
+  "source_tile_half": [
+    48,
+    24
+  ],
+  "orientation_frames": [
+    1,
+    4,
+    0,
+    3
+  ],
+  "post_frame": 2,
+  "gate_foundation_tile": "res://assets/sprites/fortifications/gate_foundation_tile",
+  "civilizations": {
+    "chinese": {
+      "palisade_wall": {
+        "complete": "res://assets/sprites/fortifications/palisade_wall",
+        "construction": "res://assets/sprites/fortifications/palisade_wall_construction",
+        "construction_stages": 1,
+        "construction_shapes": 1
+      },
+      "stone_wall": {
+        "complete": "res://assets/sprites/fortifications/chinese_stone_wall",
+        "construction": "res://assets/sprites/fortifications/chinese_stone_wall_construction",
+        "construction_stages": 4,
+        "construction_shapes": 5
+      },
+      "fortified_wall": {
+        "complete": "res://assets/sprites/fortifications/chinese_fortified_wall",
+        "construction": "res://assets/sprites/fortifications/chinese_fortified_wall_construction",
+        "construction_stages": 4,
+        "construction_shapes": 5
+      },
+      "gate": {
+        "complete": "res://assets/sprites/fortifications/chinese_gate"
+      }
+    },
+    "teutons": {
+      "palisade_wall": {
+        "complete": "res://assets/sprites/fortifications/palisade_wall",
+        "construction": "res://assets/sprites/fortifications/palisade_wall_construction",
+        "construction_stages": 1,
+        "construction_shapes": 1
+      },
+      "stone_wall": {
+        "complete": "res://assets/sprites/fortifications/teutons_stone_wall",
+        "construction": "res://assets/sprites/fortifications/teutons_stone_wall_construction",
+        "construction_stages": 4,
+        "construction_shapes": 5
+      },
+      "fortified_wall": {
+        "complete": "res://assets/sprites/fortifications/teutons_fortified_wall",
+        "construction": "res://assets/sprites/fortifications/teutons_fortified_wall_construction",
+        "construction_stages": 4,
+        "construction_shapes": 5
+      },
+      "gate": {
+        "complete": "res://assets/sprites/fortifications/teutons_gate"
+      }
+    }
+  }
+}

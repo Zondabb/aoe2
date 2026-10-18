@@ -150,6 +150,10 @@ static func _capture_entity(entity: Node2D, ids: Dictionary) -> Dictionary:
 		record.merge({"type": "unit", "definition": String(entity.def.id), "team": entity.team, "fields": _object_fields(entity, UNIT_NUMBERS + UNIT_BOOLS), "vectors": _object_vectors(entity, UNIT_VECTORS), "refs": {}, "order": entity.order,
 			"gather_state": entity._gather_state, "combat_action": String(entity._combat_action), "path": _vectors(entity._path), "gather_work_points": _vectors(entity._gather_work_points), "gather_candidates": []})
 		for field in UNIT_REFS: record.refs[field] = _id_of(entity.get(field), ids)
+		record["build_queue"] = []
+		for reference in entity._build_queue:
+			var queued_id := _id_of(reference.get_ref(), ids)
+			if queued_id != 0: record.build_queue.append(queued_id)
 		for reference in entity._gather_candidates:
 			var id := _id_of(reference.get_ref(), ids)
 			if id != 0: record.gather_candidates.append(id)
@@ -157,6 +161,9 @@ static func _capture_entity(entity: Node2D, ids: Dictionary) -> Dictionary:
 		record.merge({"type": "building", "definition": String(entity.def.id), "team": entity.team, "fields": _object_fields(entity, BUILDING_NUMBERS + BUILDING_BOOLS), "queue": []})
 		if entity.def.id == &"farm": record.fields["farm_has_crops"] = entity.farm_has_crops
 		record.fields["_spawn_retry_remaining"] = entity._spawn_retry_remaining
+		record["wall_orientation"] = entity.wall_orientation
+		record["gate_state"] = entity.gate_state
+		record["gate_open"] = entity.gate_open
 		for i in entity.train_queue.size():
 			var id: int = entity.train_queue_ids[i]
 			record.queue.append({"id": id, "definition": String(entity.train_queue[i].id), "payment": entity._train_payments[id].duplicate(true)})
@@ -203,6 +210,9 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 				entity = BUILDING_VIEW.instantiate()
 				if record.definition == "farm": entity.set_script(load("res://scripts/entities/farm_agent.gd"))
 				entity.def = Catalog.get_building(StringName(record.definition))
+				entity.wall_orientation = int(record.get("wall_orientation", 0))
+				entity.gate_state = String(record.get("gate_state", "auto"))
+				entity.gate_open = bool(record.get("gate_open", false))
 				entity.is_complete = record.fields.is_complete
 				entity.build_progress = float(record.fields.build_progress)
 				entity._construction_started = record.fields._construction_started
@@ -234,6 +244,8 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 			_apply_fields(entity, record.fields, UNIT_NUMBERS + UNIT_BOOLS)
 			for field in UNIT_VECTORS: entity.set(field, _vector(record.vectors[field]))
 			for field in UNIT_REFS: entity.set(field, nodes.get(int(record.refs[field])))
+			entity._build_queue.clear()
+			for id in record.get("build_queue", []): entity._build_queue.append(weakref(nodes[int(id)]))
 			entity.order = int(record.order)
 			entity._gather_state = String(record.gather_state)
 			entity._combat_action = StringName(record.combat_action)
@@ -256,6 +268,7 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 				entity._train_payments[int(item.id)] = {"cost": item.payment.cost.duplicate(), "population": int(item.payment.population)}
 			entity.set_physics_process(not entity.train_queue.is_empty())
 			entity._configure_visuals()
+			entity._sync_block_half()
 			entity._sync_visual()
 		elif record.type == "projectile":
 			var weapon := Catalog.get_unit(StringName(record.weapon.id))
@@ -566,6 +579,7 @@ static func validate(data: Variant) -> String:
 			for field in booleans:
 				if not record.fields.get(field) is bool: return "存档实体状态已损坏：" + field
 			if record.type == "unit":
+				if record.get("build_queue", []) is not Array or record.get("build_queue", []).size() > MAX_ENTITIES: return "存档施工队列已损坏。"
 				if not _integer_between(record.get("order"), 0, Enums.OrderType.size()-1) or not record.get("gather_state") is String or record.get("combat_action") not in ["", "attack", "die"]: return "存档单位命令已损坏。"
 				if not record.get("vectors") is Dictionary or not record.get("refs") is Dictionary: return "存档单位目标已损坏。"
 				for field in UNIT_VECTORS:
@@ -574,6 +588,7 @@ static func validate(data: Variant) -> String:
 					if not _integer_between(record.refs.get(field), 0, MAX_ENTITIES): return "存档单位引用已损坏。"
 				if not _vector_list(record.get("path")) or not _vector_list(record.get("gather_work_points")) or not record.get("gather_candidates") is Array: return "存档单位路径已损坏。"
 			else:
+				if not _integer_between(record.get("wall_orientation", 0), 0, 3) or record.get("gate_state", "auto") not in ["auto", "open", "locked"] or record.get("gate_open", false) is not bool: return "存档城墙方向或城门状态已损坏。"
 				if record.fields.has("farm_has_crops") and record.fields.farm_has_crops is not bool: return "存档农田庄稼状态已损坏。"
 				if not record.get("queue") is Array or record.queue.size() > BuildingAgent.MAX_TRAIN_QUEUE: return "存档生产队列已损坏。"
 				if record.fields.has("_spawn_retry_remaining") and (not MapDataScript.number(record.fields._spawn_retry_remaining) or record.fields._spawn_retry_remaining < 0 or record.fields._spawn_retry_remaining > BuildingAgent.TRAIN_SPAWN_RETRY_INTERVAL): return "存档建筑出口等待进度已损坏。"
@@ -597,6 +612,8 @@ static func validate(data: Variant) -> String:
 		else: return "存档包含未知实体类型。"
 	for record in data.entities:
 		if record.type == "unit":
+			for id in record.get("build_queue", []):
+				if not _integer_between(id, 1, MAX_ENTITIES) or not ids.has(int(id)) or ids[int(id)].type != "building" or ids[int(id)].team != record.team or record.definition != "villager": return "存档施工队列目标已损坏。"
 			for field in UNIT_REFS:
 				var id := int(record.refs[field])
 				if id != 0 and (not ids.has(id) or not _valid_target(field, ids[id])): return "存档引用了不存在或不适用的单位目标。"

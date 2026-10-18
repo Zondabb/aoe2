@@ -13,6 +13,8 @@ TOOL_NAMES: tuple[str, ...] = (
     "research_technology",
     "cancel_technology",
     "place_building",
+    "place_wall",
+    "set_gate_state",
     "build",
     "move",
     "attack",
@@ -30,6 +32,7 @@ _ARG_KEYS = (
     "technology_id",
     "pos",
     "builder_id",
+    "start", "end", "include_gate", "orientation", "gate_state",
 )
 
 _TOOL_DESCRIPTIONS: dict[str, str] = {
@@ -40,6 +43,8 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     "research_technology": "Research an available technology whose observed reason is empty.",
     "cancel_technology": "Cancel a building's technology research and refund its cost.",
     "place_building": "Place a building foundation at pos.",
+    "place_wall": "Place one observed legal wall line, paying its complete aggregate cost, and queue its construction.",
+    "set_gate_state": "Set an owned completed gate to auto, open or locked.",
     "build": "Send a villager to construct a foundation.",
     "move": "Move a unit to pos.",
     "attack": "Order a unit to attack a target entity.",
@@ -70,6 +75,20 @@ _TOOL_PROPERTIES: dict[str, dict[str, Any]] = {
         "builder_id": {"type": "integer"},
         "building_def_id": {"type": "string"},
         "pos": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "orientation": {"type": "integer", "minimum": 0, "maximum": 3},
+        "command_id": {"type": "string"},
+    },
+    "place_wall": {
+        "builder_id": {"type": "integer"},
+        "building_def_id": {"type": "string", "enum": ["palisade_wall", "stone_wall", "fortified_wall"]},
+        "start": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "end": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "include_gate": {"type": "boolean"},
+        "command_id": {"type": "string"},
+    },
+    "set_gate_state": {
+        "building_id": {"type": "integer"},
+        "gate_state": {"type": "string", "enum": ["auto", "open", "locked"]},
         "command_id": {"type": "string"},
     },
     "build": {

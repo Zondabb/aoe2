@@ -11,7 +11,7 @@ Set-Location $PSScriptRoot
 
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
-# One 8B model serves all six roles and both teams. Concurrent requests contend
+# One 8B model serves all seven roles and both teams. Concurrent requests contend
 # for the same GPU and can outlive the 180-game-second plan validity window.
 $env:AOE2_AI_MODEL_CONCURRENCY = "1"
 $env:AOE2_AI_MODEL_CONCURRENCY_PER_MATCH = "1"

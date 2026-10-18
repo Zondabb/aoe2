@@ -122,7 +122,7 @@ func _run() -> void:
 				var result := Executor.execute(cmd, ctx)
 				var event := {"type":"command_result", "command_id":cmd.command_id, "op":cmd.op,
 					"ok":result.ok, "reason":result.reason, "command":cmd, "time_sec":now, "_visible_to":[1]}
-				for key in ["created_entity_id", "queue_id", "building_id"]:
+				for key in ["created_entity_id", "created_entity_ids", "segment_count", "queue_id", "building_id"]:
 					if result.has(key): event[key] = result[key]
 				Events.push(event)
 				if not result.ok: rejects[result.reason] = rejects.get(result.reason, 0) + 1
@@ -160,7 +160,7 @@ func _run() -> void:
 		await process_frame
 		if state.winner != -1: break
 	check(calls >= 30, "many quick HTTP observations processed")
-	check(roles.size() == 6, "all six independent roles report task state")
+	check(roles.size() == 7, "all seven independent roles report task state")
 	latencies_while_planning.sort()
 	var p95 := INF if latencies_while_planning.is_empty() else latencies_while_planning[mini(latencies_while_planning.size() - 1, floori(latencies_while_planning.size() * .95))]
 	check(latencies_while_planning.size() >= 2 and p95 < 500, "model planning does not block fast responses (n=%d p95=%.1f ms)" % [latencies_while_planning.size(), p95])
@@ -173,6 +173,7 @@ func _run() -> void:
 	check(state.resources[1].values().all(func(value): return value >= 0), "resource budgets stay valid")
 	check(rejects.is_empty(), "generated commands pass game validation: %s" % rejects)
 	if args.size() > 3 and args[3] == "1": check(state.winner == 1, "AI destroys the enemy TC and wins")
+	if args.size() > 4 and args[4] == "1": check(buildings.has("palisade_wall") or buildings.has("stone_wall"), "defense agent actually completes a wall in the match")
 	print("MULTI AGENT RESULT: winner=%d finished_at=%.1f trained=%s max_http_ms=%.1f planning_p95_ms=%.1f milestones=%s" % [state.winner, finished_at, trained.values(), max_latency, p95, milestones])
 	await client.post_match_end({"match_id":match_id})
 	Events.unsubscribe(subscriber)

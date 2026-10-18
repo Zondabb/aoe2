@@ -1,0 +1,853 @@
+{
+  "key": "teutons_gate",
+  "source": "AoE2 HD DAT + original SLP pixels",
+  "cols": 3,
+  "rows": 3,
+  "frame_w": 447,
+  "frame_h": 343,
+  "frame_count": 8,
+  "directions": 1,
+  "frames_per_direction": 8,
+  "includes_shadow": true,
+  "player_color": {
+    "mode": "indexed",
+    "mask": "teutons_gate_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "hotspots": [
+    {
+      "x": 252,
+      "y": 283
+    },
+    {
+      "x": 252,
+      "y": 283
+    },
+    {
+      "x": 252,
+      "y": 247
+    },
+    {
+      "x": 252,
+      "y": 247
+    },
+    {
+      "x": 252,
+      "y": 283
+    },
+    {
+      "x": 252,
+      "y": 283
+    },
+    {
+      "x": 252,
+      "y": 319
+    },
+    {
+      "x": 252,
+      "y": 319
+    }
+  ],
+  "content_bounds": [
+    {
+      "x": 72,
+      "y": 72,
+      "w": 303,
+      "h": 271
+    },
+    {
+      "x": 72,
+      "y": 72,
+      "w": 303,
+      "h": 271
+    },
+    {
+      "x": 144,
+      "y": 0,
+      "w": 159,
+      "h": 343
+    },
+    {
+      "x": 144,
+      "y": 0,
+      "w": 159,
+      "h": 343
+    },
+    {
+      "x": 72,
+      "y": 72,
+      "w": 303,
+      "h": 271
+    },
+    {
+      "x": 72,
+      "y": 72,
+      "w": 303,
+      "h": 271
+    },
+    {
+      "x": 0,
+      "y": 144,
+      "w": 447,
+      "h": 199
+    },
+    {
+      "x": 0,
+      "y": 144,
+      "w": 447,
+      "h": 199
+    }
+  ],
+  "frames": [
+    {
+      "layers": [
+        {
+          "graphic_id": 2157,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": -72,
+          "y": -36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2109,
+          "slp_id": 2419,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2419.slp"
+        },
+        {
+          "graphic_id": 2157,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 72,
+          "y": 36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2165,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": -72,
+          "y": -36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 2117,
+          "slp_id": 2427,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2427.slp"
+        },
+        {
+          "graphic_id": 2165,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 72,
+          "y": 36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 2161,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": -72,
+          "y": -36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        },
+        {
+          "graphic_id": 2161,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 72,
+          "y": 36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2540,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 2113,
+          "slp_id": 2423,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 2157,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": -72,
+          "y": -36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2133,
+          "slp_id": 2455,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2455.slp"
+        },
+        {
+          "graphic_id": 2157,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 72,
+          "y": 36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2165,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": -72,
+          "y": -36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 2141,
+          "slp_id": 2463,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2463.slp"
+        },
+        {
+          "graphic_id": 2165,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 72,
+          "y": 36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 2161,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": -72,
+          "y": -36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        },
+        {
+          "graphic_id": 2161,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 72,
+          "y": 36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2540,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 2137,
+          "slp_id": 2459,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3741,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 0,
+          "y": -72,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3693,
+          "slp_id": 4079,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/4079.slp"
+        },
+        {
+          "graphic_id": 3741,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 0,
+          "y": 72,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3749,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 0,
+          "y": -72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3701,
+          "slp_id": 4087,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/4087.slp"
+        },
+        {
+          "graphic_id": 3749,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 0,
+          "y": 72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3745,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 0,
+          "y": -72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        },
+        {
+          "graphic_id": 3745,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 0,
+          "y": 72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3773,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 3697,
+          "slp_id": 4083,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3741,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 0,
+          "y": -72,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3717,
+          "slp_id": 4103,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/4103.slp"
+        },
+        {
+          "graphic_id": 3741,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 0,
+          "y": 72,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3749,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 0,
+          "y": -72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3725,
+          "slp_id": 4111,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/4111.slp"
+        },
+        {
+          "graphic_id": 3749,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 0,
+          "y": 72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3745,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 0,
+          "y": -72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        },
+        {
+          "graphic_id": 3745,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 0,
+          "y": 72,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3773,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 3721,
+          "slp_id": 4107,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 2085,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 72,
+          "y": -36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2037,
+          "slp_id": 1918,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/1918.slp"
+        },
+        {
+          "graphic_id": 2085,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": -72,
+          "y": 36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2093,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 72,
+          "y": -36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 2045,
+          "slp_id": 1926,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/1926.slp"
+        },
+        {
+          "graphic_id": 2093,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": -72,
+          "y": 36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 5324,
+          "slp_id": 4522,
+          "frame": 0,
+          "x": 72,
+          "y": -36,
+          "layer": "BLACKSMITH",
+          "source": "_common/drs/graphics/4522.slp"
+        },
+        {
+          "graphic_id": 5324,
+          "slp_id": 4522,
+          "frame": 0,
+          "x": -72,
+          "y": 36,
+          "layer": "BLACKSMITH",
+          "source": "_common/drs/graphics/4522.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2536,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 2041,
+          "slp_id": 1922,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 2085,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 72,
+          "y": -36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2061,
+          "slp_id": 2347,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2347.slp"
+        },
+        {
+          "graphic_id": 2085,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": -72,
+          "y": 36,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 2093,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 72,
+          "y": -36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 2069,
+          "slp_id": 2355,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2355.slp"
+        },
+        {
+          "graphic_id": 2093,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": -72,
+          "y": 36,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 5324,
+          "slp_id": 4522,
+          "frame": 0,
+          "x": 72,
+          "y": -36,
+          "layer": "BLACKSMITH",
+          "source": "_common/drs/graphics/4522.slp"
+        },
+        {
+          "graphic_id": 5324,
+          "slp_id": 4522,
+          "frame": 0,
+          "x": -72,
+          "y": 36,
+          "layer": "BLACKSMITH",
+          "source": "_common/drs/graphics/4522.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2536,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 2065,
+          "slp_id": 2351,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3645,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": -144,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3597,
+          "slp_id": 3991,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/3991.slp"
+        },
+        {
+          "graphic_id": 3645,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 144,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3653,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": -144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3605,
+          "slp_id": 3999,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/3999.slp"
+        },
+        {
+          "graphic_id": 3653,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3649,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": -144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        },
+        {
+          "graphic_id": 3649,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3677,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 3601,
+          "slp_id": 3995,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 3645,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": -144,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3621,
+          "slp_id": 4015,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/4015.slp"
+        },
+        {
+          "graphic_id": 3645,
+          "slp_id": 2383,
+          "frame": 0,
+          "x": 144,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2383.slp"
+        },
+        {
+          "graphic_id": 3653,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": -144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3629,
+          "slp_id": 4023,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/4023.slp"
+        },
+        {
+          "graphic_id": 3653,
+          "slp_id": 2391,
+          "frame": 0,
+          "x": 144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2391.slp"
+        },
+        {
+          "graphic_id": 3649,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": -144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        },
+        {
+          "graphic_id": 3649,
+          "slp_id": 2387,
+          "frame": 0,
+          "x": 144,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2387.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 3677,
+          "slp_id": 2219,
+          "reason": "absent overlay/container"
+        },
+        {
+          "graphic_id": 3625,
+          "slp_id": 4019,
+          "reason": "absent overlay/container"
+        }
+      ]
+    }
+  ],
+  "orientation_frames": [
+    [
+      0,
+      1
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      4,
+      5
+    ],
+    [
+      6,
+      7
+    ]
+  ],
+  "gate_units": [
+    [
+      490,
+      88,
+      91
+    ],
+    [
+      673,
+      667,
+      669
+    ],
+    [
+      487,
+      64,
+      78
+    ],
+    [
+      665,
+      659,
+      661
+    ]
+  ],
+  "states": [
+    "closed",
+    "open"
+  ]
+}

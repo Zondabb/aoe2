@@ -1,0 +1,228 @@
+{
+  "key": "chinese_stone_wall",
+  "source": "AoE2 HD DAT + original SLP pixels",
+  "cols": 3,
+  "rows": 2,
+  "frame_w": 125,
+  "frame_h": 170,
+  "frame_count": 5,
+  "directions": 1,
+  "frames_per_direction": 5,
+  "includes_shadow": true,
+  "player_color": {
+    "mode": "indexed",
+    "mask": "chinese_stone_wall_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "hotspots": [
+    {
+      "x": 69,
+      "y": 153
+    },
+    {
+      "x": 69,
+      "y": 153
+    },
+    {
+      "x": 76,
+      "y": 148
+    },
+    {
+      "x": 68,
+      "y": 162
+    },
+    {
+      "x": 69,
+      "y": 147
+    }
+  ],
+  "content_bounds": [
+    {
+      "x": 20,
+      "y": 82,
+      "w": 85,
+      "h": 88
+    },
+    {
+      "x": 20,
+      "y": 80,
+      "w": 85,
+      "h": 90
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "w": 125,
+      "h": 170
+    },
+    {
+      "x": 7,
+      "y": 99,
+      "w": 111,
+      "h": 71
+    },
+    {
+      "x": 39,
+      "y": 69,
+      "w": 47,
+      "h": 101
+    }
+  ],
+  "frames": [
+    {
+      "layers": [
+        {
+          "graphic_id": 2014,
+          "slp_id": 2091,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2091.slp"
+        },
+        {
+          "graphic_id": 2022,
+          "slp_id": 2099,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2099.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2018,
+          "slp_id": 2220,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 2014,
+          "slp_id": 2091,
+          "frame": 1,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2091.slp"
+        },
+        {
+          "graphic_id": 2022,
+          "slp_id": 2099,
+          "frame": 1,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2099.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2018,
+          "slp_id": 2220,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 2014,
+          "slp_id": 2091,
+          "frame": 2,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2091.slp"
+        },
+        {
+          "graphic_id": 2022,
+          "slp_id": 2099,
+          "frame": 2,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2099.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2018,
+          "slp_id": 2220,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 2014,
+          "slp_id": 2091,
+          "frame": 3,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2091.slp"
+        },
+        {
+          "graphic_id": 2022,
+          "slp_id": 2099,
+          "frame": 3,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2099.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2018,
+          "slp_id": 2220,
+          "reason": "absent overlay/container"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "graphic_id": 2014,
+          "slp_id": 2091,
+          "frame": 4,
+          "x": 0,
+          "y": 0,
+          "layer": "SHADOW",
+          "source": "_common/drs/graphics/2091.slp"
+        },
+        {
+          "graphic_id": 2022,
+          "slp_id": 2099,
+          "frame": 4,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT",
+          "source": "_common/drs/graphics/2099.slp"
+        }
+      ],
+      "skipped": [
+        {
+          "graphic_id": 2018,
+          "slp_id": 2220,
+          "reason": "absent overlay/container"
+        }
+      ]
+    }
+  ],
+  "graphic_id": 2022,
+  "orientation_frames": [
+    1,
+    4,
+    0,
+    3
+  ],
+  "post_frame": 2
+}

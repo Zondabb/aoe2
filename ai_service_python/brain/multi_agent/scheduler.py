@@ -25,8 +25,8 @@ from jsonschema import Draft202012Validator, ValidationError
 from brain.llm_proxy import build_openai_payload, forward_openai, is_openai_backend, resolve_backend, upstream_model
 from protocol.models import ChatCompletionRequest, ChatMessage, ChatTool, ChatToolFunction
 
-ROLES = ("commander", "construction", "economy", "technology", "scout", "combat")
-INTERVALS = dict(commander=45, construction=45, economy=30, technology=45, scout=20, combat=20)
+ROLES = ("commander", "construction", "economy", "technology", "scout", "combat", "defense")
+INTERVALS = dict(commander=45, construction=45, economy=30, technology=45, scout=20, combat=20, defense=40)
 # A paused/disconnected client must not reserve model capacity indefinitely.
 # Active v3 clients refresh their demand on each fast observation tick.
 WAITING_TEAM_TTL_SEC = 5.0

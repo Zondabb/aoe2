@@ -13,6 +13,8 @@ const OP_GATHER := &"gather"
 const OP_BUILD := &"build"
 const OP_ATTACK := &"attack"
 const OP_PLACE_BUILDING := &"place_building"
+const OP_PLACE_WALL := &"place_wall"
+const OP_SET_GATE_STATE := &"set_gate_state"
 const OP_TRAIN := &"train"
 const OP_NOOP := &"noop"
 const OP_RESEARCH_AGE := &"research_age"
@@ -121,6 +123,10 @@ static func op_from_string(value: String) -> StringName:
 			return OP_ATTACK
 		"place_building":
 			return OP_PLACE_BUILDING
+		"place_wall":
+			return OP_PLACE_WALL
+		"set_gate_state":
+			return OP_SET_GATE_STATE
 		"train":
 			return OP_TRAIN
 		"noop":

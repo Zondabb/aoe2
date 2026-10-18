@@ -332,6 +332,28 @@ standalone Python AI service; its regression test checks parity with the game ca
 - Player-color pixels use the configured player; shadow commands preserve every pixel as black with alpha 100 (matching openage). Sheets preserve RGBA and building layers use source-over alpha compositing.
 - Do not commit the full game tree — only tools + small converted PNGs.
 
+## Original walls and gates
+
+`import_fortifications.py --resources <resources> --openage <openage-root>` exports
+Chinese/Teuton fortifications to `assets/sprites/fortifications/` and writes
+`data/fortification_sprites.json`. Use a Python environment with Pillow and NumPy.
+Wall SLP shapes are adjacency variants: frames 0/1 are the two sloped axes,
+2 is the endpoint/corner post, 3 is horizontal and 4 is vertical. These must not
+be treated as animation frames or rotated textures. Source DAT frame counts
+still apply within a shape (e.g. palisade overlays use nine frames per shape).
+
+Gates use source preview units 490/673/487/665 for simulation axes X/XY/Y/-XY.
+Their closed centre units 88/667/64/659 are replaced by original open centre
+units 91/669/78/661, retaining pillar, flag and shadow offsets. Both states are
+exported for all four axes. Only verified missing overlay containers are skipped;
+unexpected missing artwork aborts the export. Transparent placeholders are
+excluded before composing so their dummy hotspots cannot inflate the atlas.
+Per-frame metadata preserves all source IDs, offsets, hotspots and visible bounds.
+
+The runtime uniformly scales native 96×48 tiles onto its 44×22 logical grid for
+continuous joins and uses original construction stages/foundations. See
+`../../docs/walls_and_gates.md` for controls and validation.
+
 ## Modules
 
 | File | API |

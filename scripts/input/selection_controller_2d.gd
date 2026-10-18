@@ -722,6 +722,7 @@ func _entity_footprint_half(entity: Node2D) -> Vector2:
 	if entity.is_in_group("buildings"):
 		var building_def := entity.get("def") as BuildingDef
 		if building_def != null:
+			if entity.has_method("get_placement_footprint"): return entity.get_placement_footprint() * 0.5
 			return building_def.footprint * 0.5
 	if entity.is_in_group("resource_nodes"):
 		return ResourceNodeScript.selection_footprint(
@@ -737,6 +738,8 @@ func _uses_visual_pick(entity: Node2D) -> bool:
 	)
 
 func _visual_rect_canvas(entity: Node2D) -> Rect2:
+	var fortification := entity.get_node_or_null("FortificationVisual")
+	if fortification != null and fortification.visible: return fortification.visual_rect_canvas()
 	var sprite := _entity_visual_sprite(entity)
 	if sprite == null:
 		return Rect2()

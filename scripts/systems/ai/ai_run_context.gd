@@ -100,6 +100,23 @@ func issue_build(villager: Node2D, building: Node2D) -> void:
 	villager.call("command_build", building)
 
 
+func issue_wall(option: Dictionary) -> bool:
+	var cost: Dictionary = option.cost
+	if not can_afford(100 + int(cost.food), 150 + int(cost.wood), int(cost.gold), int(cost.stone)): return false
+	var command := {"op": "place_wall"}
+	for key in ["builder_id", "building_def_id", "start", "end", "include_gate"]: command[key] = option[key]
+	if capture_commands:
+		_reserve_cost(cost.food, cost.wood, cost.gold, cost.stone)
+		_push_command(command)
+		return true
+	var context := preload("res://scripts/ai_gateway/command_execution_context.gd").new()
+	context.match_state = match_state
+	context.entities = entities
+	context.team = team
+	context.civ = civ
+	return preload("res://scripts/ai_gateway/command_executor.gd").execute(command, context).ok
+
+
 func issue_attack(unit: Node2D, target: Node2D) -> void:
 	if unit == null or target == null:
 		return

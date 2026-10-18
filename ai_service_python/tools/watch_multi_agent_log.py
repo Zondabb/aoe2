@@ -12,9 +12,9 @@ import time
 
 DEFAULT_LOG = Path(__file__).resolve().parents[1] / "logs" / "multi_agent.jsonl"
 RESULTS = {"model_result", "model_failed"}
-ROLES = dict(commander="总指挥", construction="建设", economy="经济", technology="科技", scout="侦察", combat="战斗")
+ROLES = dict(commander="总指挥", construction="建设", economy="经济", technology="科技", scout="侦察", combat="战斗", defense="城墙防守")
 STATES = dict(applied="计划已应用", invalid_plan="计划无效", plan_expired="计划过期", goal_changed="目标已变化", session_closed="对局已关闭", match_over="对局结束")
-OPS = dict(move="移动", attack="攻击", gather="采集", train="训练", build="参与建造", place_building="放置建筑", stop="停止", research_age="升级时代", cancel_research_age="取消时代升级", research_technology="研究科技", cancel_technology="取消科技", noop="不操作")
+OPS = dict(move="移动", attack="攻击", gather="采集", train="训练", build="参与建造", place_building="放置建筑", place_wall="建造整排城墙", set_gate_state="调整城门", stop="停止", research_age="升级时代", cancel_research_age="取消时代升级", research_technology="研究科技", cancel_technology="取消科技", noop="不操作")
 
 
 def compact(value):
@@ -84,7 +84,7 @@ def show_commands(row):
     print(f"\n【执行器下发】队伍 {row.get('team', '?')} | 游戏 {row.get('sim_time', '?')} 秒 | observation_seq={row.get('observation_seq', '?')} | {len(commands)} 条")
     print("  仅表示下发，未证明执行成功；不能按时间相邻归因于某次 LLM 调用。")
     print(f"  对局: {row.get('match_id', '?')}")
-    names = dict(unit_id="单位", builder_id="建造者", building_id="建筑", target_id="目标", unit_def_id="单位类型", building_def_id="建筑类型", technology_id="科技", pos="位置")
+    names = dict(unit_id="单位", builder_id="建造者", building_id="建筑", target_id="目标", unit_def_id="单位类型", building_def_id="建筑类型", technology_id="科技", pos="位置", start="墙起点", end="墙终点", include_gate="包含城门", orientation="方向", gate_state="城门状态")
     for command in commands:
         if isinstance(command, dict):
             details = " | ".join(f"{label}={compact(command[key])}" for key, label in names.items() if key in command)
@@ -187,7 +187,7 @@ class Viewer:
 def main():
     parser = argparse.ArgumentParser(description="只读观察 LLM 输入、输出、计划变化和执行器下发指令。")
     parser.add_argument("path", nargs="?", type=Path, default=DEFAULT_LOG, help="JSONL 文件，默认 logs/multi_agent.jsonl")
-    parser.add_argument("--last", type=int, default=6, help="启动时显示最近 N 次模型结果（默认 6）")
+    parser.add_argument("--last", type=int, default=7, help="启动时显示最近 N 次模型结果（默认 7）")
     parser.add_argument("--follow", action="store_true", help="持续读取新增记录，支持截断和日志轮转")
     parser.add_argument("--commands", action="store_true", help="另显示执行器命令，启动时仅最近一个非空批次")
     parser.add_argument("--full-io", action="store_true", help="显示真实发送 JSON 和模型原始响应")

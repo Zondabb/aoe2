@@ -32,6 +32,8 @@ func _run() -> void:
 		["building", "blacksmith", Vector2(-10, -5), "player", "blacksmith"],
 		["building", "house", Vector2(-5, -15), "player", "house"],
 		["building", "farm", Vector2(-18, 2), "player", "farm"],
+		["building", "gate", Vector2(-10, 10), "player", "gate"],
+		["building", "stone_wall", Vector2(-8, 12), "player", "wall"],
 		["unit", "villager", Vector2(-18, -15), "player", "gatherer"],
 		["unit", "villager", Vector2(-17, -15), "player", "builder"],
 		["unit", "villager", Vector2(-16, -15), "player", "mover"],
@@ -78,6 +80,10 @@ func _run() -> void:
 	by_name.gatherer.carry_type = Enums.ResourceType.WOOD
 	by_name.gatherer.carry_amount = 8.5
 	by_name.builder.command_build(house)
+	by_name.wall.start_construction()
+	by_name.builder.command_build_queue([by_name.wall], true)
+	by_name.gate.wall_orientation = 3
+	by_name.gate.set_gate_state("locked")
 	by_name.mover.command_move(Vector2(0, 8))
 	by_name.fighter.command_attack(by_name.enemy)
 	by_name.fighter._attack_cooldown_remaining = 0.75
@@ -144,6 +150,8 @@ func _run() -> void:
 	check(is_equal_approx(by_name.farm.amount, 73.75) and is_equal_approx(by_name.tree.amount, 22.5), "farm and natural resource depletion restored")
 	check(by_name.gatherer._last_resource == by_name.tree and by_name.gatherer._drop_off_target == tc and is_equal_approx(by_name.gatherer.carry_amount, 8.5), "gather and dropoff references map to restored actors")
 	check(by_name.builder._build_target == house and by_name.builder.order == Enums.OrderType.BUILD, "builder resumes foundation")
+	check(by_name.builder.get_build_queue_ids().size() == 1 and by_name.builder._build_queue[0].get_ref() == by_name.wall, "wall construction queue survives save/load")
+	check(by_name.gate.wall_orientation == 3 and by_name.gate.gate_state == "locked" and by_name.gate.get_movement_half() == Vector2(2, 2), "rotated gate state and collision survive save/load")
 	check(by_name.mover.order == Enums.OrderType.MOVE and by_name.mover._requested_move_target == Vector2(0, 8), "movement goal restored")
 	check(by_name.fighter._attack_target == by_name.enemy and is_equal_approx(by_name.fighter._attack_cooldown_remaining, 0.75) and is_equal_approx(by_name.enemy.hp, 11.5), "attack target and damage restored")
 	check(not by_name.fighter.has_meta("network_replica") and not state.age_progression.network_replica and not state.technology_progression.replica, "restored actors and research continue authority simulation")

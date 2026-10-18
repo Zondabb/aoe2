@@ -2,7 +2,7 @@
 
 独立 Python 进程，实现 v3 多 Agent 快速决策（`/v3/ai/tick`），兼容 v1 tick 与 v2 Chat Completions（`/v1/ai/tick`、`/v1/ai/tick_batch`、`/v1/chat/completions`、`/v1/chat/completions_batch`）。
 
-游戏默认启用六角色 AI：战略、建设、经济、科技、侦察、作战。每个快速观察都推进任务，`backend=openai` 在有界后台线程中调用外部模型更新专业计划。完整配置、事件语义和实际限制见 [多 Agent AI 实现说明](../docs/multi_agent_ai.md)。更新后请重启 Python 服务并开始新对局。
+游戏默认启用七角色 AI：战略、建设、经济、科技、侦察、作战、城墙防守。每个快速观察都推进任务，`backend=openai` 在有界后台线程中调用外部模型更新专业计划。防守 Agent 使用游戏提供的可见合法墙线，整排建墙并维护城门与建造队列；基础经济、军事生产和科技储蓄先于墙体投资。完整配置、事件语义和实际限制见 [多 Agent AI 实现说明](../docs/multi_agent_ai.md)。更新后请重启 Python 服务并开始新对局。
 
 ```ini
 [ai]
@@ -35,7 +35,7 @@ cd ai_service_python
 .\start_qwen3_proxy.ps1
 ```
 
-六角色规划自动使用 Ollama 原生 `/api/chat`：JSON Schema 约束、`think=false`、8192 上下文、最多 256 输出 token；启动脚本限制单个 GPU 同时一个请求。这样避免兼容接口忽略 `tool_choice`、思考耗尽输出预算和长观察被截断。`-NumCtx 16384` 可调整上下文，其他兼容服务继续走原接口。详细排查与实测见[Qwen3 决策排查](../docs/qwen3_decision_diagnosis.md)。
+七角色规划自动使用 Ollama 原生 `/api/chat`：JSON Schema 约束、`think=false`、8192 上下文、最多 256 输出 token；启动脚本限制单个 GPU 同时一个请求。这样避免兼容接口忽略 `tool_choice`、思考耗尽输出预算和长观察被截断。`-NumCtx 16384` 可调整上下文，其他兼容服务继续走原接口。详细排查与实测见[Qwen3 决策排查](../docs/qwen3_decision_diagnosis.md)。
 
 `uvicorn main:app` 读不到自定义参数。请用 `python main.py`，token 和 host 一样用 `--` 传入：
 
@@ -174,7 +174,7 @@ python tools/load_test_tick_batch.py --base-url http://127.0.0.1:8765
 
 ## 范围（P4–P6）
 
-- ✅ v3 六角色快速任务与有界后台模型规划、可靠事件反馈和托管让权
+- ✅ v3 七角色快速任务与有界后台模型规划、可靠事件反馈和托管让权
 - ✅ GET `/health`
 - ✅ POST `/v1/ai/match/start`, `/match/end`, `/tick`, `/tick_batch`
 - ✅ POST `/v1/chat/completions`、`/v1/chat/completions_batch`（非流式；RulesCompat / openai 代理）

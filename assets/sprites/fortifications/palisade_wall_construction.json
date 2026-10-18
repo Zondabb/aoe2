@@ -1,0 +1,49 @@
+{
+  "key": "palisade_wall_construction",
+  "source": "AoE2 HD DAT + original SLP pixels",
+  "cols": 1,
+  "rows": 1,
+  "frame_w": 96,
+  "frame_h": 64,
+  "frame_count": 1,
+  "directions": 1,
+  "frames_per_direction": 1,
+  "includes_shadow": true,
+  "player_color": {
+    "mode": "indexed",
+    "mask": "palisade_wall_construction_player_mask.png",
+    "palette": "res://assets/sprites/player_palette.png",
+    "source_player": 1,
+    "encoding": "index_weight_rg8"
+  },
+  "hotspots": [
+    {
+      "x": 51,
+      "y": 38
+    }
+  ],
+  "content_bounds": [
+    {
+      "x": 1,
+      "y": 1,
+      "w": 94,
+      "h": 62
+    }
+  ],
+  "frames": [
+    {
+      "layers": [
+        {
+          "graphic_id": 118,
+          "slp_id": 236,
+          "frame": 0,
+          "x": 0,
+          "y": 0,
+          "layer": "UNIT_LOW",
+          "source": "_common/drs/graphics/236.slp"
+        }
+      ],
+      "skipped": []
+    }
+  ]
+}

@@ -8,7 +8,12 @@ const BASE_RESOURCE_RADIUS := 144.0
 
 
 func assign_builders(ctx: AiRunContext) -> void:
+	var queued := {}
+	for villager in ctx.blackboard.team_villagers:
+		if villager.has_method("get_build_queue_ids"):
+			for id in villager.get_build_queue_ids(): queued[id] = true
 	for building in ctx.blackboard.team_buildings:
+		if queued.has(EntityRegistry.id_of(building)): continue
 		if bool(building.get("is_complete")):
 			continue
 		var assigned_builder: Node2D = null
@@ -21,7 +26,7 @@ func assign_builders(ctx: AiRunContext) -> void:
 			):
 				assigned_builder = villager
 				if int(villager.get("_no_progress_frames")) >= STUCK_GATHER_FRAMES:
-					ctx.issue_build(villager, building)
+					if villager.get_build_queue_ids().is_empty(): ctx.issue_build(villager, building)
 					ctx.log_decision("ECON", "重建路径建造 %s" % _building_label(building))
 				break
 		if assigned_builder != null:
@@ -115,6 +120,7 @@ func _villagers_needing_gather(ctx: AiRunContext) -> Array[Node2D]:
 
 
 func _worker_reserved(ctx: AiRunContext, villager: Node2D) -> bool:
+	if villager.has_method("get_build_queue_ids") and not villager.get_build_queue_ids().is_empty(): return true
 	if not ctx.capture_commands:
 		return false
 	var id := EntityRegistry.id_of(villager)

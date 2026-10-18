@@ -15,6 +15,8 @@ CommandOp = Literal[
     "build",
     "attack",
     "place_building",
+    "place_wall",
+    "set_gate_state",
     "train",
     "research_age",
     "cancel_research_age",
@@ -135,6 +137,11 @@ class Command(BaseModel):
     technology_id: str | None = None
     pos: list[float] | None = None
     builder_id: int | None = None
+    start: list[float] | None = None
+    end: list[float] | None = None
+    include_gate: bool | None = None
+    orientation: int | None = Field(default=None, ge=0, le=3)
+    gate_state: Literal["auto", "open", "locked"] | None = None
 
 
 class DebugEntry(BaseModel):

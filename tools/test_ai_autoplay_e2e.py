@@ -151,7 +151,7 @@ def main() -> int:
                        [f"ws://127.0.0.1:{relay_port}/ws", ai_url, args.protocol]) for side in range(2)]
         wait_clients(peers, ["peer-0", "peer-1"], "AI AUTOPLAY PEER:")
         if args.protocol == "v3":
-            expected = {"commander", "construction", "economy", "technology", "scout", "combat"}
+            expected = {"commander", "construction", "economy", "technology", "scout", "combat", "defense"}
             if planner.calls < 6 or planner.roles != expected or offered_plan != expected:
                 raise RuntimeError(f"six role planners did not reach real propose_plan HTTP calls: {planner.roles}")
             calls = planner.calls

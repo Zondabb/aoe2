@@ -14,6 +14,7 @@ const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const UnitOcclusionScript := preload("res://scripts/presentation/unit_occlusion.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const WallRules := preload("res://scripts/systems/wall_system.gd")
 # Keep the entity origin/footprint unchanged; only its artwork covers walkers.
 const TOWN_CENTER_SOLID_Z := 1
 const TOWN_CENTER_SHADOW_Z := -3
@@ -76,6 +77,69 @@ var block_half := Vector2.ONE
 var _visual_age := 0
 var _spawn_retry_remaining := 0.0
 var _production_exit_blocked := false
+var wall_orientation := 0
+var gate_state := "auto"
+var gate_open := false
+var _gate_timer := 0.0
+var _last_gate_navigation := Vector2(-1, -1)
+
+func get_placement_footprint() -> Vector2:
+	return WallRules.footprint_for(def, wall_orientation) if def != null else Vector2.ONE
+
+func get_movement_half() -> Vector2:
+	if def != null and def.id == &"gate":
+		return Vector2.ZERO if gate_open and is_complete else get_placement_footprint() * 0.5
+	return block_half if def != null and def.blocks_movement else Vector2.ZERO
+
+func get_navigation_half() -> Vector2:
+	# An auto gate is a possible route. Its physical door opens only for allies
+	# approaching it; hostile walkers cannot trigger the door themselves.
+	if def != null and def.id == &"gate" and is_complete and gate_state != "locked": return Vector2.ZERO
+	return get_movement_half()
+
+func set_gate_state(value: String) -> bool:
+	if def == null or def.id != &"gate" or value not in ["auto", "open", "locked"]: return false
+	gate_state = value
+	_update_gate()
+	return true
+
+func _process(delta: float) -> void:
+	if has_meta("network_replica") or is_placement_ghost or match_state == null or match_state.frozen: return
+	_gate_timer -= delta
+	if _gate_timer <= 0.0:
+		_gate_timer = 0.15
+		_update_gate()
+
+func _update_gate() -> void:
+	if def == null or def.id != &"gate": return
+	var should_open := is_complete and gate_state == "open"
+	if is_complete and gate_state == "auto" and is_inside_tree():
+		for node in get_parent().get_children():
+			if node.get("def") is UnitDef and node.get("team") == team and float(node.get("hp")) > 0 and not node.is_queued_for_deletion():
+				if sim_pos.distance_to(node.get("sim_pos")) <= 7.0:
+					should_open = true
+					break
+	# Do not close a door on a unit already occupying its footprint.
+	if gate_open and not should_open and is_inside_tree():
+		for node in get_parent().get_children():
+			if node.get("def") is UnitDef and float(node.get("hp")) > 0:
+				var offset: Vector2 = (node.get("sim_pos") - sim_pos).abs()
+				if offset.x < get_placement_footprint().x * 0.5 + 0.5 and offset.y < get_placement_footprint().y * 0.5 + 0.5:
+					should_open = true
+					break
+	var changed := gate_open != should_open
+	if changed:
+		gate_open = should_open
+		if match_state != null and match_state.fog != null: match_state.fog.dirty = true
+	_sync_block_half()
+	var navigation := get_navigation_half()
+	if not changed and navigation == _last_gate_navigation: return
+	_last_gate_navigation = navigation
+	if is_inside_tree():
+		for holder in get_tree().get_nodes_in_group("nav_service"):
+			if holder.has_method("invalidate_static_geometry"): holder.call("invalidate_static_geometry")
+	var visual := get_node_or_null("FortificationVisual") as CanvasItem
+	if visual != null: visual.refresh()
 
 func _ready() -> void:
 	_visual_age = match_state.age_of(team) if match_state != null else 0
@@ -109,6 +173,7 @@ func _ready() -> void:
 			_complete_construction()
 		_configure_visuals()
 	set_physics_process(not train_queue.is_empty())
+	set_process(def != null and def.id == &"gate")
 	set_selected(false)
 	if not is_placement_ghost:
 		EntityRegistryScript.register(self)
@@ -371,7 +436,7 @@ func _ensure_selection_footprint() -> void:
 	var ring := get_node_or_null("SelectionRing")
 	if ring is Line2D:
 		return
-	SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
+	SpriteCatalogScript.configure_selection_footprint(self, get_placement_footprint() * 0.5)
 
 func set_ghost_visual(valid: bool) -> void:
 	if _ghost_visual_valid == valid:
@@ -381,6 +446,8 @@ func set_ghost_visual(valid: bool) -> void:
 
 func _apply_ghost_tint(valid: bool) -> void:
 	var tint := Color(0.2, 0.9, 0.35, 0.55) if valid else Color(0.95, 0.2, 0.2, 0.55)
+	var fortification := get_node_or_null("FortificationVisual") as CanvasItem
+	if fortification != null: fortification.modulate = tint
 	var billboard := get_node_or_null("Billboard") as CanvasItem
 	if _use_billboard and billboard != null:
 		billboard.modulate = tint
@@ -556,7 +623,7 @@ func _configure_visuals() -> void:
 	if billboard != null and not _use_billboard:
 		billboard.visible = false
 	if def != null:
-		SpriteCatalogScript.configure_selection_footprint(self, def.footprint * 0.5)
+		SpriteCatalogScript.configure_selection_footprint(self, get_placement_footprint() * 0.5)
 		if ground_farm:
 			# Soil uses the original art scale, like the other building atlases.
 			# Follow its displayed boundary instead of shrinking it to sim tiles.
@@ -588,6 +655,19 @@ func _configure_visuals() -> void:
 		if layered_town_center:
 			(get_node("GroundShadow") as CanvasItem).z_index = TOWN_CENTER_SHADOW_Z
 	_apply_team_color()
+	if def != null and WallRules.is_fortification(def.id):
+		if billboard != null: billboard.visible = false
+		if body != null: body.visible = false
+		if ground_shadow != null: ground_shadow.visible = false
+		var visual := get_node_or_null("FortificationVisual") as Node2D
+		if visual == null:
+			visual = Node2D.new()
+			visual.name = "FortificationVisual"
+			visual.set_script(load("res://scripts/presentation/fortification_visual.gd"))
+			add_child(visual)
+		visual.modulate = Color.WHITE
+		if is_placement_ghost: _apply_ghost_tint(_ghost_visual_valid == true)
+		visual.refresh()
 
 
 func _uses_foundation_visual() -> bool:
@@ -619,6 +699,9 @@ func _sync_block_half() -> void:
 	if def == null:
 		block_half = Vector2.ONE
 		return
+	if def.id == &"gate":
+		block_half = Vector2.ZERO if gate_open and is_complete else get_placement_footprint() * 0.5
+		return
 	var civ_id: StringName = civ.id if civ != null else &""
 	var footprint := SpriteCatalogScript.pathfinding_footprint_for_building(def, civ_id)
 	block_half = footprint * 0.5
@@ -642,6 +725,11 @@ func _apply_team_color() -> void:
 		body.modulate = TeamColorCatalogScript.fallback_color(color_id)
 	if _ghost_visual_valid != null:
 		_apply_ghost_tint(bool(_ghost_visual_valid))
+	if def != null and WallRules.is_fortification(def.id):
+		if billboard != null: billboard.visible = false
+		if body != null: body.visible = false
+		var visual := get_node_or_null("FortificationVisual")
+		if visual != null: visual.refresh()
 
 func refresh_team_color() -> void:
 	_apply_team_color()

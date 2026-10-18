@@ -385,6 +385,8 @@ func _refresh_entity_details(focus: Node2D, total_count: int) -> void:
 		elif not training.is_empty() and focus.team == PlayerCommands.local_team(self):
 			var trainee: UnitDef = training[0]
 			_queue_label.text = "%s %s  %d%%  · 队列 %d/%d" % ["等待人口" if focus.is_training_population_blocked() else "训练", UiCatalogScript.unit_display_name(trainee.id), 100 * focus.training_progress_ratio(), training.size(), BuildingAgent.MAX_TRAIN_QUEUE]
+		elif definition.id in [&"gate", &"palisade_gate"]:
+			_queue_label.text = "城门：" + _gate_state_label(String(focus.get("gate_state")))
 	elif focus.is_in_group("resource_nodes"):
 		_stats_label.text = "采集速度  %.1f / 秒" % float(focus.get("gather_rate"))
 
@@ -395,11 +397,13 @@ func _refresh_status_label(focus: Node2D, units: Array) -> void:
 		if is_instance_valid(_hovered_command):
 			_status_label.text = _hovered_command.tooltip_text.replace("\n", "  ")
 		elif build_system != null and build_system.call("is_placing"):
-			_status_label.text = "需要视野：先探索整个建筑占地" if build_system.get("placement_reason") == "need_vision" else "左键放置建筑；右键或 Esc 取消。"
+			_status_label.text = build_system.call("get_placement_hint")
 		elif _command_page != "root":
 			_status_label.text = "%s：选择建筑，再在地图上放置。Esc 返回。" % ("经济建筑" if _command_page == "economy" else "军事建筑")
 		elif is_instance_valid(_selected_building) and focus == _selected_building and _production_queue != null and _production_queue.visible:
 			_status_label.text = "人口已满：建造房屋或腾出人口后自动继续。点击队列图标可取消并退款。" if _selected_building.is_training_population_blocked() else "重复点击训练可排队；从左到右依次生产。点击队列图标可取消并退款。"
+		elif is_instance_valid(_selected_building) and focus == _selected_building and _selected_building.get("team") == PlayerCommands.local_team(self) and _selected_building.def.id in [&"gate", &"palisade_gate"]:
+			_status_label.text = "自动：己方通行时开门；常开：允许所有单位通过；锁闭：禁止通行。"
 		elif is_instance_valid(focus) and focus.get("team") != null and focus.get("team") != PlayerCommands.local_team(self):
 			_status_label.text = "敌方%s：仅可查看信息。" % ("建筑" if focus.is_in_group("buildings") else "单位")
 		else:
@@ -627,7 +631,9 @@ func _rebuild_command_grid() -> void:
 				active.set_border_width_all(2)
 				(_command_grid.get_child(5 + index) as Button).add_theme_stylebox_override("pressed", active)
 	if is_instance_valid(_selected_building) and _selected_building.get("team") == PlayerCommands.local_team(self) and bool(_selected_building.get("is_complete")):
-		if match_state.progression_enabled:
+		if _selected_building.def.id in [&"gate", &"palisade_gate"]:
+			_add_gate_commands()
+		elif match_state.progression_enabled:
 			_add_production_commands()
 		else:
 			var slot := 0
@@ -639,8 +645,8 @@ func _rebuild_command_grid() -> void:
 func _add_build_commands() -> void:
 	if match_state.progression_enabled:
 		var economic := ["house","mill","mining_camp","lumber_camp","farm","market","blacksmith","town_center","monastery","university","wonder"]
-		var ids: Array = economic if _command_page == "economy" else ["barracks","archery_range","stable","siege_workshop","castle","outpost","palisade_wall","stone_wall","gate","watch_tower","guard_tower","fortified_wall","keep","bombard_tower"]
-		var keys := [KEY_E,KEY_I,KEY_G,KEY_Z,KEY_F,KEY_M,KEY_S,KEY_C,KEY_Y,KEY_U,KEY_O] if _command_page == "economy" else [KEY_B,KEY_A,KEY_L,KEY_W,KEY_C,KEY_O,KEY_P,KEY_T,KEY_G,KEY_Q,KEY_R,KEY_F,KEY_K,KEY_D]
+		var ids: Array = economic if _command_page == "economy" else ["barracks","archery_range","stable","siege_workshop","castle","outpost","palisade_wall","palisade_gate","stone_wall","gate","watch_tower","guard_tower","fortified_wall","keep","bombard_tower"]
+		var keys := [KEY_E,KEY_I,KEY_G,KEY_Z,KEY_F,KEY_M,KEY_S,KEY_C,KEY_Y,KEY_U,KEY_O] if _command_page == "economy" else [KEY_B,KEY_A,KEY_L,KEY_W,KEY_C,KEY_O,KEY_P,KEY_J,KEY_T,KEY_G,KEY_Q,KEY_R,KEY_F,KEY_K,KEY_D]
 		var available: Array = []
 		for id in ids:
 			var d := Catalog.get_building(id)
@@ -714,6 +720,35 @@ func _add_command_button(slot: int, command_id: String, label: String, icon_base
 	placeholder.queue_free()
 	_command_grid.add_child(button)
 	_command_grid.move_child(button, slot)
+
+func _gate_state_label(state: String) -> String:
+	return {"auto": "自动开关", "open": "保持开启", "locked": "锁闭"}.get(state, state)
+
+func _add_gate_commands() -> void:
+	var states := ["auto", "open", "locked"]
+	var keys := [KEY_Q, KEY_W, KEY_E]
+	for index in states.size():
+		var state: String = states[index]
+		_add_command_button(index, "gate_" + state, _gate_state_label(state), UiCatalogScript.ICONS_BUILDINGS_BASE, _selected_building.def.icon_id, keys[index], _set_gate_state.bind(state), "gate_state", state)
+		var button := _command_grid.get_child(index) as Button
+		button.toggle_mode = true
+		var label := Label.new()
+		label.text = ["自动", "常开", "锁闭"][index]
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.add_theme_font_size_override("font_size", 11)
+		label.add_theme_color_override("font_outline_color", Color.BLACK)
+		label.add_theme_constant_override("outline_size", 4)
+		label.position = Vector2(3, 28)
+		button.add_child(label)
+
+func _set_gate_state(state: String) -> void:
+	if not _commands_enabled() or not is_instance_valid(_selected_building) or _selected_building.get("team") != PlayerCommands.local_team(self) or not _selected_building.has_method("set_gate_state"):
+		return
+	if PlayerCommands.is_online(self):
+		PlayerCommands.submit(self, {"op": "set_gate_state", "building_id": PlayerCommands.entity_id(self, _selected_building), "gate_state": state})
+	elif _selected_building.call("set_gate_state", state):
+		PlayerCommands.Registry.report_manual_command({"op": "set_gate_state", "building_id": PlayerCommands.Registry.id_of(_selected_building), "gate_state": state}, PlayerCommands.local_team(self))
+	_refresh_command_grid_states()
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not _commands_enabled():
@@ -891,6 +926,9 @@ func _refresh_command_grid_states() -> void:
 			button.disabled = not reason.is_empty() or not _commands_enabled()
 		if button.has_meta("formation_kind"):
 			button.set_pressed_no_signal(selection.get("formation_mode") == button.get_meta("formation_kind"))
+		if button.has_meta("gate_state"):
+			button.disabled = not _commands_enabled() or not is_instance_valid(_selected_building) or not _selected_building.is_complete or _selected_building.team != PlayerCommands.local_team(self)
+			button.set_pressed_no_signal(is_instance_valid(_selected_building) and _selected_building.get("gate_state") == button.get_meta("gate_state"))
 		var hotkey: Key = button.get_meta("hotkey")
 		button.tooltip_text = "%s [%s]" % [button.get_meta("label"), "Esc" if hotkey == KEY_ESCAPE else OS.get_keycode_string(hotkey)]
 		if definition != null:
@@ -955,7 +993,7 @@ func _can_build(building_def: BuildingDef) -> bool:
 				PlayerCommands.local_team(self),
 				building_def.cost_food,
 				building_def.cost_wood,
-				building_def.cost_gold
+				building_def.cost_gold, building_def.cost_stone
 			)
 	return false
 

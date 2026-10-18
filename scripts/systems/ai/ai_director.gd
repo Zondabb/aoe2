@@ -40,6 +40,7 @@ var _build := AiBuildManagerScript.new()
 var _production := AiProductionManagerScript.new()
 var _army := AiArmyManagerScript.new()
 var _combat := AiCombatManagerScript.new()
+var _defense := preload("res://scripts/systems/ai/ai_defense_manager.gd").new()
 var _scout := preload("res://scripts/systems/ai/ai_scout_manager.gd").new()
 var _previous_phase: Phase = Phase.ECO
 
@@ -68,6 +69,7 @@ func setup(
 	_previous_phase = Phase.ECO
 	_scout.reset()
 	_army.reset()
+	_defense.reset()
 	enabled = true
 	decision_log = shared_log if shared_log != null else AiDecisionLogScript.new()
 	_blackboard = AiBlackboardScript.new()
@@ -123,6 +125,7 @@ func evaluate() -> void:
 			_build.tick(_ctx)
 			_production.tick(_ctx, _build)
 	_tick_army()
+	_defense.tick(_ctx)
 	_economy.assign_gatherers(_ctx)
 	_progression.tick_technologies(_ctx)
 	_scout.tick(_ctx)
@@ -166,6 +169,7 @@ func evaluate_capture(tick: int) -> Dictionary:
 			_production.tick(_ctx, _build)
 
 	_tick_army()
+	_defense.tick(_ctx)
 	_economy.assign_gatherers(_ctx)
 	_progression.tick_technologies(_ctx)
 	_scout.tick(_ctx)

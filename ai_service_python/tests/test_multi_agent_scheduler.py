@@ -138,20 +138,20 @@ def test_role_plans_apply_and_log_usage_with_global_bounded_calls(schemas, monke
         return completion()
 
     service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=2,
-        calls_per_minute=6, clock=lambda: clock[0], log=lambda event, data: logs.append((event, data)))
+        calls_per_minute=len(ROLES), clock=lambda: clock[0], log=lambda event, data: logs.append((event, data)))
     try:
         for seq in range(1, 10):
             service.tick(tick_request(seq, backend="openai"))
             wait_idle(service)
         assert set(calls) == set(ROLES)
-        assert len(calls) == 6
-        assert len(service._sessions[("multi-test", 0)].runtime.plans) == 6
+        assert len(calls) == len(ROLES)
+        assert len(service._sessions[("multi-test", 0)].runtime.plans) == len(ROLES)
         results = [data for event, data in logs if event == "model_result"]
         assert all(data["state"] == "applied" for data in results)
         assert all(data["usage"]["total_tokens"] == 50 for data in results)
-        assert len({data["request_id"] for data in results}) == 6
+        assert len({data["request_id"] for data in results}) == len(ROLES)
         io = [data for event, data in logs if event == "llm_io"]
-        assert len(io) == 6
+        assert len(io) == len(ROLES)
         assert all(data["output"]["usage"]["total_tokens"] == 50 for data in io)
     finally:
         service.shutdown()

@@ -13,6 +13,7 @@ const _ARG_KEYS := [
 	"technology_id",
 	"pos",
 	"builder_id",
+	"start", "end", "include_gate", "orientation", "gate_state", "append_queue",
 ]
 
 

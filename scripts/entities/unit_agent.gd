@@ -109,6 +109,31 @@ var _goal_refresh_remaining := 0.0
 var _drop_off_debug_timer := 0.0
 var _debug_steer_velocity := Vector2.ZERO
 var _debug_actual_delta := Vector2.ZERO
+var _build_queue: Array[WeakRef] = []
+
+func command_build_queue(buildings: Array, append := false) -> void:
+	if not append: _build_queue.clear()
+	for building in buildings:
+		if is_instance_valid(building) and building.get("team") == team and not bool(building.get("is_complete")):
+			_build_queue.append(weakref(building))
+	if append and order == Enums.OrderType.BUILD and is_instance_valid(_build_target): return
+	_advance_build_queue()
+
+func get_build_queue_ids() -> Array:
+	var ids: Array = []
+	for reference in _build_queue:
+		var building: Variant = reference.get_ref()
+		if is_instance_valid(building) and not building.is_queued_for_deletion() and not building.is_complete:
+			ids.append(EntityRegistryScript.id_of(building))
+	return ids
+
+func _advance_build_queue() -> bool:
+	while not _build_queue.is_empty():
+		var building: Variant = _build_queue.pop_front().get_ref()
+		if is_instance_valid(building) and not building.is_queued_for_deletion() and building.get("team") == team and not bool(building.get("is_complete")):
+			command_build(building, true)
+			return true
+	return false
 
 func _ready() -> void:
 	if match_state != null and not match_state.team_color_changed.is_connected(_on_team_color_changed):
@@ -244,6 +269,7 @@ func _finish_move() -> void:
 func command_move(target: Vector2) -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
+	_build_queue.clear()
 	_formation_move_speed = 0.0
 	if order == Enums.OrderType.MOVE and _requested_move_target.is_equal_approx(target):
 		return
@@ -281,6 +307,7 @@ func _movement_speed() -> float:
 func command_stop() -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
+	_build_queue.clear()
 	_cancel_gather_search()
 	_cancel_combat_action()
 	_has_move_command = false
@@ -313,6 +340,7 @@ func command_gather(resource: Node2D) -> void:
 		return
 	if not is_instance_valid(resource) or resource.is_queued_for_deletion() or float(resource.get("amount")) <= 0.0:
 		return
+	_build_queue.clear()
 	_cancel_gather_search()
 	_cancel_combat_action()
 	_has_move_command = false
@@ -335,7 +363,7 @@ func command_gather(resource: Node2D) -> void:
 	order = Enums.OrderType.GATHER
 	_unit_log("order", "GATHER resource=%s" % resource.name)
 
-func command_build(building: Node2D) -> void:
+func command_build(building: Node2D, preserve_queue := false) -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
 	if (
@@ -345,6 +373,7 @@ func command_build(building: Node2D) -> void:
 		or def.id != &"villager"
 	):
 		return
+	if not preserve_queue: _build_queue.clear()
 	_cancel_gather_search()
 	_cancel_combat_action()
 	_build_target = building
@@ -372,6 +401,7 @@ func command_attack(target: Node) -> void:
 	):
 		return
 	_cancel_gather_search()
+	_build_queue.clear()
 	_last_seen_attack_pos = target_2d.get("sim_pos")
 	if _attack_target != target_2d:
 		_cancel_combat_action()
@@ -569,6 +599,7 @@ func _finish_build_order() -> void:
 	var completed := _build_target
 	_build_target = null
 	order = Enums.OrderType.NONE
+	if _advance_build_queue(): return
 	if not is_instance_valid(completed) or completed.is_queued_for_deletion():
 		return
 	var building_def := completed.get("def") as BuildingDef

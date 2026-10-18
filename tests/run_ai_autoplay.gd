@@ -62,7 +62,7 @@ func _run() -> void:
 	check(await wait_for(func(): return gateway.metrics.tick_success_count >= 1), "actual external HTTP decision completed")
 	check(await wait_for(func(): return gateway.tick >= 2 and _has_orders(world, 0)), "external commands execute for own team")
 	if session.ai_multi_agent_enabled:
-		check(await wait_for(func(): return _all_roles_planned(gateway), 15.0), "all six real propose_plan responses are applied to player specialists")
+		check(await wait_for(func(): return _all_roles_planned(gateway), 15.0), "all seven real propose_plan responses are applied to player specialists")
 	check(is_instance_valid(opponent) and opponent.is_processing(), "opponent AI continues independently")
 	var tc: Node = _town_center(world, 0)
 	control.match_state.population_cap[0] = 100
@@ -115,7 +115,7 @@ func _has_orders(world: Node, team: int) -> bool:
 	return false
 
 func _all_roles_planned(gateway: Node) -> bool:
-	for role in ["commander", "construction", "economy", "technology", "scout", "combat"]:
+	for role in ["commander", "construction", "economy", "technology", "scout", "combat", "defense"]:
 		if gateway.planning_status.get(role, {}).get("state") != "applied":
 			return false
 	return true

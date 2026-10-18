@@ -347,7 +347,7 @@ func _apply_response(response: Dictionary) -> void:
 				for key in ["unit_id", "builder_id", "building_id", "target_id"]:
 					if cmd.has(key): feedback[key] = cmd[key]
 				feedback["entity_id"] = cmd.get("unit_id", cmd.get("builder_id", cmd.get("building_id", null)))
-				for key in ["created_entity_id", "building_id", "queue_id", "queue_ids"]:
+				for key in ["created_entity_id", "created_entity_ids", "segment_count", "building_id", "queue_id", "queue_ids"]:
 					if result.has(key):
 						feedback[key] = result[key]
 				EventBufferScript.push(feedback)

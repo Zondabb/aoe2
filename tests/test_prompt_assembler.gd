@@ -16,6 +16,8 @@ func _test_tool_catalog_names(failures: Array[String]) -> void:
 		"gather",
 		"train",
 		"place_building",
+		"place_wall",
+		"set_gate_state",
 		"build",
 		"move",
 		"attack",

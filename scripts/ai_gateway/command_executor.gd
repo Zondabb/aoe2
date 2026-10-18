@@ -5,6 +5,7 @@ const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const CommandValidatorScript := preload("res://scripts/ai_gateway/command_validator.gd")
 const AiBuildPlacementScript := preload("res://scripts/ai_gateway/build_placement.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
+const Walls := preload("res://scripts/systems/wall_system.gd")
 
 
 static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary:
@@ -52,6 +53,10 @@ static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary
 			executed = _exec_attack(cmd, ctx)
 		AiProtocolScript.OP_PLACE_BUILDING:
 			executed = _exec_place_building(cmd, ctx)
+		AiProtocolScript.OP_PLACE_WALL:
+			executed = _exec_place_wall(cmd, ctx)
+		AiProtocolScript.OP_SET_GATE_STATE:
+			executed = bool(EntityRegistryScript.resolve(int(cmd.building_id)).call("set_gate_state", String(cmd.gate_state)))
 		AiProtocolScript.OP_TRAIN:
 			executed = _exec_train(cmd, ctx)
 		AiProtocolScript.OP_RESEARCH_AGE:
@@ -135,13 +140,24 @@ static func _exec_place_building(cmd: Dictionary, ctx: CommandExecutionContext) 
 	if cmd.has("builder_id"):
 		builder = EntityRegistryScript.resolve(int(cmd.get("builder_id", -1)))
 	var foundation := AiBuildPlacementScript.place_foundation(
-		building_def, pos, ctx, builder
+		building_def, pos, ctx, builder, "", int(cmd.get("orientation", 0))
 	)
 	if foundation != null:
 		var entity_id := EntityRegistryScript.register(foundation)
 		ctx.last_execution_details = {"created_entity_id": entity_id, "building_id": entity_id}
 		foundation.set_meta("ai_command_lineage", {"command_id": String(cmd.get("command_id", "")), "task_id": String(cmd.get("task_id", "")), "session_epoch": ctx.session_epoch})
 	return foundation != null
+
+static func _exec_place_wall(cmd: Dictionary, ctx: CommandExecutionContext) -> bool:
+	var plan_items := Walls.plan(String(cmd.building_def_id), AiProtocolScript.array_to_vec2(cmd.start), AiProtocolScript.array_to_vec2(cmd.end), bool(cmd.get("include_gate", false)))
+	var builder := EntityRegistryScript.resolve(int(cmd.builder_id))
+	var foundations := Walls.place_plan(plan_items, ctx, builder, bool(cmd.get("append_queue", false)))
+	var ids: Array = []
+	for foundation in foundations:
+		ids.append(EntityRegistryScript.register(foundation))
+		foundation.set_meta("ai_command_lineage", {"command_id": String(cmd.get("command_id", "")), "task_id": String(cmd.get("task_id", "")), "session_epoch": ctx.session_epoch})
+	ctx.last_execution_details = {"created_entity_ids": ids, "segment_count": ids.size()}
+	return not ids.is_empty() or Walls.cost(plan_items, ctx).values().all(func(value): return value == 0)
 
 
 static func _exec_train(cmd: Dictionary, ctx: CommandExecutionContext) -> bool:

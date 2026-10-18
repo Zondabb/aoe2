@@ -49,6 +49,8 @@ static func _shader_values(material: ShaderMaterial) -> Array:
 ## observed, while hidden entities retain their last visible appearance.
 static func appearance_key(entity: Node2D) -> int:
 	var values: Array = [entity.modulate, entity.z_index, entity.z_as_relative]
+	var fortification := entity.get_node_or_null("FortificationVisual")
+	if fortification != null and fortification.visible: values.append(fortification.appearance_values())
 	for child in entity.get_children():
 		if child is not Node2D or not child.visible or child.name not in ["Billboard", "Body", "Marker", "Fallback", "GroundShadow"]: continue
 		values.append_array([child.get_instance_id(), child.transform, child.modulate, child.self_modulate,
@@ -71,6 +73,8 @@ static func appearance_key(entity: Node2D) -> int:
 ## Capture only visual values, never simulation nodes or scripts.
 static func capture(entity: Node2D) -> Array:
 	var parts: Array = []
+	var fortification := entity.get_node_or_null("FortificationVisual")
+	if fortification != null and fortification.visible: parts.append_array(fortification.fog_memory_parts())
 	for child in entity.get_children():
 		if child is not Node2D or not child.visible or child.name not in ["Billboard", "Body", "Marker", "Fallback", "GroundShadow"]:
 			continue

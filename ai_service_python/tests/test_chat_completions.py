@@ -80,6 +80,8 @@ def test_commands_map_to_tool_calls() -> None:
         "gather",
         "train",
         "place_building",
+        "place_wall",
+        "set_gate_state",
         "build",
         "move",
         "attack",

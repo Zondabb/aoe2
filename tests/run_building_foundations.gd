@@ -7,6 +7,7 @@ const Runtime := preload("res://scripts/network/network_match.gd")
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
 const BUILDING := preload("res://scenes/entities/building_view.tscn")
 const FARM := preload("res://scripts/entities/farm_agent.gd")
+const Fortifications := preload("res://scripts/presentation/fortification_visual.gd")
 
 var checks := 0
 var failures: Array[String] = []
@@ -65,6 +66,9 @@ func _finished(building: BuildingAgent) -> String:
 
 
 func _check_art(building: BuildingAgent, expected: String, label: String) -> void:
+	if building.has_node("FortificationVisual"):
+		_check_fortification_art(building, expected == _foundation(building), label)
+		return
 	var sprite := building.get_node("Billboard") as Sprite2D
 	check(not expected.is_empty() and Sprites.sheet_paths_exist(expected), label + " has imported artwork")
 	check(building._sprite_sheet_base == expected, label + " selects the correct construction artwork")
@@ -85,12 +89,36 @@ func _check_art(building: BuildingAgent, expected: String, label: String) -> voi
 		check(sprite.z_index < 0, label + " lies on the ground beneath its builders")
 
 
+func _check_fortification_art(building: BuildingAgent, foundation: bool, label: String) -> void:
+	var art := building.get_node("FortificationVisual")
+	art.refresh()
+	var data := Fortifications.manifest()
+	var record: Dictionary = data.civilizations[String(building.civ.id)][String(building.def.id)]
+	var expected: String = (data.gate_foundation_tile if building.def.id == &"gate" else record.construction) if foundation else record.complete
+	var sprite := art.get_child(0) as Sprite2D
+	check(Sprites.sheet_paths_exist(expected) and art.sheet_base == expected, label + " selects original directional fortification artwork")
+	check(sprite.visible and sprite.texture is AtlasTexture and sprite.texture.atlas == Sprites.load_texture(expected), label + " renders expected original atlas")
+	check(not building.get_node("Billboard").visible and not building.get_node("Body").visible, label + " hides old single-frame and placeholder visuals")
+	check(sprite.scale.is_equal_approx(Vector2.ONE * IsoMath.SCALE_X / 48.0), label + " aligns native tiles to contiguous wall grid")
+	var meta := Sprites.load_meta(expected)
+	var peg := (Sprites.hotspot_at_index(meta, art.frame_index) - sprite.texture.get_size() * 0.5 + sprite.offset) * sprite.scale
+	check(peg.is_zero_approx(), label + " preserves each original frame ground anchor")
+	check(art.modulate == Color.WHITE and sprite.modulate == Color.WHITE, label + " clears preview tint")
+	check(art.get_child_count() == (4 if foundation and building.def.id == &"gate" else 1), label + " uses correct number of foundation tiles")
+	if foundation:
+		var shadow := building.get_node_or_null("GroundShadow") as CanvasItem
+		check(shadow == null or not shadow.visible, label + " uses only original foundation shadows")
+		check(sprite.z_index < 0, label + " foundation lies beneath builders")
+
+
 func _check_palette(building: BuildingAgent, color_id: int, label: String) -> void:
 	var sprite := building.get_node("Billboard") as Sprite2D
 	check(building.match_state.set_team_color_id(building.team, color_id), label + " accepts palette selection")
 	check(building._sprite_sheet_base == _foundation(building), label + " palette refresh preserves the foundation")
+	var art := building.get_node_or_null("FortificationVisual")
+	if art != null: sprite = art.get_child(0) as Sprite2D
 	var material := sprite.material as ShaderMaterial
-	var meta := Sprites.load_meta(_foundation(building))
+	var meta := Sprites.load_meta(art.sheet_base if art != null else _foundation(building))
 	var player_color: Dictionary = meta.get("player_color", {})
 	if player_color.get("mode", "") == "none":
 		check(material == null, label + " keeps uncolored original foundation art")

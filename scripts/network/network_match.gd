@@ -122,6 +122,7 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		"train": ["building_id"], "cancel_train": ["building_id"], "place_building": ["builder_id"],
 		"research_age": ["building_id"], "cancel_research_age": ["building_id"],
 		"research_technology": ["building_id"], "cancel_technology": ["building_id"],
+		"place_wall": ["builder_id", "building_def_id", "start", "end"], "set_gate_state": ["building_id", "gate_state"],
 	}
 	if not required.has(op):
 		return false
@@ -140,7 +141,7 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		translated[key] = Registry.id_of(node)
 		if int(translated[key]) < 0:
 			return false
-		if key in ["unit_id", "builder_id"] and op in ["gather", "build", "place_building"]:
+		if key in ["unit_id", "builder_id"] and op in ["gather", "build", "place_building", "place_wall"]:
 			var unit_def := node.get("def") as UnitDef
 			if unit_def == null or unit_def.id != &"villager":
 				return false
@@ -160,6 +161,8 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if definition == null or not is_finite(speed) or speed <= 0.0 or speed > definition.move_speed:
 			return false
 	if op == "place_building":
+		if not _valid_enum(command.get("orientation", 0), 0, 3): return false
+		translated["orientation"] = int(command.get("orientation", 0))
 		if command.get("building_def_id") is not String:
 			return false
 		var definition := Protocol.building_def_for_id(command.building_def_id)
@@ -169,9 +172,19 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if civilization == null or not Catalog.building_reason(match_state, sender_team, civilization, definition, entities).is_empty():
 			return false
 		var pos := _vec(command.pos)
-		if not map_bounds.encloses(Rect2(pos - definition.footprint * 0.5, definition.footprint)):
+		var footprint := preload("res://scripts/systems/wall_system.gd").footprint_for(definition, translated.orientation)
+		if not map_bounds.encloses(Rect2(pos - footprint * 0.5, footprint)):
 			return false
 		translated["building_def_id"] = command.building_def_id
+	if op == "place_wall":
+		if command.building_def_id is not String or not _valid_position(command.start) or not _valid_position(command.end): return false
+		if command.get("include_gate", false) is not bool or command.get("append_queue", false) is not bool: return false
+		for key in ["building_def_id", "start", "end"]: translated[key] = command[key]
+		translated["include_gate"] = command.get("include_gate", false)
+		translated["append_queue"] = command.get("append_queue", false)
+	if op == "set_gate_state":
+		if command.gate_state not in ["auto", "open", "locked"]: return false
+		translated["gate_state"] = command.gate_state
 	if op == "train":
 		if command.get("unit_def_id") is not String:
 			return false
@@ -274,6 +287,7 @@ func capture_snapshot() -> Dictionary:
 				if kind == "unit":
 					record.merge({"order": entity.get("order"), "carry_type": entity.get("carry_type"), "carry_amount": entity.get("carry_amount"), "presentation": entity.call("network_presentation")})
 				else:
+					record.merge({"wall_orientation": entity.wall_orientation, "gate_state": entity.gate_state, "gate_open": entity.gate_open})
 					var queue: Array = []
 					for definition in entity.get("train_queue"):
 						queue.append(String(definition.id))
@@ -399,6 +413,9 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 			entity = BUILDING_VIEW.instantiate()
 			if record.def == "farm": entity.set_script(load("res://scripts/entities/farm_agent.gd"))
 			entity.set("def", Protocol.building_def_for_id(String(record.def)))
+			entity.set("wall_orientation", int(record.get("wall_orientation", 0)))
+			entity.set("gate_state", String(record.get("gate_state", "auto")))
+			entity.set("gate_open", bool(record.get("gate_open", false)))
 			if record.def == "farm": entity.set("farm_has_crops", _farm_crops_from_record(record))
 			entity.set("accepts_all_resources", bool(record.get("accepts_all", false)))
 			entity.set("is_complete", bool(record.complete))
@@ -468,6 +485,9 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 			entity.call("apply_network_presentation", record.get("presentation", {}))
 		else:
 			if record.def == "farm": entity.set("farm_has_crops", _farm_crops_from_record(record))
+			entity.set("wall_orientation", int(record.get("wall_orientation", 0)))
+			entity.set("gate_state", String(record.get("gate_state", "auto")))
+			entity.set("gate_open", bool(record.get("gate_open", false)))
 			entity.set("is_complete", bool(record.complete))
 			entity.set("build_progress", float(record.build_progress))
 			entity.set("train_progress", float(record.train_progress))
@@ -482,6 +502,8 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 			for id in record.get("train_queue_ids", []):
 				queue_ids.append(int(id))
 			entity.set("train_queue_ids", queue_ids)
+			entity.call("_sync_block_half")
+			if preload("res://scripts/systems/wall_system.gd").is_fortification(entity.def.id): entity.call("_configure_visuals")
 	Iso.sync_node(entity, _vec(record.pos))
 
 
@@ -527,6 +549,7 @@ func _valid_record(record: Dictionary) -> bool:
 			if visual.get(key) is not String or String(visual[key]).length() > 128:
 				return false
 		return true
+	if not _valid_enum(record.get("wall_orientation", 0), 0, 3) or record.get("gate_state", "auto") not in ["auto", "open", "locked"] or record.get("gate_open", false) is not bool: return false
 	if Protocol.building_def_for_id(record.def) == null or record.get("complete") is not bool or not _finite_number(record.get("build_progress")) or not _finite_number(record.get("train_progress")) or record.get("train_queue") is not Array:
 		return false
 	if record.train_queue.size() > BuildingAgent.MAX_TRAIN_QUEUE:

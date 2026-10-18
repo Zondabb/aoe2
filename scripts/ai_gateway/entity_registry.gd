@@ -191,6 +191,6 @@ static func report_manual_command(command: Dictionary, team: int, result: Dictio
 		"op": String(command.get("op", "")), "command": command.duplicate(true), "_visible_to": [team]}
 	for key in ["unit_id", "builder_id", "building_id", "target_id", "queue_id"]:
 		if command.has(key): event[key] = command[key]
-	for key in ["queue_id", "created_entity_id"]:
+	for key in ["queue_id", "created_entity_id", "created_entity_ids"]:
 		if result.has(key): event[key] = result[key]
 	AiEventBufferScript.push(event)

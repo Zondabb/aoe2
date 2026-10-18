@@ -114,6 +114,9 @@ func _register_static_actor(actor: Node) -> void:
 	for source in actor.get_children():
 		if (source is Sprite2D or source is Polygon2D) and source.name != &"GroundShadow":
 			_register_static_source(actor, source)
+		elif source.name == &"FortificationVisual":
+			for sprite in source.get_children():
+				if sprite is Sprite2D: _register_static_source(actor, sprite)
 
 func _register_static_source(actor: Node2D, source: Node2D) -> void:
 	var id := source.get_instance_id()

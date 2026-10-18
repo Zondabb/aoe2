@@ -300,7 +300,8 @@ class LlmCommander:
 
     @staticmethod
     def _key(command: dict) -> str:
-        fields = ("op", "unit_id", "builder_id", "building_id", "target_id", "building_def_id", "unit_def_id", "technology_id", "pos")
+        fields = ("op", "unit_id", "builder_id", "building_id", "target_id", "building_def_id", "unit_def_id", "technology_id", "pos",
+                  "start", "end", "include_gate", "orientation", "gate_state")
         values = {key: command[key] for key in fields if key in command}
         if _vec(values.get("pos")):
             values["pos"] = [round(float(n), 3) for n in values["pos"]]
@@ -643,7 +644,9 @@ class _DecisionFrame:
         allowed = {
             "move": {"unit_id", "pos"}, "stop": {"unit_id"}, "attack": {"unit_id", "target_id"},
             "gather": {"unit_id", "target_id"}, "build": {"unit_id", "building_id"},
-            "place_building": {"builder_id", "building_def_id", "pos"}, "train": {"building_id", "unit_def_id"},
+            "place_building": {"builder_id", "building_def_id", "pos", "orientation"}, "train": {"building_id", "unit_def_id"},
+            "place_wall": {"builder_id", "building_def_id", "start", "end", "include_gate"},
+            "set_gate_state": {"building_id", "gate_state"},
             "research_age": {"building_id"}, "cancel_research_age": {"building_id"},
             "research_technology": {"building_id", "technology_id"}, "cancel_technology": {"building_id"},
         }[op]
@@ -679,6 +682,54 @@ class _DecisionFrame:
         if op == "build":
             if actor.get("def_id") != "villager" or building.get("kind") != "building" or building.get("team") != self.team or building.get("is_complete"):
                 return fail("invalid_foundation")
+        capabilities = self.obs.capabilities or self.context.get("capabilities", {})
+        if op == "set_gate_state":
+            if not capabilities.get("gate_control"):
+                return fail("gate_control_unsupported")
+            if (building.get("kind") != "building" or building.get("team") != self.team or not building.get("is_complete")
+                    or not (building.get("is_gate") or str(building.get("def_id", "")).endswith("_gate") or building.get("def_id") == "gate")
+                    or float(building.get("hp", 1)) <= 0):
+                return fail("gate_not_completed_owned")
+            if command.get("gate_state") not in ("auto", "open", "locked") or bid in self.producers:
+                return fail("gate_state_invalid_or_conflicting")
+        if op == "place_wall":
+            if not capabilities.get("wall_segments"):
+                return fail("wall_segments_unsupported")
+            definition = self.building_defs.get(str(command.get("building_def_id", "")), {})
+            if command.get("building_def_id") not in ("palisade_wall", "stone_wall", "fortified_wall") or not definition or not self._unlock(definition):
+                return fail("wall_locked_or_unknown")
+            builder_id = _id(command.get("builder_id"))
+            builder = self.entities.get(builder_id, {})
+            if builder.get("kind") != "unit" or builder.get("team") != self.team or builder.get("def_id") != "villager" or builder_id in self.actors or float(builder.get("hp", 1)) <= 0:
+                return fail("builder_not_available")
+            if builder.get("order", "NONE") not in ("NONE", "GATHER") or builder.get("build_queue_ids") or builder.get("gather_state") == "to_drop_off" or float(builder.get("carry_amount", 0)) > .001:
+                return fail("builder_busy")
+            start, end = _vec(command.get("start")), _vec(command.get("end"))
+            if start is None or end is None or not isinstance(command.get("include_gate"), bool):
+                return fail("invalid_wall_line")
+            box = self.obs.map_bounds
+            if box and any(pos[i] < float(box["min"][i]) or pos[i] > float(box["max"][i]) for pos in (start, end) for i in (0, 1)):
+                return fail("position_outside_map")
+            options = self.context.get("defense_options", [])
+            option = next((e for e in options if isinstance(e, dict) and e.get("building_def_id") == command["building_def_id"]
+                           and e.get("builder_id") == builder_id and _vec(e.get("start")) == start and _vec(e.get("end")) == end
+                           and e.get("include_gate") is command["include_gate"] and e.get("preserves_access") is True), None)
+            if option is None or not isinstance(option.get("cost"), dict) or not option["cost"]:
+                return fail("wall_not_in_legal_options")
+            count = option.get("segment_count")
+            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 64:
+                return fail("invalid_wall_segment_count")
+            # The game validates every snapped segment, gate footprint and
+            # connectivity before offering the line. Check its observed path
+            # against current fog too; never invent or shorten coordinates.
+            footprint = definition.get("footprint", [1, 1])
+            steps = max(1, math.ceil(_distance(start, end)))
+            if steps > 256 or any(not footprint_visible(tuple(start[i] + (end[i] - start[i]) * step / steps for i in (0, 1)), footprint, self.obs.placement_visibility) for step in range(steps + 1)):
+                return fail("wall_site_not_visible")
+            if self.placed:
+                return fail("one_foundation_per_decision")
+            command["start"], command["end"] = start, end
+            uid, cost = builder_id, option["cost"]
         if op == "place_building":
             definition = self.building_defs.get(str(command.get("building_def_id", "")), {})
             builder_id = _id(command.get("builder_id"))
@@ -687,14 +738,19 @@ class _DecisionFrame:
                 return fail("building_locked_or_unknown")
             if builder.get("team") != self.team or builder.get("def_id") != "villager" or builder_id in self.actors:
                 return fail("builder_not_available")
-            if builder.get("order") == "BUILD" or builder.get("gather_state") == "to_drop_off" or float(builder.get("carry_amount", 0)) > .001:
+            if builder.get("order") == "BUILD" or builder.get("build_queue_ids") or builder.get("gather_state") == "to_drop_off" or float(builder.get("carry_amount", 0)) > .001:
                 return fail("builder_busy")
             # Enhanced observations provide authoritative, visible, reachable
             # sites. Requiring a listed pairing also covers terrain collisions.
             options = self.context.get("construction_options")
-            if isinstance(options, list) and not any(e.get("building_def_id") == command["building_def_id"] and e.get("builder_id") == builder_id and _vec(e.get("pos")) and _distance(e["pos"], command["pos"]) < .05 for e in options):
+            if isinstance(options, list) and not any(e.get("building_def_id") == command["building_def_id"] and e.get("builder_id") == builder_id and _vec(e.get("pos")) and _distance(e["pos"], command["pos"]) < .05 and e.get("orientation", 0) == command.get("orientation", 0) for e in options):
                 return fail("site_not_in_legal_options")
             footprint = definition.get("footprint", [1, 1])
+            orientation = command.get("orientation", 0)
+            if isinstance(orientation, bool) or not isinstance(orientation, int) or orientation not in range(4):
+                return fail("invalid_orientation")
+            if command["building_def_id"] == "gate":
+                footprint = [4, 1] if orientation == 0 else [1, 4] if orientation == 2 else [4, 4]
             if not footprint_visible(tuple(command["pos"]), footprint, self.obs.placement_visibility):
                 return fail("site_not_visible")
             if not isinstance(options, list):
@@ -753,9 +809,9 @@ class _DecisionFrame:
         self.commands.append(parsed)
         if uid is not None:
             self.actors.add(uid)
-        if op in ("train", "research_age", "research_technology", "cancel_research_age", "cancel_technology"):
+        if op in ("train", "research_age", "research_technology", "cancel_research_age", "cancel_technology", "set_gate_state"):
             self.producers.add(bid)
-        if op == "place_building":
+        if op in ("place_building", "place_wall"):
             self.placed.add(command["building_def_id"])
         for resource, amount in cost.items():
             self.budget[resource] -= amount
@@ -769,7 +825,7 @@ class _DecisionFrame:
             if source == "model" and op == "move" and (uid in self.scout_ids or actor.get("def_id") in SCOUT_TYPES):
                 self.owner.scout_missions[uid] = ScoutMission(list(command["pos"]), list(actor["pos"]), self.now)
         # Suppress purchases reissued before a foundation/queue is observed.
-        if op in ("place_building", "train", "research_age", "research_technology"):
+        if op in ("place_building", "place_wall", "set_gate_state", "train", "research_age", "research_technology"):
             self.owner.cooldowns[key] = self.now + 2
         if source != "model" and len(self.debug) < 12:
             self.debug.append(DebugEntry(category="LLM_EXEC", message=f"{source}: {op}"))

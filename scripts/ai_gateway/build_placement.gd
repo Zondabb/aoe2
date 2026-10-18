@@ -4,6 +4,7 @@ extends RefCounted
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const BuildSystemScript := preload("res://scripts/systems/build_system.gd")
 const AiEntityQueriesScript := preload("res://scripts/systems/ai/ai_entity_queries.gd")
+const Walls := preload("res://scripts/systems/wall_system.gd")
 
 
 static func place_foundation(
@@ -11,11 +12,12 @@ static func place_foundation(
 	pos: Vector2,
 	ctx: CommandExecutionContext,
 	builder: Node2D = null,
-	foundation_name: String = ""
+	foundation_name: String = "",
+	orientation: int = 0
 ) -> Node2D:
 	if building_def == null or ctx == null or ctx.match_state == null or ctx.entities == null:
 		return null
-	if not can_place_at(building_def, pos, ctx.entities):
+	if not can_place_at(building_def, pos, ctx.entities, orientation):
 		return null
 	if not ctx.match_state.spend(
 		ctx.team,
@@ -40,6 +42,7 @@ static func place_foundation(
 		foundation.set("civ", ctx.civ)
 	foundation.set("match_state", ctx.match_state)
 	foundation.set("sim_pos", pos)
+	if Walls.is_fortification(building_def.id): Walls.configure_building(foundation, orientation)
 	foundation.call("start_construction")
 	ctx.entities.add_child(foundation)
 	ctx.next_build_slot += 1
@@ -51,7 +54,8 @@ static func place_foundation(
 static func can_place_at(
 	building_def: BuildingDef,
 	pos: Vector2,
-	entities: Node2D
+	entities: Node2D,
+	orientation: int = 0
 ) -> bool:
 	if building_def == null or entities == null:
 		return false
@@ -59,4 +63,4 @@ static func can_place_at(
 	for node in entities.get_children():
 		if node.is_in_group("terrain_regions"):
 			existing.append(node)
-	return BuildSystemScript.can_place(building_def.footprint, pos, existing)
+	return BuildSystemScript.can_place(Walls.footprint_for(building_def, orientation), pos, existing)

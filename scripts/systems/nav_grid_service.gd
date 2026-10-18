@@ -392,6 +392,8 @@ static func _building_blocks_nav(building: Object) -> bool:
 		return false
 	if building.get("is_placement_ghost") == true:
 		return false
+	if building.has_method("get_movement_half"):
+		return building.call("get_movement_half") != Vector2.ZERO
 	var building_def := building.get("def") as BuildingDef
 	if building_def != null:
 		return building_def.blocks_movement
@@ -627,6 +629,8 @@ func _index_of(cell: Vector2i) -> int:
 
 
 func _blocker_half(blocker: Object) -> Vector2:
+	if blocker.has_method("get_navigation_half"):
+		return blocker.call("get_navigation_half")
 	var building_def := blocker.get("def") as BuildingDef
 	if building_def != null and not building_def.blocks_movement:
 		return Vector2.ZERO

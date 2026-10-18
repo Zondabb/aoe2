@@ -145,6 +145,9 @@ static func segment_hits_box(from: Vector2, to: Vector2, half: Vector2) -> bool:
 static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 	if blocker == null:
 		return Vector2.ZERO
+	if blocker.has_method("get_movement_half"):
+		var movement_half: Vector2 = blocker.call("get_movement_half")
+		return movement_half + Vector2.ONE * radius if movement_half.x > 0.0 and movement_half.y > 0.0 else Vector2.ZERO
 	var building_def := blocker.get("def") as BuildingDef
 	if building_def != null and not building_def.blocks_movement:
 		return Vector2.ZERO

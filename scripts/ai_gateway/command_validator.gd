@@ -3,6 +3,7 @@ extends RefCounted
 
 const Catalog := preload("res://scripts/data/game_catalog.gd")
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
+const Walls := preload("res://scripts/systems/wall_system.gd")
 
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
@@ -39,6 +40,10 @@ static func validate(cmd: Dictionary, ctx: CommandExecutionContext) -> Validatio
 			return _validate_attack(cmd, ctx)
 		AiProtocolScript.OP_PLACE_BUILDING:
 			return _validate_place_building(cmd, ctx)
+		AiProtocolScript.OP_PLACE_WALL:
+			return _validate_wall(cmd, ctx)
+		AiProtocolScript.OP_SET_GATE_STATE:
+			return _validate_gate(cmd, ctx)
 		AiProtocolScript.OP_TRAIN:
 			return _validate_train(cmd, ctx)
 		AiProtocolScript.OP_RESEARCH_AGE, AiProtocolScript.OP_CANCEL_AGE, AiProtocolScript.OP_RESEARCH_TECHNOLOGY, AiProtocolScript.OP_CANCEL_TECHNOLOGY:
@@ -156,7 +161,14 @@ static func _validate_place_building(
 	if pos == null:
 		result.reason = "invalid_pos"
 		return result
-	if ctx.match_state.fog_enabled and (ctx.match_state.fog == null or not ctx.match_state.fog.footprint_visible(ctx.team, pos, building_def.footprint, true)):
+	if Walls.is_fortification(building_def.id):
+		var orientation: Variant = cmd.get("orientation", 0)
+		if not (orientation is int or orientation is float) or not is_finite(float(orientation)) or float(orientation) != floorf(float(orientation)) or int(orientation) not in range(4):
+			result.reason = "invalid_orientation"
+			return result
+		result.reason = Walls.validate_plan([{"building_def_id": String(building_def.id), "pos": pos, "orientation": int(orientation)}], ctx)
+		if not result.reason.is_empty(): return result
+	if ctx.match_state.fog_enabled and (ctx.match_state.fog == null or not ctx.match_state.fog.footprint_visible(ctx.team, pos, Walls.footprint_for(building_def, int(cmd.get("orientation", 0))), true)):
 		result.reason = "need_vision"
 		return result
 	if not ctx.match_state.can_afford(
@@ -168,7 +180,7 @@ static func _validate_place_building(
 	):
 		result.reason = "cannot_afford"
 		return result
-	if not AiBuildPlacementScript.can_place_at(building_def, pos as Vector2, ctx.entities):
+	if not AiBuildPlacementScript.can_place_at(building_def, pos as Vector2, ctx.entities, int(cmd.get("orientation", 0))):
 		result.reason = "invalid_placement"
 		return result
 	if cmd.has("builder_id"):
@@ -177,6 +189,36 @@ static func _validate_place_building(
 			var builder_result := _validate_unit_entity(_resolve_entity(builder_id), ctx)
 			if not builder_result.ok:
 				return builder_result
+	result.ok = true
+	return result
+
+static func _validate_wall(cmd: Dictionary, ctx: CommandExecutionContext) -> ValidationResult:
+	var result := _validate_unit_command(cmd, ctx, "builder_id")
+	if not result.ok: return result
+	result.ok = false
+	var builder := _resolve_entity(int(cmd.builder_id))
+	if builder.get("def").id != &"villager":
+		result.reason = "builder_not_villager"
+		return result
+	var start: Variant = AiProtocolScript.array_to_vec2(cmd.get("start"))
+	var end: Variant = AiProtocolScript.array_to_vec2(cmd.get("end"))
+	if start == null or end == null or cmd.get("include_gate", false) is not bool or cmd.get("append_queue", false) is not bool:
+		result.reason = "invalid_wall_arguments"
+		return result
+	var plan_items := Walls.plan(String(cmd.get("building_def_id", "")), start, end, bool(cmd.get("include_gate", false)))
+	result.reason = Walls.validate_plan(plan_items, ctx)
+	result.ok = result.reason.is_empty()
+	return result
+
+static func _validate_gate(cmd: Dictionary, ctx: CommandExecutionContext) -> ValidationResult:
+	var result := ValidationResult.new()
+	var gate := _resolve_entity(int(cmd.get("building_id", -1)))
+	if gate == null or gate.get("def") is not BuildingDef or gate.get("def").id != &"gate" or gate.get("team") != ctx.team or gate.get("is_placement_ghost") == true or float(gate.get("hp")) <= 0:
+		result.reason = "invalid_owned_gate"
+		return result
+	if cmd.get("gate_state") not in ["auto", "open", "locked"]:
+		result.reason = "invalid_gate_state"
+		return result
 	result.ok = true
 	return result
 

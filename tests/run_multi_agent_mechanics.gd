@@ -184,7 +184,7 @@ func _test_observation_and_layout() -> void:
 	var enemy_unit := _unit(&"militia", Vector2(35, 30), 1)
 	enemy_unit.command_move(Vector2(60, 60))
 	var observation := Observation.build_json_safe(state, world, 0, 1, 1)
-	check(observation.capabilities.farm_depletion_frees_plot and not observation.capabilities.gate_control, "capabilities describe supported mechanics and unimplemented gate controls honestly")
+	check(observation.capabilities.farm_depletion_frees_plot and observation.capabilities.gate_control and observation.capabilities.wall_segments, "capabilities expose wall lines and gate controls")
 	check(observation.victory_conditions.type == "destroy_any_enemy_town_center", "planner receives the actual current win condition")
 	var own: Dictionary = observation.entities.filter(func(entity): return entity.id == Registry.id_of(tc))[0]
 	check(own.production.state == "idle" and own.drop_off_resources.size() == 4, "own production and all TC drop-off types are observable")
