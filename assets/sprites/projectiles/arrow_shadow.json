@@ -1,0 +1,179 @@
+{
+  "key": "arrow_shadow",
+  "graphic_id": 3379,
+  "slp_id": 3800,
+  "source": "_common/drs/graphics/3800.slp",
+  "source_sha256": "d1c7c2dac1d9b1652b16ec257372d6f0bfc5fbd12d5040775e82f1dbb0df22b4",
+  "palette": "_common/drs/interface/50500.bina",
+  "cols": 7,
+  "rows": 6,
+  "frame_w": 27,
+  "frame_h": 15,
+  "frame_count": 37,
+  "directions": 37,
+  "stored_direction_count": 37,
+  "source_angle_count": 72,
+  "frames_per_direction": 1,
+  "frame_duration": 0.0,
+  "mirroring_mode": 54,
+  "frame_layout": "direction",
+  "hotspots": [
+    {
+      "x": 14,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 14,
+      "y": 9
+    },
+    {
+      "x": 14,
+      "y": 9
+    },
+    {
+      "x": 13,
+      "y": 9
+    },
+    {
+      "x": 13,
+      "y": 10
+    },
+    {
+      "x": 13,
+      "y": 10
+    },
+    {
+      "x": 14,
+      "y": 10
+    },
+    {
+      "x": 14,
+      "y": 10
+    },
+    {
+      "x": 14,
+      "y": 11
+    },
+    {
+      "x": 13,
+      "y": 12
+    },
+    {
+      "x": 14,
+      "y": 12
+    },
+    {
+      "x": 13,
+      "y": 12
+    },
+    {
+      "x": 14,
+      "y": 13
+    },
+    {
+      "x": 14,
+      "y": 13
+    },
+    {
+      "x": 14,
+      "y": 13
+    },
+    {
+      "x": 13,
+      "y": 12
+    },
+    {
+      "x": 14,
+      "y": 12
+    },
+    {
+      "x": 13,
+      "y": 11
+    },
+    {
+      "x": 14,
+      "y": 10
+    },
+    {
+      "x": 13,
+      "y": 10
+    },
+    {
+      "x": 14,
+      "y": 10
+    },
+    {
+      "x": 13,
+      "y": 9
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 8
+    },
+    {
+      "x": 13,
+      "y": 7
+    },
+    {
+      "x": 13,
+      "y": 7
+    },
+    {
+      "x": 13,
+      "y": 7
+    },
+    {
+      "x": 13,
+      "y": 7
+    },
+    {
+      "x": 13,
+      "y": 6
+    },
+    {
+      "x": 13,
+      "y": 6
+    },
+    {
+      "x": 14,
+      "y": 6
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "includes_shadow": true,
+  "notes": [
+    "All SLP pixels and per-frame hotspots are preserved without recoloring or resizing.",
+    "source_angle_count is the DAT heading count; directions is the number of groups actually stored in the SLP.",
+    "Pitch poses run from upward to downward; the sequence is not a flight-time animation."
+  ]
+}

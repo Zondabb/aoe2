@@ -172,9 +172,9 @@ func _test_busy_unit_does_not_retaliate(failures: Array[String]) -> void:
 	root.free()
 
 func _test_ranged_attack_range_from_def(failures: Array[String]) -> void:
-	if ARCHER.attack_range != 9.0:
+	if ARCHER.attack_range != 16.0:
 		failures.append("archer attack_range should be configurable in UnitDef")
-	if ARCHER.preferred_attack_range != 8.0:
+	if not is_equal_approx(ARCHER.preferred_attack_range, 13.6):
 		failures.append("archer preferred_attack_range should be configurable in UnitDef")
 	var root := _make_root()
 	var archer := _spawn_unit(root, ARCHER, Enums.Team.PLAYER, Vector2.ZERO)

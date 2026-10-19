@@ -6,7 +6,6 @@ const FogAccess := preload("res://scripts/systems/fog_access.gd")
 var state: MatchState
 var entities: Node
 var cooldowns: Dictionary = {}
-var weapons: Dictionary = {}
 var elapsed := 0.0
 
 func setup(value: MatchState, root: Node) -> void:
@@ -32,25 +31,20 @@ func _process(delta: float) -> void:
 			var id: int = source.get_instance_id()
 			cooldowns[id] = maxf(0, float(cooldowns.get(id,0))-step)
 			if cooldowns[id] > 0: continue
-			var r := Catalog.building_record(source.def.id)
-			if int(r.get("attack",0)) <= 0: continue
+			var weapon := Catalog.building_weapon(source.def.id)
+			if weapon == null: continue
 			var nearest: Node2D
-			var distance := float(r.get("attack_range",0))
+			var distance := weapon.attack_range
 			for target in children:
 				if not (target is UnitAgent or target is BuildingAgent) or target.team == source.team or target.hp <= 0 or target.is_queued_for_deletion(): continue
+				if target.get("is_placement_ghost") == true: continue
 				if not FogAccess.can_see(source,target): continue
-				var d: float = source.sim_pos.distance_to(target.sim_pos)
-				if d < distance:
+				var d: float = source.sim_pos.distance_to(ProjectileAgent.aim_point_for_target(source.sim_pos, target))
+				if d >= weapon.minimum_attack_range and d <= distance:
 					nearest = target
 					distance = d
 			if nearest == null: continue
-			if not weapons.has(source.def.id):
-				var weapon := UnitDef.new()
-				weapon.id = source.def.id
-				weapon.attack = int(r.attack)
-				weapon.is_ranged = true
-				weapons[source.def.id] = weapon
 			var projectile := Projectile.instantiate()
 			entities.add_child(projectile)
-			projectile.setup(source.sim_pos, nearest.sim_pos, weapons[source.def.id], source.team, source)
-			cooldowns[id] = maxf(0.5,float(r.get("cooldown",2)))
+			projectile.setup(source.sim_pos, ProjectileAgent.aim_point_for_target(source.sim_pos, nearest), weapon, source.team, source)
+			cooldowns[id] = weapon.attack_cooldown

@@ -109,6 +109,13 @@ static func _catalog(state: MatchState, entities: Node2D, team: int, civ: CivDef
 		buildings[-1]["planning_footprint"] = Protocol.vec2_to_array(planning_footprint(definition))
 		buildings[-1]["blocks_movement"] = definition.blocks_movement
 		buildings[-1]["has_drop_off"] = definition.has_drop_off
+		var weapon := Catalog.building_weapon(definition.id)
+		if weapon != null:
+			buildings[-1]["attack"] = weapon.attack
+			buildings[-1]["attack_range"] = weapon.attack_range
+			buildings[-1]["minimum_range"] = weapon.minimum_attack_range
+			buildings[-1]["cooldown"] = weapon.attack_cooldown
+			buildings[-1]["is_ranged"] = weapon.is_ranged
 	var units: Array = []
 	for definition: UnitDef in Catalog.units().values():
 		if state.progression_enabled and definition.required_age > age + 1: continue
@@ -116,6 +123,7 @@ static func _catalog(state: MatchState, entities: Node2D, team: int, civ: CivDef
 		units.append({"id": String(definition.id), "cost": _cost(definition), "population": definition.population, "train_at": String(definition.train_at), "train_time": definition.train_time, "required_age": definition.required_age, "required_technology": String(definition.required_technology), "unlocked": state.unit_unlocked(team, definition, civ_id), "attack": definition.attack, "attack_range": definition.attack_range, "vision_radius": definition.resolved_vision_radius(age)})
 		units[-1]["is_ranged"] = definition.is_ranged
 		units[-1]["minimum_range"] = definition.minimum_attack_range
+		units[-1]["cooldown"] = definition.attack_cooldown
 		units[-1]["attack_class_bonuses"] = definition.attack_class_bonuses
 	var technologies: Array = []
 	for id in Catalog.technologies():

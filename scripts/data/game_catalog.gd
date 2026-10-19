@@ -11,11 +11,50 @@ const MOVEMENT_SPEED_SCALE := 4.0
 ## Convert both base sight and age bonuses; fog and AI consume these definitions.
 const VISION_DISTANCE_SCALE := 4.0
 const SIEGE_PROJECTILES_PATH := "res://data/siege_projectiles.json"
-const SIEGE_DISTANCE_SCALE := 4.0
+const RANGED_DISTANCE_SCALE := 4.0
+const SIEGE_DISTANCE_SCALE := RANGED_DISTANCE_SCALE
+const ARROW_PROJECTILES_PATH := "res://data/arrow_projectiles.json"
 static var _data: Dictionary = {}
 static var _units: Dictionary = {}
 static var _buildings: Dictionary = {}
 static var _siege_projectiles: Dictionary = {}
+static var _arrow_projectiles: Dictionary = {}
+static var _building_weapons: Dictionary = {}
+
+static func arrow_projectiles() -> Dictionary:
+	if _arrow_projectiles.is_empty() and FileAccess.file_exists(ARROW_PROJECTILES_PATH):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(ARROW_PROJECTILES_PATH))
+		if parsed is Dictionary:
+			_arrow_projectiles = parsed
+	return _arrow_projectiles
+
+static func _apply_arrow_profile(weapon: UnitDef, category: String) -> void:
+	var profile: Dictionary = arrow_projectiles().get(category, {}).get(String(weapon.id), {})
+	if profile.is_empty(): return
+	weapon.projectile_speed = float(profile.get("speed", 7.0)) * RANGED_DISTANCE_SCALE
+	weapon.projectile_arc = float(profile.get("arc", -0.06))
+	weapon.projectile_launch_height = float(profile.get("launch_height", 1.5)) * 22.0
+	weapon.attack_release_delay = float(profile.get("release_delay", 0.0))
+	weapon.projectile_flight_sheet = String(profile.get("flight_sheet", ""))
+	weapon.projectile_shadow_sheet = String(profile.get("shadow_sheet", ""))
+
+## One converted weapon definition for firing, UI, observations and AI decisions.
+static func building_weapon(id: StringName) -> UnitDef:
+	if _building_weapons.has(id): return _building_weapons[id]
+	var record := building_record(id)
+	if int(record.get("attack", 0)) <= 0: return null
+	var weapon := UnitDef.new()
+	weapon.id = id
+	weapon.attack = int(record.attack)
+	weapon.is_ranged = true
+	weapon.source_attack_range = float(record.get("attack_range", 0.0))
+	weapon.attack_range = weapon.source_attack_range * RANGED_DISTANCE_SCALE
+	weapon.minimum_attack_range = float(record.get("min_range", 0.0)) * RANGED_DISTANCE_SCALE
+	weapon.attack_cooldown = maxf(0.1, float(record.get("cooldown", 2.0)))
+	weapon.attack_class_bonuses = record.get("source_attacks", {}).duplicate()
+	_apply_arrow_profile(weapon, "buildings")
+	_building_weapons[id] = weapon
+	return weapon
 
 static func siege_projectiles() -> Dictionary:
 	if _siege_projectiles.is_empty() and FileAccess.file_exists(SIEGE_PROJECTILES_PATH):
@@ -55,6 +94,11 @@ static func units() -> Dictionary:
 		u.attack_cooldown = maxf(0.1, float(r.get("cooldown", 2)))
 		u.attack_range = maxf(0.4, float(r.get("attack_range", 0.4)))
 		u.is_ranged = u.attack_range > 1.5
+		u.source_attack_range = float(r.get("attack_range", 0.4))
+		if u.is_ranged:
+			u.attack_range *= RANGED_DISTANCE_SCALE
+			u.minimum_attack_range = float(r.get("min_range", 0.0)) * RANGED_DISTANCE_SCALE
+			_apply_arrow_profile(u, "units")
 		u.preferred_attack_range = u.attack_range * 0.85 if u.is_ranged else 0.0
 		# Rams use the same class-damage resolution as projectile siege. Their
 		# ordinary melee attack is only 2; the original building bonus is essential.

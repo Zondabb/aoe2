@@ -7,6 +7,7 @@ const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const VisionServiceScript := preload("res://scripts/systems/vision_service.gd")
 const DecisionContext := preload("res://scripts/ai_gateway/decision_context_builder.gd")
+const Catalog := preload("res://scripts/data/game_catalog.gd")
 
 const DEFAULT_DEFEND_RADIUS := 20.0
 
@@ -224,6 +225,12 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["team"] = int(entity.get("team"))
 	snapshot["hp"] = float(entity.get("hp"))
 	snapshot["max_hp"] = _building_max_hp(entity)
+	var weapon := Catalog.building_weapon(entity.get("def").id)
+	if weapon != null:
+		snapshot["combat"] = {"attack": weapon.attack, "range": weapon.attack_range,
+			"minimum_range": weapon.minimum_attack_range, "cooldown": weapon.attack_cooldown,
+			"is_ranged": weapon.is_ranged, "attack_class_bonuses": weapon.attack_class_bonuses,
+			"melee_armor": entity.get("melee_armor"), "pierce_armor": entity.get("pierce_armor")}
 	snapshot["is_complete"] = bool(entity.get("is_complete"))
 	snapshot["build_progress"] = float(entity.get("build_progress"))
 	snapshot["build_time"] = float(entity.get("def").build_time)

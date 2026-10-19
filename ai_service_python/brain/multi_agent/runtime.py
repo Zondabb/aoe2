@@ -249,6 +249,11 @@ class MultiAgentRuntime:
         def compact(entity):
             record = fields(entity, ("id", "kind", "def_id", "pos", "hp", "max_hp", "order", "target_id", "is_complete",
                                      "build_progress", "trainable", "age_upgrade_reason", "carry_amount", "gather_resource_type"))
+            if isinstance(entity.get("combat"), dict):
+                # The game has already converted ranges to simulation distance.
+                # Keep tower blind spots and firing reach visible to every planner.
+                record["combat"] = fields(entity["combat"], ("attack", "range", "minimum_range", "cooldown", "is_ranged",
+                                                            "melee_armor", "pierce_armor", "attack_class_bonuses"))
             if "train_queue" in entity:
                 record["train_queue"] = [fields(item, ("unit_def_id", "id", "progress", "remaining")) if isinstance(item, dict) else item
                                          for item in entity["train_queue"][:3]]
@@ -258,7 +263,7 @@ class MultiAgentRuntime:
 
         catalog_keys = ("id", "cost", "required_age", "required_technology", "prerequisites", "prerequisite_technology",
                         "available", "blocked_reason", "unlocked", "train_at", "train_time", "research_at", "time",
-                        "upgrades", "population", "population_provided", "attack", "attack_range", "is_ranged")
+                        "upgrades", "population", "population_provided", "attack", "attack_range", "minimum_range", "cooldown", "is_ranged")
 
         def catalog_records(records):
             if isinstance(records, dict):

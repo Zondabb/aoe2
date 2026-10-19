@@ -273,6 +273,8 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 		elif record.type == "projectile":
 			var weapon := Catalog.get_unit(StringName(record.weapon.id))
 			if weapon == null:
+				weapon = Catalog.building_weapon(StringName(record.weapon.id))
+			if weapon == null:
 				weapon = UnitDef.new()
 				weapon.id = StringName(record.weapon.id)
 				weapon.attack = int(record.weapon.attack)

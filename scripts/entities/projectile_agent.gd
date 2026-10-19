@@ -3,12 +3,8 @@ extends Node2D
 
 ## Ground sim_pos flies straight to aim_pos; sprite follows a parabolic arc for visuals.
 
-const ARROW_SPEED := 11.0
+const ARROW_SPEED := 28.0
 const IMPACT_RADIUS := 0.6
-## Peak arc height scales with flight distance (sim tiles).
-const ARC_HEIGHT_PER_TILE := 0.18
-const ARC_APEX_MIN := 0.45
-const ARC_APEX_MAX := 2.8
 ## Screen pixels per sim tile of arc height (negative Y = up on screen).
 const ARC_SCREEN_SCALE := 22.0
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
@@ -37,6 +33,7 @@ var _shadow_texture: Texture2D
 var _impact_elapsed := 0.0
 var _launch_height := 0.0
 var _stone := false
+var _ground_shadow: Sprite2D
 
 func setup(
 	origin: Vector2,
@@ -54,7 +51,9 @@ func setup(
 		match_state = attacker.get("match_state") as MatchState
 	team = attacker_team
 	_stone = attacker_def != null and attacker_def.projectile_kind == &"stone"
-	_launch_height = attacker_def.projectile_launch_height if _stone else 0.0
+	_launch_height = attacker_def.projectile_launch_height if attacker_def != null else 0.0
+	if not _stone and _launch_height <= 0.0 and attacker is UnitAgent:
+		_launch_height = -attacker._projectile_spawn_local_y()
 	_total_distance = _origin.distance_to(aim_pos)
 	_traveled = 0.0
 	_clock_hours = _compute_clock_hours()
@@ -98,9 +97,11 @@ func network_presentation() -> Dictionary:
 func apply_network_presentation(data: Dictionary) -> void:
 	var source_def := StringName(data.get("source_def", ""))
 	var stone: bool = data.get("projectile_kind", "arrow") == "stone"
-	if stone != _stone or (stone and (attacker_def == null or attacker_def.id != source_def)):
+	if stone != _stone or attacker_def == null or attacker_def.id != source_def:
 		_stone = stone
 		attacker_def = GameCatalog.get_unit(source_def) if not source_def.is_empty() else null
+		if attacker_def == null and not source_def.is_empty():
+			attacker_def = GameCatalog.building_weapon(source_def)
 		_configure_visual()
 	_launch_height = float(data.get("launch_height", 0.0))
 	_consumed = bool(data.get("impact", false))
@@ -128,7 +129,10 @@ func _arc_apex_sim() -> float:
 		# DAT arc sets the shape; the screen parabola is a visual approximation.
 		var launch_angle := attacker_def.projectile_arc if attacker_def != null else 0.4
 		return _total_distance * tan(launch_angle) * 0.25
-	return clampf(_total_distance * ARC_HEIGHT_PER_TILE, ARC_APEX_MIN, ARC_APEX_MAX)
+	# Native signed arc is preserved in the profile. Genie does not publish its
+	# equation; adapt its magnitude to a shallow parabola, with height separate.
+	var arc := absf(attacker_def.projectile_arc) if attacker_def != null else 0.06
+	return _total_distance * tan(arc) * 0.25
 
 func _arc_height_sim(t: float) -> float:
 	var apex := _arc_apex_sim()
@@ -144,6 +148,8 @@ func _screen_pos_for_progress(t: float) -> Vector2:
 func _sync_visual(t: float) -> void:
 	position = _screen_pos_for_progress(t)
 	_update_sprite_frame(t)
+	if is_instance_valid(_ground_shadow):
+		_ground_shadow.position = IsoMathScript.world_to_screen(_origin.lerp(aim_pos, t)) - position
 	if _stone:
 		queue_redraw()
 
@@ -153,11 +159,13 @@ func _compute_clock_hours() -> float:
 	return SpriteCatalogScript.screen_delta_to_clock_hours(to_screen - from_screen)
 
 func _sequence_step(t: float) -> int:
-	var progress := clampf(t, 0.0, 1.0)
-	return mini(
-		int(progress * float(SpriteCatalogScript.ARROW_FRAMES_PER_DIRECTION)),
-		SpriteCatalogScript.ARROW_FRAMES_PER_DIRECTION - 1
-	)
+	return _pitch_step(t, _projectile_meta)
+
+func _pitch_step(t: float, meta: Dictionary) -> int:
+	var count := maxi(1, int(meta.get("frames_per_direction", SpriteCatalogScript.ARROW_FRAMES_PER_DIRECTION)))
+	var vertical := 4.0 * _arc_apex_sim() * (1.0 - 2.0 * clampf(t, 0.0, 1.0)) * ARC_SCREEN_SCALE - _launch_height
+	var pitch := atan2(vertical, maxf(0.0001, _total_distance * ARC_SCREEN_SCALE))
+	return clampi(roundi((0.5 - pitch / PI) * (count - 1)), 0, count - 1)
 
 func _impact() -> void:
 	if _consumed:
@@ -266,6 +274,9 @@ func _configure_visual() -> void:
 	var sprite := get_node_or_null("Sprite") as Sprite2D
 	if sprite == null:
 		return
+	if is_instance_valid(_ground_shadow):
+		_ground_shadow.free()
+		_ground_shadow = null
 	if _stone:
 		_projectile_meta = SpriteCatalogScript.load_meta(attacker_def.projectile_flight_sheet)
 		_projectile_texture = SpriteCatalogScript.load_texture(attacker_def.projectile_flight_sheet)
@@ -280,8 +291,20 @@ func _configure_visual() -> void:
 		# Airborne stones must not disappear into terrain/actor Y sorting.
 		z_index = 2
 		return
-	z_index = 0
-	var base := SpriteCatalogScript.projectile_sheet_base()
+	z_index = 2
+	var base := attacker_def.projectile_flight_sheet if attacker_def != null else ""
+	if base.is_empty(): base = SpriteCatalogScript.projectile_sheet_base()
+	var shadow_base := attacker_def.projectile_shadow_sheet if attacker_def != null else ""
+	if shadow_base.is_empty(): shadow_base = "res://assets/sprites/projectiles/arrow_shadow"
+	_shadow_meta = SpriteCatalogScript.load_meta(shadow_base)
+	_shadow_texture = SpriteCatalogScript.load_texture(shadow_base)
+	if not _shadow_meta.is_empty() and _shadow_texture != null:
+		_ground_shadow = Sprite2D.new()
+		_ground_shadow.name = "GroundShadow"
+		_ground_shadow.z_as_relative = false
+		_ground_shadow.z_index = 0
+		add_child(_ground_shadow)
+		SpriteCatalogScript.configure_sprite_2d(_ground_shadow, SpriteCatalogScript.ORIGINAL_ART_PIXEL_SCALE_2D, Vector2.ZERO)
 	if SpriteCatalogScript.sheet_paths_exist(base):
 		var meta := SpriteCatalogScript.load_meta(base)
 		var texture := SpriteCatalogScript.load_texture(base)
@@ -290,7 +313,7 @@ func _configure_visual() -> void:
 			_projectile_texture = texture
 			sprite.texture = SpriteCatalogScript.atlas_frame_at(_projectile_meta, _projectile_texture, 0)
 			SpriteCatalogScript.configure_sprite_2d(
-				sprite, SpriteCatalogScript.UNIT_PIXEL_SCALE_2D * 0.65, Vector2.ZERO
+				sprite, SpriteCatalogScript.ORIGINAL_ART_PIXEL_SCALE_2D, Vector2.ZERO
 			)
 			sprite.rotation = 0.0
 			sprite.visible = true
@@ -308,18 +331,21 @@ func _update_sprite_frame(t: float) -> void:
 		_apply_stone_frame(sprite, _projectile_meta, _projectile_texture, frame)
 		return
 	if not _projectile_meta.is_empty() and _projectile_texture != null:
-		var frame := SpriteCatalogScript.projectile_frame_for_flight(_clock_hours, _sequence_step(t))
-		sprite.texture = SpriteCatalogScript.atlas_frame_at(
-			_projectile_meta, _projectile_texture, int(frame["index"])
-		)
-		sprite.flip_h = bool(frame["flip"])
-		sprite.rotation = 0.0
-		var hotspot := SpriteCatalogScript.hotspot_at_index(_projectile_meta, int(frame["index"]))
-		if bool(frame["flip"]):
-			hotspot.x = float(_projectile_meta.get("frame_w", 1)) - hotspot.x
-		sprite.offset = SpriteCatalogScript.offset_for_hotspot_2d(_projectile_meta, hotspot)
+		_apply_arrow_frame(sprite, _projectile_meta, _projectile_texture, _sequence_step(t))
+		if is_instance_valid(_ground_shadow):
+			_apply_arrow_frame(_ground_shadow, _shadow_meta, _shadow_texture, _pitch_step(t, _shadow_meta))
 		return
 	sprite.rotation = 0.0
+
+func _apply_arrow_frame(sprite: Sprite2D, meta: Dictionary, texture: Texture2D, pitch: int) -> void:
+	var frame := SpriteCatalogScript.projectile_frame_for_flight(_clock_hours, pitch, meta)
+	sprite.texture = SpriteCatalogScript.atlas_frame_at(meta, texture, int(frame.index))
+	sprite.flip_h = bool(frame.flip)
+	sprite.rotation = 0.0
+	var hotspot := SpriteCatalogScript.hotspot_at_index(meta, int(frame.index))
+	if bool(frame.flip):
+		hotspot.x = float(meta.get("frame_w", 1)) - hotspot.x
+	sprite.offset = SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
 
 
 func _apply_stone_frame(sprite: Sprite2D, meta: Dictionary, texture: Texture2D, frame: int) -> void:

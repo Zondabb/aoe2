@@ -9,9 +9,11 @@ extends Resource
 @export_group("Combat")
 ## Maximum distance at which this unit can deal damage (sim tiles).
 @export var attack_range: float = 1.0
+## Original DAT range for display; negative means an authored simulation value.
+@export var source_attack_range: float = -1.0
 ## Ranged only: desired firing distance; 0 uses attack_range * 0.85.
 @export var preferred_attack_range: float = 0.0
-## Siege weapons cannot fire at targets inside this distance.
+## Ranged weapons cannot fire at targets inside this distance.
 @export var minimum_attack_range: float = 0.0
 ## Delivery and armor class are independent: thrown stones deal melee damage.
 @export var attack_uses_melee_armor: bool = false
@@ -19,10 +21,10 @@ extends Resource
 ## Negative retains the generic animation-fraction release timing.
 @export var attack_release_delay: float = -1.0
 @export var projectile_kind: StringName = &"arrow"
-@export var projectile_speed: float = 11.0
+@export var projectile_speed: float = 28.0
 @export var projectile_splash_radius: float = 0.6
 @export var projectile_friendly_fire: bool = false
-@export var projectile_arc: float = 0.18
+@export var projectile_arc: float = -0.06
 @export var projectile_launch_height: float = 0.0
 @export var projectile_flight_sheet: String = ""
 @export var projectile_impact_sheet: String = ""

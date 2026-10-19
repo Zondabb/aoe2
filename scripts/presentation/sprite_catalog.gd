@@ -62,11 +62,10 @@ const UNIT_COMBAT_SHEETS := {
 	},
 }
 
-const PROJECTILE_SHEET := "res://assets/sprites/units/arrow"
+const PROJECTILE_SHEET := "res://assets/sprites/projectiles/arrow"
 
-## AoE2 arrow sheet: row-major atlas, 11 in-flight frames per direction group.
-## Group 0 = 6 o'clock, group 15 = 11:30, stepping CCW on the screen clock.
-## 12 o'clock–5:30 use the mirrored partner group (flip_h).
+## Original arrows store yaw groups with pitch poses, not animation frames.
+## Yaw spacing is uniform on the ground plane before the 2:1 projection.
 const ARROW_FRAMES_PER_DIRECTION := 11
 const ARROW_DIRECTION_COUNT := 16
 const ARROW_CLOCK_START_HOURS := 6.0
@@ -184,46 +183,34 @@ static func screen_delta_to_clock_hours(delta: Vector2) -> float:
 
 
 static func projectile_resolve_clock_hours(clock_hours: float) -> Dictionary:
-	var hours := fmod(clock_hours, 12.0)
-	if hours < 0.0:
-		hours += 12.0
-	if is_zero_approx(hours):
-		hours = 12.0
-	var flip := false
-	var source_hours := hours
-	if hours <= ARROW_CLOCK_MIRROR_END_HOURS or is_equal_approx(hours, 12.0):
-		flip = true
-		if is_equal_approx(hours, 12.0):
-			source_hours = ARROW_CLOCK_START_HOURS
-		else:
-			source_hours = 12.0 - hours
-	else:
-		source_hours = clampf(hours, ARROW_CLOCK_START_HOURS, ARROW_CLOCK_END_HOURS)
-	source_hours = clampf(source_hours, ARROW_CLOCK_START_HOURS, ARROW_CLOCK_END_HOURS)
-	return {"source_hours": source_hours, "flip": flip}
+	var hours := fposmod(clock_hours, 12.0)
+	var flip := hours > 0.0001 and hours < 6.0
+	return {"source_hours": 12.0 - hours if flip or is_zero_approx(hours) else hours, "flip": flip}
 
 
-static func projectile_group_for_source_hours(source_hours: float) -> int:
-	var span := ARROW_CLOCK_END_HOURS - ARROW_CLOCK_START_HOURS
-	if span <= 0.0001:
-		return 0
-	var t := (source_hours - ARROW_CLOCK_START_HOURS) / span
-	return clampi(roundi(t * float(ARROW_DIRECTION_COUNT - 1)), 0, ARROW_DIRECTION_COUNT - 1)
+static func projectile_group_for_source_hours(source_hours: float, meta: Dictionary = {}) -> int:
+	var angle := source_hours * PI / 6.0
+	# Undo isometric vertical compression before quantizing the source headings.
+	var yaw := atan2(absf(sin(angle)), -cos(angle) * 2.0)
+	var heading_count := maxi(1, int(meta.get("source_angle_count", 32)))
+	var stored := maxi(1, int(meta.get("directions", ARROW_DIRECTION_COUNT)))
+	return clampi(roundi(yaw / (TAU / heading_count)), 0, stored - 1)
 
 
-static func projectile_facing_from_clock_hours(clock_hours: float) -> Dictionary:
+static func projectile_facing_from_clock_hours(clock_hours: float, meta: Dictionary = {}) -> Dictionary:
 	var resolved := projectile_resolve_clock_hours(clock_hours)
-	var group := projectile_group_for_source_hours(resolved["source_hours"])
+	var group := projectile_group_for_source_hours(resolved["source_hours"], meta)
 	return {"group": group, "flip": bool(resolved["flip"])}
 
 
-static func projectile_frame_for_flight(clock_hours: float, sequence_step: int) -> Dictionary:
-	## Fixed direction from shooter→target clock; sequence_step is 0..10 along flight distance.
-	var facing := projectile_facing_from_clock_hours(clock_hours)
-	var step := clampi(sequence_step, 0, ARROW_FRAMES_PER_DIRECTION - 1)
+static func projectile_frame_for_flight(clock_hours: float, sequence_step: int, meta: Dictionary = {}) -> Dictionary:
+	## Pitch comes from the trajectory tangent. Sheets may have different layouts.
+	var facing := projectile_facing_from_clock_hours(clock_hours, meta)
+	var pitches := maxi(1, int(meta.get("frames_per_direction", ARROW_FRAMES_PER_DIRECTION)))
+	var step := clampi(sequence_step, 0, pitches - 1)
 	var group := int(facing["group"])
 	return {
-		"index": group * ARROW_FRAMES_PER_DIRECTION + step,
+		"index": group * pitches + step,
 		"flip": bool(facing["flip"]),
 		"group": group,
 		"step": step,

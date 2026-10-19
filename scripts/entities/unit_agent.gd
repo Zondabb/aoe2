@@ -501,8 +501,8 @@ func _spawn_projectile() -> void:
 	if projectile == null:
 		return
 	parent.add_child(projectile)
-	# A siege projectile's launch height is presentation, not a shifted ground aim.
-	var origin := sim_pos if def.projectile_kind == &"stone" else _projectile_origin_sim()
+	# Vertical launch height belongs to presentation, never to the ground ray.
+	var origin := sim_pos
 	var aim := ProjectileAgentScript.aim_point_for_target(origin, _attack_target)
 	projectile.call("setup", origin, aim, def, team, self)
 
@@ -544,8 +544,9 @@ func _combat_anim_duration(action: StringName) -> float:
 func _animation_fps(action: StringName) -> float:
 	var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}) if action == &"walk" else {})
 	var frame_duration := float(meta.get("frame_duration", 0.0))
-	if action == &"attack" and def != null and def.projectile_kind == &"stone":
-		var profile: Dictionary = GameCatalog.siege_projectiles().get(String(def.id), {})
+	if action == &"attack" and def != null:
+		var profiles: Dictionary = GameCatalog.siege_projectiles() if def.projectile_kind == &"stone" else GameCatalog.arrow_projectiles().get("units", {})
+		var profile: Dictionary = profiles.get(String(def.id), {})
 		frame_duration = float(profile.get("attack_frame_duration", frame_duration))
 	return 1.0 / frame_duration if frame_duration > 0.0 else ANIM_FPS
 
@@ -1632,10 +1633,7 @@ func _sprite_top_local_y() -> float:
 
 
 func _projectile_origin_sim() -> Vector2:
-	if not is_inside_tree():
-		return sim_pos
-	var head_screen := to_global(Vector2(0.0, _projectile_spawn_local_y()))
-	return IsoMathScript.screen_to_world(head_screen)
+	return sim_pos
 
 
 func _projectile_spawn_local_y() -> float:

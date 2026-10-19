@@ -366,11 +366,15 @@ func _refresh_entity_details(focus: Node2D, total_count: int) -> void:
 	if total_count == 1 and focus.get("team") != null:
 		_count_label.text = "己方" if focus.get("team") == PlayerCommands.local_team(self) else "对手"
 	if definition is UnitDef:
-		_stats_label.text = "攻击 %d    护甲 %d / %d    射程 %.1f" % [definition.attack, focus.melee_armor, focus.pierce_armor, definition.attack_range]
+		var shown_range: float = definition.source_attack_range if definition.source_attack_range >= 0.0 else definition.attack_range
+		_stats_label.text = "攻击 %d    护甲 %d / %d    射程 %.1f" % [definition.attack, focus.melee_armor, focus.pierce_armor, shown_range]
 		if show_private_details and focus.get("carry_amount") != null and focus.carry_amount > 0:
 			_queue_label.text = "携带资源 %d / %d" % [focus.carry_amount, focus.carry_capacity]
 	elif definition is BuildingDef:
 		_stats_label.text = "护甲 %d / %d    人口上限 +%d" % [focus.melee_armor, focus.pierce_armor, definition.population_provided]
+		var weapon := Catalog.building_weapon(definition.id)
+		if weapon != null:
+			_stats_label.text = "攻击 %d    护甲 %d / %d    射程 %.1f" % [weapon.attack, focus.melee_armor, focus.pierce_armor, weapon.source_attack_range]
 		if not show_private_details:
 			return
 		var training: Array = focus.get("train_queue")

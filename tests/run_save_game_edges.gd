@@ -117,10 +117,7 @@ func _tower_arrow() -> void:
 	_fixture()
 	var tower := _building(&"watch_tower", 0, Vector2(-5, 5), "Tower")
 	var target := _unit(&"villager", 1, Vector2(5, 5), "ArrowTarget")
-	var weapon := UnitDef.new()
-	weapon.id = tower.def.id
-	weapon.attack = int(Catalog.building_record(tower.def.id).attack)
-	weapon.is_ranged = true
+	var weapon := Catalog.building_weapon(tower.def.id)
 	var projectile := ProjectileView.instantiate() as ProjectileAgent
 	projectile.name = "TowerArrow"
 	entities.add_child(projectile)
@@ -128,12 +125,18 @@ func _tower_arrow() -> void:
 	projectile.set_physics_process(false)
 	projectile._physics_process(0.2)
 	var traveled: float = projectile._traveled
+	var visible_position := projectile.position
+	var flight_frame := (projectile.get_node("Sprite") as Sprite2D).texture as AtlasTexture
 	var old_hp: float = target.hp
 	if not _roundtrip(): return
 	projectile = entities.get_node("TowerArrow") as ProjectileAgent
 	target = entities.get_node("ArrowTarget") as UnitAgent
 	check(projectile.attacker == entities.get_node("Tower"), "tower arrow restores the building attacker reference")
-	check(projectile.attacker_def.id == &"watch_tower" and projectile.attacker_def.attack == weapon.attack, "tower arrow restores its temporary building weapon")
+	check(projectile.attacker_def == weapon, "tower arrow restores its complete catalog weapon")
+	check(projectile.attacker_def.projectile_arc == 0.05 and projectile.attacker_def.projectile_shadow_sheet == weapon.projectile_shadow_sheet, "tower arrow retains the original trajectory and shadow profile")
+	check(projectile.position.is_equal_approx(visible_position), "tower arrow keeps its elevated visible position after loading")
+	var restored_frame := (projectile.get_node("Sprite") as Sprite2D).texture as AtlasTexture
+	check(restored_frame.atlas == flight_frame.atlas and restored_frame.region == flight_frame.region, "tower arrow keeps its exact original frame after loading")
 	check(is_equal_approx(projectile._traveled, traveled), "tower arrow keeps in-flight progress")
 	projectile._physics_process(2.0)
 	check(target.hp < old_hp, "restored tower arrow applies damage on impact")
