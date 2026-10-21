@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import socket
@@ -25,7 +26,8 @@ def main() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    env = dict(os.environ, AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(port))
+    env = dict(os.environ, AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(port),
+               AOE2_MP_LEADERBOARD_DB=str(logs / "leaderboard.sqlite3"))
     processes: list[subprocess.Popen] = []
     handles = []
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -66,7 +68,7 @@ def main() -> int:
                 args.godot, "--headless", "--path", str(root),
                 "--log-file", (logs / f"godot-{side}.log").as_posix(),
                 "--script", "res://tests/run_multiplayer_peer.gd", "--",
-                endpoint,
+                endpoint, f"Integration-{side}",
             ], f"peer-{side}"))
         deadline = time.monotonic() + 55
         while any(client.poll() is None for client in clients):
@@ -79,6 +81,18 @@ def main() -> int:
                 print(output[-14000:])
                 raise RuntimeError(f"Godot peer {side} failed ({client.returncode})")
             print(next(line for line in output.splitlines() if "MULTIPLAYER PEER PASSED" in line))
+        if not args.server_url:
+            base = urlunsplit(("http", parsed.netloc, "", "", ""))
+            with urlopen(base + "/api/leaderboard", timeout=3) as response:
+                board = json.load(response)
+            rows = board["players"]
+            if (board["completed_matches"] != 1 or {row["name"] for row in rows} != {"Integration-0", "Integration-1"}
+                    or sorted((row["wins"], row["games"], row["win_rate"]) for row in rows) != [(0, 1, 0), (1, 1, 100)]):
+                raise RuntimeError(f"Leaderboard did not record the real game exactly once: {board}")
+            with urlopen(base + "/", timeout=3) as response:
+                if "联机排行榜" not in response.read().decode("utf-8"):
+                    raise RuntimeError("Leaderboard web page unavailable")
+            print("LEADERBOARD E2E PASSED: both real players have 1 game, exactly one winner")
         print(f"MULTIPLAYER E2E PASSED; logs: {logs}")
         return 0
     except (OSError, RuntimeError) as error:

@@ -3,9 +3,15 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 import json
+from pathlib import Path
+from typing import Literal
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import anyio
+from fastapi import FastAPI, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from .leaderboard import Leaderboard
 from .matchmaking import Close, Matchmaker, Player
 from .protocol import ProtocolError, parse_message
 from .settings import Settings
@@ -50,7 +56,8 @@ async def _send(websocket: WebSocket, player: Player, settings: Settings) -> Non
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
-    matchmaker = Matchmaker(settings)
+    leaderboard = Leaderboard(settings.leaderboard_db)
+    matchmaker = Matchmaker(settings, leaderboard=leaderboard)
 
     async def sweeper() -> None:
         while True:
@@ -67,9 +74,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             with suppress(asyncio.CancelledError):
                 await task
             await matchmaker.shutdown()
+            leaderboard.close()
 
     app = FastAPI(title="AoE2 Multiplayer Service", version="1.0.0", lifespan=lifespan)
     app.state.matchmaker = matchmaker
+    app.state.leaderboard = leaderboard
+    static = Path(__file__).resolve().parent / "static"
+    app.mount("/static", StaticFiles(directory=static), name="static")
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/leaderboard", include_in_schema=False)
+    def leaderboard_page() -> FileResponse:
+        return FileResponse(static / "index.html", headers={
+            "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; "
+                                       "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        })
+
+    @app.get("/api/leaderboard")
+    def standings(response: Response, sort: Literal["win_rate", "wins", "games"] = "win_rate",
+                  q: str = Query("", max_length=64), limit: int = Query(20, ge=1, le=100),
+                  offset: int = Query(0, ge=0)) -> dict:
+        response.headers["Cache-Control"] = "no-store"
+        return leaderboard.standings(sort=sort, query=q, limit=limit, offset=offset)
 
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -91,15 +118,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             completed, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in completed:
                 task.result()
-        except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError, OSError):
+        except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError, OSError, asyncio.CancelledError):
             pass
         finally:
-            await matchmaker.disconnect(player)
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            with suppress(WebSocketDisconnect, RuntimeError, asyncio.TimeoutError, OSError):
-                await asyncio.wait_for(websocket.close(), settings.send_timeout)
+            # ASGI cancellation must not interrupt forfeit settlement or leave
+            # relay tasks alive after their socket has closed.
+            with anyio.CancelScope(shield=True):
+                await matchmaker.disconnect(player)
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                with suppress(WebSocketDisconnect, RuntimeError, asyncio.TimeoutError, OSError):
+                    await asyncio.wait_for(websocket.close(), settings.send_timeout)
 
     return app
 

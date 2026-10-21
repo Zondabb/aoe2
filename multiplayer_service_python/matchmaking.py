@@ -5,10 +5,15 @@ from collections import deque
 from dataclasses import dataclass, field
 import time
 import uuid
+import logging
+import sqlite3
 from typing import Any, Callable
 
 from .protocol import ProtocolError
 from .settings import Settings
+from .leaderboard import Leaderboard
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,8 +50,10 @@ class Room:
 class Matchmaker:
     """All state changes are serialized; slow network writes never hold the lock."""
 
-    def __init__(self, settings: Settings, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, settings: Settings, clock: Callable[[], float] = time.monotonic,
+                 leaderboard: Leaderboard | None = None):
         self.settings = settings
+        self.leaderboard = leaderboard
         self.clock = clock
         self.players: dict[str, Player] = {}
         self.queue: deque[str] = deque()
@@ -106,6 +113,12 @@ class Matchmaker:
     def _end(self, room: Room, winner: int | None, reason: str) -> None:
         if self.rooms.pop(room.id, None) is None:
             return
+        if self.leaderboard is not None and room.started_at is not None and winner in (0, 1):
+            try:
+                self.leaderboard.record(room.id, tuple(player.name for player in room.players), winner, reason)
+            except (sqlite3.Error, OSError):
+                # A storage failure must not strand players in an ended room.
+                logger.exception("Could not persist result for match %s", room.id)
         # Clear both identities before notifications, which may detect a slow peer.
         for player in room.players:
             player.room_id = None
@@ -179,6 +192,11 @@ class Matchmaker:
                 if len(self.queue) >= self.settings.max_queue:
                     raise ProtocolError("queue_full", "Matchmaking queue is full")
                 player.name, player.civ = message["name"], message["civ"]
+                if self.leaderboard is not None:
+                    try:
+                        self.leaderboard.register(player.name)
+                    except (sqlite3.Error, OSError):
+                        logger.exception("Could not register leaderboard player")
                 player.queued_at = self.clock()
                 self.queue.append(player.id)
                 self._emit(player, {"type": "queued"})

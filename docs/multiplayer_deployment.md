@@ -1,6 +1,6 @@
 # 联机服务 Docker Compose 部署
 
-服务负责双人匹配和 WebSocket 中继，游戏连接 `/ws`，健康检查为 `/healthz`。Compose 使用现有 Dockerfile 构建 Python 服务，默认发布服务器 TCP 8001，配置自动重启、健康检查和日志轮转。房间和队列在单进程内存中，保持一个容器、一个 worker；重启或更新会结束正在进行的对局。
+服务负责双人匹配、WebSocket 中继和 Web 排行榜，游戏连接 `/ws`，健康检查为 `/healthz`，排行榜为 `/` 或 `/leaderboard`。Compose 默认发布服务器 TCP 8001，配置自动重启、健康检查、日志轮转和战绩数据卷。房间和队列在单进程内存中，保持一个容器、一个 worker；重启或更新会结束正在进行的对局，已结算战绩保留在 SQLite 中。
 
 ## 1. 启动服务器
 
@@ -26,6 +26,8 @@ docker compose logs --tail=100 -f multiplayer
 ```
 
 PowerShell 可使用 `Invoke-RestMethod http://127.0.0.1:8001/healthz`。健康接口应返回 `status: ok` 及当前连接、队列和房间数量；`docker compose ps` 的健康状态需要等待首次检查。
+
+浏览器打开 `http://服务器IP:8001/` 查看排行榜；修改映射端口后使用对应端口，例如 `http://服务器IP:18001/`。无须额外部署 Web 服务。榜单按昵称累计胜率、胜场、总场次，具体计分规则见 [服务 README](../multiplayer_service_python/README.md#web-排行榜)。
 
 ## 2. 修改监听地址与端口
 
@@ -79,7 +81,7 @@ python tools/test_multiplayer_e2e.py --godot /path/to/Godot --server-url ws://12
 
 ## 4. HTTPS / WSS 部署
 
-公网使用 TLS 时，由现有 Nginx、Caddy 或云网关代理到本服务。代理必须支持 WebSocket Upgrade，转发 `/ws`，并允许长连接。HTTPS 网页游戏应连接 `wss://` 地址。游戏配置示例：
+公网使用 TLS 时，由现有 Nginx、Caddy 或云网关代理到本服务。代理必须支持 WebSocket Upgrade，转发 `/ws`，并允许长连接。排行榜还需转发普通 HTTP 路径 `/`、`/leaderboard`、`/static/` 和 `/api/leaderboard`，推荐将该域名整体代理到服务。HTTPS 网页游戏应连接 `wss://` 地址。游戏配置示例：
 
 ```ini
 [multiplayer]
@@ -104,7 +106,20 @@ docker compose down
 
 健康检查失败时，先查看日志确认端口、依赖和环境变量格式。健康状态标记为 unhealthy 不会单独触发自动重启；进程退出由 `restart: unless-stopped` 处理。若端口被占用，修改 `.env` 和客户端端口。健康接口可访问但无法匹配时，检查 WebSocket `/ws` 的代理转发、客户端地址及双方是否连接同一个服务。地址配置未生效时，检查高优先级的用户配置，再重新启动游戏。
 
-此服务按可信玩家的双人对战设计，没有账号、持久化战绩或断线重连；对战模拟仍由 team 0 客户端负责。不要通过增加 worker 或容器副本扩容，独立进程间不会共享房间。
+此服务按可信玩家的双人对战设计，没有账号或断线重连；排行榜按昵称持久化累计，对战模拟仍由 team 0 客户端负责。不要通过增加 worker 或容器副本扩容，独立进程间不会共享房间。
+
+## 战绩保存和备份
+
+Compose 将 `leaderboard_data` 命名卷挂载到 `/data`。SQLite 文件为 `/data/leaderboard.sqlite3`，容器内以非 root 用户写入。更新镜像、重建容器、普通 `docker compose down` 都保留卷；不要在需要保留战绩时执行 `docker compose down -v`。若自行改用宿主机目录绑定，需确保 UID/GID `65532:65532` 对目录有写权限。
+
+运行中备份使用 SQLite 自带备份接口，避免只复制数据库文件却遗漏 WAL 中的新战绩：
+
+```sh
+docker compose exec multiplayer python -c "import sqlite3; sqlite3.connect('/data/leaderboard.sqlite3').backup(sqlite3.connect('/data/leaderboard-backup.sqlite3'))"
+docker compose cp multiplayer:/data/leaderboard-backup.sqlite3 ./leaderboard-backup.sqlite3
+```
+
+原版本只把对局保存在内存里，升级后的统计从新完成的对局开始累计。
 
 Compose 字段说明见 [Docker Compose 服务配置文档](https://docs.docker.com/reference/compose-file/services/)。游戏协议及同步方式见 [联机说明](multiplayer.md)。
 
@@ -113,3 +128,7 @@ Compose 字段说明见 [Docker Compose 服务配置文档](https://docs.docker.
 2026-10-12：Compose 配置校验、镜像构建、`/healthz` 和容器健康检查通过；使用 `127.0.0.1:18001` 临时映射测试后已清理容器。两个真实 Godot 客户端完成 32 项端到端检查，覆盖匹配、移动、建造、训练、采集、攻击、复制实体移除和胜负同步。游戏配置 29 项、大厅流程 45 项检查通过。
 
 联机服务主体本次未改动。容器中的现有 Python 单元测试为 16 项通过、2 项失败，失败发生在 Starlette TestClient 退出 WebSocket 上下文时的 `concurrent.futures.CancelledError`；实际容器 WebSocket 对战验证通过。该单测收尾问题仍需单独处理，不应将其结果表述为全量测试通过。
+
+2026-10-21：新增 Web 排行榜与 SQLite 持久战绩。修复 WebSocket 取消可能中断断线结算及清理的问题，上述旧收尾失败已在当前测试环境解决。联机服务回归 **41 项通过**；桌面/手机网页的排序、搜索、分页、文本转义和网络错误恢复通过浏览器验证。
+
+原生 Python 服务与最终 Docker 镜像分别通过两个真实 Godot 客户端的 **32 项对战检查**；每局结束后，网页接口准确反映两位玩家各一场、仅胜者一胜。容器以 UID 65532 运行，删除并重建测试容器后，专用数据卷内原有战绩完整保留，新对局可继续累计。测试使用独立数据库，测试容器及专用数据卷已清理。

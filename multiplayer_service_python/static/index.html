@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#131713">
+  <title>联机排行榜 · AoE2 RTS</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/leaderboard.css">
+  <script src="/static/leaderboard.js" defer></script>
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="AoE2 RTS 排行榜首页"><span class="brand-mark" aria-hidden="true">A</span> AoE2 <span>RTS</span></a>
+      <span class="edition">联机对战 <span class="dot" aria-hidden="true"></span> 战绩榜</span>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="page-title">
+        <div><p class="eyebrow">MULTIPLAYER LEADERBOARD</p><h1 id="page-title">联机排行榜<span>.</span></h1><p class="subtitle">每位玩家的胜率、胜场与对战记录。</p></div>
+        <div class="live"><span class="live-dot" aria-hidden="true"></span><div>每 20 秒自动更新<p id="updated-at">正在读取战绩…</p></div></div>
+      </section>
+
+      <section class="metrics" aria-label="排行榜概况">
+        <div class="metric"><span>上榜玩家</span><strong id="player-count">—</strong><small>按对战昵称累计</small></div>
+        <div class="metric"><span>已结算对局</span><strong id="match-count">—</strong><small>已开始且有明确胜负</small></div>
+        <div class="metric formula"><span>胜率计算</span><strong>胜场 <i>÷</i> 场次</strong><small>开局后退出、掉线计为失败</small></div>
+      </section>
+
+      <section class="board" aria-labelledby="board-title" aria-busy="true" id="board">
+        <div class="board-heading"><div><span class="eyebrow">STANDINGS</span><h2 id="board-title">玩家排名</h2></div><button class="refresh" id="refresh" type="button"><span aria-hidden="true">↻</span> 刷新战绩</button></div>
+        <div class="toolbar">
+          <div class="sorts" role="group" aria-label="排名排序">
+            <button type="button" data-sort="win_rate" aria-pressed="true">胜率优先</button>
+            <button type="button" data-sort="wins" aria-pressed="false">胜场优先</button>
+            <button type="button" data-sort="games" aria-pressed="false">场次优先</button>
+          </div>
+          <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">搜索玩家昵称</span><input id="search" type="search" placeholder="搜索玩家昵称" maxlength="64" autocomplete="off"></label>
+        </div>
+
+        <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="玩家排名表，窄屏可横向滚动">
+          <table>
+            <caption class="sr-only">玩家排名、昵称、胜率、胜场和游戏总场次</caption>
+            <thead><tr><th scope="col" class="rank-col">排名</th><th scope="col">玩家</th><th scope="col" class="numeric" id="rate-heading">胜率 ↓</th><th scope="col" class="numeric" id="wins-heading">胜场</th><th scope="col" class="numeric" id="games-heading">总场次</th></tr></thead>
+            <tbody id="players"><tr><td colspan="5" class="empty">正在加载排行榜…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="board-footer"><span id="page-info">读取中…</span><div class="pagination"><button id="previous" type="button" disabled aria-label="上一页">← <span>上一页</span></button><button id="next" type="button" disabled aria-label="下一页"><span>下一页</span> →</button></div></div>
+      </section>
+
+      <aside class="rules"><span class="rules-mark" aria-hidden="true">i</span><p>使用相同昵称可累计战绩，改昵称将作为新玩家。准备阶段取消、无胜负中断及同昵称对局不计战绩。未完成计分对局的玩家胜率显示为「—」。</p></aside>
+    </main>
+    <footer class="page-footer"><span>AoE2 RTS <span class="footer-divider">/</span> 联机战绩</span><span>排名默认按胜率、胜场、总场次依次排序</span></footer>
+  </div>
+</body>
+</html>

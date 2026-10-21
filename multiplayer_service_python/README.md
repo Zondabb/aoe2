@@ -18,6 +18,22 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 健康检查：`GET http://127.0.0.1:8001/healthz`。
 
+## Web 排行榜
+
+打开 `http://127.0.0.1:8001/` 或 `/leaderboard`，即可查看每位玩家的胜率、胜场和总场次。网页与游戏联机服务共用端口，支持昵称搜索、分页，以及按胜率、胜场、场次排序，每 20 秒自动更新。
+
+战绩按大厅昵称累计（去首尾空白、Unicode NFC 归一化，区分字母大小写），同名视为同一玩家；改昵称会产生新记录。加入匹配时进入榜单，尚未完成计分对局的玩家显示 0 场、胜率「—」。当前没有账号验证，因此这是对战统计榜，不是防作弊竞技积分系统。
+
+- 双方准备完成并开局后，主机正常结算的胜负计入统计。
+- 开局后退出、掉线或连接超时，按服务判定为退出方负、对手胜。
+- 匹配取消、准备阶段退出/超时、对局超时和服务关闭等无明确胜负情况不计入。
+- 同昵称的双方仍可对战，但不计战绩，避免同一身份自战。
+- 胜率 = 胜场 / 已结算总场次 × 100%。同一对局 ID 只统计一次，双方计数在同一数据库事务中更新。
+
+战绩保存于 SQLite，默认 `multiplayer_service_python/data/leaderboard.sqlite3`，可通过 `AOE2_MP_LEADERBOARD_DB` 指定本机路径。重启后保留；旧版本未保存的历史对局无法追溯。Compose 自动使用 `/data/leaderboard.sqlite3` 与 `leaderboard_data` 命名卷，更新镜像和普通 `docker compose down` 不删除战绩。`docker compose down -v` 会删除该卷。
+
+公开只读接口：`GET /api/leaderboard?sort=win_rate&q=昵称&limit=20&offset=0`。`sort` 支持 `win_rate/wins/games`，每页最多 100 人；返回 `players`（排名、昵称、胜场、总场次、百分制胜率）、总人数、已结算对局数与最近结算时间。搜索时保留所选排序中的全榜名次。数据库和写入接口不向网页公开。
+
 ## 局域网与部署
 
 推荐使用 [Docker Compose 部署文档](../docs/multiplayer_deployment.md)，包含启动、端口、客户端 IP 配置、WSS 代理和更新步骤。
@@ -41,7 +57,7 @@ Docker 在仓库根目录运行：
 
 ```sh
 docker build -t aoe2-multiplayer multiplayer_service_python
-docker run --rm -p 8001:8001 aoe2-multiplayer
+docker run --rm -p 8001:8001 -v aoe2-multiplayer-data:/data aoe2-multiplayer
 ```
 
 公网部署可在反向代理后使用 `wss://域名/ws` 并转发 WebSocket Upgrade。HTTPS 网页客户端也应使用 `wss://`。房间和队列保存在单进程内存中，必须只启动 **一个 worker**；重启会结束现有对局。
@@ -54,13 +70,14 @@ docker run --rm -p 8001:8001 aoe2-multiplayer
 - 同步移动、采集、建造、训练、攻击、生命、死亡、投射物、资源、人口及胜负；双方仅操作本方阵营，联机关闭迷雾调试切换。
 - 对手退出/掉线判另一方获胜；服务中断或双方未准备超时会结束对局，不虚构胜者。
 
-这是可信玩家之间的联机版本：服务不运行战斗模拟，主机能修改世界状态，完整快照也可被修改过的客户端读取。**不适用于要求反作弊的竞技排位**。当前只支持默认地图，不含账号、排行榜、断线重连、主机迁移或持久化战绩。
+这是可信玩家之间的联机版本：服务不运行战斗模拟，主机能修改世界状态，完整快照也可被修改过的客户端读取。**不适用于要求反作弊的竞技排位**。当前支持默认地图和持久化战绩排行榜，不含账号、断线重连或主机迁移。
 
 ## 配置
 
 环境变量均以 `AOE2_MP_` 开头；完整字段见 `settings.py`。常用默认值：
 
 - `HOST=127.0.0.1`、`PORT=8001`。
+- `LEADERBOARD_DB`：SQLite 文件路径，默认服务目录的 `data/leaderboard.sqlite3`；Docker 默认 `/data/leaderboard.sqlite3`。
 - `MAX_CONNECTIONS=128`、`MAX_QUEUE=128`。
 - `MAX_MESSAGE_BYTES=524288`、`MAX_COMMAND_BYTES=16384`。
 - `MESSAGES_PER_SECOND=90`、`MESSAGE_BURST=180`。
@@ -76,7 +93,7 @@ docker run --rm -p 8001:8001 aoe2-multiplayer
 ./multiplayer_service_python/.venv/Scripts/python.exe tools/test_multiplayer_e2e.py --godot "C:/path/to/Godot_console.exe"
 ```
 
-端到端测试会临时启动本机服务和两个独立 Godot 进程，验证匹配、主客移动、客方建造/训练/采集/攻击、出生/死亡/移除、资源人口同步及城镇中心摧毁后的胜负。加速建造/训练仅在测试进程内生效；测试结束自动清理启动的进程，日志保存在 `.godot/multiplayer-e2e-*`。
+端到端测试会临时启动本机服务和两个独立 Godot 进程，验证匹配、主客移动、客方建造/训练/采集/攻击、出生/死亡/移除、资源人口同步及城镇中心摧毁后的胜负，并检查两位玩家各计一场、胜者计一胜。使用临时独立数据库；加速建造/训练仅在测试进程内生效；测试结束自动清理启动的进程，日志保存在 `.godot/multiplayer-e2e-*`。
 
 Godot 专项脚本：`tests/run_online_lobby.gd`、`tests/run_network_runtime.gd`、`tests/run_network_recovery.gd`。使用 `Godot --headless --path . --script res://tests/文件名.gd`；受限 Windows 环境可用 `--log-file` 显式指定仓库 `.godot` 下的绝对日志路径。
 

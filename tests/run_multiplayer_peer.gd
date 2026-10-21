@@ -40,7 +40,8 @@ func _run() -> void:
 	Catalog.get_building("house").build_time = 0.5
 	var args := OS.get_cmdline_user_args()
 	var url := args[0] if not args.is_empty() else "ws://127.0.0.1:8001/ws"
-	_check(network.join_queue(url, "Integration", "chinese") == OK, "connect request")
+	var player_name := args[1] if args.size() > 1 else "Integration"
+	_check(network.join_queue(url, player_name, "chinese") == OK, "connect request")
 
 func _check(ok: bool, label: String) -> void:
 	checks += 1

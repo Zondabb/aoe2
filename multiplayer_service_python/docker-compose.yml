@@ -11,6 +11,7 @@ services:
     environment:
       AOE2_MP_HOST: "0.0.0.0"
       AOE2_MP_PORT: "8001"
+      AOE2_MP_LEADERBOARD_DB: "/data/leaderboard.sqlite3"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
       AOE2_MP_MAX_CONNECTIONS: "${AOE2_MP_MAX_CONNECTIONS:-128}"
@@ -19,6 +20,8 @@ services:
       AOE2_MP_QUEUE_TIMEOUT: "${AOE2_MP_QUEUE_TIMEOUT:-120}"
       AOE2_MP_READY_TIMEOUT: "${AOE2_MP_READY_TIMEOUT:-30}"
       AOE2_MP_MATCH_TIMEOUT: "${AOE2_MP_MATCH_TIMEOUT:-10800}"
+    volumes:
+      - leaderboard_data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=3).read()"]
       interval: 30s
@@ -30,3 +33,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  leaderboard_data:

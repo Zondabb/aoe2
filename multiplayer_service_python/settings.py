@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 import os
+from pathlib import Path
 
 
 @dataclass(frozen=True)
 class Settings:
+    leaderboard_db: str = str(Path(__file__).resolve().parent / "data" / "leaderboard.sqlite3")
     max_connections: int = 128
     max_queue: int = 128
     max_message_bytes: int = 524_288
@@ -27,6 +29,10 @@ class Settings:
 
         for field in fields(self):
             value = getattr(self, field.name)
+            if field.name == "leaderboard_db":
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("leaderboard_db must be a nonempty path")
+                continue
             if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{field.name} must be a positive finite number")
 
