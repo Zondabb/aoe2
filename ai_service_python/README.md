@@ -16,6 +16,8 @@ fast_timeout_sec=3.0
 
 这是游戏侧 `data/game_settings.cfg` 的配置。开启 `multi_agent_enabled` 后，外部模型模式自动走 v3；原有 `protocol="v2_chat"` 可保留。单人和联机的 AI 托管也使用此通道。需要回归旧版时设置 `multi_agent_enabled=false`、`protocol="v2_chat"`。
 
+城墙防守现在默认提前修筑小规模防线，攻城部队拆墙与城镇中心，普通士兵清兵并压制敌方村民。工坊前置、攻城预算和回防分工见 [AI 攻城与防御说明](../docs/ai_siege_strategy.md)。
+
 ## 依赖
 
 ```bash

@@ -925,7 +925,8 @@ func _distance_to(target: Node2D) -> float:
 	var target_pos: Vector2 = target.get("sim_pos")
 	var building_def := target.get("def") as BuildingDef
 	if building_def != null:
-		var half := building_def.footprint * 0.5
+		var footprint: Vector2 = target.get_placement_footprint() if target.has_method("get_placement_footprint") else building_def.footprint
+		var half := footprint * 0.5
 		if half.x > 0.0 and half.y > 0.0:
 			return _distance_to_aabb(sim_pos, target_pos, half)
 	return sim_pos.distance_to(target_pos)
@@ -1001,7 +1002,11 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 		return target_edge + approach_dir * standoff
 	if target.get("def") is BuildingDef:
 		var building_standoff := _effective_attack_range(target) * 0.95
-		return target_pos + approach_dir * building_standoff
+		# Aim for the near edge. A goal inside the solid footprint may project
+		# to the far side of a wall, producing an unreachable route indefinitely.
+		var target_edge := ProjectileAgentScript.aim_point_for_target(sim_pos, target)
+		var edge_direction := (sim_pos - target_edge).normalized()
+		return target_edge + (edge_direction if edge_direction != Vector2.ZERO else approach_dir) * building_standoff
 	# Melee: ring slots so units squeeze around the target instead of one stack point.
 	var ring_r := _effective_attack_range(target) * 0.98
 	var slot := get_instance_id() % MELEE_ATTACK_SLOTS

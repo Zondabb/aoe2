@@ -276,6 +276,8 @@ static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["combat"] = {"attack": definition.attack, "range": definition.attack_range,
 		"minimum_range": definition.minimum_attack_range, "cooldown": definition.attack_cooldown,
 		"is_ranged": definition.is_ranged, "attack_class_bonuses": definition.attack_class_bonuses,
+		"projectile_splash_radius": definition.projectile_splash_radius if definition.is_ranged else 0.0,
+		"projectile_friendly_fire": definition.is_ranged and definition.projectile_friendly_fire,
 		"melee_armor": entity.get("melee_armor"), "pierce_armor": entity.get("pierce_armor")}
 	snapshot["footprint_radius"] = definition.resolved_footprint_radius()
 	var order: Enums.OrderType = entity.get("order")

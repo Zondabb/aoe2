@@ -22,6 +22,8 @@ func tick(ctx: AiRunContext) -> void:
 		return
 	if ctx.phase <= 0 and not ctx.match_state.progression_enabled:
 		return
+	if _ensure_siege_workshop(ctx):
+		return
 	_tick_build_order(ctx)
 	if ctx.phase >= 1:  # BOOM+
 		_ensure_military_buildings(ctx)
@@ -235,8 +237,18 @@ func _ensure_military_buildings(ctx: AiRunContext) -> void:
 	if ctx.civ != null and ctx.civ.id == &"teutons":
 		ensure_building(ctx, STABLE)
 	if ctx.match_state.progression_enabled and ctx.match_state.age_of(ctx.team) >= 2:
-		ensure_building(ctx, Catalog.get_building("castle"))
 		ensure_building(ctx, Catalog.get_building("siege_workshop"))
+		ensure_building(ctx, Catalog.get_building("castle"))
+
+
+func _ensure_siege_workshop(ctx: AiRunContext) -> bool:
+	if ctx.match_state.age_of(ctx.team) < 2 or ctx.blackboard.military_count < 3 or ctx.blackboard.threat_near_base:
+		return false
+	if AiEntityQueriesScript.has_building(ctx.blackboard.team_buildings, &"siege_workshop"):
+		return false
+	if not AiEntityQueriesScript.has_building(ctx.blackboard.team_buildings, &"blacksmith"):
+		return ensure_building(ctx, Catalog.get_building("blacksmith"))
+	return ensure_building(ctx, Catalog.get_building("siege_workshop"))
 
 
 func _def_for_id(building_id: StringName) -> BuildingDef:

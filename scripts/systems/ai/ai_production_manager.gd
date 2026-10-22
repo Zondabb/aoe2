@@ -6,6 +6,7 @@ const Progression := preload("res://scripts/systems/ai/ai_progression_manager.gd
 const VILLAGER: UnitDef = preload("res://data/units/villager.tres")
 const SWORDSMAN: UnitDef = preload("res://data/units/swordsman.tres")
 const ARCHER: UnitDef = preload("res://data/units/archer.tres")
+const Combat := preload("res://scripts/systems/ai/ai_combat_manager.gd")
 
 const AiEntityQueriesScript := preload("res://scripts/systems/ai/ai_entity_queries.gd")
 
@@ -14,15 +15,18 @@ func tick(ctx: AiRunContext, build_manager: AiBuildManager) -> void:
 	if ctx.match_state.progression_enabled:
 		_train_villagers(ctx, build_manager)
 		ensure_house(ctx, build_manager, VILLAGER)
+		_train_siege(ctx)
 		_train_available_army(ctx)
 		return
 	if ctx.phase <= 0:  # ECO
 		_train_villagers(ctx, build_manager)
 		ensure_house(ctx, build_manager, VILLAGER)
 	elif ctx.phase == 1:  # BOOM
+		_train_siege(ctx)
 		_train_military(ctx, build_manager)
 		ensure_house(ctx, build_manager, _preferred_military_unit(ctx))
 	elif ctx.phase >= 2:  # ATTACK, DEFEND
+		_train_siege(ctx)
 		_train_military(ctx, build_manager)
 		ensure_house(ctx, build_manager, _preferred_military_unit(ctx))
 
@@ -76,7 +80,7 @@ func ensure_house(ctx: AiRunContext, build_manager: AiBuildManager, unit_def: Un
 	build_manager.ensure_house_if_pop_blocked(ctx, unit_def)
 
 
-func _try_enqueue(ctx: AiRunContext, building: Node2D, unit_def: UnitDef) -> bool:
+func _try_enqueue(ctx: AiRunContext, building: Node2D, unit_def: UnitDef, save_for_age := true) -> bool:
 	if building == null or unit_def == null:
 		return false
 	unit_def = building.call("trainable_definition", unit_def.id)
@@ -89,7 +93,9 @@ func _try_enqueue(ctx: AiRunContext, building: Node2D, unit_def: UnitDef) -> boo
 		return false
 	if bool(building.call("is_age_researching")) or bool(building.call("is_technology_researching")):
 		return false
-	if unit_def not in building.call("get_trainable_units") or not ctx.match_state.can_train(ctx.team, unit_def) or not ctx.can_afford(unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold, unit_def.cost_stone) or Progression.reserves_for_age(ctx, unit_def):
+	if unit_def not in building.call("get_trainable_units") or not ctx.match_state.can_train(ctx.team, unit_def) or not ctx.can_afford(unit_def.cost_food, unit_def.cost_wood, unit_def.cost_gold, unit_def.cost_stone) or (save_for_age and Progression.reserves_for_age(ctx, unit_def)):
+		return false
+	if save_for_age and _reserves_for_siege(ctx, unit_def):
 		return false
 	return ctx.issue_train(building, unit_def)
 
@@ -136,7 +142,7 @@ func _train_available_army(ctx: AiRunContext) -> void:
 		var available: Array = building.call("get_trainable_units")
 		var candidates: Array[UnitDef] = []
 		for definition: UnitDef in available:
-			if definition.id in [&"villager", &"petard"] or definition.attack <= 0:
+			if definition.id in [&"villager", &"petard"] or definition.attack <= 0 or Combat.is_demolition(definition):
 				continue
 			candidates.append(definition)
 		candidates.sort_custom(func(a: UnitDef, b: UnitDef) -> bool:
@@ -151,6 +157,69 @@ func _train_available_army(ctx: AiRunContext) -> void:
 			if _try_enqueue(ctx, building, definition):
 				ctx.log_decision("PROD", "训练 %s" % definition.id)
 				break
+
+
+func _train_siege(ctx: AiRunContext) -> void:
+	# Maintain a small demolition group with enough soldiers to escort it. Reserve
+	# its wood/gold before ordinary troops so a productive army cannot starve siege.
+	if ctx.blackboard.threat_near_base:
+		return
+	var needed := _siege_need(ctx)
+	if needed.is_empty():
+		return
+	var producers := ctx.blackboard.team_buildings.duplicate()
+	# Imperial-age castles can provide long-range demolition before more rams.
+	producers.sort_custom(func(a: Node2D, b: Node2D): return a.get("def").id == &"castle" and b.get("def").id != &"castle")
+	for building in producers:
+		var candidates: Array[UnitDef] = []
+		for definition: UnitDef in building.call("get_trainable_units"):
+			if Combat.is_demolition(definition):
+				candidates.append(definition)
+		candidates.sort_custom(func(a: UnitDef, b: UnitDef): return _demolition_priority(a) > _demolition_priority(b))
+		for definition in candidates:
+			if _try_enqueue(ctx, building, definition, false):
+				ctx.log_decision("PROD", "训练攻城单位 %s (%d/%d)" % [definition.id, needed.count + 1, needed.target])
+				return
+
+
+func _siege_need(ctx: AiRunContext) -> Dictionary:
+	if ctx.blackboard.threat_near_base:
+		return {}
+	var count := 0
+	for id in Combat.DEMOLITION_UNITS:
+		count += _count_unit_id(ctx, id)
+	var living_siege := ctx.blackboard.team_units.filter(func(unit): return Combat.is_demolition(unit.get("def")) and float(unit.get("hp")) > 0.0).size()
+	var escorts := ctx.blackboard.military_count - living_siege
+	var target := clampi(1 + floori(escorts / 6.0), 1, 4)
+	return {"count": count, "target": target} if escorts >= 3 and count < target else {}
+
+
+func _reserves_for_siege(ctx: AiRunContext, definition: UnitDef) -> bool:
+	if Combat.is_demolition(definition) or _siege_need(ctx).is_empty():
+		return false
+	# Save toward the least expensive legal demolition unit, even while its
+	# producer is busy. Otherwise every small gold delivery becomes an archer
+	# and the first ram never becomes affordable. Food-only recruits continue.
+	var reserve: UnitDef
+	for building in ctx.blackboard.team_buildings:
+		if not bool(building.get("is_complete")):
+			continue
+		for candidate: UnitDef in building.call("get_trainable_units"):
+			if not Combat.is_demolition(candidate) or not ctx.match_state.unit_unlocked(ctx.team, candidate):
+				continue
+			if reserve == null or candidate.cost_wood + candidate.cost_gold < reserve.cost_wood + reserve.cost_gold:
+				reserve = candidate
+	if reserve == null:
+		return false
+	return (definition.cost_wood > 0 and ctx.available_resource(Enums.ResourceType.WOOD) - definition.cost_wood < reserve.cost_wood) or (definition.cost_gold > 0 and ctx.available_resource(Enums.ResourceType.GOLD) - definition.cost_gold < reserve.cost_gold)
+
+
+func _demolition_priority(definition: UnitDef) -> int:
+	if definition.id in [&"trebuchet", &"bombard_cannon"]:
+		return 40
+	if definition.id in [&"battering_ram", &"capped_ram", &"siege_ram"]:
+		return 30 + definition.required_age
+	return 20 + definition.required_age
 
 
 func _unit_priority(ctx: AiRunContext, definition: UnitDef) -> int:

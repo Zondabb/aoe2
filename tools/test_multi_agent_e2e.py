@@ -57,6 +57,8 @@ def main() -> int:
     parser.add_argument("--planner-delay", type=float, default=2)
     parser.add_argument("--require-victory", action="store_true", help="Require actual enemy TC destruction, not only damage")
     parser.add_argument("--require-walls", action="store_true", help="Require a completed AI wall built through the defense role")
+    parser.add_argument("--require-siege", action="store_true", help="Require a completed workshop and a paid ram, including in standard openings")
+    parser.add_argument("--siege-scenario", action="store_true", help="Castle-age finite-stock scenario: build siege, breach walls, raid workers and destroy the TC")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     logs = Path(tempfile.mkdtemp(prefix="multi-agent-e2e-", dir=root / ".godot"))
@@ -115,7 +117,7 @@ def main() -> int:
             raise RuntimeError("AI service startup timed out")
         game = launch([args.godot, "--headless", "--path", str(root), "--log-file", str(logs / "game.log"),
             "--script", "res://tests/run_multi_agent_match.gd", "--", f"http://127.0.0.1:{port}",
-            str(args.duration), str(logs / "observation.json"), str(int(args.require_victory)), str(int(args.require_walls))], "game", root)
+            str(args.duration), str(logs / "observation.json"), str(int(args.require_victory)), str(int(args.require_walls)), str(int(args.siege_scenario)), str(int(args.require_siege))], "game", root)
         deadline, last_print = time.monotonic() + args.timeout, time.monotonic()
         while game.poll() is None:
             output = (logs / "game.txt").read_text(encoding="utf-8", errors="replace")

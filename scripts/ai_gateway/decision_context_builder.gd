@@ -125,6 +125,8 @@ static func _catalog(state: MatchState, entities: Node2D, team: int, civ: CivDef
 		units[-1]["minimum_range"] = definition.minimum_attack_range
 		units[-1]["cooldown"] = definition.attack_cooldown
 		units[-1]["attack_class_bonuses"] = definition.attack_class_bonuses
+		units[-1]["projectile_splash_radius"] = definition.projectile_splash_radius if definition.is_ranged else 0.0
+		units[-1]["projectile_friendly_fire"] = definition.is_ranged and definition.projectile_friendly_fire
 	var technologies: Array = []
 	for id in Catalog.technologies():
 		if not state.progression_enabled: break
@@ -168,7 +170,10 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 		var definition := Catalog.get_building(record.id)
 		var zone := "military" if record.id in MILITARY_BUILDINGS else "farm" if record.id == "farm" else "residential"
 		var anchors: Array = [{"pos": base, "resource_id": null}]
-		var radii: Array = [26.0, 30.0, 34.0, 44.0]
+		# Growing bases exhaust the inner rings before castle-age infrastructure
+		# unlocks. Include bounded outer alternatives, still requiring own sight,
+		# clear delivery lanes and a reachable builder; nearer plots score first.
+		var radii: Array = [26.0, 30.0, 34.0, 44.0, 50.0, 56.0, 68.0]
 		if zone == "farm":
 			radii = [18.0, 22.0, 28.0, 36.0, 44.0]
 			anchors = _farm_anchors(snapshots, team, base, int(derived.get("own_tc_id", -1)))
@@ -182,8 +187,11 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 		var seen := {}
 		for anchor: Dictionary in anchors:
 			for radius in anchor.get("radii", radii):
-				for sector in 16:
-					var point: Vector2 = (anchor.pos + Vector2.from_angle(TAU * (sector + 0.5) / 16.0) * float(radius)).round()
+				# At larger radii the original 16 spokes leave wide gaps, missing
+				# legal plots along the irregular edge of the team's current sight.
+				var sectors := 32 if float(radius) > 44.0 else 16
+				for sector in sectors:
+					var point: Vector2 = (anchor.pos + Vector2.from_angle(TAU * (sector + 0.5) / float(sectors)) * float(radius)).round()
 					if seen.has(point): continue
 					seen[point] = true
 					if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue

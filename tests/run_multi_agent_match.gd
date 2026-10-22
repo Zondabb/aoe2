@@ -9,6 +9,26 @@ const DT := 0.25
 var checks := 0
 var failures: Array[String] = []
 
+func _siege_map() -> Dictionary:
+	var data: Dictionary = preload("res://scripts/world/map_data.gd").create(200, 160, "AI siege regression")
+	_add_record(data, "building", "town_center", Vector2(-60, 0), "ai")
+	_add_record(data, "building", "town_center", Vector2(60, 0), "player")
+	_add_record(data, "building", "barracks", Vector2(-44, -20), "ai")
+	for i in 12: _add_record(data, "unit", "villager", Vector2(-68 + (i % 4) * 4, 9 + (i / 4) * 4), "ai")
+	_add_record(data, "unit", "scout_cavalry", Vector2(-42, 14), "ai")
+	for i in 3: _add_record(data, "unit", "villager", Vector2(46, -8 + i * 8), "player")
+	for i in 2: _add_record(data, "unit", "militia", Vector2(40, -4 + i * 8), "player")
+	for y in range(-22, 23): _add_record(data, "building", "stone_wall", Vector2(30, y), "player")
+	for spec in [["food", Vector2(-76, 22)], ["wood", Vector2(-76, -22)], ["gold", Vector2(-50, 26)], ["stone", Vector2(-50, -32)]]:
+		_add_record(data, "resource", spec[0], spec[1])
+		data.entities[-1].amount = 5000
+	return data
+
+func _add_record(data: Dictionary, kind: String, definition: String, pos: Vector2, team := "player") -> void:
+	var record: Dictionary = preload("res://scripts/world/map_catalog.gd").make_record(kind, definition, pos, team)
+	record.id = "scenario_%d" % data.entities.size()
+	data.entities.append(record)
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -24,8 +44,9 @@ func _run() -> void:
 		quit(1)
 		return
 	var session := root.get_node("GameSession")
+	var siege_scenario := args.size() > 5 and args[5] == "1"
 	session.match_ai_mode = "sandbox"
-	session.match_map_data = {}
+	session.match_map_data = _siege_map() if siege_scenario else {}
 	session.online_active = false
 	session.player_civ_id = &"chinese"
 	session.ai_civ_id = &"teutons"
@@ -38,6 +59,23 @@ func _run() -> void:
 	world.process_mode = Node.PROCESS_MODE_DISABLED
 	var state: MatchState = world.get_node("Bootstrap").match_state
 	var entities: Node2D = world.get_node("Entities")
+	var enemy_walls: Array[int] = []
+	var enemy_workers: Array[int] = []
+	var enemy_soldiers: Array[int] = []
+	var combat_roles := {}
+	if siege_scenario:
+		state.set_age(0, 2)
+		state.set_age(1, 2)
+		state.population_cap[1] = 40
+		state.resources[1] = {0: 1800, 1: 2200, 2: 1200, 3: 600}
+		for entity in entities.get_children():
+			if entity is BuildingAgent and entity.team == 0 and entity.def.id == &"stone_wall": enemy_walls.append(Registry.id_of(entity))
+			if entity is UnitAgent and entity.team == 0:
+				if entity.def.id == &"villager": enemy_workers.append(Registry.id_of(entity))
+				else: enemy_soldiers.append(Registry.id_of(entity))
+	var defenders := preload("res://scripts/systems/auto_combat_director.gd").new()
+	defenders.setup(entities, state)
+	defenders.set_team_auto_attack(Enums.Team.PLAYER, true)
 	var client: Node = load("res://scripts/ai_gateway/http_ai_client.gd").new()
 	root.add_child(client)
 	var config: RefCounted = load("res://scripts/ai_gateway/ai_config.gd").new()
@@ -63,7 +101,7 @@ func _run() -> void:
 	state.fog.rebuild(entities.get_children())
 	var first := Observation.build(state, entities, 1, 0, 0.0)
 	check(first.derived.enemy_tc_id == -1, "enemy TC starts hidden")
-	check(state.resources[1][0] == 200 and state.resources[1][1] == 200, "normal finite opening resources")
+	check(state.resources[1][0] == (1800 if siege_scenario else 200) and state.resources[1][1] == (2200 if siege_scenario else 200), "finite scenario opening resources")
 	var initial_ids := {}
 	var base := Vector2(first.derived.own_tc_pos[0], first.derived.own_tc_pos[1])
 	for entity in entities.get_children():
@@ -120,6 +158,12 @@ func _run() -> void:
 			ctx.sim_time = now
 			for cmd in response.get("commands", []):
 				var result := Executor.execute(cmd, ctx)
+				if siege_scenario and result.ok and cmd.op == "attack":
+					var actor := Registry.resolve(int(cmd.unit_id)) as UnitAgent
+					var target := Registry.resolve(int(cmd.target_id))
+					if actor != null and target != null:
+						var siege := String(actor.def.id) in ["battering_ram", "capped_ram", "siege_ram", "mangonel", "onager", "siege_onager"]
+						combat_roles[("siege" if siege else "soldier") + "_" + String(target.def.id)] = true
 				var event := {"type":"command_result", "command_id":cmd.command_id, "op":cmd.op,
 					"ok":result.ok, "reason":result.reason, "command":cmd, "time_sec":now, "_visible_to":[1]}
 				for key in ["created_entity_id", "created_entity_ids", "segment_count", "queue_id", "building_id"]:
@@ -136,9 +180,11 @@ func _run() -> void:
 				var file := FileAccess.open(args[2], FileAccess.WRITE)
 				file.store_string(JSON.stringify({"observation":observation, "response":response}, "\t"))
 		var before: Dictionary = state.resources[1].duplicate()
+		if siege_scenario: defenders.tick(DT)
 		world.get_node("NavService")._process(DT)
 		for entity in entities.get_children():
 			if entity.is_queued_for_deletion(): continue
+			if entity is BuildingAgent: entity._process(DT)
 			if entity is UnitAgent or entity is BuildingAgent or entity is ProjectileAgent: entity._physics_process(DT)
 		for type in deposits: deposits[type] += maxi(0, state.get_resource(1, type) - int(before[type]))
 		state.age_progression._process(DT)
@@ -157,6 +203,12 @@ func _run() -> void:
 		if state.age_of(1) > 0 and not milestones.has(age_key): milestones[age_key] = now
 		if trained.values().any(func(def_id): return "ram" in def_id) and not milestones.has("first_ram"): milestones["first_ram"] = now
 		if step % 240 == 0: print("MULTI AGENT %.0fs: resources=%s buildings=%s trained=%d sorties=%d seen=%s damage=%s goals=%s rejects=%s" % [now,state.resources[1],buildings.keys(),trained.size(),sorties.size(),seen,damaged,goals,rejects])
+		if siege_scenario and step % 240 == 0:
+			var siege_status: Array = []
+			for entity in entities.get_children():
+				if entity is UnitAgent and entity.team == 1 and "ram" in String(entity.def.id):
+					siege_status.append({"id":Registry.id_of(entity), "hp":entity.hp, "pos":entity.sim_pos, "order":entity.order, "target_id":Registry.id_of(entity._attack_target) if is_instance_valid(entity._attack_target) else -1})
+			print("MULTI AGENT BREACH: rams=%s walls_destroyed=%d" % [siege_status, enemy_walls.filter(func(id): return Registry.resolve(id) == null).size()])
 		await process_frame
 		if state.winner != -1: break
 	check(calls >= 30, "many quick HTTP observations processed")
@@ -174,6 +226,15 @@ func _run() -> void:
 	check(rejects.is_empty(), "generated commands pass game validation: %s" % rejects)
 	if args.size() > 3 and args[3] == "1": check(state.winner == 1, "AI destroys the enemy TC and wins")
 	if args.size() > 4 and args[4] == "1": check(buildings.has("palisade_wall") or buildings.has("stone_wall"), "defense agent actually completes a wall in the match")
+	if siege_scenario or args.size() > 6 and args[6] == "1":
+		check(buildings.has("siege_workshop"), "AI constructs its own siege workshop")
+		check(milestones.has("first_ram"), "AI pays for and trains a real ram")
+	if siege_scenario:
+		check(combat_roles.has("siege_stone_wall") and enemy_walls.any(func(id): return Registry.resolve(id) == null), "siege targets and destroys a wall segment")
+		check(combat_roles.has("siege_town_center") and state.winner == 1, "siege attacks the TC through to actual victory")
+		check(combat_roles.has("soldier_villager") and combat_roles.has("soldier_militia"), "soldiers attack enemy troops and economic workers")
+		check(enemy_workers.any(func(id): return Registry.resolve(id) == null) and enemy_soldiers.any(func(id): return Registry.resolve(id) == null), "combat actually eliminates enemy workers and defenders")
+		print("MULTI AGENT SIEGE: roles=%s" % combat_roles)
 	print("MULTI AGENT RESULT: winner=%d finished_at=%.1f trained=%s max_http_ms=%.1f planning_p95_ms=%.1f milestones=%s" % [state.winner, finished_at, trained.values(), max_latency, p95, milestones])
 	await client.post_match_end({"match_id":match_id})
 	Events.unsubscribe(subscriber)

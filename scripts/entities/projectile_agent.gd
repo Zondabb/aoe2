@@ -241,7 +241,8 @@ func _distance_to_entity(node: Object) -> float:
 	var center: Vector2 = node.get("sim_pos")
 	var building_def := node.get("def") as BuildingDef
 	if building_def != null:
-		var half := building_def.footprint * 0.5
+		var footprint: Vector2 = node.get_placement_footprint() if node.has_method("get_placement_footprint") else building_def.footprint
+		var half := footprint * 0.5
 		if half.x > 0.0 and half.y > 0.0:
 			return _distance_to_aabb(sim_pos, center, half)
 	return sim_pos.distance_to(center)
@@ -261,7 +262,8 @@ static func aim_point_for_target(from: Vector2, target: Node2D) -> Vector2:
 	var building_def := target.get("def") as BuildingDef
 	if building_def == null:
 		return center
-	var half := building_def.footprint * 0.5
+	var footprint: Vector2 = target.get_placement_footprint() if target.has_method("get_placement_footprint") else building_def.footprint
+	var half := footprint * 0.5
 	if half.x <= 0.0 or half.y <= 0.0:
 		return center
 	var delta := from - center

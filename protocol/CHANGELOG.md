@@ -1,5 +1,14 @@
 # AI Protocol CHANGELOG
 
+## Additive observation fields — siege coordination (2026-10-22)
+
+Unit `combat` snapshots and `decision_context.catalog.units` expose
+`projectile_splash_radius` (simulation-world distance) and
+`projectile_friendly_fire` (boolean). Executors can use these public weapon
+properties to avoid attacking a location occupied by friendly escorts or
+workers. Existing clients may ignore these additive fields; command and role
+plan schemas are unchanged. See [siege strategy](../docs/ai_siege_strategy.md).
+
 ## v3 — Multi-agent fast control (2026-10-15)
 
 `POST /v3/ai/tick` advances six persistent role executors without waiting for

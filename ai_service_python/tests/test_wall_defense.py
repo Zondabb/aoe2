@@ -36,6 +36,7 @@ def defense_frame(tick=1, threat=True, **changes):
 def executor():
     runtime = MultiAgentRuntime("chinese")
     plan(runtime, "technology", target_age=0)
+    plan(runtime, "defense", policy="reactive")
     return runtime
 
 
@@ -64,6 +65,31 @@ def test_model_defense_policy_changes_same_observation_to_proactive_wall():
     context = proactive.planning_context("defense")
     assert context["defense_options"][0]["cost"] == {"wood": 16}
     assert "visible_enemies" in context and "fortifications" in context
+
+
+def test_default_defense_builds_before_first_raid_once_economy_is_established():
+    runtime = MultiAgentRuntime("chinese")
+    plan(runtime, "technology", target_age=0)
+    assert runtime.roles["defense"].plan["policy"] == "balanced"
+    assert issued(runtime.tick(defense_frame(threat=False)), "place_wall")
+
+
+def test_defense_checks_wall_endpoints_and_abandoned_foundation_for_enemy_danger():
+    req = defense_frame()
+    next(e for e in req.observation.entities if e["id"] == 200)["pos"] = [19, 14]
+    # The midpoint is safe, but the end of this line is within melee danger.
+    assert not issued(executor().tick(req), "place_wall")
+    req.observation.entities.append(building(300, "palisade_wall", [18, 8], complete=False))
+    assert not issued(executor().tick(req), "build")
+
+
+def test_defense_prioritizes_safe_screen_facing_observed_flank_raid():
+    req = defense_frame()
+    next(e for e in req.observation.entities if e["id"] == 200)["pos"] = [0, 34]
+    req.observation.decision_context["defense_options"].append(wall_option(
+        start=[-8, 20], end=[8, 20], zone="defensive_flank"))
+    commands = issued(executor().tick(req), "place_wall")
+    assert len(commands) == 1 and commands[0]["start"] == [-8, 20]
 
 
 @pytest.mark.parametrize("problem", ["unsupported", "workers", "food_supply", "food_budget", "wood_reserve", "no_producer", "cap", "manual", "under_fire"])

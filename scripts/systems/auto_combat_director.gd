@@ -10,6 +10,8 @@ const ArenaConfigScript := preload("res://scripts/data/arena_config.gd")
 const DEFAULT_TICK_INTERVAL := 0.5
 const DEFAULT_AGGRO_RADIUS := 40.0
 const DEFAULT_RETARGET_RADIUS := 12.0
+## Scorpions remain anti-unit weapons; demolition siege acquires structures.
+const DEMOLITION_UNITS := ["battering_ram", "capped_ram", "siege_ram", "mangonel", "onager", "siege_onager", "trebuchet", "bombard_cannon"]
 
 var tick_interval := DEFAULT_TICK_INTERVAL
 var aggro_radius := DEFAULT_AGGRO_RADIUS
@@ -103,9 +105,22 @@ func _should_keep_current_target(unit: Object, current: Variant) -> bool:
 
 func pick_target_for_unit(unit: Object) -> Node:
 	var hostiles := _hostiles_in_aggro(unit)
+	hostiles = hostiles.filter(func(target): return _friendly_blast_clear(unit, target))
 	if hostiles.is_empty():
 		return null
 	var unit_pos: Vector2 = unit.get("sim_pos")
+	var definition := unit.get("def") as UnitDef
+	if definition != null and String(definition.id) in DEMOLITION_UNITS:
+		var structures: Array[Node] = []
+		for hostile in hostiles:
+			if hostile.get("def") is BuildingDef:
+				structures.append(hostile)
+		if not structures.is_empty():
+			return _nearest_from(unit_pos, structures)
+		# Rams cannot catch fleeing workers and deal negligible unit damage.
+		# Their escort engages those targets while the ram awaits a structure.
+		if not definition.is_ranged:
+			return null
 	if prefer_units_over_buildings:
 		var units_only: Array[Node] = []
 		for hostile in hostiles:
@@ -122,6 +137,27 @@ func pick_target_for_unit(unit: Object) -> Node:
 				return _nearest_from(unit_pos, buildings_only)
 		return null
 	return _nearest_from(unit_pos, hostiles)
+
+
+func _friendly_blast_clear(unit: Object, target: Node) -> bool:
+	var definition := unit.get("def") as UnitDef
+	if definition == null or not definition.is_ranged or not definition.projectile_friendly_fire:
+		return true
+	var impact := ProjectileAgent.aim_point_for_target(unit.get("sim_pos"), target as Node2D)
+	var radius := maxf(0.15, definition.projectile_splash_radius)
+	for ally in _entities.get_children():
+		if ally == unit or ally.get("team") != unit.get("team") or not ally.has_method("take_damage"):
+			continue
+		if float(ally.get("hp")) <= 0 or ally.get("is_placement_ghost") == true:
+			continue
+		var center: Vector2 = ally.get("sim_pos")
+		var building := ally.get("def") as BuildingDef
+		if building != null:
+			var half: Vector2 = (ally.get_placement_footprint() if ally.has_method("get_placement_footprint") else building.footprint) * 0.5
+			center += (impact - center).clamp(-half, half)
+		if center.distance_to(impact) <= radius:
+			return false
+	return true
 
 
 func _hostiles_in_aggro(unit: Object) -> Array[Node]:

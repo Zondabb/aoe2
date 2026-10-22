@@ -248,6 +248,35 @@ func _test_secondary_farm_district() -> void:
 	var after: Array = Observation.build_json_safe(state, world, 0, 1, 5).decision_context.construction_options
 	check(JSON.stringify(before) == JSON.stringify(after), "moving an unseen enemy mill changes no farm district or candidate")
 
+func _test_crowded_base_siege_workshop() -> void:
+	_fixture()
+	state.progression_enabled = true
+	state.set_age(0, 2)
+	state.fog_enabled = true
+	state.fog = FogOfWarService.new()
+	state.fog.setup_rect(state.map_bounds.position, state.map_bounds.end, 1.0)
+	# Real standard-opening layout translated to the origin. The first four
+	# construction rings are full when castle-age siege becomes available.
+	for spec in [["town_center", 0, 0], ["barracks", -25, -17], ["house", 22, 14],
+		["house", -14, 22], ["house", 22, -14], ["mill", -23, -32], ["house", 17, 25],
+		["blacksmith", -28, 19], ["house", 6, 29], ["archery_range", -9, -43],
+		["barracks", -43, 9], ["house", 17, -25], ["farm", -24, 37], ["house", 6, -29],
+		["house", 9, -43], ["house", -7, 33], ["farm", -11, -24], ["farm", -27, -50],
+		["house", -9, 43], ["farm", -41, -20], ["farm", -37, -35]]:
+		_building(StringName(spec[0]), Vector2(spec[1], spec[2]))
+	_unit(&"villager", Vector2(3, 9))
+	state.fog.rebuild(world.get_children())
+	var observation := Observation.build_json_safe(state, world, 0, 1, 0)
+	var options: Array = observation.decision_context.construction_options.filter(func(item): return item.building_def_id == "siege_workshop")
+	check(not options.is_empty(), "crowded castle-age base still offers a siege workshop site")
+	check(options.size() <= Decision.POSITIONS_PER_BUILDING, "expanded military search keeps the candidate output bound")
+	if options.is_empty(): return
+	var at := Vector2(options[0].pos[0], options[0].pos[1])
+	check(at.length() > 44, "workshop expands beyond occupied inner base rings")
+	check(state.fog.footprint_visible(0, at, Catalog.get_building(&"siege_workshop").footprint, true), "expanded workshop site uses actual own sight")
+	var foundation := Placement.place_foundation(Catalog.get_building(&"siege_workshop"), at, _ctx())
+	check(foundation != null, "expanded workshop site passes actual paid placement")
+
 func _test_projectiles_are_not_observers() -> void:
 	_fixture()
 	state.fog_enabled = true
@@ -277,6 +306,7 @@ func _run() -> void:
 	_test_production_progress_and_exit()
 	_test_observation_and_layout()
 	_test_secondary_farm_district()
+	_test_crowded_base_siege_workshop()
 	_test_projectiles_are_not_observers()
 	world.free()
 	print("MULTI AGENT MECHANICS: %d checks, %d failures" % [checks, failures.size()])
