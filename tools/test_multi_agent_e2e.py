@@ -18,6 +18,8 @@ import threading
 import time
 from urllib.request import urlopen
 
+from test_external_llm_e2e import mock_service_settings
+
 
 class RolePlanner:
     def __init__(self):
@@ -26,6 +28,8 @@ class RolePlanner:
         self.lock = threading.Lock()
 
     def complete(self, payload: dict) -> dict:
+        if payload.get("model") != "mock-role-planner":
+            raise ValueError("upstream model did not come from isolated server configuration")
         context = json.loads(payload["messages"][-1]["content"])
         role = context["role"]
         plan = dict(context["plan"])
@@ -86,10 +90,8 @@ def main() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    env = dict(os.environ)
-    env.update(AOE2_AI_BACKEND="openai", AOE2_LLM_TOKEN="local-dummy-test-token",
-               AOE2_LLM_BASE_URL=f"http://127.0.0.1:{upstream.server_port}/v1", AOE2_AI_TOKEN="",
-               AOE2_AI_MODEL_CALLS_PER_MINUTE="12", APPDATA=str(logs / "profile"), LOCALAPPDATA=str(logs / "cache"))
+    config, env = mock_service_settings(logs, f"http://127.0.0.1:{upstream.server_port}/v1", "mock-role-planner")
+    env.update(AOE2_AI_MODEL_CALLS_PER_MINUTE="12", APPDATA=str(logs / "profile"), LOCALAPPDATA=str(logs / "cache"))
     Path(env["APPDATA"]).mkdir()
     processes, handles = [], []
 
@@ -102,7 +104,7 @@ def main() -> int:
         return process
 
     try:
-        service = launch([sys.executable, "main.py", "--host", "127.0.0.1", "--port", str(port)], "service", root / "ai_service_python")
+        service = launch([sys.executable, "main.py", "--config", str(config), "--host", "127.0.0.1", "--port", str(port)], "service", root / "ai_service_python")
         ready_by = time.monotonic() + 15
         while time.monotonic() < ready_by:
             if service.poll() is not None:

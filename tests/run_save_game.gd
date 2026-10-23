@@ -112,6 +112,8 @@ func _run() -> void:
 	check(Saves.save(boot, TEST_PATH).is_empty(), "existing save can be atomically replaced")
 	var raw := FileAccess.get_file_as_string(TEST_PATH)
 	check(not raw.contains(session.ai_service_token) and not raw.contains("ai_service_token"), "save excludes bearer credentials")
+	for field in ["ai_backend", "ai_model", "ai_max_tokens", "ai_history_turns", "ai_log_observation", "ai_llm_base_url"]:
+		check(not raw.contains('"' + field + '"'), "save excludes Python-owned upstream setting: %s" % field)
 	var loaded: Dictionary = Saves.read(TEST_PATH)
 	check(loaded.error.is_empty(), "file roundtrip validates: " + loaded.error)
 	var damaged: Dictionary = data.duplicate(true)
@@ -126,7 +128,20 @@ func _run() -> void:
 	damaged = data.duplicate(true)
 	damaged.entities[0].fields = null
 	check(not Saves.validate(damaged).is_empty(), "damaged entity attributes rejected")
-	check(Saves.prepare_load(TEST_PATH).is_empty(), "prepare load accepts valid file")
+	# Old v1 saves may contain provider settings. Accept the save without restoring them.
+	var legacy: Dictionary = data.duplicate(true)
+	legacy.session.ai_backend = "old-provider"
+	legacy.session.ai_model = "old-model"
+	legacy.session.ai_max_tokens = 1
+	legacy.session.ai_llm_base_url = "http://old-provider/v1"
+	legacy.session.ai_history_turns = 16
+	legacy.session.ai_log_observation = true
+	var legacy_file := FileAccess.open(TEST_PATH, FileAccess.WRITE)
+	legacy_file.store_string(JSON.stringify(legacy))
+	legacy_file.close()
+	session.ai_model = "unchanged-in-memory-model"
+	check(Saves.prepare_load(TEST_PATH).is_empty(), "prepare load accepts legacy file with obsolete provider fields")
+	check(session.ai_model == "unchanged-in-memory-model", "loading old save does not restore obsolete upstream model")
 	match_root.free()
 	match_root = MATCH.instantiate()
 	root.add_child(match_root)

@@ -1,17 +1,72 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from pathlib import Path
+import tomllib
+from typing import Any
 
+SERVICE_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_CONFIG_PATH = SERVICE_DIR / "config.toml"
 _cli: dict[str, str] = {}
+_config: dict[str, str] = {}
+_config_path = DEFAULT_CONFIG_PATH
+_loaded = False
+_KEYS = {
+    "service": {"host": "host", "port": "port", "api_token": "ai_token",
+                "log_observation": "log_observation"},
+    "llm": {"backend": "backend", "model": "llm_model", "base_url": "llm_base_url",
+            "token": "llm_token", "max_tokens": "llm_max_tokens", "temperature": "llm_temperature",
+            "timeout_sec": "llm_timeout_sec", "num_ctx": "llm_num_ctx"},
+}
+
+
+def load_config(path: str | Path | None = None) -> None:
+    """Load settings plus optional NAME.local.toml, without depending on cwd."""
+    global _config_path, _loaded
+    selected = path or os.environ.get("AOE2_AI_CONFIG", "").strip()
+    target = Path(selected).expanduser().resolve() if selected else DEFAULT_CONFIG_PATH
+    local = target.with_name(f"{target.stem}.local{target.suffix}")
+    values: dict[str, str] = {}
+    for candidate in (target, local):
+        if not candidate.is_file():
+            if candidate == target and selected:
+                raise FileNotFoundError(f"AI configuration file not found: {candidate}")
+            continue
+        try:
+            with candidate.open("rb") as source:
+                document = tomllib.load(source)
+        except (OSError, ValueError):
+            # TOML diagnostics can contain the offending value, including a
+            # secret. Report its location without echoing file contents.
+            raise ValueError(f"Cannot read AI configuration: {candidate}") from None
+        for section, entries in document.items():
+            if section not in _KEYS or not isinstance(entries, dict):
+                raise ValueError(f"Unknown AI configuration section: {section}")
+            for key, value in entries.items():
+                if key not in _KEYS[section]:
+                    raise ValueError(f"Unknown AI configuration option: {section}.{key}")
+                if not isinstance(value, (str, bool, int, float)):
+                    raise ValueError(f"Invalid AI configuration type: {section}.{key}")
+                values[_KEYS[section][key]] = str(value).strip()
+    _config.clear()
+    _config.update(values)
+    _config_path = target
+    _loaded = True
+
+
+def config_path() -> Path:
+    if not _loaded:
+        load_config()
+    return _config_path
 
 
 def clear_cli() -> None:
     _cli.clear()
 
 
-def set_cli(**kwargs: str | None) -> None:
+def set_cli(**kwargs: Any) -> None:
     for key, value in kwargs.items():
         if value is None:
             continue
@@ -21,13 +76,23 @@ def set_cli(**kwargs: str | None) -> None:
 
 
 def get_value(cli_key: str, *env_names: str, default: str = "") -> str:
+    if not _loaded:
+        load_config()
     if _cli.get(cli_key):
         return _cli[cli_key]
     for name in env_names:
         raw = os.environ.get(name, "").strip()
         if raw:
             return raw
-    return default
+    return _config.get(cli_key, "") or default
+
+
+def _bounded_number(key: str, env: str, default: float, lower: float, upper: float) -> float:
+    try:
+        value = float(get_value(key, env, default=str(default)))
+        return max(lower, min(upper, value)) if math.isfinite(value) else default
+    except (ValueError, TypeError):
+        return default
 
 
 def llm_token() -> str:
@@ -35,12 +100,11 @@ def llm_token() -> str:
 
 
 def llm_base_url() -> str:
-    return get_value("llm_base_url", "AOE2_LLM_BASE_URL")
+    return get_value("llm_base_url", "AOE2_LLM_BASE_URL", default="http://127.0.0.1:11434/v1")
 
 
 def llm_model() -> str:
-    """Upstream model override. Empty means forward the name sent by the game."""
-    return get_value("llm_model", "AOE2_LLM_MODEL")
+    return get_value("llm_model", "AOE2_LLM_MODEL", default="qwen3:8b")
 
 
 def ai_token() -> str:
@@ -48,72 +112,71 @@ def ai_token() -> str:
 
 
 def backend() -> str:
-    return get_value("backend", "AOE2_AI_BACKEND")
+    return get_value("backend", "AOE2_AI_BACKEND", default="openai")
 
 
 def llm_timeout_sec() -> float:
-    raw = get_value("llm_timeout_sec", "AOE2_LLM_TIMEOUT_SEC")
-    if not raw:
-        return 30.0
-    try:
-        return max(2.0, float(raw))
-    except ValueError:
-        return 30.0
+    return _bounded_number("llm_timeout_sec", "AOE2_LLM_TIMEOUT_SEC", 30, 2, 600)
+
+
+def llm_max_tokens() -> int:
+    return int(_bounded_number("llm_max_tokens", "AOE2_LLM_MAX_TOKENS", 2048, 1, 32768))
+
+
+def llm_temperature() -> float:
+    return _bounded_number("llm_temperature", "AOE2_LLM_TEMPERATURE", 0.2, 0, 2)
+
+
+def llm_num_ctx() -> int:
+    return int(_bounded_number("llm_num_ctx", "AOE2_LLM_NUM_CTX", 8192, 2048, 32768))
+
+
+def log_observation() -> bool:
+    return get_value("log_observation", "AOE2_AI_LOG_OBSERVATION", default="false").lower() in {"1", "true", "yes", "on"}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="AoE2 RTS AI HTTP service")
-    parser.add_argument("--host", default=os.environ.get("AOE2_AI_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("AOE2_AI_PORT", "8765")))
+    parser.add_argument("--config", default="", help="Server TOML settings (default: service directory/config.toml)")
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--llm-token", default="", help="Upstream model API token (DeepSeek/OpenAI)")
     parser.add_argument("--llm-token-file", default="", help="Read --llm-token from the first line of a file")
-    parser.add_argument("--llm-base-url", default="", help="OpenAI-compatible base, e.g. https://api.deepseek.com")
-    parser.add_argument("--llm-model", default="", help="Override the model name sent upstream, e.g. qwen3:8b")
-    parser.add_argument("--llm-timeout-sec", default="", help="Upstream LLM HTTP timeout (default 30)")
+    parser.add_argument("--llm-base-url", default="", help="OpenAI-compatible upstream base URL")
+    parser.add_argument("--llm-model", default="", help="Upstream model name")
+    parser.add_argument("--llm-timeout-sec", default="", help="Upstream LLM HTTP timeout")
+    parser.add_argument("--llm-max-tokens", default="", help="Upstream generation token budget")
+    parser.add_argument("--llm-temperature", default="", help="Upstream sampling temperature")
+    parser.add_argument("--llm-num-ctx", default="", help="Local Ollama context window")
+    parser.add_argument("--log-observation", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--ai-token", default="", help="Optional Bearer token required from the game")
-    parser.add_argument("--backend", default="", help="Force backend: openai | rules_compat")
+    parser.add_argument("--backend", default="", help="Backend: openai | rules_compat")
     return parser
 
 
 def apply_args(args: argparse.Namespace) -> None:
+    load_config(getattr(args, "config", "") or None)
     token = str(getattr(args, "llm_token", "") or "").strip()
     token_file = str(getattr(args, "llm_token_file", "") or "").strip()
     if token_file:
         path = Path(token_file)
         if not path.is_file():
             raise FileNotFoundError(f"llm token file not found: {path}")
-        token = path.read_text(encoding="utf-8").strip().splitlines()[0].strip()
-    set_cli(
-        llm_token=token,
-        llm_base_url=getattr(args, "llm_base_url", ""),
-        llm_model=getattr(args, "llm_model", ""),
-        llm_timeout_sec=str(getattr(args, "llm_timeout_sec", "") or ""),
-        ai_token=getattr(args, "ai_token", ""),
-        backend=getattr(args, "backend", ""),
-    )
-    if token:
-        os.environ["AOE2_LLM_TOKEN"] = token
-    base = str(getattr(args, "llm_base_url", "") or "").strip()
-    if base:
-        os.environ["AOE2_LLM_BASE_URL"] = base
-    model = str(getattr(args, "llm_model", "") or "").strip()
-    if model:
-        os.environ["AOE2_LLM_MODEL"] = model
-    timeout = str(getattr(args, "llm_timeout_sec", "") or "").strip()
-    if timeout:
-        os.environ["AOE2_LLM_TIMEOUT_SEC"] = timeout
-    game_token = str(getattr(args, "ai_token", "") or "").strip()
-    if game_token:
-        os.environ["AOE2_AI_TOKEN"] = game_token
-    backend_name = str(getattr(args, "backend", "") or "").strip()
-    if backend_name:
-        os.environ["AOE2_AI_BACKEND"] = backend_name
+        lines = path.read_text(encoding="utf-8").splitlines()
+        token = lines[0].strip() if lines else ""
+    clear_cli()
+    for key in ("host", "port", "llm_base_url", "llm_model", "llm_timeout_sec", "llm_max_tokens",
+                "llm_temperature", "llm_num_ctx", "ai_token", "backend", "log_observation"):
+        set_cli(**{key: getattr(args, key, None)})
+    set_cli(llm_token=token)
+    args.host = get_value("host", "AOE2_AI_HOST", default="127.0.0.1")
+    args.port = int(_bounded_number("port", "AOE2_AI_PORT", 8765, 1, 65535))
 
 
 def mask_secret(value: str) -> str:
-    text = value.strip()
-    if not text:
-        return "MISSING"
-    if len(text) <= 8:
-        return "set"
-    return f"{text[:4]}...{text[-4:]}"
+    return "set" if value.strip() else "MISSING"
+
+
+# Loading is deferred until main selects a configuration or a getter is used.
+# Import-time loading would let a bad environment/default path prevent the
+# higher-priority CLI --config option from ever being parsed.

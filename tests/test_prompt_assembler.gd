@@ -107,14 +107,17 @@ func _test_user_prompt_contains_economy_and_entity(failures: Array[String]) -> v
 	var with_history: Dictionary = PromptAssemblerScript.assemble(
 		observation,
 		[],
-		{"tick": 1, "team": 0},
+		{"tick": 1, "team": 0, "model": "old-model", "backend": "openai", "llm_base_url": "http://old-provider/v1", "max_tokens": 1, "log_observation": true},
 		[{"role": "assistant", "content": "tools: gather"}],
 	)
 	var hist_messages: Array = with_history.get("messages", [])
-	if hist_messages.size() != 3:
-		failures.append("history should insert between system and user, got %d" % hist_messages.size())
-	elif String((hist_messages[1] as Dictionary).get("content", "")).find("gather") < 0:
-		failures.append("history assistant summary should be kept")
+	if hist_messages.size() != 2:
+		failures.append("client history must be ignored; Python owns strategic memory")
+	if with_history.model != "aoe2-service":
+		failures.append("model must be a fixed service protocol placeholder")
+	for key in ["backend", "llm_base_url", "max_tokens", "temperature", "log_observation"]:
+		if with_history.has(key) or with_history.metadata.has(key):
+			failures.append("chat request must exclude upstream option: %s" % key)
 	var no_history: Dictionary = PromptAssemblerScript.assemble(observation, [], {"tick": 1})
 	if (no_history.get("messages", []) as Array).size() != 2:
 		failures.append("empty history should keep system+user only")

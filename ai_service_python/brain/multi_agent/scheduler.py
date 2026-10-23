@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator, ValidationError
 
+from brain import runtime_settings
 from brain.llm_proxy import build_openai_payload, forward_openai, is_openai_backend, resolve_backend, upstream_model
 from protocol.models import ChatCompletionRequest, ChatMessage, ChatTool, ChatToolFunction
 
@@ -299,7 +300,8 @@ class MultiAgentService:
                 plan_req.tool_choice = {"type": "function", "function": {"name": "propose_plan"}}
                 # Local Ollama caps non-thinking JSON output in its adapter.
                 # Other providers may count reasoning in this shared budget.
-                plan_req.max_tokens = max(128, min(4096, req.max_tokens))
+                plan_req.max_tokens = runtime_settings.llm_max_tokens()
+                plan_req.temperature = runtime_settings.llm_temperature()
                 plan_req.observation = None
                 plan_req.events = []
                 request_id = uuid.uuid4().hex

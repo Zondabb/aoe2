@@ -1,0 +1,5 @@
+# Dedicated configuration for Godot's embedded rule service.
+# Godot supplies an isolated loopback port and a temporary access token via CLI.
+# External model settings belong in config.toml / config.local.toml instead.
+[llm]
+backend = "rules_compat"

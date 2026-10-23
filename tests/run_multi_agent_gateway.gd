@@ -113,6 +113,12 @@ func _new_gateway():
 	gateway.config = load("res://scripts/ai_gateway/ai_config.gd").new()
 	gateway.config.use_local_embedded = false
 	gateway.config.backend = "openai"
+	gateway.config.protocol = "v2_chat"
+	gateway.config.model = "stale-game-model"
+	gateway.config.llm_base_url = "http://stale-game-provider/v1"
+	gateway.config.max_tokens = 1
+	gateway.config.history_turns = 16
+	gateway.config.log_observation = true
 	gateway.config.multi_agent_enabled = true
 	gateway.config.tick_interval_sec = 10.0
 	gateway.metrics = Metrics.new()
@@ -137,10 +143,17 @@ func _test_fast_path() -> void:
 	Events.clear()
 	var gateway = _new_gateway()
 	var client = gateway._http_client
+	var chat: Dictionary = gateway._build_chat_payload(gateway._teams[0], 1, [])
+	check(chat.model == "aoe2-service" and chat.messages.size() == 2, "legacy chat ignores stale client model and client-side history")
+	for key in ["backend", "llm_base_url", "max_tokens", "temperature", "log_observation"]:
+		check(not chat.has(key) and not chat.metadata.has(key), "legacy chat excludes upstream option: %s" % key)
 	Events.push({"type": "receipt_to_retry", "_visible_to": [0]})
 	gateway._run_tick_requests(1)
 	check(client.calls == 1 and gateway._request_in_flight, "v3 starts exactly one asynchronous fast request")
 	check(client.last_payload.messages.is_empty() and client.last_payload.tools.is_empty(), "fast request sends observation once without duplicating huge model prompts")
+	check(client.last_payload.model == "aoe2-service", "fast request uses fixed service model placeholder")
+	for key in ["backend", "llm_base_url", "max_tokens", "temperature", "log_observation"]:
+		check(not client.last_payload.has(key) and not client.last_payload.metadata.has(key), "fast request excludes upstream option: %s" % key)
 	check(client.last_payload.metadata.session_epoch == "7" and client.last_payload.metadata.observation_seq == 1, "request carries string session epoch and observation sequence")
 	check(gateway._tick_interval() == 1.0, "v3 uses one-second loop independent of old ten-second tick")
 	client.response = {}
@@ -331,6 +344,10 @@ func _test_config() -> void:
 	var config = load("res://scripts/ai_gateway/ai_config.gd").from_game_settings()
 	check(config.multi_agent_enabled and config.uses_multi_agent_protocol(), "packaged external LLM config enables multi-agent fast channel")
 	check(config.multi_agent_tick_url().ends_with("/v3/ai/tick"), "v3 URL resolves from configured service address")
+	config.backend = "rules_compat"
+	check(config.uses_multi_agent_protocol(), "external fast channel is independent of stale client backend")
+	config.protocol = "v1_tick"
+	check(not config.uses_multi_agent_protocol(), "explicit legacy tick protocol retains its request schema")
 	config.multi_agent_enabled = false
 	config.protocol = "v2_chat"
 	check(not config.uses_multi_agent_protocol() and config.uses_chat_protocol(), "explicit rollback retains legacy v2 chat protocol")

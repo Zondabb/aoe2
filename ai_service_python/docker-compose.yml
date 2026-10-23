@@ -5,4 +5,11 @@ services:
       - "8765:8765"
     environment:
       - AOE2_AI_TOKEN=${AOE2_AI_TOKEN:-}
+      - AOE2_LLM_BASE_URL=${AOE2_LLM_BASE_URL:-}
+      - AOE2_LLM_MODEL=${AOE2_LLM_MODEL:-}
+      - AOE2_LLM_TOKEN=${AOE2_LLM_TOKEN:-}
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped

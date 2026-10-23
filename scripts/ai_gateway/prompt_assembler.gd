@@ -2,6 +2,7 @@ class_name PromptAssembler
 extends RefCounted
 
 const AiToolCatalogScript := preload("res://scripts/ai_gateway/ai_tool_catalog.gd")
+const SERVICE_MODEL := "aoe2-service"
 
 const SYSTEM_PROMPT := (
 	"你是《帝国时代 II》风格即时战略对局的 AI 指挥官。"
@@ -22,7 +23,7 @@ static func assemble(
 	observation: Dictionary,
 	events: Array,
 	meta: Dictionary = {},
-	history: Array = []
+	_history: Array = []
 ) -> Dictionary:
 	var metadata := {
 		"protocol_version": 2,
@@ -33,20 +34,13 @@ static func assemble(
 		"profile_id": String(meta.get("profile_id", "")),
 		"enemy_team": int(meta.get("enemy_team", 0)),
 		"team_label": String(meta.get("team_label", "")),
-		"backend": String(meta.get("backend", "rules_compat")),
-		"log_observation": bool(meta.get("log_observation", false)),
-		"llm_base_url": String(meta.get("llm_base_url", "")),
 	}
 	var messages: Array = [{"role": "system", "content": SYSTEM_PROMPT}]
-	for item in history:
-		if item is Dictionary and String((item as Dictionary).get("role", "")) != "":
-			messages.append(item)
+	# The Python service owns per-team strategic memory; old client history is ignored.
 	messages.append({"role": "user", "content": render_user(observation, events, metadata)})
 	return {
-		"model": String(meta.get("model", "aoe2-rules-v1")),
+		"model": SERVICE_MODEL,
 		"stream": false,
-		"temperature": 0,
-		"max_tokens": int(meta.get("max_tokens", 2048)),
 		"messages": messages,
 		"tools": AiToolCatalogScript.tools_payload(),
 		"tool_choice": "auto",

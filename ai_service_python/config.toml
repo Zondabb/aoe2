@@ -1,0 +1,16 @@
+# Server-owned AI settings. Restart the Python service after changing these.
+# Optional config.local.toml overrides this file; keep secrets in local settings
+# or AOE2_LLM_TOKEN / AOE2_AI_TOKEN environment variables.
+[service]
+host = "127.0.0.1"
+port = 8765
+log_observation = false
+
+[llm]
+backend = "openai"
+model = "qwen3:8b"
+base_url = "http://127.0.0.1:11434/v1"
+max_tokens = 204800
+temperature = 0.2
+timeout_sec = 30
+num_ctx = 8192

@@ -48,4 +48,4 @@ cd E:\workspace\aoe2\ai_service_python
 E:\workspace\aoe2\ai_service_python\.venv\Scripts\python.exe E:\workspace\aoe2\ai_service_python\tools\analyze_multi_agent_log.py
 ```
 
-手工启动服务时可用环境变量 `AOE2_LLM_NUM_CTX` 调整原生上下文；自定义 Ollama 端口或反向代理地址目前继续走兼容接口，自动原生适配限定本机标准端口。
+模型名、上游地址、生成参数和默认原生上下文统一放在 `ai_service_python/config.toml` 的 `[llm]`；私有覆盖使用 `config.local.toml`。启动脚本会读取这些配置，不再强制覆盖为 `qwen3:8b`。可用环境变量 `AOE2_LLM_NUM_CTX` 或显式 `-NumCtx` 覆盖上下文；自定义 Ollama 端口或反向代理地址目前继续走兼容接口，自动原生适配限定本机标准端口。

@@ -12,6 +12,7 @@ func run() -> Array[String]:
 	_test_protocol_and_token_roundtrip(failures)
 	_test_chat_url_derivation(failures)
 	_test_from_game_settings(failures)
+	_test_obsolete_upstream_settings_are_ignored(failures)
 	_restore_ai_session(snap)
 	return failures
 
@@ -58,8 +59,8 @@ func _test_protocol_and_token_roundtrip(failures: Array[String]) -> void:
 			failures.append("from_game_session should copy api_token from GameSession")
 		if config.bearer_token != config.api_token:
 			failures.append("bearer_token alias should match api_token")
-	if config.max_tokens != 1024:
-		failures.append("from_game_session should copy max_tokens")
+	if config.max_tokens != AiConfigScript.DEFAULT_MAX_TOKENS:
+		failures.append("from_game_session must ignore obsolete generation settings")
 
 	config.protocol = "v1_tick"
 	config.api_token = "ui-token"
@@ -104,12 +105,32 @@ func _test_chat_url_derivation(failures: Array[String]) -> void:
 func _test_from_game_settings(failures: Array[String]) -> void:
 	var config := AiConfigScript.from_game_settings()
 	var proto := GameSettingsScript.normalize_protocol(config.protocol)
-	if proto != "v1_tick" and proto != "v2_chat":
+	if proto not in ["v1_tick", "v2_chat", "v3_multi_agent"]:
 		failures.append("from_game_settings protocol invalid: %s" % config.protocol)
 	if config.timeout_sec < GameSettingsScript.MIN_TIMEOUT_SEC:
 		failures.append("from_game_settings timeout too small")
 	if OS.get_environment(AiConfigScript.ENV_AI_TOKEN).is_empty() and not config.api_token.is_empty():
 		failures.append("from_game_settings should keep empty api_token without env")
+
+
+func _test_obsolete_upstream_settings_are_ignored(failures: Array[String]) -> void:
+	GameSession.ai_backend = "obsolete-provider"
+	GameSession.ai_model = "obsolete-model"
+	GameSession.ai_max_tokens = 1
+	GameSession.ai_history_turns = 16
+	GameSession.ai_log_observation = true
+	GameSession.ai_llm_base_url = "http://obsolete-provider/v1"
+	for config in [AiConfigScript.from_game_session(), AiConfigScript.from_civ_select("http://127.0.0.1:8765", false)]:
+		if config.backend != AiConfigScript.DEFAULT_BACKEND or config.model != AiConfigScript.DEFAULT_MODEL:
+			failures.append("session/civ-select must ignore old provider and model fields")
+		if config.max_tokens != AiConfigScript.DEFAULT_MAX_TOKENS or config.history_turns != 0 or config.log_observation or not config.llm_base_url.is_empty():
+			failures.append("session/civ-select must ignore old generation, history and provider URL fields")
+	var config := AiConfigScript.new()
+	config.backend = "programmatic-backend"
+	config.llm_base_url = "http://programmatic-only/v1"
+	config.apply_env_override()
+	if config.backend != "programmatic-backend" or config.llm_base_url != "http://programmatic-only/v1":
+		failures.append("client must not read provider settings from environment variables")
 
 
 func _snapshot_ai_session() -> Dictionary:

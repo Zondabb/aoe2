@@ -18,7 +18,7 @@ import threading
 import time
 from urllib.request import urlopen
 
-from test_external_llm_e2e import MockStrategist
+from test_external_llm_e2e import MockStrategist, mock_service_settings
 from test_multi_agent_e2e import RolePlanner
 
 
@@ -61,11 +61,11 @@ def main() -> int:
                 else:
                     result = mock.complete(payload)
                 response = json.dumps(result).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(response)))
-            self.end_headers()
             try:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(response)))
+                self.end_headers()
                 self.wfile.write(response)
             except (BrokenPipeError, ConnectionResetError):
                 pass
@@ -77,12 +77,9 @@ def main() -> int:
     thread = threading.Thread(target=upstream.serve_forever, daemon=True)
     thread.start()
     ai_port, relay_port, dead_port = free_port(), free_port(), free_port()
-    env = dict(os.environ)
-    env.update(AOE2_AI_BACKEND="openai", AOE2_LLM_TOKEN="test-dummy-never-paid",
-               AOE2_LLM_BASE_URL=f"http://127.0.0.1:{upstream.server_port}/v1",
-               AOE2_AI_TOKEN="", AOE2_AI_URL=f"http://127.0.0.1:{ai_port}",
-               AOE2_AI_LOG_OBSERVATION="false", AOE2_MP_HOST="127.0.0.1",
-               AOE2_MP_PORT=str(relay_port))
+    config, env = mock_service_settings(logs, f"http://127.0.0.1:{upstream.server_port}/v1",
+                                        "mock-role-planner" if args.protocol == "v3" else "mock-strategist")
+    env.update(AOE2_AI_URL=f"http://127.0.0.1:{ai_port}", AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(relay_port))
     # The game URL override would defeat the explicit dead-endpoint test.
     game_env = dict(env)
     game_env.pop("AOE2_AI_URL", None)
@@ -138,9 +135,8 @@ def main() -> int:
                        "--script", f"res://tests/{script}", "--", *script_args], label, game=True)
 
     try:
-        service = launch([sys.executable, "main.py", "--host", "127.0.0.1", "--port", str(ai_port),
-                          "--backend", "openai", "--llm-token", "test-dummy-never-paid",
-                          "--llm-base-url", env["AOE2_LLM_BASE_URL"]], "ai-service", root / "ai_service_python")
+        service = launch([sys.executable, "main.py", "--config", str(config),
+                          "--host", "127.0.0.1", "--port", str(ai_port)], "ai-service", root / "ai_service_python")
         relay = launch([sys.executable, "-m", "multiplayer_service_python.main"], "relay")
         wait_health(f"http://127.0.0.1:{ai_port}/health", service)
         wait_health(f"http://127.0.0.1:{relay_port}/healthz", relay)

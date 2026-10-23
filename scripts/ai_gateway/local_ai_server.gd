@@ -17,6 +17,9 @@ var _clients: Array[StreamPeerTCP] = []
 var _running := false
 var _python_pid := -1
 var _service_mode := ServiceMode.NONE
+var _start_generation := 0
+var _original_endpoint: Dictionary = {}
+var _starting := false
 
 
 func configure(
@@ -32,16 +35,32 @@ func configure(
 func start() -> bool:
 	if _service_mode != ServiceMode.NONE:
 		return true
-	return _start_adapter_tcp()
+	if _starting:
+		return false
+	if not _start_adapter_tcp():
+		return false
+	_service_mode = ServiceMode.ADAPTER
+	return true
 
 
 func start_async() -> bool:
 	if _service_mode != ServiceMode.NONE:
 		return true
+	if _starting:
+		return false
+	_starting = true
+	_start_generation += 1
+	var generation := _start_generation
 	if await _try_start_python():
+		if generation != _start_generation:
+			return false
+		_starting = false
 		_service_mode = ServiceMode.PYTHON
-		print("LocalAiServer: Python AI service on http://127.0.0.1:%d" % AiConfigScript.DEFAULT_PORT)
+		print("LocalAiServer: embedded Python rules service on %s" % config.service_url)
 		return true
+	if generation != _start_generation:
+		return false
+	_starting = false
 	push_warning("LocalAiServer: Python unavailable, falling back to GDScript adapter")
 	if _start_adapter_tcp():
 		_service_mode = ServiceMode.ADAPTER
@@ -58,8 +77,11 @@ func is_running() -> bool:
 
 
 func stop() -> void:
+	_start_generation += 1
+	_starting = false
 	if _python_pid > 0:
-		OS.kill(_python_pid)
+		if OS.is_process_running(_python_pid):
+			OS.kill(_python_pid)
 		_python_pid = -1
 	if _running:
 		_server.stop()
@@ -70,6 +92,11 @@ func stop() -> void:
 		_running = false
 		set_process(false)
 	_service_mode = ServiceMode.NONE
+	_restore_endpoint()
+
+
+func _exit_tree() -> void:
+	stop()
 
 
 func _try_start_python() -> bool:
@@ -77,31 +104,83 @@ func _try_start_python() -> bool:
 	if not FileAccess.file_exists(main_py):
 		return false
 	var python := _find_python_executable()
-	if python.is_empty():
+	if python.is_empty() or config == null or http_client == null:
 		return false
-	if http_client != null:
-		var existing := await http_client.get_health()
-		if existing.get("ok") == true:
-			return true
-	var args := PackedStringArray([main_py])
+	# Never reuse a user's external service: its backend, credentials and lifetime
+	# belong to that process. Each embedded match owns a loopback-only endpoint.
+	var port := _reserve_loopback_port()
+	if port <= 0:
+		return false
+	var token := Crypto.new().generate_random_bytes(24).hex_encode()
+	_set_owned_endpoint(port, token)
+	var generation := _start_generation
+	var args := PackedStringArray([
+		main_py, "--config", ProjectSettings.globalize_path("res://ai_service_python/embedded_rules.toml"),
+		"--backend", "rules_compat", "--host", AiConfigScript.DEFAULT_HOST,
+		"--port", str(port), "--ai-token", token,
+	])
 	_python_pid = OS.create_process(python, args, false)
 	if _python_pid <= 0:
 		return false
 	for _attempt in 10:
 		await _await_timer(0.3)
-		if http_client == null:
-			continue
+		if generation != _start_generation:
+			return false
+		if _python_pid <= 0 or not OS.is_process_running(_python_pid):
+			break
 		var health := await http_client.get_health()
-		if health.get("ok") == true:
+		if generation != _start_generation:
+			return false
+		if health.get("ok") == true and OS.is_process_running(_python_pid):
 			return true
 	if _python_pid > 0:
-		OS.kill(_python_pid)
+		if OS.is_process_running(_python_pid):
+			OS.kill(_python_pid)
 		_python_pid = -1
 	return false
 
 
 func _find_python_executable() -> String:
+	var relative := "res://ai_service_python/.venv/Scripts/python.exe" if OS.get_name() == "Windows" else "res://ai_service_python/.venv/bin/python"
+	var bundled := ProjectSettings.globalize_path(relative)
+	if FileAccess.file_exists(bundled):
+		return bundled
 	return "python" if OS.get_name() == "Windows" else "python3"
+
+
+func _reserve_loopback_port() -> int:
+	var reservation := TCPServer.new()
+	if reservation.listen(0, AiConfigScript.DEFAULT_HOST) != OK:
+		return -1
+	var port := reservation.get_local_port()
+	reservation.stop()
+	return port
+
+
+func _set_owned_endpoint(port: int, token: String) -> void:
+	if config == null:
+		return
+	if _original_endpoint.is_empty():
+		_original_endpoint = {
+			"service_url": config.service_url,
+			"chat_url": config.chat_url,
+			"api_token": config.api_token,
+		}
+	config.service_url = "http://%s:%d" % [AiConfigScript.DEFAULT_HOST, port]
+	config.chat_url = ""
+	config.api_token = token
+	if http_client != null:
+		http_client.configure(config)
+
+
+func _restore_endpoint() -> void:
+	if config != null and not _original_endpoint.is_empty():
+		config.service_url = _original_endpoint.service_url
+		config.chat_url = _original_endpoint.chat_url
+		config.api_token = _original_endpoint.api_token
+		if http_client != null and is_instance_valid(http_client):
+			http_client.configure(config)
+	_original_endpoint.clear()
 
 
 func _await_timer(seconds: float) -> void:
@@ -117,19 +196,19 @@ func _await_timer(seconds: float) -> void:
 func _start_adapter_tcp() -> bool:
 	if _running:
 		return true
-	var err := _server.listen(AiConfigScript.DEFAULT_PORT, AiConfigScript.DEFAULT_HOST)
+	var err := _server.listen(0, AiConfigScript.DEFAULT_HOST)
 	if err != OK:
-		push_warning("LocalAiServer failed to listen on %s:%d (%s)" % [
+		push_warning("LocalAiServer failed to allocate loopback port on %s (%s)" % [
 			AiConfigScript.DEFAULT_HOST,
-			AiConfigScript.DEFAULT_PORT,
 			err,
 		])
 		return false
 	_running = true
+	_set_owned_endpoint(_server.get_local_port(), "")
 	set_process(true)
 	print("LocalAiServer listening (adapter) on http://%s:%d" % [
 		AiConfigScript.DEFAULT_HOST,
-		AiConfigScript.DEFAULT_PORT,
+		_server.get_local_port(),
 	])
 	return true
 

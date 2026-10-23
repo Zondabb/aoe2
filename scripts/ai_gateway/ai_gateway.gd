@@ -41,7 +41,6 @@ var _local_server: LocalAiServer
 var _adapter: AiServiceAdapter
 var _pending_responses: Array[Dictionary] = []
 var _request_in_flight := false
-var _chat_histories: Dictionary = {}
 var _generation := 0
 var _event_subscriber := 0
 var _event_delivery: Dictionary = {}
@@ -103,7 +102,7 @@ func stop(status: String = "stopped") -> void:
 		_event_subscriber = 0
 	if _http_client != null and is_instance_valid(_http_client):
 		_http_client.cancel_requests()
-	if _local_server != null and is_instance_valid(_local_server) and _local_server.is_running():
+	if _local_server != null and is_instance_valid(_local_server):
 		_local_server.stop()
 	if not _remote_session_ended and not match_id.is_empty() and config != null and not config.use_local_embedded and is_inside_tree():
 		_remote_session_ended = true
@@ -182,7 +181,6 @@ func _on_match_start(generation: int = -1) -> void:
 		EventBufferScript.unsubscribe(_event_subscriber)
 	_event_subscriber = EventBufferScript.subscribe()
 	metrics.clear()
-	_chat_histories.clear()
 	for ctx in _exec_contexts.values():
 		(ctx as CommandExecutionContext).clear_command_history()
 		ctx.match_id = match_id
@@ -402,14 +400,13 @@ func _build_multi_agent_payload(team_entry: Dictionary, current_tick: int, event
 	var delivery := _event_delivery.duplicate(true)
 	delivery.erase("events")
 	return {
-		"model": config.model, "temperature": 0.2, "max_tokens": config.max_tokens,
+		"model": AiConfigScript.SERVICE_MODEL,
 		"messages": [], "tools": [], "observation": payload.observation, "events": payload.events,
 		"metadata": {
 			"protocol_version": 3, "match_id": match_id, "session_epoch": str(_generation),
 			"observation_seq": current_tick, "tick": current_tick, "time_sec": match_time,
 			"team": payload.team, "enemy_team": payload.enemy_team,
-			"profile_id": payload.profile_id, "backend": config.backend,
-			"llm_base_url": config.llm_base_url, "event_delivery": delivery,
+			"profile_id": payload.profile_id, "event_delivery": delivery,
 		},
 	}
 
@@ -548,13 +545,7 @@ func _build_chat_payload(team_entry: Dictionary, current_tick: int, events: Arra
 			"profile_id": String(tick_payload.get("profile_id", "")),
 			"enemy_team": int(tick_payload.get("enemy_team", 0)),
 			"team_label": String(tick_payload.get("team_label", "")),
-			"model": config.model if config != null else "aoe2-rules-v1",
-			"max_tokens": config.max_tokens if config != null else 2048,
-			"backend": config.backend if config != null else "rules_compat",
-			"log_observation": config.log_observation if config != null else false,
-			"llm_base_url": config.llm_base_url if config != null else "",
 		},
-		_history_for(team),
 	)
 
 
@@ -566,30 +557,7 @@ func _queue_chat_completion(completion: Dictionary, team: int, current_tick: int
 		_record_tick_skip("empty_choices")
 		return
 	var response := LlmResponseParserScript.to_tick_response(completion, team, current_tick)
-	_remember_history(team, response.get("commands", []))
 	_queue_response(response)
-
-
-func _history_for(team: int) -> Array:
-	if config == null or config.history_turns <= 0:
-		return []
-	var stored: Variant = _chat_histories.get(team, [])
-	return stored if stored is Array else []
-
-
-func _remember_history(team: int, commands: Array) -> void:
-	if config == null or config.history_turns <= 0:
-		return
-	var hist: Array = _history_for(team).duplicate()
-	hist.append(
-		{
-			"role": "assistant",
-			"content": LlmResponseParserScript.summarize_commands(commands),
-		}
-	)
-	if hist.size() > config.history_turns:
-		hist = hist.slice(hist.size() - config.history_turns)
-	_chat_histories[team] = hist
 
 
 func _should_fallback_embedded() -> bool:

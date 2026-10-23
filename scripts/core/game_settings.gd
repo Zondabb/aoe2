@@ -18,16 +18,10 @@ const DEFAULT_AI := {
 	"service_url": "",
 	"chat_url": "",
 	"api_token": "",
-	"backend": "rules_compat",
-	"model": "aoe2-rules-v1",
 	"timeout_sec": 2.0,
 	"tick_interval_sec": 0.5,
 	"protocol": "v1_tick",
 	"use_local_embedded": true,
-	"max_tokens": 2048,
-	"history_turns": 0,
-	"log_observation": false,
-	"llm_base_url": "",
 	"multi_agent_enabled": true,
 	"fast_tick_interval_sec": 1.0,
 	"fast_timeout_sec": 3.0,
@@ -37,10 +31,6 @@ const MIN_TIMEOUT_SEC := 0.5
 const MAX_TIMEOUT_SEC := 120.0
 const MIN_TICK_INTERVAL_SEC := 0.05
 const MAX_TICK_INTERVAL_SEC := 10.0
-const MIN_MAX_TOKENS := 1
-const MAX_MAX_TOKENS := 32768
-const MIN_HISTORY_TURNS := 0
-const MAX_HISTORY_TURNS := 16
 
 static var last_loaded_speed := DEFAULT_SPEED
 static var last_loaded_ai: Dictionary = DEFAULT_AI.duplicate(true)
@@ -83,15 +73,15 @@ static func load_speed() -> float:
 
 
 ## Read [ai] settings: user:// → res:// → env (AOE2_AI_URL / AOE2_AI_TOKEN).
-static func load_ai_settings() -> Dictionary:
+static func load_ai_settings(config_path: String = "") -> Dictionary:
 	var out: Dictionary = DEFAULT_AI.duplicate(true)
-	var cfg := _load_config_file()
+	var cfg := _load_config_file() if config_path.is_empty() else ConfigFile.new()
+	if not config_path.is_empty() and cfg.load(config_path) != OK:
+		cfg = null
 	if cfg != null:
 		out["service_url"] = String(cfg.get_value("ai", "service_url", out["service_url"])).strip_edges()
 		out["chat_url"] = String(cfg.get_value("ai", "chat_url", out["chat_url"])).strip_edges()
 		out["api_token"] = String(cfg.get_value("ai", "api_token", out["api_token"])).strip_edges()
-		out["backend"] = String(cfg.get_value("ai", "backend", out["backend"])).strip_edges()
-		out["model"] = String(cfg.get_value("ai", "model", out["model"])).strip_edges()
 		out["timeout_sec"] = clampf(
 			float(cfg.get_value("ai", "timeout_sec", out["timeout_sec"])),
 			MIN_TIMEOUT_SEC,
@@ -104,26 +94,10 @@ static func load_ai_settings() -> Dictionary:
 		)
 		out["protocol"] = normalize_protocol(String(cfg.get_value("ai", "protocol", out["protocol"])))
 		out["use_local_embedded"] = bool(cfg.get_value("ai", "use_local_embedded", out["use_local_embedded"]))
-		out["max_tokens"] = clampi(
-			int(cfg.get_value("ai", "max_tokens", out["max_tokens"])),
-			MIN_MAX_TOKENS,
-			MAX_MAX_TOKENS,
-		)
-		out["history_turns"] = clampi(
-			int(cfg.get_value("ai", "history_turns", out["history_turns"])),
-			MIN_HISTORY_TURNS,
-			MAX_HISTORY_TURNS,
-		)
-		out["log_observation"] = bool(cfg.get_value("ai", "log_observation", out["log_observation"]))
-		out["llm_base_url"] = String(cfg.get_value("ai", "llm_base_url", out["llm_base_url"])).strip_edges()
 		out["multi_agent_enabled"] = bool(cfg.get_value("ai", "multi_agent_enabled", out["multi_agent_enabled"]))
 		out["fast_tick_interval_sec"] = clampf(float(cfg.get_value("ai", "fast_tick_interval_sec", out["fast_tick_interval_sec"])), 0.25, 5.0)
 		out["fast_timeout_sec"] = clampf(float(cfg.get_value("ai", "fast_timeout_sec", out["fast_timeout_sec"])), 0.5, 10.0)
 	_apply_ai_env_override(out)
-	if String(out.get("backend", "")).is_empty():
-		out["backend"] = DEFAULT_AI["backend"]
-	if String(out.get("model", "")).is_empty():
-		out["model"] = DEFAULT_AI["model"]
 	out["protocol"] = normalize_protocol(String(out.get("protocol", "v1_tick")))
 	last_loaded_ai = out.duplicate(true)
 	return out
@@ -135,17 +109,11 @@ static func apply_ai_to_game_session() -> Dictionary:
 	GameSession.ai_service_url = String(ai["service_url"])
 	GameSession.ai_chat_url = String(ai["chat_url"])
 	GameSession.ai_service_token = String(ai["api_token"])
-	GameSession.ai_backend = String(ai["backend"])
-	GameSession.ai_model = String(ai["model"])
 	GameSession.ai_service_timeout_sec = float(ai["timeout_sec"])
 	GameSession.ai_tick_interval_sec = float(ai["tick_interval_sec"])
 	GameSession.ai_protocol = String(ai["protocol"])
 	GameSession.ai_protocol_version = protocol_to_version(String(ai["protocol"]))
 	GameSession.ai_use_local_embedded = bool(ai["use_local_embedded"])
-	GameSession.ai_max_tokens = int(ai["max_tokens"])
-	GameSession.ai_history_turns = int(ai["history_turns"])
-	GameSession.ai_log_observation = bool(ai["log_observation"])
-	GameSession.ai_llm_base_url = String(ai["llm_base_url"])
 	GameSession.ai_multi_agent_enabled = bool(ai["multi_agent_enabled"])
 	GameSession.ai_fast_tick_interval_sec = float(ai["fast_tick_interval_sec"])
 	GameSession.ai_fast_timeout_sec = float(ai["fast_timeout_sec"])
@@ -244,9 +212,3 @@ static func _apply_ai_env_override(ai: Dictionary) -> void:
 	var env_token := OS.get_environment(ENV_AI_TOKEN).strip_edges()
 	if not env_token.is_empty():
 		ai["api_token"] = env_token
-	var env_llm := OS.get_environment("AOE2_LLM_BASE_URL").strip_edges()
-	if not env_llm.is_empty():
-		ai["llm_base_url"] = env_llm
-	var env_backend := OS.get_environment("AOE2_AI_BACKEND").strip_edges()
-	if not env_backend.is_empty():
-		ai["backend"] = env_backend

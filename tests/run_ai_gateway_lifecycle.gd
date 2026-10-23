@@ -142,7 +142,7 @@ func _test_request_cancel(operation: String) -> void:
 	check(gateway._pending_responses.is_empty() and client.cancels == 1, "%s stop clears pending commands and cancels transport immediately" % operation)
 	client.completed.emit()
 	await process_frame
-	check(gateway._pending_responses.is_empty() and gateway._chat_histories.is_empty(), "%s late response cannot enqueue commands or change history" % operation)
+	check(gateway._pending_responses.is_empty(), "%s late response cannot enqueue commands" % operation)
 	check(gateway.metrics.tick_success_count == 0 and gateway.last_tick_latency_ms == -1.0, "%s late response cannot update tick metrics" % operation)
 	gateway._queue_response(response)
 	gateway._apply_response(response)

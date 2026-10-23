@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import os
+import subprocess
+import sys
+
+import pytest
 
 from brain import runtime_settings
 from brain.llm_proxy import build_openai_payload, llm_token, upstream_model
@@ -58,3 +64,115 @@ def test_cli_llm_token_file(monkeypatch, tmp_path: Path) -> None:
     finally:
         runtime_settings.clear_cli()
         monkeypatch.delenv("AOE2_LLM_TOKEN", raising=False)
+
+
+def test_config_local_environment_and_cli_precedence(monkeypatch, tmp_path):
+    config = tmp_path / "custom.toml"
+    config.write_text('[service]\nhost="0.0.0.0"\nport=9001\n[llm]\nmodel="base"\nmax_tokens=500\n', encoding="utf-8")
+    local = tmp_path / "custom.local.toml"
+    local.write_text('[llm]\nmodel="local"\ntemperature=0.6\n', encoding="utf-8")
+    runtime_settings.load_config(config)
+    assert runtime_settings.llm_model() == "local"
+    assert runtime_settings.llm_max_tokens() == 500
+    assert runtime_settings.llm_temperature() == 0.6
+    assert runtime_settings.llm_num_ctx() == 8192
+    monkeypatch.setenv("AOE2_LLM_MODEL", "environment")
+    assert runtime_settings.llm_model() == "environment"
+    args = runtime_settings.build_parser().parse_args(["--config", str(config), "--llm-model", "cli"])
+    runtime_settings.apply_args(args)
+    assert runtime_settings.llm_model() == "cli"
+    assert args.host == "0.0.0.0" and args.port == 9001
+    # Applying CLI arguments must not mutate the caller's environment.
+    assert os.environ["AOE2_LLM_MODEL"] == "environment"
+
+
+def test_default_config_does_not_depend_on_working_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    runtime_settings.load_config()
+    assert runtime_settings.config_path() == runtime_settings.DEFAULT_CONFIG_PATH
+    assert runtime_settings.llm_model() == "qwen3:8b"
+    assert runtime_settings.backend() == "openai"
+    assert runtime_settings.llm_temperature() == 0.2
+
+
+def test_uvicorn_import_loads_environment_selected_config(tmp_path):
+    config = tmp_path / "uvicorn.toml"
+    config.write_text('[llm]\nmodel="import-model"\nmax_tokens=321\n', encoding="utf-8")
+    env = dict(os.environ, AOE2_AI_CONFIG=str(config), PYTHONPATH=str(runtime_settings.SERVICE_DIR))
+    script = ('import main, json; from brain import runtime_settings as s; '
+              'print(json.dumps({"model": s.llm_model(), "tokens": s.llm_max_tokens()}))')
+    process = subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env,
+                             capture_output=True, text=True, check=True)
+    assert json.loads(process.stdout.strip().splitlines()[-1]) == {"model": "import-model", "tokens": 321}
+
+
+@pytest.mark.parametrize("invalid_source", ["missing_env", "malformed_env", "malformed_default"])
+def test_cli_config_is_selected_before_lower_priority_files(tmp_path, invalid_source):
+    config = tmp_path / "good.toml"
+    config.write_text('[llm]\nmodel="cli-config-model"\n', encoding="utf-8")
+    broken = tmp_path / "broken.toml"
+    if invalid_source != "missing_env":
+        broken.write_text('[llm]\nmodel="unterminated', encoding="utf-8")
+    env = dict(os.environ, PYTHONPATH=str(runtime_settings.SERVICE_DIR))
+    if invalid_source == "malformed_default":
+        env.pop("AOE2_AI_CONFIG", None)
+    else:
+        env["AOE2_AI_CONFIG"] = str(broken)
+    # Run the real main.py __main__ branch and argument parser in a fresh
+    # interpreter. Replace only the final server loop: no ports or providers.
+    script = (
+        "import json, pathlib, runpy, sys, uvicorn; "
+        "from brain import runtime_settings as settings; "
+        f"settings.DEFAULT_CONFIG_PATH = pathlib.Path({str(broken)!r}); "
+        "uvicorn.run = lambda *a, **kw: print(json.dumps({'model': settings.llm_model()})); "
+        f"sys.argv = [{str(runtime_settings.SERVICE_DIR / 'main.py')!r}, '--config', {str(config)!r}]; "
+        f"runpy.run_path({str(runtime_settings.SERVICE_DIR / 'main.py')!r}, run_name='__main__')"
+    )
+    process = subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env,
+                             capture_output=True, text=True, check=True)
+    assert json.loads(process.stdout.strip().splitlines()[-1]) == {"model": "cli-config-model"}
+
+
+def test_service_and_provider_tokens_are_independent(monkeypatch, tmp_path):
+    config = tmp_path / "tokens.toml"
+    config.write_text('[service]\napi_token="game-test"\n[llm]\ntoken="provider-test"\n', encoding="utf-8")
+    runtime_settings.load_config(config)
+    assert runtime_settings.ai_token() == "game-test"
+    assert runtime_settings.llm_token() == "provider-test"
+    assert runtime_settings.mask_secret("provider-test") == "set"
+    monkeypatch.setenv("AOE2_LLM_TOKEN", "provider-env")
+    assert runtime_settings.llm_token() == "provider-env"
+    assert runtime_settings.ai_token() == "game-test"
+
+
+def test_log_observation_has_service_side_false_override(monkeypatch, tmp_path):
+    config = tmp_path / "logging.toml"
+    config.write_text('[service]\nlog_observation=true\n', encoding="utf-8")
+    runtime_settings.load_config(config)
+    assert runtime_settings.log_observation() is True
+    monkeypatch.setenv("AOE2_AI_LOG_OBSERVATION", "false")
+    assert runtime_settings.log_observation() is False
+    runtime_settings.set_cli(log_observation=True)
+    assert runtime_settings.log_observation() is True
+
+
+def test_explicit_missing_config_is_an_error(tmp_path):
+    with pytest.raises(FileNotFoundError, match="configuration file not found"):
+        runtime_settings.load_config(tmp_path / "missing.toml")
+
+
+def test_malformed_config_does_not_disclose_secret(tmp_path):
+    config = tmp_path / "broken.toml"
+    config.write_text('[llm]\ntoken="private-test-secret', encoding="utf-8")
+    with pytest.raises(ValueError) as raised:
+        runtime_settings.load_config(config)
+    assert "private-test-secret" not in str(raised.value)
+
+
+@pytest.mark.parametrize("name, configured, expected", [
+    ("llm_max_tokens", "NaN", 2048), ("llm_max_tokens", "999999", 32768),
+    ("llm_temperature", "Infinity", 0.2), ("llm_timeout_sec", "-1", 2),
+])
+def test_generation_parameters_are_finite_and_bounded(name, configured, expected):
+    runtime_settings.set_cli(**{name: configured})
+    assert getattr(runtime_settings, name)() == expected

@@ -39,7 +39,7 @@ func _run() -> void:
 	session.ai_multi_agent_enabled = args.size() < 3 or args[2] != "v2"
 	session.ai_fast_tick_interval_sec = 0.25
 	session.ai_fast_timeout_sec = 3.0
-	# The opt-in must select the Python chat backend even with local opponent settings.
+	# The opt-in selects the Python service independently of obsolete provider settings.
 	session.ai_backend = "rules_compat"
 	session.ai_protocol = "v1_tick"
 	session.ai_use_local_embedded = true
@@ -57,7 +57,7 @@ func _run() -> void:
 	check(control.local_state().enabled and control.local_state().status == "connecting", "checkbox starts external player AI")
 	var gateway: Node = control._gateways[0]
 	var first_gateway_id := gateway.get_instance_id()
-	check(not gateway.config.use_local_embedded and gateway.config.protocol == "v2_chat" and gateway.config.backend == "openai", "player opt-in forces external Python LLM")
+	check(not gateway.config.use_local_embedded and gateway.config.protocol == "v2_chat", "player opt-in forces external Python AI service")
 	check(gateway.config.uses_multi_agent_protocol() == session.ai_multi_agent_enabled, "player opt-in honors v3 setting and v2 rollback")
 	check(await wait_for(func(): return gateway.metrics.tick_success_count >= 1), "actual external HTTP decision completed")
 	check(await wait_for(func(): return gateway.tick >= 2 and _has_orders(world, 0)), "external commands execute for own team")

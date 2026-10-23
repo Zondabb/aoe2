@@ -101,12 +101,17 @@ def test_slow_model_does_not_block_ticks_and_late_result_cannot_revive(schemas, 
     def forward(req):
         assert len(req.messages) == 2
         assert req.observation is None
+        # Client generation values never become the specialist's model budget.
+        assert req.max_tokens == 321
+        assert req.temperature == 0.4
         assert req.messages[1].content.count("goal_version") == 1
         assert sum(len(msg.content) for msg in req.messages) < 2000
         entered.set()
         assert release.wait(3)
         return completion()
 
+    monkeypatch.setenv("AOE2_LLM_MAX_TOKENS", "321")
+    monkeypatch.setenv("AOE2_LLM_TEMPERATURE", "0.4")
     service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=1,
                                 log=lambda event, data: logs.append((event, data)))
     try:

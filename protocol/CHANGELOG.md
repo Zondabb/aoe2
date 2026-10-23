@@ -1,5 +1,15 @@
 # AI Protocol CHANGELOG
 
+## Server-owned model configuration (2026-10-23)
+
+Godot now configures only the Python service connection and control cadence.
+Provider backend, model, base URL, credentials and generation settings are owned
+by the Python service configuration. Chat-shaped game requests use the fixed
+`aoe2-service` model placeholder and omit provider metadata and generation knobs;
+the service resolves the actual upstream model. Existing wire schemas remain
+compatible with older clients; client-supplied values cannot override configured
+server settings. Strategic memory stays server-side without client history.
+
 ## Additive observation fields — siege coordination (2026-10-22)
 
 Unit `combat` snapshots and `decision_context.catalog.units` expose

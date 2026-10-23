@@ -94,7 +94,6 @@ static func external_config() -> AiConfig:
 	config.use_local_embedded = false
 	config.protocol = Config.PROTOCOL_V2_CHAT
 	config.protocol_version = 2
-	config.backend = "openai"
 	config.use_tick_batch = false
 	if config.service_url.is_empty():
 		config.service_url = Config.default_service_url()

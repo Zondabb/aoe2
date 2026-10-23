@@ -10,6 +10,8 @@ const DEFAULT_TICK_INTERVAL_SEC := 0.5
 const DEFAULT_MAX_TOKENS := 2048
 const DEFAULT_BACKEND := "rules_compat"
 const DEFAULT_MODEL := "aoe2-rules-v1"
+## Required by the chat envelope only. The Python service selects the real model.
+const SERVICE_MODEL := "aoe2-service"
 const PROTOCOL_V1_TICK := "v1_tick"
 const PROTOCOL_V2_CHAT := "v2_chat"
 const PROTOCOL_V3_MULTI_AGENT := "v3_multi_agent"
@@ -21,12 +23,13 @@ var chat_url := ""
 var timeout_sec := DEFAULT_TIMEOUT_SEC
 var tick_interval_sec := DEFAULT_TICK_INTERVAL_SEC
 var use_local_embedded := true
-## v1_tick | v2_chat | v3_multi_agent; multi_agent_enabled upgrades external OpenAI.
+## v1_tick | v2_chat | v3_multi_agent; multi_agent_enabled upgrades external v2.
 var protocol := PROTOCOL_V1_TICK
 ## Derived from protocol for v1 tick payloads.
 var protocol_version := 1
-## Bearer / API token (cfg: api_token).
+## Python AI service access token (cfg: api_token), never a model provider key.
 var api_token := ""
+## Legacy programmatic compatibility; neither cfg/session loading nor HTTP uses these.
 var backend := DEFAULT_BACKEND
 var model := DEFAULT_MODEL
 var max_tokens := DEFAULT_MAX_TOKENS
@@ -63,25 +66,7 @@ static func from_game_session() -> AiConfig:
 		config.protocol = GameSettingsScript.version_to_protocol(int(GameSession.ai_protocol_version))
 	config.protocol_version = GameSettingsScript.protocol_to_version(config.protocol)
 	config.api_token = String(GameSession.ai_service_token).strip_edges()
-	config.backend = String(GameSession.ai_backend).strip_edges()
-	if config.backend.is_empty():
-		config.backend = DEFAULT_BACKEND
-	config.model = String(GameSession.ai_model).strip_edges()
-	if config.model.is_empty():
-		config.model = DEFAULT_MODEL
-	config.max_tokens = clampi(
-		int(GameSession.ai_max_tokens),
-		GameSettingsScript.MIN_MAX_TOKENS,
-		GameSettingsScript.MAX_MAX_TOKENS,
-	)
 	config.use_tick_batch = bool(GameSession.ai_use_tick_batch)
-	config.history_turns = clampi(
-		int(GameSession.ai_history_turns),
-		GameSettingsScript.MIN_HISTORY_TURNS,
-		GameSettingsScript.MAX_HISTORY_TURNS,
-	)
-	config.log_observation = bool(GameSession.ai_log_observation)
-	config.llm_base_url = String(GameSession.ai_llm_base_url).strip_edges()
 	config.multi_agent_enabled = bool(GameSession.ai_multi_agent_enabled)
 	config.fast_tick_interval_sec = float(GameSession.ai_fast_tick_interval_sec)
 	config.fast_timeout_sec = float(GameSession.ai_fast_timeout_sec)
@@ -106,20 +91,6 @@ static func from_game_settings() -> AiConfig:
 	config.protocol = GameSettingsScript.normalize_protocol(String(ai.get("protocol", PROTOCOL_V1_TICK)))
 	config.protocol_version = GameSettingsScript.protocol_to_version(config.protocol)
 	config.api_token = String(ai.get("api_token", "")).strip_edges()
-	config.backend = String(ai.get("backend", DEFAULT_BACKEND)).strip_edges()
-	config.model = String(ai.get("model", DEFAULT_MODEL)).strip_edges()
-	config.max_tokens = clampi(
-		int(ai.get("max_tokens", DEFAULT_MAX_TOKENS)),
-		GameSettingsScript.MIN_MAX_TOKENS,
-		GameSettingsScript.MAX_MAX_TOKENS,
-	)
-	config.history_turns = clampi(
-		int(ai.get("history_turns", 0)),
-		GameSettingsScript.MIN_HISTORY_TURNS,
-		GameSettingsScript.MAX_HISTORY_TURNS,
-	)
-	config.log_observation = bool(ai.get("log_observation", false))
-	config.llm_base_url = String(ai.get("llm_base_url", "")).strip_edges()
 	config.multi_agent_enabled = bool(ai.get("multi_agent_enabled", true))
 	config.fast_tick_interval_sec = float(ai.get("fast_tick_interval_sec", 1.0))
 	config.fast_timeout_sec = float(ai.get("fast_timeout_sec", 3.0))
@@ -139,12 +110,6 @@ func apply_env_override() -> void:
 	var env_token := OS.get_environment(ENV_AI_TOKEN).strip_edges()
 	if not env_token.is_empty():
 		api_token = env_token
-	var env_llm := OS.get_environment("AOE2_LLM_BASE_URL").strip_edges()
-	if not env_llm.is_empty():
-		llm_base_url = env_llm
-	var env_backend := OS.get_environment("AOE2_AI_BACKEND").strip_edges()
-	if not env_backend.is_empty():
-		backend = env_backend
 
 
 func finalize_urls() -> void:
@@ -163,13 +128,7 @@ func save_to_game_session() -> void:
 	GameSession.ai_protocol = GameSettingsScript.normalize_protocol(protocol)
 	GameSession.ai_protocol_version = GameSettingsScript.protocol_to_version(GameSession.ai_protocol)
 	GameSession.ai_service_token = api_token
-	GameSession.ai_backend = backend
-	GameSession.ai_model = model
-	GameSession.ai_max_tokens = max_tokens
 	GameSession.ai_use_tick_batch = use_tick_batch
-	GameSession.ai_history_turns = history_turns
-	GameSession.ai_log_observation = log_observation
-	GameSession.ai_llm_base_url = llm_base_url
 	GameSession.ai_multi_agent_enabled = multi_agent_enabled
 	GameSession.ai_fast_tick_interval_sec = fast_tick_interval_sec
 	GameSession.ai_fast_timeout_sec = fast_timeout_sec
@@ -194,13 +153,7 @@ static func from_civ_select(
 	config.protocol = GameSettingsScript.normalize_protocol(String(GameSession.ai_protocol))
 	config.protocol_version = GameSettingsScript.protocol_to_version(config.protocol)
 	config.api_token = String(GameSession.ai_service_token).strip_edges()
-	config.backend = String(GameSession.ai_backend).strip_edges()
-	config.model = String(GameSession.ai_model).strip_edges()
-	config.max_tokens = int(GameSession.ai_max_tokens)
 	config.use_tick_batch = bool(GameSession.ai_use_tick_batch)
-	config.history_turns = int(GameSession.ai_history_turns)
-	config.log_observation = bool(GameSession.ai_log_observation)
-	config.llm_base_url = String(GameSession.ai_llm_base_url).strip_edges()
 	config.multi_agent_enabled = bool(GameSession.ai_multi_agent_enabled)
 	config.fast_tick_interval_sec = float(GameSession.ai_fast_tick_interval_sec)
 	config.fast_timeout_sec = float(GameSession.ai_fast_timeout_sec)
@@ -233,7 +186,8 @@ func uses_chat_protocol() -> bool:
 
 
 func uses_multi_agent_protocol() -> bool:
-	return not use_local_embedded and (protocol == PROTOCOL_V3_MULTI_AGENT or (multi_agent_enabled and uses_openai_backend()))
+	# Explicit v1 clients retain their tick schema; v2/v3 need no provider knowledge.
+	return not use_local_embedded and (protocol == PROTOCOL_V3_MULTI_AGENT or (multi_agent_enabled and protocol == PROTOCOL_V2_CHAT))
 
 
 func multi_agent_tick_url() -> String:

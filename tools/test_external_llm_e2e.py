@@ -21,6 +21,25 @@ import time
 from urllib.request import urlopen
 
 
+def mock_service_settings(logs: Path, upstream_url: str, model: str) -> tuple[Path, dict[str, str]]:
+    """Give each harness its own server settings, without user configuration."""
+    config = logs / "ai-service.toml"
+    config.write_text(
+        '[service]\nhost = "127.0.0.1"\napi_token = ""\nlog_observation = false\n\n'
+        '[llm]\nbackend = "openai"\n'
+        f'model = {json.dumps(model)}\nbase_url = {json.dumps(upstream_url)}\n'
+        'token = "test-dummy-never-paid"\nmax_tokens = 2048\ntemperature = 0.2\n'
+        'timeout_sec = 10\nnum_ctx = 8192\n', encoding="utf-8")
+    # Empty environment values do not override config.local.toml. Select the
+    # isolated config explicitly and remove all inherited provider overrides.
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("AOE2_AI_", "AOE2_LLM_"))}
+    # All seven roles must be observable within short opt-in/cancel tests.
+    # Keep the harness quota bounded and independent of the operator's quota.
+    env["AOE2_AI_MODEL_CALLS_PER_MINUTE"] = "12"
+    return config, env
+
+
 class MockStrategist:
     def __init__(self) -> None:
         self.calls = 0
@@ -31,6 +50,8 @@ class MockStrategist:
         self.samples: list[dict] = []
 
     def complete(self, payload: dict) -> dict:
+        if payload.get("model") != "mock-strategist":
+            raise ValueError("upstream model did not come from isolated server configuration")
         self.calls += 1
         tools = payload.get("tools", [])
         self.offered_strategy |= any(t.get("function", {}).get("name") == "set_strategy" for t in tools)
@@ -111,12 +132,8 @@ def main() -> int:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
     endpoint = f"http://127.0.0.1:{port}"
-    env = dict(os.environ)
-    # Explicit dummy credentials and loopback URL override inherited settings.
-    env.update(AOE2_AI_BACKEND="openai", AOE2_LLM_TOKEN="test-dummy-never-paid",
-               AOE2_LLM_BASE_URL=f"http://127.0.0.1:{upstream.server_port}/v1",
-               AOE2_AI_TOKEN="", AOE2_AI_LOG_OBSERVATION="false",
-               APPDATA=str(logs / "profile"))
+    config, env = mock_service_settings(logs, f"http://127.0.0.1:{upstream.server_port}/v1", "mock-strategist")
+    env.update(APPDATA=str(logs / "profile"))
     Path(env["APPDATA"]).mkdir()
     processes: list[subprocess.Popen] = []
     handles = []
@@ -131,9 +148,8 @@ def main() -> int:
         return process
 
     try:
-        service = launch([sys.executable, "main.py", "--host", "127.0.0.1", "--port", str(port),
-                          "--backend", "openai", "--llm-token", "test-dummy-never-paid",
-                          "--llm-base-url", env["AOE2_LLM_BASE_URL"]], "service", root / "ai_service_python")
+        service = launch([sys.executable, "main.py", "--config", str(config),
+                          "--host", "127.0.0.1", "--port", str(port)], "service", root / "ai_service_python")
         deadline = time.monotonic() + 15
         while True:
             if service.poll() is not None:

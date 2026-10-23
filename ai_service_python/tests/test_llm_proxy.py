@@ -69,7 +69,7 @@ def test_local_ollama_sends_schema_and_native_thinking_controls(monkeypatch):
     assert sent["model"] == "qwen3:8b-override"
     assert sent["format"] == PLAN_SCHEMA
     assert sent["think"] is False and sent["stream"] is False
-    assert sent["options"] == {"temperature": 0.0, "num_ctx": 8192, "num_predict": 256}
+    assert sent["options"] == {"temperature": 0.2, "num_ctx": 8192, "num_predict": 256}
     assert sent["keep_alive"] == "10m"
     assert "tools" not in sent and "tool_choice" not in sent and "max_tokens" not in sent
     assert "Return only the propose_plan arguments" in sent["messages"][0]["content"]
@@ -168,6 +168,7 @@ def test_native_context_setting_is_explicit_and_bounded(configured, expected, mo
     monkeypatch.setenv("AOE2_LLM_NUM_CTX", configured)
     req = plan_request()
     req.max_tokens = 100
+    monkeypatch.setenv("AOE2_LLM_MAX_TOKENS", "100")
     options = llm_proxy.build_openai_payload(req)["options"]
     assert options["num_ctx"] == expected
     assert options["num_predict"] == 100
@@ -177,3 +178,43 @@ def test_remote_openai_still_requires_token(monkeypatch):
     monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://api.openai.com/v1")
     with pytest.raises(RuntimeError, match="missing_llm_token"):
         llm_proxy.forward_openai(plan_request())
+
+
+def test_service_settings_ignore_legacy_client_overrides(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://service-provider.example/v1")
+    monkeypatch.setenv("AOE2_LLM_MODEL", "service-model")
+    monkeypatch.setenv("AOE2_LLM_MAX_TOKENS", "700")
+    monkeypatch.setenv("AOE2_LLM_TEMPERATURE", "0.4")
+    req = plan_request()
+    req.model = "untrusted-client-model"
+    req.max_tokens = 30000
+    req.temperature = 2
+    req.metadata = req.metadata.model_copy(update={
+        "backend": "rules_compat", "llm_base_url": "http://untrusted-client.example/v1",
+    })
+    before = req.model_dump()
+    assert llm_proxy.resolve_backend(req) == "openai"
+    assert llm_proxy.llm_base_url(req) == "https://service-provider.example/v1"
+    sent = llm_proxy.build_openai_payload(req)
+    assert sent["model"] == "service-model"
+    assert sent["temperature"] == 0.4
+    assert sent["max_tokens"] == 700
+    assert req.model_dump() == before
+
+
+def test_local_ollama_legacy_chat_needs_no_placeholder_token(monkeypatch):
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    req = plan_request()
+    req.tools = []
+    captured = {}
+
+    def post(url, headers, payload, timeout):
+        captured.update(url=url, headers=headers)
+        return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+    monkeypatch.setattr(llm_proxy, "post_openai", post)
+    response, _, _ = llm_proxy.forward_openai(req)
+    assert response.choices[0].message.content == "ok"
+    assert captured["url"] == "http://127.0.0.1:11434/v1/chat/completions"
+    assert "Authorization" not in captured["headers"]

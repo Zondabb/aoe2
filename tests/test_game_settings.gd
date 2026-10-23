@@ -8,6 +8,7 @@ func run() -> Array[String]:
 	var previous := Engine.time_scale
 	var previous_multiplayer_url: String = GameSession.online_server_url
 	var snap := _snapshot_ai_session()
+	_test_old_config_is_ignored(failures)
 
 	if not is_equal_approx(GameSettingsScript.clamp_speed(0.01), GameSettingsScript.MIN_SPEED):
 		failures.append("speed below min should clamp to MIN_SPEED")
@@ -41,10 +42,9 @@ func run() -> Array[String]:
 			var protocol := String(cfg.get_value("ai", "protocol", ""))
 			if GameSettingsScript.normalize_protocol(protocol) not in ["v1_tick", "v2_chat"]:
 				failures.append("packaged protocol should normalize to v1_tick or v2_chat")
-			if String(cfg.get_value("ai", "backend", "")).is_empty():
-				failures.append("packaged backend should parse as a non-empty string")
-			if String(cfg.get_value("ai", "model", "")).is_empty():
-				failures.append("packaged model should parse as a non-empty string")
+			for key in ["backend", "model", "max_tokens", "history_turns", "log_observation", "llm_base_url"]:
+				if cfg.has_section_key("ai", key):
+					failures.append("packaged game config must leave %s to Python" % key)
 
 	var ai := GameSettingsScript.load_ai_settings()
 	for key in GameSettingsScript.DEFAULT_AI.keys():
@@ -57,11 +57,12 @@ func run() -> Array[String]:
 		failures.append("timeout_sec should clamp to >= MIN_TIMEOUT_SEC")
 	if float(ai.get("tick_interval_sec", 0.0)) < GameSettingsScript.MIN_TICK_INTERVAL_SEC:
 		failures.append("tick_interval_sec should clamp to >= MIN_TICK_INTERVAL_SEC")
-	if int(ai.get("max_tokens", 0)) < GameSettingsScript.MIN_MAX_TOKENS:
-		failures.append("max_tokens should clamp to >= MIN_MAX_TOKENS")
+	for key in ["backend", "model", "max_tokens", "history_turns", "log_observation", "llm_base_url"]:
+		if ai.has(key):
+			failures.append("load_ai_settings must exclude upstream setting: %s" % key)
 	var proto := GameSettingsScript.normalize_protocol(String(ai.get("protocol", "")))
-	if proto != "v1_tick" and proto != "v2_chat":
-		failures.append("protocol should be v1_tick or v2_chat, got %s" % proto)
+	if proto not in ["v1_tick", "v2_chat", "v3_multi_agent"]:
+		failures.append("protocol should be a supported AI service protocol, got %s" % proto)
 	if GameSettingsScript.protocol_to_version("v2_chat") != 2:
 		failures.append("v2_chat should map to protocol version 2")
 	if GameSettingsScript.protocol_to_version("v1_tick") != 1:
@@ -77,6 +78,25 @@ func run() -> Array[String]:
 	GameSession.online_server_url = previous_multiplayer_url
 	Engine.time_scale = previous
 	return failures
+
+
+func _test_old_config_is_ignored(failures: Array[String]) -> void:
+	var path := "user://legacy_ai_settings_migration_test.cfg"
+	var cfg := ConfigFile.new()
+	cfg.set_value("ai", "service_url", "http://127.0.0.1:9876")
+	cfg.set_value("ai", "protocol", "v2_chat")
+	for pair in [["model", "old-model"], ["backend", "old-provider"], ["llm_base_url", "http://old-provider/v1"], ["max_tokens", 1], ["history_turns", 16], ["log_observation", true]]:
+		cfg.set_value("ai", pair[0], pair[1])
+	if cfg.save(path) != OK:
+		failures.append("cannot create legacy AI config fixture")
+		return
+	var loaded := GameSettingsScript.load_ai_settings(path)
+	DirAccess.remove_absolute(path)
+	if OS.get_environment("AOE2_AI_URL").is_empty() and loaded.service_url != "http://127.0.0.1:9876":
+		failures.append("legacy cfg should retain service connection settings")
+	for key in ["backend", "model", "max_tokens", "history_turns", "log_observation", "llm_base_url"]:
+		if loaded.has(key):
+			failures.append("old cfg must no longer control upstream setting: %s" % key)
 
 
 func _snapshot_ai_session() -> Dictionary:

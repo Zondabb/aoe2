@@ -1,0 +1,9 @@
+# Copy to config.local.toml. Only include settings you want to override.
+# Alternatively set AOE2_LLM_TOKEN and AOE2_AI_TOKEN in the service environment.
+[service]
+# api_token = "game-to-service-bearer-token"
+
+[llm]
+# model = "your-model"
+# base_url = "https://your-provider.example/v1"
+# token = "upstream-provider-api-token"

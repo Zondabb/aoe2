@@ -15,40 +15,23 @@ from protocol.models import (
     ChatUsage,
 )
 
-DEFAULT_OPENAI_BASE = "https://api.openai.com/v1"
-
-
 def is_openai_backend(name: str) -> bool:
     return name.strip().lower() in {"openai", "llm", "openai_compat"}
 
 
 def resolve_backend(req: ChatCompletionRequest) -> str:
-    env = runtime_settings.backend()
-    if env:
-        return env.lower()
-    extra = req.metadata.model_dump()
-    meta_backend = str(extra.get("backend", "")).strip()
-    if meta_backend:
-        return meta_backend.lower()
-    return "rules_compat"
+    # Legacy metadata remains accepted by the public protocol, but only the
+    # service operator chooses which backend and upstream endpoint are used.
+    return runtime_settings.backend().lower()
 
 
 def upstream_model(req: ChatCompletionRequest) -> str:
-    """Model name actually sent upstream. CLI/env override wins over the game."""
-    override = runtime_settings.llm_model()
-    return override or req.model
+    """The public request model is a protocol label, never an upstream override."""
+    return runtime_settings.llm_model()
 
 
 def llm_base_url(req: ChatCompletionRequest | None = None) -> str:
-    env = runtime_settings.llm_base_url()
-    if env:
-        return env.rstrip("/")
-    if req is not None:
-        extra = req.metadata.model_dump()
-        meta_url = str(extra.get("llm_base_url", "")).strip()
-        if meta_url:
-            return meta_url.rstrip("/")
-    return DEFAULT_OPENAI_BASE.rstrip("/")
+    return runtime_settings.llm_base_url().rstrip("/")
 
 
 def llm_token() -> str:
@@ -85,16 +68,10 @@ def _tools_payload(req: ChatCompletionRequest) -> list[dict[str, Any]]:
     return [tool.model_dump() for tool in req.tools]
 
 
-def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
-    """Use native structured output only for a local Ollama role-plan request."""
-    if len(req.tools) != 1 or req.tools[0].function.name != "propose_plan":
-        return None
-    choice = req.tool_choice
-    if (not isinstance(choice, dict) or choice.get("type") != "function"
-            or choice.get("function") != {"name": "propose_plan"}):
-        return None
+def _local_ollama_base_url() -> str | None:
+    """Only the conventional loopback Ollama endpoint allows tokenless calls."""
     try:
-        base = urlsplit(llm_base_url(req))
+        base = urlsplit(llm_base_url())
         if (base.scheme not in {"http", "https"}
                 or base.hostname not in {"localhost", "127.0.0.1", "::1"}
                 or base.port != 11434 or base.path not in {"", "/v1"}
@@ -103,15 +80,19 @@ def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
             return None
     except ValueError:
         return None
-    return f"{base.scheme}://{base.netloc}/api/chat"
+    return f"{base.scheme}://{base.netloc}"
 
 
-def _ollama_num_ctx() -> int:
-    raw = runtime_settings.get_value("llm_num_ctx", "AOE2_LLM_NUM_CTX", default="8192")
-    try:
-        return max(2048, min(32768, int(raw)))
-    except ValueError:
-        return 8192
+def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
+    """Use native structured output only for a local Ollama role-plan request."""
+    if len(req.tools) != 1 or req.tools[0].function.name != "propose_plan":
+        return None
+    choice = req.tool_choice
+    if (not isinstance(choice, dict) or choice.get("type") != "function"
+            or choice.get("function") != {"name": "propose_plan"}):
+        return None
+    base = _local_ollama_base_url()
+    return f"{base}/api/chat" if base else None
 
 
 def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
@@ -131,9 +112,9 @@ def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
         # qwen3 can consume the entire generation budget on hidden reasoning.
         "think": False,
         "options": {
-            "temperature": req.temperature,
-            "num_ctx": _ollama_num_ctx(),
-            "num_predict": max(1, min(256, req.max_tokens)),
+            "temperature": runtime_settings.llm_temperature(),
+            "num_ctx": runtime_settings.llm_num_ctx(),
+            "num_predict": min(256, runtime_settings.llm_max_tokens()),
         },
         "keep_alive": "10m",
     }
@@ -147,8 +128,8 @@ def build_openai_payload(req: ChatCompletionRequest) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
         "stream": False,
-        "temperature": req.temperature,
-        "max_tokens": req.max_tokens,
+        "temperature": runtime_settings.llm_temperature(),
+        "max_tokens": runtime_settings.llm_max_tokens(),
         "messages": _messages_payload(req),
         "tool_choice": req.tool_choice,
     }
@@ -162,7 +143,7 @@ def forward_openai(
 ) -> tuple[ChatCompletionResponse, dict[str, Any], dict[str, Any]]:
     token = llm_token()
     native_url = _ollama_plan_url(req)
-    if not token and native_url is None:
+    if not token and _local_ollama_base_url() is None:
         raise RuntimeError("missing_llm_token")
     url = native_url or f"{llm_base_url(req)}/chat/completions"
     payload = build_openai_payload(req)

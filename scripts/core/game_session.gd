@@ -25,17 +25,18 @@ var ai_chat_url := ""
 var ai_service_timeout_sec := 2.0
 var ai_tick_interval_sec := 0.5
 var ai_use_local_embedded := true
-## v1_tick | v2_chat | v3_multi_agent (external OpenAI can opt in independently).
+## v1_tick | v2_chat | v3_multi_agent (external Python service owns model selection).
 var ai_protocol := "v1_tick"
 ## 与 ai_protocol 同步的整数版本（tick 载荷 protocol_version）。
 var ai_protocol_version := 1
-## Bearer token（cfg api_token / AOE2_AI_TOKEN / UI）。
+## Python AI 服务访问凭据（cfg api_token / AOE2_AI_TOKEN / UI），不是模型 API key。
 var ai_service_token := ""
+## Legacy in-memory compatibility only; never loaded from cfg or forwarded upstream.
 var ai_backend := "rules_compat"
 var ai_model := "aoe2-rules-v1"
 var ai_max_tokens := 2048
 var ai_use_tick_batch := true
-## Recent assistant summaries kept per team (0 = off).
+## Legacy field; strategic memory is maintained by the Python service.
 var ai_history_turns := 0
 var ai_log_observation := false
 var ai_llm_base_url := ""

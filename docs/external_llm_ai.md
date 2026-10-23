@@ -113,28 +113,35 @@ Python 每批最多生成 36 条动作，按批次扣减资源和人口预算，
 
 ## 配置与运行
 
-游戏继续使用现有配置文件。启用外部 LLM 的关键项：
+游戏只配置 Python 服务连接和控制节奏：
 
 ```ini
 [ai]
 protocol="v2_chat"
 use_local_embedded=false
 service_url="http://127.0.0.1:8765"
-backend="openai"
-model="与你的上游服务匹配的模型名"
 timeout_sec=120
 tick_interval_sec=10
-max_tokens=2048
-history_turns=0
 ```
 
-在 `ai_service_python` 目录启动服务，使用已有 token 文件或环境变量配置上游密钥，不把密钥写入游戏仓库：
+模型和生成参数改为服务目录 `ai_service_python/config.toml` 的 `[llm]` 配置：
+
+```toml
+[llm]
+backend = "openai"
+model = "与你的上游服务匹配的模型名"
+base_url = "https://你的服务/v1"
+max_tokens = 2048
+temperature = 0.2
+```
+
+私有密钥使用同目录 `config.local.toml` 的 `[llm].token`、环境变量，或已有 token 文件；游戏的 `api_token` 仅为访问 Python 服务的凭据。在服务目录启动：
 
 ```powershell
-.venv\Scripts\python.exe main.py --host 127.0.0.1 --port 8765 --backend openai --llm-base-url https://你的服务/v1 --llm-token-file token.txt
+.venv\Scripts\python.exe main.py --llm-token-file token.txt
 ```
 
-实际模型名与兼容 API 地址应与所用服务一致，完整启动方式见 [Python 服务 README](../ai_service_python/README.md)。更新代码后需要重启 Python 服务，再从 Godot 编辑器开始新对局。`logs/llm.log` 记录发给模型的决策提示、模型工具调用及最终发给游戏的动作；控制台继续显示游戏命令摘要。
+实际模型名与兼容 API 地址应与所用服务一致，完整配置及覆盖优先级见 [Python 服务 README](../ai_service_python/README.md)。旧游戏配置中的上游字段不再生效。更新代码或配置后需要重启 Python 服务，再从 Godot 编辑器开始新对局。`logs/llm.log` 记录发给模型的决策提示、模型工具调用及最终发给游戏的动作；控制台继续显示游戏命令摘要。
 
 ### 单人与联机：随时开关自己的 AI 托管
 

@@ -14,6 +14,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from brain import runtime_settings
+
+# uvicorn imports the module directly; the CLI entrypoint below selects its
+# --config first so it can override an invalid environment/default file.
+if __name__ != "__main__":
+    runtime_settings.load_config()
+
 from brain.director import AiDirector
 from brain.llm_commander import LlmCommander
 from brain.multi_agent.scheduler import MultiAgentService, SessionError
@@ -275,10 +281,7 @@ def tick_batch(req: TickBatchRequest) -> TickBatchResponse:
 
 
 def _log_observation_enabled(req: ChatCompletionRequest) -> bool:
-    if os.environ.get("AOE2_AI_LOG_OBSERVATION", "").strip().lower() in {"1", "true", "yes"}:
-        return True
-    extra = req.metadata.model_dump()
-    return bool(extra.get("log_observation"))
+    return runtime_settings.log_observation()
 
 
 def _maybe_log_observation(req: ChatCompletionRequest) -> None:
@@ -492,15 +495,13 @@ def chat_completions_batch(req: ChatCompletionBatchRequest) -> ChatCompletionBat
 def _log_startup(host: str, port: int) -> None:
     token = runtime_settings.llm_token()
     logger.info(
-        '{"event":"startup","listen":"%s:%d","backend":"%s","llm_base_url":"%s","llm_token":"%s"}',
+        '{"event":"startup","listen":"%s:%d","backend":"%s","llm_model":"%s","llm_token":"%s"}',
         host,
         port,
-        runtime_settings.backend() or "(from request)",
-        runtime_settings.llm_base_url() or "(from request)",
+        runtime_settings.backend(),
+        runtime_settings.llm_model(),
         runtime_settings.mask_secret(token),
     )
-    if not token:
-        logger.warning("missing --llm-token; openai backend will fail with missing_llm_token")
 
 
 if __name__ == "__main__":
