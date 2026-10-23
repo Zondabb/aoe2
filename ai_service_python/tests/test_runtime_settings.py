@@ -176,3 +176,32 @@ def test_malformed_config_does_not_disclose_secret(tmp_path):
 def test_generation_parameters_are_finite_and_bounded(name, configured, expected):
     runtime_settings.set_cli(**{name: configured})
     assert getattr(runtime_settings, name)() == expected
+
+
+def test_service_log_directory_follows_config_and_override_precedence(monkeypatch, tmp_path):
+    config = tmp_path / "model-a.toml"
+    config.write_text('[service]\nlog_dir="logs/model-a"\n', encoding="utf-8")
+    runtime_settings.load_config(config)
+    monkeypatch.chdir(tmp_path.parent)
+    assert runtime_settings.log_dir() == tmp_path / "logs" / "model-a"
+    monkeypatch.setenv("AOE2_AI_LOG_DIR", "logs/environment")
+    assert runtime_settings.log_dir() == tmp_path / "logs" / "environment"
+    args = runtime_settings.build_parser().parse_args(["--config", str(config), "--log-dir", "logs/cli"])
+    runtime_settings.apply_args(args)
+    assert runtime_settings.log_dir() == tmp_path / "logs" / "cli"
+
+
+def test_two_service_processes_write_separate_model_logs(tmp_path):
+    for model in ("model-a", "model-b"):
+        config = tmp_path / f"{model}.toml"
+        config.write_text(f'[service]\nlog_dir="logs/{model}"\n[llm]\nbackend="rules_compat"\n', encoding="utf-8")
+        env = dict(os.environ, AOE2_AI_CONFIG=str(config), PYTHONPATH=str(runtime_settings.SERVICE_DIR))
+        script = ("import main; "
+                  f"main._write_multi_agent_event('isolation', {{'model': {model!r}}}); "
+                  f"main._write_llm_json('isolation', {{'model': {model!r}}})")
+        subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env,
+                       capture_output=True, text=True, check=True)
+    for model, other in (("model-a", "model-b"), ("model-b", "model-a")):
+        for name in ("multi_agent.jsonl", "llm.log"):
+            content = (tmp_path / "logs" / model / name).read_text(encoding="utf-8")
+            assert model in content and other not in content

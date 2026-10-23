@@ -7,7 +7,6 @@ import os
 import threading
 import time
 from time import time as wall_time
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -48,7 +47,6 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("ai_service")
-_LLM_LOG_DIR = Path(__file__).resolve().parent / "logs"
 _file_log_lock = threading.Lock()
 
 
@@ -57,8 +55,9 @@ def _write_multi_agent_event(event: str, data: dict[str, Any]) -> None:
     log = logging.getLogger("ai_service.multi_agent_file")
     with _file_log_lock:
         if not log.handlers:
-            _LLM_LOG_DIR.mkdir(parents=True, exist_ok=True)
-            handler = RotatingFileHandler(_LLM_LOG_DIR / "multi_agent.jsonl", maxBytes=20_000_000,
+            log_dir = runtime_settings.log_dir()
+            log_dir.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(log_dir / "multi_agent.jsonl", maxBytes=20_000_000,
                                           backupCount=3, encoding="utf-8")
             handler.setFormatter(logging.Formatter("%(message)s"))
             log.addHandler(handler)
@@ -324,8 +323,9 @@ def _log_chat(
 def _llm_file_logger() -> logging.Logger:
     log = logging.getLogger("ai_service.llm_file")
     if not log.handlers:
-        _LLM_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(_LLM_LOG_DIR / "llm.log", encoding="utf-8")
+        log_dir = runtime_settings.log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "llm.log", encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"))
         log.addHandler(handler)
         log.setLevel(logging.INFO)

@@ -6,6 +6,7 @@ signal state_changed
 const Gateway := preload("res://scripts/ai_gateway/ai_gateway.gd")
 const Config := preload("res://scripts/ai_gateway/ai_config.gd")
 const Commands := preload("res://scripts/input/player_commands.gd")
+const Settings := preload("res://scripts/core/game_settings.gd")
 
 var match_state: MatchState
 var entities: Node2D
@@ -75,7 +76,7 @@ func set_team_enabled(team: int, value: bool) -> bool:
 		return true
 	if _gateways.has(team):
 		return true
-	var config := external_config()
+	var config := external_config(team)
 	var gateway := Gateway.new()
 	# Unique nodes prevent a cancelled, queued-for-deletion instance from being reused.
 	add_child(gateway)
@@ -89,7 +90,7 @@ func set_team_enabled(team: int, value: bool) -> bool:
 	return true
 
 
-static func external_config() -> AiConfig:
+static func external_config(team: int = -1) -> AiConfig:
 	var config := Config.from_game_session()
 	config.use_local_embedded = false
 	config.protocol = Config.PROTOCOL_V2_CHAT
@@ -97,12 +98,57 @@ static func external_config() -> AiConfig:
 	config.use_tick_batch = false
 	if config.service_url.is_empty():
 		config.service_url = Config.default_service_url()
+	if team in [0, 1]:
+		var team_url := Settings.normalize_ai_service_url(str(GameSession.ai_team_service_urls.get(team, "")))
+		var shared_url := Settings.normalize_ai_service_url(config.service_url)
+		config.service_url = team_url if not team_url.is_empty() else shared_url
+		if config.service_url.is_empty():
+			config.service_url = Config.default_service_url()
+		var token := str(GameSession.ai_team_service_tokens.get(team, "")).strip_edges()
+		if not token.is_empty():
+			config.api_token = token
+		# A shared legacy chat endpoint must not redirect a team's selected service.
+		config.chat_url = ""
 	config.finalize_urls()
 	return config
 
 
+func team_service_url(team: int) -> String:
+	if team not in [0, 1]:
+		return ""
+	if online and local_team != 0:
+		return str(_states[str(team)].get("service_url", ""))
+	return external_config(team).service_url
+
+
+func request_team_service_url(team: int, url: String) -> bool:
+	# A guest cannot turn the host into an HTTP proxy, even for its own team.
+	if team not in [0, 1] or _ended or (online and local_team != 0):
+		return false
+	if not online and team != local_team:
+		return false
+	var normalized := Settings.normalize_ai_service_url(url)
+	if normalized.is_empty():
+		return false
+	if normalized == team_service_url(team):
+		return true
+	var was_enabled := bool(_states[str(team)].enabled)
+	# Stop cancels requests and invalidates callbacks before the replacement is started.
+	_remove_gateway(team)
+	GameSession.ai_team_service_urls[team] = normalized
+	_set_state(team, false, "off", "手动操作")
+	if was_enabled:
+		if not set_team_enabled(team, true):
+			_set_state(team, false, "error", "服务地址已更新，请重新开启托管")
+	state_changed.emit()
+	return true
+
+
 func capture_states() -> Dictionary:
-	return _states.duplicate(true)
+	var result := _states.duplicate(true)
+	for team in [0, 1]:
+		result[str(team)]["service_url"] = team_service_url(team)
+	return result
 
 
 func apply_remote_states(states: Dictionary) -> void:

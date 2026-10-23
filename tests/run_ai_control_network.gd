@@ -115,6 +115,13 @@ func _run() -> void:
 	var packet: Dictionary = JSON.parse_string(JSON.stringify(host.capture_snapshot()))
 	check(guest.apply_snapshot(packet, 1), "AI control snapshot survives JSON transport")
 	check(replica.remote_updates == 1 and replica.states == control.states, "guest UI receives canonical states for both teams")
+	var configured := packet.duplicate(true)
+	configured.ai_control["0"]["service_url"] = "http://127.0.0.1:8765"
+	configured.ai_control["1"]["service_url"] = "http://127.0.0.1:8766"
+	var configured_guest := runtime(false)
+	check(configured_guest.apply_snapshot(configured, 1), "independent team service URLs survive snapshot validation")
+	check(configured_guest.get_parent().get_node("PlayerAiControl").states["1"].service_url == "http://127.0.0.1:8766", "guest receives its host-selected AI service URL")
+	configured_guest.get_parent().free()
 	var food: int = guest.match_state.resources[0][0]
 	var malformed: Array = [
 		[], {}, {"0": packet.ai_control["0"]},
@@ -131,6 +138,13 @@ func _run() -> void:
 	var extra_team: Dictionary = packet.ai_control.duplicate(true)
 	extra_team["2"] = packet.ai_control["0"]
 	malformed.append(extra_team)
+	for invalid_url in [null, 8766, "http://user:secret@example.com", "file:///etc/passwd", "http://localhost:8766/#fragment", "x".repeat(2049)]:
+		var bad: Dictionary = configured.ai_control.duplicate(true)
+		bad["1"].service_url = invalid_url
+		malformed.append(bad)
+	var with_token: Dictionary = configured.ai_control.duplicate(true)
+	with_token["1"]["api_token"] = "must-not-sync"
+	malformed.append(with_token)
 	for value in malformed:
 		var invalid := packet.duplicate(true)
 		invalid.ai_control = value

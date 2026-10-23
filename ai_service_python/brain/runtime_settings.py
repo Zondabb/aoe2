@@ -15,7 +15,7 @@ _config_path = DEFAULT_CONFIG_PATH
 _loaded = False
 _KEYS = {
     "service": {"host": "host", "port": "port", "api_token": "ai_token",
-                "log_observation": "log_observation"},
+                "log_observation": "log_observation", "log_dir": "log_dir"},
     "llm": {"backend": "backend", "model": "llm_model", "base_url": "llm_base_url",
             "token": "llm_token", "max_tokens": "llm_max_tokens", "temperature": "llm_temperature",
             "timeout_sec": "llm_timeout_sec", "num_ctx": "llm_num_ctx"},
@@ -135,6 +135,11 @@ def log_observation() -> bool:
     return get_value("log_observation", "AOE2_AI_LOG_OBSERVATION", default="false").lower() in {"1", "true", "yes", "on"}
 
 
+def log_dir() -> Path:
+    path = Path(get_value("log_dir", "AOE2_AI_LOG_DIR", default="logs")).expanduser()
+    return path.resolve() if path.is_absolute() else (config_path().parent / path).resolve()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="AoE2 RTS AI HTTP service")
     parser.add_argument("--config", default="", help="Server TOML settings (default: service directory/config.toml)")
@@ -149,6 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--llm-temperature", default="", help="Upstream sampling temperature")
     parser.add_argument("--llm-num-ctx", default="", help="Local Ollama context window")
     parser.add_argument("--log-observation", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--log-dir", default="", help="Log directory (relative to the selected config file)")
     parser.add_argument("--ai-token", default="", help="Optional Bearer token required from the game")
     parser.add_argument("--backend", default="", help="Backend: openai | rules_compat")
     return parser
@@ -166,7 +172,7 @@ def apply_args(args: argparse.Namespace) -> None:
         token = lines[0].strip() if lines else ""
     clear_cli()
     for key in ("host", "port", "llm_base_url", "llm_model", "llm_timeout_sec", "llm_max_tokens",
-                "llm_temperature", "llm_num_ctx", "ai_token", "backend", "log_observation"):
+                "llm_temperature", "llm_num_ctx", "ai_token", "backend", "log_observation", "log_dir"):
         set_cli(**{key: getattr(args, key, None)})
     set_cli(llm_token=token)
     args.host = get_value("host", "AOE2_AI_HOST", default="127.0.0.1")

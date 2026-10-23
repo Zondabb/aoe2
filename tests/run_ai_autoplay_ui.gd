@@ -6,6 +6,21 @@ class MockController extends Node:
 	signal state_changed
 	var state := {"enabled": false, "status": "off", "message": "", "available": true}
 	var requests: Array[bool] = []
+	var routes := {0: "http://127.0.0.1:8765", 1: "http://127.0.0.1:8766"}
+	var route_requests: Array = []
+	var remote_state := {"enabled": false, "status": "off", "message": "", "available": true}
+	func capture_states() -> Dictionary:
+		return {"0": state, "1": remote_state}
+	func team_service_url(team: int) -> String:
+		return routes.get(team, "")
+	func request_team_service_url(team: int, url: String) -> bool:
+		route_requests.append([team, url])
+		var game := get_node("/root/GameSession")
+		if game.local_team() != 0 or not url.begins_with("http://"):
+			return false
+		routes[team] = url.trim_suffix("/")
+		state_changed.emit()
+		return true
 	func local_state() -> Dictionary:
 		return state
 	func request_local_enabled(value: bool) -> bool:
@@ -77,8 +92,45 @@ func _run() -> void:
 	_check(label.tooltip_text.contains("127.0.0.1:8765"), "错误详情提供真实服务地址")
 	var game := root.get_node("GameSession")
 	game.online_active = true
+	game.online_team = 0
 	controller.update({"status": "off"})
 	_check(checkbox.tooltip_text.contains("主机") and checkbox.tooltip_text.contains("自己的"), "联机提示说明主机服务与自己的队伍")
+	var settings := control.get_node("Panel/Row/ServiceSettings") as Button
+	var service_panel := control.get_node("ServicePanel") as Control
+	_check(settings.visible and not service_panel.visible, "联机服务地址默认折叠，减少地图遮挡")
+	settings.button_pressed = true
+	await process_frame
+	var host_row := control.get_node("ServicePanel/Contents/Team0") as Control
+	var guest_row := control.get_node("ServicePanel/Contents/Team1") as Control
+	var host_address := host_row.get_node("Address") as LineEdit
+	var guest_address := guest_row.get_node("Address") as LineEdit
+	var note := control.get_node("ServicePanel/Contents/Note") as Label
+	_check(service_panel.visible and host_row.visible and guest_row.visible and host_address.editable and guest_address.editable, "主机可分别配置双方的 Python 服务地址")
+	_check(host_address.text.ends_with(":8765") and guest_address.text.ends_with(":8766"), "双方独立显示实际服务地址")
+	_check(note.text.contains("127.0.0.1") and note.text.contains("主机"), "说明服务地址从主机访问")
+	controller.remote_state.merge({"status": "error", "message": "连接失败：8766"}, true)
+	controller.update({"status": "off"})
+	_check(control.get_node("ServicePanel/Contents/Team1Status").text.contains("8766"), "主机能看到客端队伍的服务连接失败原因")
+	guest_address.text = "http://127.0.0.1:8877/"
+	guest_address.text_changed.emit(guest_address.text)
+	controller.update({"status": "connecting"})
+	_check(guest_address.text.ends_with(":8877/"), "托管状态刷新保留尚未应用的地址编辑")
+	guest_row.get_node("Apply").pressed.emit()
+	_check(controller.routes[1] == "http://127.0.0.1:8877" and guest_address.text.ends_with(":8877") and note.text.contains("已应用"), "应用时保存所选队伍的地址并显示标准化地址")
+	host_address.text = "invalid"
+	host_row.get_node("Apply").pressed.emit()
+	_check(controller.routes[0].ends_with(":8765") and note.text.contains("地址无效"), "地址拒绝时保留实际配置并显示失败原因")
+	for width in [480, 640, 1280]:
+		control.size.x = width
+		await process_frame
+		_check(service_panel.position.x + service_panel.size.x <= width, "地址面板在 %d 宽度内完整显示" % width)
+	game.online_team = 1
+	controller.update({"status": "off"})
+	_check(not host_row.visible and guest_row.visible and not guest_address.editable and not guest_row.get_node("Apply").visible, "客端只看自己实际地址，不能编辑或应用地址")
+	_check(not checkbox.disabled and not checkbox.button_pressed, "客端仍能开关自己的 AI 托管")
+	controller.routes[1] = "http://host.example:8890"
+	controller.update({"status": "off"})
+	_check(guest_address.text == "http://host.example:8890", "客端显示主机最新同步的服务地址")
 	var screenshot_path := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--screenshot="):
@@ -91,6 +143,7 @@ func _run() -> void:
 	controller.update({"enabled": false, "status": "ended", "available": false})
 	_check(checkbox.disabled and not checkbox.button_pressed and label.text == "对局结束", "对局结束不能重开托管")
 	game.online_active = false
+	game.online_team = 0
 	match_root.queue_free()
 	await process_frame
 	print("AI autoplay UI: %d checks, %d failures" % [_checks, _failures])

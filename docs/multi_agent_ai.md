@@ -4,6 +4,8 @@
 
 ## 启动与切换
 
+联机支持主机为两队分别指定服务地址，可用不同配置启动两个 Python 进程进行模型对战，详见 [LLM 模型对战说明](llm_model_comparison.md)。
+
 模型、上游地址、密钥、后端和生成参数统一配置在 `ai_service_python/config.toml`，私有覆盖使用同目录 `config.local.toml`，完整格式见 [Python 服务配置](../ai_service_python/README.md#服务配置)。重启服务后从 Godot 编辑器开始新对局。游戏只通过 `data/game_settings.cfg` 配置 AI 服务连接与控制节奏；`user://game_settings.cfg` 等已有覆盖配置优先，修改默认文件后也要检查覆盖文件。
 
 ```ini

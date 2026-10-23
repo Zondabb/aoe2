@@ -711,10 +711,22 @@ func _stop_ai_control() -> void:
 func _valid_ai_control(value: Variant) -> bool:
 	if value is not Dictionary or value.size() != 2 or not value.has("0") or not value.has("1"):
 		return false
+	# Load at validation time to avoid an autoload initialization cycle through
+	# GameSettings -> GameSession when this network script is preloaded.
+	var settings: Script = load("res://scripts/core/game_settings.gd")
 	for team_key in ["0", "1"]:
 		var state: Variant = value[team_key]
-		if state is not Dictionary or state.size() != 3 or state.get("enabled") is not bool:
+		if state is not Dictionary or state.size() not in [3, 4] or state.get("enabled") is not bool:
 			return false
+		# New hosts advertise only a public service URL, never credentials. Keep
+		# older three-field ownership snapshots compatible.
+		if state.size() == 4 and not state.has("service_url"):
+			return false
+		if state.has("service_url"):
+			if state.service_url is not String or String(state.service_url).length() > 2048:
+				return false
+			if not String(state.service_url).is_empty() and str(settings.normalize_ai_service_url(state.service_url)).is_empty():
+				return false
 		if state.get("status") is not String or String(state.status).length() > 64:
 			return false
 		if state.get("message") is not String or String(state.message).length() > 256:

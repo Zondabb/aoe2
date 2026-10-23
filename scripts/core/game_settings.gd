@@ -18,6 +18,10 @@ const DEFAULT_AI := {
 	"service_url": "",
 	"chat_url": "",
 	"api_token": "",
+	"team_0_service_url": "",
+	"team_1_service_url": "",
+	"team_0_api_token": "",
+	"team_1_api_token": "",
 	"timeout_sec": 2.0,
 	"tick_interval_sec": 0.5,
 	"protocol": "v1_tick",
@@ -82,6 +86,11 @@ static func load_ai_settings(config_path: String = "") -> Dictionary:
 		out["service_url"] = String(cfg.get_value("ai", "service_url", out["service_url"])).strip_edges()
 		out["chat_url"] = String(cfg.get_value("ai", "chat_url", out["chat_url"])).strip_edges()
 		out["api_token"] = String(cfg.get_value("ai", "api_token", out["api_token"])).strip_edges()
+		for team in [0, 1]:
+			var url_key := "team_%d_service_url" % team
+			var token_key := "team_%d_api_token" % team
+			out[url_key] = normalize_ai_service_url(String(cfg.get_value("ai", url_key, "")))
+			out[token_key] = String(cfg.get_value("ai", token_key, "")).strip_edges()
 		out["timeout_sec"] = clampf(
 			float(cfg.get_value("ai", "timeout_sec", out["timeout_sec"])),
 			MIN_TIMEOUT_SEC,
@@ -109,6 +118,9 @@ static func apply_ai_to_game_session() -> Dictionary:
 	GameSession.ai_service_url = String(ai["service_url"])
 	GameSession.ai_chat_url = String(ai["chat_url"])
 	GameSession.ai_service_token = String(ai["api_token"])
+	for team in [0, 1]:
+		GameSession.ai_team_service_urls[team] = String(ai["team_%d_service_url" % team])
+		GameSession.ai_team_service_tokens[team] = String(ai["team_%d_api_token" % team])
 	GameSession.ai_service_timeout_sec = float(ai["timeout_sec"])
 	GameSession.ai_tick_interval_sec = float(ai["tick_interval_sec"])
 	GameSession.ai_protocol = String(ai["protocol"])
@@ -172,6 +184,63 @@ static func normalize_multiplayer_settings(settings: Dictionary) -> Dictionary:
 		push_warning("GameSettings: multiplayer.port must be 1..65535; using 8001")
 	var raw_tls: Variant = settings.get("use_tls", false)
 	return {"host": host, "port": port, "use_tls": raw_tls if raw_tls is bool else false}
+
+
+## Service root only: no credentials, paths, query, fragments or ambiguous authorities.
+## Both loopback and LAN addresses are intentional: requests run on the match host.
+static func normalize_ai_service_url(raw: String) -> String:
+	var url := raw.strip_edges()
+	if url.length() > 2048:
+		return ""
+	for forbidden in ["\\", "@", "?", "#", "%", " ", "\t", "\r", "\n"]:
+		if url.contains(forbidden):
+			return ""
+	var parts := url.split("://")
+	if parts.size() != 2 or parts[0].to_lower() not in ["http", "https"]:
+		return ""
+	var authority: String = parts[1].trim_suffix("/")
+	if authority.is_empty() or authority.contains("/"):
+		return ""
+	var host := ""
+	var port := ""
+	if authority.begins_with("["):
+		var end := authority.find("]")
+		if end < 0:
+			return ""
+		host = authority.substr(1, end - 1)
+		if not host.contains(":") or not host.is_valid_ip_address():
+			return ""
+		var rest := authority.substr(end + 1)
+		if not rest.is_empty():
+			if not rest.begins_with(":"):
+				return ""
+			port = rest.substr(1)
+			if port.is_empty():
+				return ""
+		host = "[%s]" % host.to_lower()
+	else:
+		var host_parts := authority.split(":")
+		if host_parts.size() > 2:
+			return ""
+		host = host_parts[0].to_lower()
+		if host.length() > 253 or host.is_empty():
+			return ""
+		if host_parts.size() == 2:
+			port = host_parts[1]
+			if port.is_empty():
+				return ""
+		var label_pattern := RegEx.create_from_string("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+		for label in host.split("."):
+			if label.length() > 63 or label_pattern.search(label) == null:
+				return ""
+		var numeric_host := RegEx.create_from_string("^[0-9.]+$")
+		if numeric_host.search(host) != null and not host.is_valid_ip_address():
+			return ""
+	if not port.is_empty():
+		var digits := RegEx.create_from_string("^[0-9]+$")
+		if digits.search(port) == null or int(port) < 1 or int(port) > 65535:
+			return ""
+	return "%s://%s%s" % [parts[0].to_lower(), host, "" if port.is_empty() else ":%d" % int(port)]
 
 
 static func multiplayer_server_url(settings: Dictionary) -> String:

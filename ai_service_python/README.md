@@ -20,6 +20,8 @@ fast_timeout_sec=3.0
 
 ## 服务配置
 
+两份配置启动两个服务、在联机中分别指定队伍地址进行模型对战，见 [LLM 模型对战说明](../docs/llm_model_comparison.md)。
+
 编辑服务目录的 `config.toml`，重启 Python 服务后生效。从其他工作目录启动时也会读取这个文件：
 
 ```toml
@@ -114,6 +116,7 @@ python main.py --host 127.0.0.1 --port 8765 --backend openai \
 | `--llm-max-tokens` / `--llm-temperature` | 覆盖生成预算和采样温度 |
 | `--llm-num-ctx` | 覆盖本机 Ollama 上下文窗口 |
 | `--log-observation` / `--no-log-observation` | 启用或关闭观察摘要日志 |
+| `--log-dir` | 日志目录；相对路径以所选配置文件目录为起点，两个服务应使用不同目录 |
 | `--backend` | 强制 `openai` 或 `rules_compat` |
 | `--ai-token` | 游戏访问本服务时的 Bearer（可选） |
 

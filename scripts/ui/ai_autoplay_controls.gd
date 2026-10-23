@@ -5,6 +5,11 @@ var _controller: Node
 var _panel: PanelContainer
 var _check: CheckBox
 var _status: Label
+var _service_button: Button
+var _service_panel: PanelContainer
+var _service_rows: Dictionary = {}
+var _service_note: Label
+var _route_message := ""
 
 
 func _ready() -> void:
@@ -47,9 +52,120 @@ func _ready() -> void:
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(_status)
+	_service_button = Button.new()
+	_service_button.name = "ServiceSettings"
+	_service_button.text = "AI 地址"
+	_service_button.toggle_mode = true
+	_service_button.visible = false
+	_service_button.toggled.connect(_on_service_panel_toggled)
+	row.add_child(_service_button)
+	_build_service_panel(style)
 	resized.connect(_sync_layout)
 	_sync_layout()
 	call_deferred("_bind_controller")
+
+
+func _build_service_panel(style: StyleBoxFlat) -> void:
+	_service_panel = PanelContainer.new()
+	_service_panel.name = "ServicePanel"
+	_service_panel.visible = false
+	_service_panel.add_theme_stylebox_override("panel", style.duplicate())
+	add_child(_service_panel)
+	var contents := VBoxContainer.new()
+	contents.name = "Contents"
+	contents.add_theme_constant_override("separation", 4)
+	_service_panel.add_child(contents)
+	for team in [0, 1]:
+		var row := HBoxContainer.new()
+		row.name = "Team%d" % team
+		contents.add_child(row)
+		var label := Label.new()
+		label.text = "主机 AI" if team == 0 else "客端 AI"
+		label.add_theme_font_size_override("font_size", 13)
+		row.add_child(label)
+		var address := LineEdit.new()
+		address.name = "Address"
+		address.placeholder_text = "http://127.0.0.1:8765"
+		address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		address.custom_minimum_size.x = 80
+		address.add_theme_font_size_override("font_size", 13)
+		address.add_theme_color_override("font_uneditable_color", Color("e0d0a7"))
+		address.text_submitted.connect(func(_value: String) -> void: _apply_service_url(team))
+		row.add_child(address)
+		var apply := Button.new()
+		apply.name = "Apply"
+		apply.text = "应用"
+		apply.pressed.connect(_apply_service_url.bind(team))
+		row.add_child(apply)
+		var status := Label.new()
+		status.name = "Team%dStatus" % team
+		status.add_theme_font_size_override("font_size", 12)
+		status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		contents.add_child(status)
+		_service_rows[team] = {"row": row, "address": address, "apply": apply, "status": status}
+	_service_note = Label.new()
+	_service_note.name = "Note"
+	_service_note.add_theme_font_size_override("font_size", 12)
+	_service_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	contents.add_child(_service_note)
+
+
+func _on_service_panel_toggled(open: bool) -> void:
+	_service_panel.visible = open and _service_button.visible
+	_sync_layout()
+
+
+func _sync_service_settings(state: Dictionary) -> void:
+	var game := get_node_or_null("/root/GameSession")
+	var online := game != null and bool(game.get("online_active"))
+	var local_team := int(game.call("local_team")) if game != null else 0
+	var host := local_team == 0
+	_service_button.visible = online and _controller.has_method("team_service_url")
+	_service_panel.visible = _service_button.visible and _service_button.button_pressed
+	var states: Dictionary = _controller.call("capture_states") if _controller.has_method("capture_states") else {}
+	for team: int in _service_rows:
+		var entry: Dictionary = _service_rows[team]
+		entry.row.visible = host or team == local_team
+		var address: LineEdit = entry.address
+		address.editable = host and String(state.get("status", "")) != "ended"
+		entry.apply.visible = host
+		entry.apply.disabled = not address.editable
+		var team_state: Dictionary = states.get(str(team), state if team == local_team else {})
+		var team_status := String(team_state.get("status", "off"))
+		var status_text := {"active": "托管中", "connecting": "正在连接…", "pending": "等待主机确认…", "error": "连接失败", "ended": "对局结束"}
+		entry.status.text = String(status_text.get(team_status, "手动控制"))
+		if team_status == "error":
+			entry.status.text = String(team_state.get("message", "连接失败，请检查 Python 服务"))
+		entry.status.visible = entry.row.visible
+		entry.status.add_theme_color_override("font_color", Color("ffb195") if team_status == "error" else Color("e0d0a7"))
+		if _controller.has_method("team_service_url"):
+			var actual := String(_controller.call("team_service_url", team))
+			# Preserve unsubmitted edits while state updates arrive from the AI.
+			if not host or (not address.has_focus() and not bool(address.get_meta("dirty", false))):
+				address.text = actual
+			address.tooltip_text = "当前服务：" + actual
+		if not address.text_changed.is_connected(_on_address_edited.bind(team)):
+			address.text_changed.connect(_on_address_edited.bind(team))
+	var note := "地址从主机访问；127.0.0.1 指主机。应用后会重新连接该队 AI。" if host else "由主机配置 AI 服务；此处显示自己队伍的实际地址。"
+	_service_note.text = note + ("\n" + _route_message if not _route_message.is_empty() else "")
+	# Hiding the other team's row on a guest also shrinks the panel's height.
+	call_deferred("_sync_layout")
+
+
+func _on_address_edited(_text: String, team: int) -> void:
+	_service_rows[team].address.set_meta("dirty", true)
+
+
+func _apply_service_url(team: int) -> void:
+	if not is_instance_valid(_controller) or not _controller.has_method("request_team_service_url"):
+		return
+	var entry: Dictionary = _service_rows[team]
+	var accepted := bool(_controller.call("request_team_service_url", team, String(entry.address.text)))
+	_route_message = "地址已应用。" if accepted else "地址无效或无权修改；请输入 http:// 或 https:// 服务地址。"
+	if accepted:
+		entry.address.set_meta("dirty", false)
+		entry.address.text = String(_controller.call("team_service_url", team))
+	_sync_state()
 
 
 func _checkbox_icon(checked: bool, disabled: bool) -> Texture2D:
@@ -116,6 +232,7 @@ func _sync_state() -> void:
 	if not message.is_empty(): hint += "\n" + message
 	_check.tooltip_text = hint
 	_status.tooltip_text = message if not message.is_empty() else hint
+	_sync_service_settings(state)
 
 
 func _on_toggled(enabled: bool) -> void:
@@ -130,3 +247,6 @@ func _sync_layout() -> void:
 		return
 	_panel.position = Vector2(16, 36)
 	_panel.size = Vector2(minf(440, maxf(280, size.x - 32)), 34)
+	if _service_panel != null:
+		_service_panel.position = Vector2(16, 74)
+		_service_panel.size = Vector2(_panel.size.x, 0)
