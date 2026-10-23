@@ -22,6 +22,8 @@ if __name__ != "__main__":
 from brain.director import AiDirector
 from brain.llm_commander import LlmCommander
 from brain.multi_agent.scheduler import MultiAgentService, SessionError
+from brain.multi_agent.memory_bank import StrategyMemory
+from pathlib import Path
 from brain.stores import PHASE_ATTACK, PHASE_BOOM, PHASE_DEFEND, PHASE_ECO
 from brain.llm_proxy import build_openai_payload, forward_openai, is_openai_backend, resolve_backend
 from brain.rules_compat import observation_or_error, to_tick_request, wrap_tick_response
@@ -67,7 +69,15 @@ def _write_multi_agent_event(event: str, data: dict[str, Any]) -> None:
                         separators=(",", ":"), default=str))
 
 
-_multi_agent_service = MultiAgentService(log=_write_multi_agent_event)
+def _strategy_memory_path() -> Path | None:
+    """Cross-match doctrine records; set AOE2_AI_STRATEGY_MEMORY=off to disable."""
+    configured = os.environ.get("AOE2_AI_STRATEGY_MEMORY", "").strip()
+    if configured.lower() in ("0", "off", "false", "none"):
+        return None
+    return Path(configured).expanduser() if configured else runtime_settings.log_dir() / "strategy_memory.json"
+
+
+_multi_agent_service = MultiAgentService(log=_write_multi_agent_event, memory=StrategyMemory(_strategy_memory_path))
 
 app = FastAPI(title="AoE2 RTS AI Service", version="1.0.0")
 

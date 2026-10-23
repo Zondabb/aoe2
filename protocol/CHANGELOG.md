@@ -1,5 +1,21 @@
 # AI Protocol CHANGELOG
 
+## Additive observation fields — base perimeter (2026-10-23)
+
+`decision_context.defense_plan` reports the stable perimeter ID, material,
+bounds, actual closure, and total/completed/missing/pending/blocked/unseen
+segment counts. `defense_options` adds `perimeter_id`, `side`, `repair`,
+`connected` and `priority`; `defense_scout_options` offers bounded visible-side
+survey moves for an available builder. All placement footprints must be visible
+before authoritative terrain validation; hidden terrain and enemy state cannot
+influence legal placement hints. An exhausted purchase budget does not imply
+closure. Commands are unchanged. The defense role's `max_segments` schema now
+allows 4–512 total fortifications, including foundations, and defaults to 384.
+The game-owned perimeter material takes precedence over later model preferences
+to keep construction on the same footprint. Older observations without this
+field retain the role's explicit material selection. See
+[siege strategy](../docs/ai_siege_strategy.md).
+
 ## Server-owned model configuration (2026-10-23)
 
 Godot now configures only the Python service connection and control cadence.

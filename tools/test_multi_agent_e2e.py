@@ -58,6 +58,8 @@ def main() -> int:
     parser.add_argument("--godot", required=True)
     parser.add_argument("--duration", type=float, default=1200)
     parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--intelligence", choices=("on", "off"), default="on",
+                        help="Strategic intelligence layer; off reproduces the previous tactics for A/B runs")
     parser.add_argument("--planner-delay", type=float, default=2)
     parser.add_argument("--require-victory", action="store_true", help="Require actual enemy TC destruction, not only damage")
     parser.add_argument("--require-walls", action="store_true", help="Require a completed AI wall built through the defense role")
@@ -92,6 +94,10 @@ def main() -> int:
         port = sock.getsockname()[1]
     config, env = mock_service_settings(logs, f"http://127.0.0.1:{upstream.server_port}/v1", "mock-role-planner")
     env.update(AOE2_AI_MODEL_CALLS_PER_MINUTE="12", APPDATA=str(logs / "profile"), LOCALAPPDATA=str(logs / "cache"))
+    # Explicit A/B switch for the strategic intelligence layer (inherited
+    # AOE2_AI_* variables are stripped above to isolate the harness).
+    env["AOE2_AI_INTELLIGENCE"] = args.intelligence
+    env["AOE2_AI_STRATEGY_MEMORY"] = "off"
     Path(env["APPDATA"]).mkdir()
     processes, handles = [], []
 

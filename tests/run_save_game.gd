@@ -4,6 +4,8 @@ var Saves: GDScript
 const Data := preload("res://scripts/world/map_data.gd")
 const MapCatalog := preload("res://scripts/world/map_catalog.gd")
 const Catalog := preload("res://scripts/data/game_catalog.gd")
+const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
+const Perimeter := preload("res://scripts/ai_gateway/defense_perimeter.gd")
 var MATCH: PackedScene
 const TEST_PATH := "user://saves/__save_game_roundtrip_test.json"
 var failures: Array[String] = []
@@ -102,8 +104,19 @@ func _run() -> void:
 	var camera: Camera2D = match_root.get_node("Camera2D")
 	camera.position = Vector2(123, -234)
 	camera.zoom = Vector2(1.25, 1.25)
+	var original_tc_registry_id := Registry.id_of(tc)
+	var original_perimeter := Perimeter.get_plan(state, entities, 0, tc.sim_pos, original_tc_registry_id, state.map_bounds, "palisade_wall")
+	original_perimeter.frozen = true
+	var original_bounds: Rect2 = original_perimeter.rect
+	var completed_piece: Dictionary = Perimeter.batches(original_perimeter)[0].pieces[0]
+	var completed_key := "%s:%s" % [completed_piece.building_def_id, completed_piece.pos]
+	original_perimeter.seen_complete[completed_key] = true
+	# A second team's unstarted preview retains its independent material/state.
+	Perimeter.get_plan(state, entities, 1, by_name.enemy_tc.sim_pos, Registry.id_of(by_name.enemy_tc), state.map_bounds, "stone_wall")
 	var data: Dictionary = Saves.capture(boot)
 	check(Saves.validate(data).is_empty(), "captured match validates: " + Saves.validate(data))
+	check(data.defense_perimeters.size() == 2 and int(data.defense_perimeters[0].town_center) == int(data.entities[0].id), "perimeters use saved TC references rather than runtime registry IDs")
+	_test_perimeter_validation(data)
 	var before_stock: Dictionary = state.resources.duplicate(true)
 	var before_population: Dictionary = state.population.duplicate(true)
 	var before_reserved: Dictionary = state.population_reserved.duplicate(true)
@@ -161,6 +174,25 @@ func _run() -> void:
 	blacksmith = by_name.blacksmith
 	check(tc.train_queue.size() == 2 and is_equal_approx(tc.train_progress, 4.75), "production queue and elapsed time restored")
 	check(is_equal_approx(tc.hp, data.entities[0].fields.hp), "damaged completed building keeps HP")
+	var rebound_key := "0:%d" % Registry.id_of(tc)
+	var restored_plans: Dictionary = state.get_meta(Perimeter.META_KEY, {})
+	check(Registry.id_of(tc) != original_tc_registry_id and not restored_plans.has("0:%d" % original_tc_registry_id), "restored perimeter drops stale runtime TC registry references")
+	check(restored_plans.has(rebound_key), "restored perimeter binds to the newly instantiated TC")
+	if restored_plans.has(rebound_key):
+		var restored_plan: Dictionary = restored_plans[rebound_key]
+		check(restored_plan.rect == original_bounds and restored_plan.material == "palisade_wall" and restored_plan.frozen, "perimeter bounds material and frozen state survive file roundtrip")
+		check(restored_plan.id == "perimeter_v1:" + rebound_key and restored_plan.seen_complete.get(completed_key) == true, "perimeter identity is rebound while completed-segment history survives")
+		var extra: BuildingAgent = load("res://scenes/entities/building_view.tscn").instantiate()
+		extra.def = Catalog.get_building("barracks")
+		extra.team = 0
+		extra.civ = tc.civ
+		extra.match_state = state
+		extra.sim_pos = tc.sim_pos + Vector2(35, 0)
+		entities.add_child(extra)
+		check(Perimeter.get_plan(state, entities, 0, tc.sim_pos, Registry.id_of(tc), state.map_bounds, "stone_wall").rect == original_bounds, "post-load base growth cannot move a frozen perimeter")
+		extra.free()
+	var other_key := "1:%d" % Registry.id_of(by_name.enemy_tc)
+	check(restored_plans.has(other_key) and restored_plans[other_key].material == "stone_wall" and not restored_plans[other_key].frozen, "another team's preview keeps its own material and unfrozen state")
 	check(not house.is_complete and is_equal_approx(house.build_progress, 3.5) and is_equal_approx(house.hp, 12.25), "damaged unfinished building keeps progress and HP")
 	check(is_equal_approx(by_name.farm.amount, 73.75) and is_equal_approx(by_name.tree.amount, 22.5), "farm and natural resource depletion restored")
 	check(by_name.gatherer._last_resource == by_name.tree and by_name.gatherer._drop_off_target == tc and is_equal_approx(by_name.gatherer.carry_amount, 8.5), "gather and dropoff references map to restored actors")
@@ -187,6 +219,10 @@ func _run() -> void:
 	session.online_active = true
 	check(not Saves.save(boot, TEST_PATH).is_empty() and not Saves.prepare_load(TEST_PATH).is_empty(), "online save and load rejected")
 	session.online_active = false
+	var legacy_without_perimeters: Dictionary = data.duplicate(true)
+	legacy_without_perimeters.erase("defense_perimeters")
+	check(Saves.validate(legacy_without_perimeters).is_empty(), "legacy v1 saves without optional perimeter metadata validate")
+	check(Saves.restore(boot, legacy_without_perimeters).is_empty() and state.get_meta(Perimeter.META_KEY, {}).is_empty(), "legacy v1 restore clears stale perimeter metadata in an existing match")
 	match_root.free()
 	# Exercise a real local director through the same fresh-scene handoff.
 	session.match_ai_mode = "local"
@@ -241,3 +277,27 @@ func _run() -> void:
 	for failure in failures: push_error(failure)
 	print("SAVE GAME TESTS: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)
+
+
+func _test_perimeter_validation(data: Dictionary) -> void:
+	var invalid_cases: Array = [
+		["team", 1], ["team", 0.5], ["town_center", 11999], ["town_center", data.entities[2].id],
+		["material", "gate"], ["frozen", "true"],
+		["bounds", [-38, -38, 0, 20]], ["bounds", [-38, -38, 89, 20]],
+		["bounds", [-38.5, -38, 40, 40]], ["bounds", [-100, -100, 40, 40]],
+		["bounds", [0, 0, 20, 20]], ["bounds", [NAN, -38, 40, 40]],
+		["seen_complete", []], ["seen_complete", {"palisade_wall:(999, 999)": true}],
+	]
+	var valid_key: String = data.defense_perimeters[0].seen_complete.keys()[0]
+	invalid_cases.append(["seen_complete", {valid_key: false}])
+	invalid_cases.append(["seen_complete", {valid_key: 1}])
+	for invalid: Array in invalid_cases:
+		var damaged: Dictionary = data.duplicate(true)
+		damaged.defense_perimeters[0][invalid[0]] = invalid[1]
+		check(not Saves.validate(damaged).is_empty(), "invalid perimeter %s is rejected before match mutation" % invalid[0])
+	var duplicated: Dictionary = data.duplicate(true)
+	duplicated.defense_perimeters.append(duplicated.defense_perimeters[0].duplicate(true))
+	check(not Saves.validate(duplicated).is_empty(), "duplicate TC perimeter references are rejected")
+	var wrong_container: Dictionary = data.duplicate(true)
+	wrong_container.defense_perimeters = {}
+	check(not Saves.validate(wrong_container).is_empty(), "invalid optional perimeter collection is rejected")

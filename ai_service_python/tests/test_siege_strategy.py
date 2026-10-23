@@ -44,7 +44,10 @@ def test_regular_soldiers_raid_nearby_villagers_before_tc_and_preserve_target():
     out = departing().tick(battle(soldiers + [enemy_tc(), unit(210, pos=[36, 35], team=1), unit(211, pos=[37, 35], team=1)]))
     attacks = attack_map(out)
     assert 30 not in attacks
-    assert {attacks[uid] for uid in (31, 32, 33)} == {210}
+    # Focus fire: join the villager already under attack while the committed
+    # damage is below its health (overkill spreading is covered separately).
+    assert {attacks[uid] for uid in (31, 32, 33)} == {211}
+    assert 200 not in attacks.values()
 
 
 def test_ram_breaches_visible_wall_then_switches_to_tc_when_destroyed():

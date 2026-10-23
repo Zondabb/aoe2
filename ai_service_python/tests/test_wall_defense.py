@@ -7,9 +7,9 @@ from brain.land_progression import CATALOG
 from brain.llm_commander import LlmCommander, _DecisionFrame
 from brain.multi_agent.runtime import MultiAgentRuntime
 from brain.tool_call_mapper import command_to_tool_call, tool_call_to_command
-from protocol.models import Command
+from protocol.models import Command, GameEvent
 from test_llm_commander import building, unit
-from test_multi_agent_runtime import army, frame, issued, plan
+from test_multi_agent_runtime import accept, army, frame, issued, plan
 
 
 def wall_option(**changes):
@@ -74,6 +74,146 @@ def test_default_defense_builds_before_first_raid_once_economy_is_established():
     assert issued(runtime.tick(defense_frame(threat=False)), "place_wall")
 
 
+def test_default_perimeter_budget_continues_past_old_short_wall_limit():
+    runtime, req = executor(), defense_frame()
+    req.observation.entities += [building(300 + i, "palisade_wall", [-20, i - 8]) for i in range(16)]
+    assert runtime.roles["defense"].plan["max_segments"] >= 340
+    assert issued(runtime.tick(req), "place_wall")
+    plan(runtime, "defense", max_segments=512)
+
+
+def test_explicit_small_wall_budget_is_not_reported_as_enclosure():
+    runtime, req = executor(), defense_frame()
+    plan(runtime, "defense", max_segments=4)
+    req.observation.entities += [building(300 + i, "palisade_wall", [-20, i]) for i in range(4)]
+    result = runtime.tick(req)
+    assert not issued(result, "place_wall")
+    assert result["agent_status"]["defense"]["status"] == "waiting"
+    assert result["agent_status"]["defense"]["reason"] == "perimeter_budget_limit_not_closure"
+
+
+def test_completed_gated_perimeter_uses_game_closure_and_planning_progress():
+    runtime, req = executor(), defense_frame()
+    perimeter = {"id": "wall_perimeter_v1:1", "total_segments": 212, "complete_segments": 212,
+                 "missing_segments": 0, "blocked_segments": 0, "closed": True, "phase": "complete"}
+    req.observation.decision_context["defense_plan"] = perimeter
+    result = runtime.tick(req)
+    assert not issued(result, "place_wall")
+    assert result["agent_status"]["defense"]["reason"] == "perimeter_closed_maintain_gates"
+    assert runtime.planning_context("defense")["defense_plan"] == perimeter
+
+
+def test_connected_repair_precedes_new_unconnected_wall_batch():
+    runtime, req = executor(), defense_frame(threat=False)
+    plan(runtime, "defense", policy="balanced")
+    req.observation.decision_context["defense_options"].append(wall_option(
+        start=[-18, -8], end=[-18, 8], repair=True, connected=True, priority=10))
+    assert issued(runtime.tick(req), "place_wall")[0]["start"] == [-18, -8]
+
+
+def test_fixed_perimeter_material_survives_a_later_model_material_preference():
+    runtime, req = executor(), defense_frame()
+    plan(runtime, "defense", material="stone_wall")
+    req.observation.decision_context["defense_plan"] = {"id": "perimeter", "material": "palisade_wall", "closed": False}
+    assert issued(runtime.tick(req), "place_wall")[0]["building_def_id"] == "palisade_wall"
+    # Older integrations without a persistent perimeter retain their explicit
+    # material preference, rather than silently purchasing a different wall.
+    req = defense_frame()
+    runtime = executor()
+    plan(runtime, "defense", material="stone_wall")
+    assert not issued(runtime.tick(req), "place_wall")
+
+
+def test_resource_shortage_retains_wall_wood_demand_without_starving_training():
+    runtime, req = executor(), defense_frame()
+    req.observation.economy.wood = 110
+    definition = next(d for d in req.observation.decision_context["catalog"]["buildings"] if d["id"] == "palisade_wall")
+    definition.update(available=False, blocked_reason="资源不足")
+    result = runtime.tick(req)
+    assert not issued(result, "place_wall")
+    assert issued(result, "train")
+    assert runtime.demands["wood"] >= 16
+
+
+def test_large_army_leaves_command_slots_for_perimeter_food_and_production():
+    runtime, req = executor(), defense_frame(threat=False)
+    plan(runtime, "defense", policy="fortify")
+    req.observation.entities = [e for e in req.observation.entities if e.get("def_id") != "militia"] + army(70)
+    result = runtime.tick(req)
+    first = {c["unit_id"] for c in issued(result, "move") if c["unit_id"] >= 30}
+    assert 0 < len(first) <= 24
+    assert issued(result, "place_wall") and issued(result, "gather") and issued(result, "train")
+    assert len(result["commands"]) <= 36
+    # Command receipts clear pending orders, while units still need to move.
+    # Later soldiers must receive the next tactical share instead of the first
+    # group consuming the limited slots on every observation.
+    next_req = req.model_copy(deep=True)
+    next_req.metadata.tick = next_req.metadata.observation_seq = 2
+    next_req.metadata.time_sec += 2
+    next_req.events = [GameEvent.model_validate(e) for e in accept(result)]
+    later = runtime.tick(next_req)
+    second = {c["unit_id"] for c in issued(later, "move") if c["unit_id"] >= 30}
+    assert second and first.isdisjoint(second)
+    assert len(later["commands"]) <= 36
+
+
+@pytest.mark.parametrize("problem", [None, "manual", "loaded", "delivery", "queue", "building", "far", "enemy"])
+def test_perimeter_reveal_uses_only_safe_small_steps_and_preserves_worker_ownership(problem):
+    runtime, req = executor(), defense_frame(threat=False)
+    plan(runtime, "defense", policy="balanced")
+    context = req.observation.decision_context
+    context["defense_options"] = []
+    context["defense_scout_options"] = [{"unit_id": 10, "pos": [10, 0], "reason": "reveal_perimeter", "side": 0}]
+    worker = next(e for e in req.observation.entities if e["id"] == 10)
+    if problem == "manual":
+        runtime.leases[10] = {"role": "human", "until": 200}
+    elif problem == "loaded":
+        worker["carry_amount"] = 5
+    elif problem == "delivery":
+        worker["gather_state"] = "to_drop_off"
+    elif problem == "queue":
+        worker["build_queue_ids"] = [300]
+    elif problem == "building":
+        worker["order"] = "BUILD"
+    elif problem == "far":
+        context["defense_scout_options"][0]["pos"] = [35, 0]
+    elif problem == "enemy":
+        req.observation.entities.append(unit(200, "militia", [15, 0], team=1))
+    result = runtime.tick(req)
+    moves = [c for c in issued(result, "move") if c["unit_id"] == 10]
+    assert bool(moves) is (problem is None)
+    if problem is None:
+        assert not any(c.get("unit_id") == 10 for c in issued(result, "gather"))
+        worker.update(order="MOVE", pos=[3, 0])
+        req.metadata.tick = 2
+        req.metadata.time_sec += 1
+        result = runtime.tick(req)
+        assert not any(c.get("unit_id") == 10 for c in result["commands"])
+        assert runtime.leases[10]["role"] == "defense"
+
+
+@pytest.mark.parametrize("enemy", [False, True])
+def test_perimeter_probe_releases_stalled_worker_or_retreats_from_new_threat(enemy):
+    runtime, req = executor(), defense_frame(threat=False)
+    plan(runtime, "defense", policy="balanced")
+    req.observation.decision_context["defense_options"] = []
+    req.observation.decision_context["defense_scout_options"] = [{"unit_id": 10, "pos": [10, 0]}]
+    runtime.tick(req)
+    worker = next(e for e in req.observation.entities if e["id"] == 10)
+    worker.update(order="MOVE", pos=[2, 0], move_goal=[10, 0])
+    req.metadata.tick = 2
+    req.metadata.time_sec += 2 if enemy else 25
+    if enemy:
+        req.observation.entities.append(unit(200, "militia", [12, 0], team=1))
+    result = runtime.tick(req)
+    commands = [c for c in result["commands"] if c.get("unit_id") == 10]
+    assert len(commands) == 1
+    assert commands[0]["op"] == ("move" if enemy else "stop")
+    if enemy:
+        assert commands[0]["pos"] == [0, 0]
+    assert "perimeter_scout" not in runtime.roles["defense"].memory
+
+
 def test_defense_checks_wall_endpoints_and_abandoned_foundation_for_enemy_danger():
     req = defense_frame()
     next(e for e in req.observation.entities if e["id"] == 200)["pos"] = [19, 14]
@@ -81,6 +221,25 @@ def test_defense_checks_wall_endpoints_and_abandoned_foundation_for_enemy_danger
     assert not issued(executor().tick(req), "place_wall")
     req.observation.entities.append(building(300, "palisade_wall", [18, 8], complete=False))
     assert not issued(executor().tick(req), "build")
+
+
+@pytest.mark.parametrize("job", ["wall", "foundation", "probe"])
+def test_expanded_perimeter_worker_avoids_visible_enemy_outside_old_base_radius(job):
+    runtime, req = executor(), defense_frame(threat=False)
+    plan(runtime, "defense", policy="fortify")
+    worker = next(e for e in req.observation.entities if e["id"] == 10)
+    worker["pos"] = [44, 0]
+    req.observation.entities.append(unit(200, "militia", [47, 0], team=1))
+    context = req.observation.decision_context
+    context["defense_options"] = [wall_option(start=[44, -8], end=[44, 8])]
+    if job == "foundation":
+        req.observation.entities.append(building(300, "palisade_wall", [44, 0], complete=False))
+    elif job == "probe":
+        context["defense_options"] = []
+        context["defense_scout_options"] = [{"unit_id": 10, "pos": [44, 10]}]
+    result = runtime.tick(req)
+    assert not issued(result, "place_wall") and not issued(result, "build")
+    assert not [c for c in issued(result, "move") if c["unit_id"] == 10]
 
 
 def test_defense_prioritizes_safe_screen_facing_observed_flank_raid():

@@ -8,6 +8,8 @@ const DEFAULT_SAVE_PATH := "user://saves/single_player.json"
 const MAX_FILE_BYTES := 32 * 1024 * 1024
 const MAX_ENTITIES := 12000
 const Catalog := preload("res://scripts/data/game_catalog.gd")
+const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
+const Perimeter := preload("res://scripts/ai_gateway/defense_perimeter.gd")
 const MapDataScript := preload("res://scripts/world/map_data.gd")
 const UNIT_VIEW := preload("res://scenes/entities/unit_view.tscn")
 const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
@@ -111,6 +113,7 @@ static func capture(bootstrap: Node) -> Dictionary:
 			next_id += 1
 	for entity in root.get_node("Entities").get_children():
 		if ids.has(entity.get_instance_id()): data.entities.append(_capture_entity(entity, ids))
+	data["defense_perimeters"] = _capture_defense_perimeters(state, ids)
 	if is_instance_valid(state.age_progression):
 		for team in state.age_progression._jobs:
 			var job: Dictionary = state.age_progression._jobs[team]
@@ -290,6 +293,7 @@ static func restore(bootstrap: Node, data: Dictionary) -> String:
 		state.population[team] = int(saved.population)
 		state.population_cap[team] = int(saved.population_cap)
 		state.population_reserved[team] = int(saved.population_reserved)
+	_restore_defense_perimeters(state, data.get("defense_perimeters", []), nodes)
 	if is_instance_valid(state.age_progression):
 		for record in data.age_jobs:
 			var job: Dictionary = record.duplicate(true)
@@ -336,6 +340,33 @@ static func _farm_crops_from_fields(fields: Dictionary) -> bool:
 	# Version 1 saves predate the crop flag. Infer prior gathering from depletion,
 	# while completed untouched farms and unfinished foundations remain bare.
 	return bool(fields.get("farm_has_crops", bool(fields.is_complete) and float(fields.amount) < 175.0))
+
+
+static func _capture_defense_perimeters(state: MatchState, ids: Dictionary) -> Array:
+	var result: Array = []
+	var plans: Dictionary = state.get_meta(Perimeter.META_KEY, {})
+	for key in plans:
+		var parts := String(key).split(":")
+		if parts.size() != 2 or not parts[0].is_valid_int() or not parts[1].is_valid_int(): continue
+		var town_center := Registry.resolve(int(parts[1]))
+		if not is_instance_valid(town_center) or not ids.has(town_center.get_instance_id()): continue
+		var plan: Dictionary = plans[key]
+		var rectangle: Rect2 = plan.rect
+		result.append({"team": int(parts[0]), "town_center": ids[town_center.get_instance_id()],
+			"bounds": [rectangle.position.x, rectangle.position.y, rectangle.size.x, rectangle.size.y],
+			"material": plan.material, "frozen": plan.get("frozen", false), "seen_complete": plan.get("seen_complete", {}).duplicate(true)})
+	return result
+
+
+static func _restore_defense_perimeters(state: MatchState, records: Array, nodes: Dictionary) -> void:
+	var plans := {}
+	for record: Dictionary in records:
+		var town_center: Node2D = nodes[int(record.town_center)]
+		var key := "%d:%d" % [int(record.team), Registry.id_of(town_center)]
+		plans[key] = {"id": "perimeter_v1:%s" % key, "rect": Rect2(record.bounds[0], record.bounds[1], record.bounds[2], record.bounds[3]),
+			"material": record.material, "frozen": record.frozen, "seen_complete": record.seen_complete.duplicate(true)}
+	# Clear stale metadata even when loading a legacy v1 save into a running match.
+	state.set_meta(Perimeter.META_KEY, plans)
 
 
 static func capture_ai(root: Node) -> Dictionary:
@@ -625,6 +656,8 @@ static func validate(data: Variant) -> String:
 		if record.type == "projectile":
 			if record.presentation.source_def != record.weapon.id or record.presentation.projectile_kind != ("stone" if record.weapon.projectile_kind == "stone" else "arrow"): return "存档弹药定义不一致。"
 			if record.presentation.projectile_kind == "stone" and Catalog.get_unit(StringName(record.weapon.id)) == null: return "存档石弹定义已损坏。"
+	var perimeter_error := _validate_defense_perimeters(data.get("defense_perimeters", []), ids, MapDataScript.bounds(data.map))
+	if not perimeter_error.is_empty(): return perimeter_error
 	for key in ["age_jobs", "technology_jobs"]:
 		if not data.get(key) is Array or data[key].size() > MAX_ENTITIES: return "存档研究队列已损坏。"
 		for job in data[key]:
@@ -647,6 +680,32 @@ static func validate(data: Variant) -> String:
 		if not MapDataScript.number(data.support.get("elapsed")) or not data.support.get("cooldowns") is Array: return "存档建筑攻击进度已损坏。"
 		for item in data.support.cooldowns:
 			if not item is Dictionary or not _integer_between(item.get("entity"), 1, MAX_ENTITIES) or not ids.has(int(item.entity)) or not MapDataScript.number(item.get("remaining")): return "存档建筑攻击目标已损坏。"
+	return ""
+
+
+static func _validate_defense_perimeters(records: Variant, entities: Dictionary, map_bounds: Rect2) -> String:
+	if not records is Array or records.size() > MAX_ENTITIES: return "存档城墙周界列表已损坏。"
+	var used := {}
+	for record in records:
+		if not record is Dictionary or not _integer_between(record.get("team"), 0, 1) or not _integer_between(record.get("town_center"), 1, MAX_ENTITIES): return "存档城墙周界阵营或引用已损坏。"
+		var id := int(record.town_center)
+		if not entities.has(id) or used.has(id): return "存档城墙周界城镇中心引用不存在或重复。"
+		var town_center: Dictionary = entities[id]
+		if town_center.type != "building" or town_center.definition != "town_center" or int(town_center.team) != int(record.team): return "存档城墙周界必须关联己方城镇中心。"
+		used[id] = true
+		if record.get("material") not in ["palisade_wall", "stone_wall", "fortified_wall"] or not record.get("frozen") is bool: return "存档城墙周界材质或状态已损坏。"
+		if not _numbers(record.get("bounds"), 4): return "存档城墙周界坐标已损坏。"
+		for value in record.bounds:
+			if not is_finite(float(value)) or float(value) != floorf(float(value)): return "存档城墙周界坐标必须为有限整数。"
+		if record.bounds[2] < 11 or record.bounds[3] < 11 or record.bounds[2] > 88 or record.bounds[3] > 88: return "存档城墙周界尺寸无效。"
+		var rectangle := Rect2(record.bounds[0], record.bounds[1], record.bounds[2], record.bounds[3])
+		if not map_bounds.encloses(rectangle.grow(0.5)) or not rectangle.has_point(_vector(town_center.pos)): return "存档城墙周界超出地图或未围住城镇中心。"
+		if not record.get("seen_complete") is Dictionary or record.seen_complete.size() > 512: return "存档城墙周界进度已损坏。"
+		var allowed := {}
+		for batch: Dictionary in Perimeter.batches({"rect": rectangle, "material": record.material}):
+			for piece: Dictionary in batch.pieces: allowed["%s:%s" % [piece.building_def_id, piece.pos]] = true
+		for key in record.seen_complete:
+			if not key is String or not allowed.has(key) or not record.seen_complete[key] is bool or not record.seen_complete[key]: return "存档城墙周界进度包含无效墙段。"
 	return ""
 
 

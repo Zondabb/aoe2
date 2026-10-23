@@ -90,6 +90,14 @@ func _run() -> void:
 	builder.command_move(Vector2(-10, -10))
 	check(builder.get_build_queue_ids().is_empty(), "manual move cancels future construction")
 	clear()
+	var older_wall := building("stone_wall", Vector2.ZERO)
+	var connected_row := Walls.plan("palisade_wall", Vector2.ZERO, Vector2(2, 0))
+	check(Walls.cost(connected_row, ctx).wood == 4 and Walls.cost(connected_row, ctx).stone == 0, "connecting materials charges only missing wall pieces")
+	var joined := Walls.place_plan(connected_row, ctx, builder)
+	check(joined.size() == 2 and older_wall.def.id == &"stone_wall", "perimeter connects to an existing other-material wall without replacing it")
+	var after_join: Dictionary = state.resources[0].duplicate()
+	check(Walls.place_plan(connected_row, ctx, builder).is_empty() and state.resources[0] == after_join, "mixed-material perimeter retries do not charge twice")
+	clear()
 	cmd.builder_id = Registry.id_of(builder)
 	cmd.start = [-4, 0]
 	cmd.end = [4, 0]

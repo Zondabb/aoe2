@@ -1,0 +1,1956 @@
+{
+  "source_sha256": "28b50786d62cc956679bf56b42b272ec04eb93642268e997484dbc63bb24e6cb",
+  "units": {
+    "militia": {
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 40,
+      "attack": 4,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 0,
+        "BUILDINGS": 0,
+        "UNITS_MELEE": 4,
+        "CAVALRY": 0
+      },
+      "speed": 0.9,
+      "train_time": 21,
+      "train_at": "barracks",
+      "required_age": 0,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "villager": {
+      "cost": {
+        "food": 50
+      },
+      "hp": 25,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "CIVILIAN",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 3,
+        "UNITS_MELEE": 3,
+        "STONE_DEFENSES": 6
+      },
+      "speed": 0.8,
+      "train_time": 25,
+      "train_at": "town_center",
+      "required_age": 0,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "archer": {
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "hp": 30,
+      "attack": 4,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "ARCHER",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 4,
+        "RAMS": 0
+      },
+      "speed": 0.96,
+      "train_time": 35,
+      "train_at": "archery_range",
+      "required_age": 1,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "spearman": {
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "hp": 45,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "SPEARMEN": 0,
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 1,
+        "BUILDINGS": 1,
+        "WAR_ELEPHANT": 15,
+        "UNITS_MELEE": 3,
+        "CAVALRY": 15,
+        "SHIPS_CAMELS_SABOTEURS": 7
+      },
+      "speed": 1.0,
+      "train_time": 22,
+      "train_at": "barracks",
+      "required_age": 1,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "scout_cavalry": {
+      "cost": {
+        "food": 80
+      },
+      "hp": 45,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 2,
+      "attack_type": "melee",
+      "source_class": "SCOUT_CAVALRY",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_attacks": {
+        "MONKS": 6,
+        "UNITS_MELEE": 3
+      },
+      "speed": 1.2,
+      "train_time": 30,
+      "train_at": "stable",
+      "required_age": 1,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "trade_cart": {
+      "cost": {
+        "wood": 100,
+        "gold": 50
+      },
+      "hp": 70,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "TRADE_CART",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {},
+      "speed": 1.0,
+      "train_time": 51,
+      "train_at": "market",
+      "required_age": 1,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "skirmisher": {
+      "cost": {
+        "food": 25,
+        "wood": 35
+      },
+      "hp": 30,
+      "attack": 2,
+      "attack_range": 4.0,
+      "min_range": 1.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 3,
+      "attack_type": "pierce",
+      "source_class": "ARCHER",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 3
+      },
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "ARCHERS": 3,
+        "UNITS_PIERCE": 2,
+        "RAMS": 0
+      },
+      "speed": 0.96,
+      "train_time": 22,
+      "train_at": "archery_range",
+      "required_age": 1,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "man_at_arms": {
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 45,
+      "attack": 6,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 2,
+        "BUILDINGS": 1,
+        "UNITS_MELEE": 6,
+        "CAVALRY": 0
+      },
+      "speed": 0.9,
+      "train_time": 21,
+      "train_at": "barracks",
+      "required_age": 1,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "battering_ram": {
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "hp": 175,
+      "attack": 2,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": -3,
+      "pierce_armor": 180,
+      "attack_type": "melee",
+      "source_class": "SIEGE_WEAPON",
+      "source_armors": {
+        "UNITS_MELEE": -3,
+        "UNITS_PIERCE": 180,
+        "RAMS": 0,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 125,
+        "UNITS_MELEE": 2,
+        "SIEGE_WEAPONS": 40
+      },
+      "speed": 0.5,
+      "train_time": 36,
+      "train_at": "siege_workshop",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "chu_ko_nu": {
+      "cost": {
+        "wood": 40,
+        "gold": 35
+      },
+      "hp": 45,
+      "attack": 8,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "ARCHER",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0,
+        "UNIQUE_UNITS": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 8,
+        "RAMS": 0
+      },
+      "speed": 0.96,
+      "train_time": 19,
+      "train_at": "castle",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "camel": {
+      "cost": {
+        "food": 55,
+        "gold": 60
+      },
+      "hp": 100,
+      "attack": 5,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "CAVALRY",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0,
+        "SHIPS_CAMELS_SABOTEURS": 0
+      },
+      "source_attacks": {
+        "UNITS_MELEE": 5,
+        "CAVALRY": 10,
+        "SHIPS_CAMELS_SABOTEURS": 5
+      },
+      "speed": 1.45,
+      "train_time": 22,
+      "train_at": "stable",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "cavalry_archer": {
+      "cost": {
+        "wood": 40,
+        "gold": 70
+      },
+      "hp": 50,
+      "attack": 6,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "CAVALRY_ARCHER",
+      "source_armors": {
+        "CAVALRY_ARCHER": 0,
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 6,
+        "RAMS": 0
+      },
+      "speed": 1.4,
+      "train_time": 34,
+      "train_at": "archery_range",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "knight": {
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "hp": 100,
+      "attack": 10,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 1.8,
+      "melee_armor": 2,
+      "pierce_armor": 2,
+      "attack_type": "melee",
+      "source_class": "CAVALRY",
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_attacks": {
+        "UNITS_MELEE": 10,
+        "ARCHERS": 0
+      },
+      "speed": 1.35,
+      "train_time": 30,
+      "train_at": "stable",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "mangonel": {
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "hp": 50,
+      "attack": 40,
+      "attack_range": 7.0,
+      "min_range": 3.0,
+      "cooldown": 6.0,
+      "melee_armor": 0,
+      "pierce_armor": 6,
+      "attack_type": "melee",
+      "source_class": "SIEGE_WEAPON",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 6,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 35,
+        "UNITS_MELEE": 40,
+        "SIEGE_WEAPONS": 12
+      },
+      "speed": 0.6,
+      "train_time": 46,
+      "train_at": "siege_workshop",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "monk": {
+      "cost": {
+        "gold": 100
+      },
+      "hp": 30,
+      "attack": 0,
+      "attack_range": 9.0,
+      "min_range": 0.0,
+      "cooldown": 1.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "PRIEST",
+      "source_armors": {
+        "MONKS": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {},
+      "speed": 0.7,
+      "train_time": 51,
+      "train_at": "monastery",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "petard": {
+      "cost": {
+        "food": 80,
+        "gold": 20
+      },
+      "hp": 50,
+      "attack": 25,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": 0,
+      "pierce_armor": 2,
+      "attack_type": "melee",
+      "source_class": "PETARD",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_attacks": {
+        "CASTLE": 100,
+        "BUILDINGS_NO_PORT": 500,
+        "UNITS_MELEE": 25,
+        "SIEGE_WEAPONS": 60,
+        "WALLS_GATES": 900
+      },
+      "speed": 0.8,
+      "train_time": 25,
+      "train_at": "castle",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "scorpion": {
+      "cost": {
+        "wood": 75,
+        "gold": 75
+      },
+      "hp": 40,
+      "attack": 12,
+      "attack_range": 7.0,
+      "min_range": 2.0,
+      "cooldown": 3.6,
+      "melee_armor": 0,
+      "pierce_armor": 6,
+      "attack_type": "pierce",
+      "source_class": "SCORPION",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 6,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 2,
+        "WAR_ELEPHANT": 6,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 12,
+        "RAMS": 1
+      },
+      "speed": 0.65,
+      "train_time": 30,
+      "train_at": "siege_workshop",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "teutonic_knight": {
+      "cost": {
+        "food": 85,
+        "gold": 40
+      },
+      "hp": 70,
+      "attack": 12,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 5,
+      "pierce_armor": 2,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 5,
+        "UNITS_PIERCE": 2,
+        "UNIQUE_UNITS": 0
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 4,
+        "BUILDINGS": 4,
+        "UNITS_MELEE": 12
+      },
+      "speed": 0.65,
+      "train_time": 12,
+      "train_at": "castle",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "teutons"
+      ]
+    },
+    "crossbowman": {
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "hp": 35,
+      "attack": 5,
+      "attack_range": 5.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "ARCHER",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 5,
+        "RAMS": 0
+      },
+      "speed": 0.96,
+      "train_time": 27,
+      "train_at": "archery_range",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "elite_skirmisher": {
+      "cost": {
+        "food": 25,
+        "wood": 35
+      },
+      "hp": 35,
+      "attack": 3,
+      "attack_range": 5.0,
+      "min_range": 1.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 4,
+      "attack_type": "pierce",
+      "source_class": "ARCHER",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 4
+      },
+      "source_attacks": {
+        "CAVALRY_ARCHER": 2,
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "ARCHERS": 4,
+        "UNITS_PIERCE": 3,
+        "RAMS": 0
+      },
+      "speed": 0.96,
+      "train_time": 22,
+      "train_at": "archery_range",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "pikeman": {
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "hp": 55,
+      "attack": 4,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "SPEARMEN": 0,
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 1,
+        "BUILDINGS": 1,
+        "WAR_ELEPHANT": 25,
+        "UNITS_MELEE": 4,
+        "CAVALRY": 22,
+        "SHIPS_CAMELS_SABOTEURS": 11
+      },
+      "speed": 1.0,
+      "train_time": 22,
+      "train_at": "barracks",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "light_cavalry": {
+      "cost": {
+        "food": 80
+      },
+      "hp": 60,
+      "attack": 7,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 2,
+      "attack_type": "melee",
+      "source_class": "CAVALRY",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_attacks": {
+        "MONKS": 10,
+        "UNITS_MELEE": 7
+      },
+      "speed": 1.5,
+      "train_time": 30,
+      "train_at": "stable",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "long_swordsman": {
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 55,
+      "attack": 9,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 4,
+        "BUILDINGS": 2,
+        "UNITS_MELEE": 9,
+        "CAVALRY": 0
+      },
+      "speed": 0.9,
+      "train_time": 21,
+      "train_at": "barracks",
+      "required_age": 2,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "bombard_cannon": {
+      "cost": {
+        "wood": 225,
+        "gold": 225
+      },
+      "hp": 80,
+      "attack": 40,
+      "attack_range": 12.0,
+      "min_range": 5.0,
+      "cooldown": 6.5,
+      "melee_armor": 2,
+      "pierce_armor": 5,
+      "attack_type": "melee",
+      "source_class": "SIEGE_WEAPON",
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 5,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 200,
+        "SHIPS_CAMELS_SABOTEURS": 40,
+        "UNITS_MELEE": 40,
+        "SIEGE_WEAPONS": 20,
+        "STONE_DEFENSES": 40
+      },
+      "speed": 0.7,
+      "train_time": 56,
+      "train_at": "siege_workshop",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "teutons"
+      ]
+    },
+    "hand_cannoneer": {
+      "cost": {
+        "food": 45,
+        "gold": 50
+      },
+      "hp": 35,
+      "attack": 17,
+      "attack_range": 7.0,
+      "min_range": 0.0,
+      "cooldown": 3.45,
+      "melee_armor": 1,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "HAND_CANNONEER",
+      "source_armors": {
+        "UNITS_MELEE": 1,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 1,
+        "BUILDINGS_NO_PORT": 0,
+        "INFANTRY": 10,
+        "UNITS_PIERCE": 17,
+        "RAMS": 2
+      },
+      "speed": 0.96,
+      "train_time": 34,
+      "train_at": "archery_range",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "teutons"
+      ]
+    },
+    "trebuchet": {
+      "cost": {
+        "wood": 200,
+        "gold": 200
+      },
+      "hp": 150,
+      "attack": 200,
+      "attack_range": 16.0,
+      "min_range": 4.0,
+      "cooldown": 10.0,
+      "melee_armor": 2,
+      "pierce_armor": 8,
+      "attack_type": "pierce",
+      "source_class": "PACKED_SIEGE_UNITS",
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 8,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 250,
+        "UNITS_PIERCE": 200
+      },
+      "speed": 0.8,
+      "train_time": 50,
+      "train_at": "castle",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "arbalest": {
+      "cost": {
+        "wood": 25,
+        "gold": 45
+      },
+      "hp": 40,
+      "attack": 6,
+      "attack_range": 5.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "ARCHER",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 3,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 6,
+        "RAMS": 0
+      },
+      "speed": 0.96,
+      "train_time": 27,
+      "train_at": "archery_range",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "capped_ram": {
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "hp": 200,
+      "attack": 3,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": -3,
+      "pierce_armor": 190,
+      "attack_type": "melee",
+      "source_class": "SIEGE_WEAPON",
+      "source_armors": {
+        "UNITS_MELEE": -3,
+        "UNITS_PIERCE": 190,
+        "RAMS": 1,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 150,
+        "UNITS_MELEE": 3,
+        "SIEGE_WEAPONS": 50
+      },
+      "speed": 0.5,
+      "train_time": 36,
+      "train_at": "siege_workshop",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "heavy_camel": {
+      "cost": {
+        "food": 55,
+        "gold": 60
+      },
+      "hp": 120,
+      "attack": 7,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "CAVALRY",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0,
+        "SHIPS_CAMELS_SABOTEURS": 0
+      },
+      "source_attacks": {
+        "UNITS_MELEE": 7,
+        "CAVALRY": 18,
+        "SHIPS_CAMELS_SABOTEURS": 9
+      },
+      "speed": 1.45,
+      "train_time": 22,
+      "train_at": "stable",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "heavy_cavalry_archer": {
+      "cost": {
+        "wood": 40,
+        "gold": 70
+      },
+      "hp": 60,
+      "attack": 7,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 1,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "CAVALRY_ARCHER",
+      "source_armors": {
+        "CAVALRY_ARCHER": 0,
+        "UNITS_MELEE": 1,
+        "ARCHERS": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_PIERCE": 7,
+        "RAMS": 0
+      },
+      "speed": 1.4,
+      "train_time": 27,
+      "train_at": "archery_range",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "paladin": {
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "hp": 160,
+      "attack": 14,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 1.9,
+      "melee_armor": 2,
+      "pierce_armor": 3,
+      "attack_type": "melee",
+      "source_class": "CAVALRY",
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 3
+      },
+      "source_attacks": {
+        "UNITS_MELEE": 14,
+        "ARCHERS": 0
+      },
+      "speed": 1.35,
+      "train_time": 30,
+      "train_at": "stable",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "teutons"
+      ]
+    },
+    "champion": {
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 70,
+      "attack": 13,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 1,
+      "pierce_armor": 1,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 1
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 6,
+        "BUILDINGS": 3,
+        "UNITS_MELEE": 13,
+        "CAVALRY": 0
+      },
+      "speed": 0.9,
+      "train_time": 21,
+      "train_at": "barracks",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "halberdier": {
+      "cost": {
+        "food": 35,
+        "wood": 25
+      },
+      "hp": 60,
+      "attack": 6,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "SPEARMEN": 0,
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 1,
+        "BUILDINGS": 1,
+        "WAR_ELEPHANT": 28,
+        "UNITS_MELEE": 6,
+        "CAVALRY": 32,
+        "SHIPS_CAMELS_SABOTEURS": 16
+      },
+      "speed": 1.0,
+      "train_time": 22,
+      "train_at": "barracks",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "two_handed_swordsman": {
+      "cost": {
+        "food": 60,
+        "gold": 20
+      },
+      "hp": 60,
+      "attack": 11,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 0,
+      "pierce_armor": 1,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 1
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 6,
+        "BUILDINGS": 3,
+        "UNITS_MELEE": 11,
+        "CAVALRY": 0
+      },
+      "speed": 0.9,
+      "train_time": 21,
+      "train_at": "barracks",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "heavy_scorpion": {
+      "cost": {
+        "wood": 75,
+        "gold": 75
+      },
+      "hp": 50,
+      "attack": 16,
+      "attack_range": 7.0,
+      "min_range": 2.0,
+      "cooldown": 3.6,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "attack_type": "pierce",
+      "source_class": "SCORPION",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 4,
+        "WAR_ELEPHANT": 8,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 16,
+        "RAMS": 2
+      },
+      "speed": 0.65,
+      "train_time": 30,
+      "train_at": "siege_workshop",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "onager": {
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "hp": 60,
+      "attack": 50,
+      "attack_range": 8.0,
+      "min_range": 3.0,
+      "cooldown": 6.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "attack_type": "melee",
+      "source_class": "SIEGE_WEAPON",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 45,
+        "UNITS_MELEE": 50,
+        "SIEGE_WEAPONS": 12
+      },
+      "speed": 0.6,
+      "train_time": 46,
+      "train_at": "siege_workshop",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "cavalier": {
+      "cost": {
+        "food": 60,
+        "gold": 75
+      },
+      "hp": 120,
+      "attack": 12,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 1.8,
+      "melee_armor": 2,
+      "pierce_armor": 2,
+      "attack_type": "melee",
+      "source_class": "CAVALRY",
+      "source_armors": {
+        "UNITS_MELEE": 2,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 2
+      },
+      "source_attacks": {
+        "UNITS_MELEE": 12,
+        "ARCHERS": 0
+      },
+      "speed": 1.35,
+      "train_time": 30,
+      "train_at": "stable",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ]
+    },
+    "siege_ram": {
+      "cost": {
+        "wood": 160,
+        "gold": 75
+      },
+      "hp": 270,
+      "attack": 4,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 5.0,
+      "melee_armor": -3,
+      "pierce_armor": 195,
+      "attack_type": "melee",
+      "source_class": "SIEGE_WEAPON",
+      "source_armors": {
+        "UNITS_MELEE": -3,
+        "UNITS_PIERCE": 195,
+        "RAMS": 2,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 200,
+        "UNITS_MELEE": 4,
+        "SIEGE_WEAPONS": 65
+      },
+      "speed": 0.6,
+      "train_time": 36,
+      "train_at": "siege_workshop",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "siege_onager": {
+      "cost": {
+        "wood": 160,
+        "gold": 135
+      },
+      "hp": 70,
+      "attack": 75,
+      "attack_range": 8.0,
+      "min_range": 3.0,
+      "cooldown": 6.0,
+      "melee_armor": 0,
+      "pierce_armor": 8,
+      "attack_type": "melee",
+      "source_class": "SIEGE_WEAPON",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 8,
+        "SIEGE_WEAPONS": 0
+      },
+      "source_attacks": {
+        "BUILDINGS_NO_PORT": 60,
+        "UNITS_MELEE": 75,
+        "SIEGE_WEAPONS": 12
+      },
+      "speed": 0.6,
+      "train_time": 46,
+      "train_at": "siege_workshop",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "teutons"
+      ]
+    },
+    "elite_chu_ko_nu": {
+      "cost": {
+        "wood": 40,
+        "gold": 35
+      },
+      "hp": 50,
+      "attack": 8,
+      "attack_range": 4.0,
+      "min_range": 0.0,
+      "cooldown": 3.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "attack_type": "pierce",
+      "source_class": "ARCHER",
+      "source_armors": {
+        "UNITS_MELEE": 0,
+        "ARCHERS": 0,
+        "UNITS_PIERCE": 0,
+        "UNIQUE_UNITS": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS": 0,
+        "UNITS_MELEE": 0,
+        "CAVALRY": 0,
+        "UNITS_PIERCE": 8,
+        "RAMS": 0
+      },
+      "speed": 0.96,
+      "train_time": 13,
+      "train_at": "castle",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "chinese"
+      ]
+    },
+    "elite_teutonic_knight": {
+      "cost": {
+        "food": 85,
+        "gold": 40
+      },
+      "hp": 100,
+      "attack": 17,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 10,
+      "pierce_armor": 2,
+      "attack_type": "melee",
+      "source_class": "SOLDIER",
+      "source_armors": {
+        "INFANTRY": 0,
+        "UNITS_MELEE": 10,
+        "UNITS_PIERCE": 2,
+        "UNIQUE_UNITS": 0
+      },
+      "source_attacks": {
+        "EAGLE_WARRIOR": 4,
+        "BUILDINGS": 4,
+        "UNITS_MELEE": 17
+      },
+      "speed": 0.65,
+      "train_time": 12,
+      "train_at": "castle",
+      "required_age": 3,
+      "population": 1,
+      "civilizations": [
+        "teutons"
+      ]
+    }
+  },
+  "buildings": {
+    "barracks": {
+      "hp": 1200,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_attacks": {},
+      "footprint": [
+        3.0,
+        3.0
+      ]
+    },
+    "farm": {
+      "hp": 480,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {},
+      "footprint": [
+        3.0,
+        3.0
+      ]
+    },
+    "house": {
+      "hp": 900,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_attacks": {},
+      "footprint": [
+        2.0,
+        2.0
+      ]
+    },
+    "mill": {
+      "hp": 1000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_attacks": {},
+      "footprint": [
+        2.0,
+        2.0
+      ]
+    },
+    "mining_camp": {
+      "hp": 1000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_attacks": {},
+      "footprint": [
+        2.0,
+        2.0
+      ]
+    },
+    "town_center": {
+      "hp": 2400,
+      "attack": 5,
+      "attack_range": 6.0,
+      "min_range": 0.0,
+      "cooldown": 2.0,
+      "melee_armor": 3,
+      "pierce_armor": 5,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 5
+      },
+      "source_attacks": {
+        "UNITS_PIERCE": 5
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ]
+    },
+    "lumber_camp": {
+      "hp": 1000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_attacks": {},
+      "footprint": [
+        2.0,
+        2.0
+      ]
+    },
+    "palisade_wall": {
+      "hp": 250,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 2,
+      "pierce_armor": 5,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 5,
+        "WALLS_GATES": 0
+      },
+      "source_attacks": {},
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "outpost": {
+      "hp": 500,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 0,
+      "pierce_armor": 0,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 0
+      },
+      "source_attacks": {},
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "archery_range": {
+      "hp": 1500,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 1,
+      "pierce_armor": 8,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 8
+      },
+      "source_attacks": {},
+      "footprint": [
+        3.0,
+        3.0
+      ]
+    },
+    "blacksmith": {
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_attacks": {},
+      "footprint": [
+        3.0,
+        3.0
+      ]
+    },
+    "gate": {
+      "hp": 2750,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 10,
+      "pierce_armor": 10,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 20,
+        "UNITS_MELEE": 10,
+        "UNITS_PIERCE": 10,
+        "STONE_DEFENSES": 0,
+        "WALLS_GATES": 0
+      },
+      "source_attacks": {},
+      "footprint": [
+        4.0,
+        1.0
+      ]
+    },
+    "market": {
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 1,
+      "pierce_armor": 8,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 8
+      },
+      "source_attacks": {},
+      "footprint": [
+        4.0,
+        4.0
+      ]
+    },
+    "stable": {
+      "hp": 1500,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 1,
+      "pierce_armor": 8,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 8
+      },
+      "source_attacks": {},
+      "footprint": [
+        3.0,
+        3.0
+      ]
+    },
+    "stone_wall": {
+      "hp": 1800,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 8,
+      "pierce_armor": 10,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 16,
+        "UNITS_MELEE": 8,
+        "UNITS_PIERCE": 10,
+        "STONE_DEFENSES": 0,
+        "WALLS_GATES": 0
+      },
+      "source_attacks": {},
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "watch_tower": {
+      "hp": 1020,
+      "attack": 5,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 1,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 1,
+        "UNITS_PIERCE": 7,
+        "STONE_DEFENSES": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS_NO_PORT": 0,
+        "SHIPS_CAMELS_SABOTEURS": 7,
+        "UNITS_PIERCE": 5
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "monastery": {
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 2.5,
+      "melee_armor": 0,
+      "pierce_armor": 7,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 0,
+        "UNITS_PIERCE": 7
+      },
+      "source_attacks": {},
+      "footprint": [
+        3.0,
+        3.0
+      ]
+    },
+    "castle": {
+      "hp": 4800,
+      "attack": 11,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 8,
+      "pierce_armor": 11,
+      "source_armors": {
+        "CASTLE": 0,
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 8,
+        "UNITS_MELEE": 8,
+        "UNITS_PIERCE": 11
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "SHIPS_CAMELS_SABOTEURS": 0,
+        "UNITS_PIERCE": 11
+      },
+      "footprint": [
+        4.0,
+        4.0
+      ]
+    },
+    "siege_workshop": {
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 2,
+      "pierce_armor": 9,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 9
+      },
+      "source_attacks": {},
+      "footprint": [
+        4.0,
+        4.0
+      ]
+    },
+    "university": {
+      "hp": 2100,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 2,
+      "pierce_armor": 9,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 9
+      },
+      "source_attacks": {},
+      "footprint": [
+        4.0,
+        4.0
+      ]
+    },
+    "fortified_wall": {
+      "hp": 3000,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 12,
+      "pierce_armor": 12,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 24,
+        "UNITS_MELEE": 12,
+        "UNITS_PIERCE": 12,
+        "STONE_DEFENSES": 0,
+        "WALLS_GATES": 0
+      },
+      "source_attacks": {},
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "guard_tower": {
+      "hp": 1500,
+      "attack": 6,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 2,
+      "pierce_armor": 8,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 2,
+        "UNITS_PIERCE": 8,
+        "STONE_DEFENSES": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS_NO_PORT": 0,
+        "SHIPS_CAMELS_SABOTEURS": 9,
+        "UNITS_PIERCE": 6
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "keep": {
+      "hp": 2250,
+      "attack": 7,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 2.0,
+      "melee_armor": 3,
+      "pierce_armor": 9,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 9,
+        "STONE_DEFENSES": 0
+      },
+      "source_attacks": {
+        "SPEARMEN": 2,
+        "BUILDINGS_NO_PORT": 0,
+        "SHIPS_CAMELS_SABOTEURS": 10,
+        "UNITS_PIERCE": 7
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "bombard_tower": {
+      "hp": 2220,
+      "attack": 120,
+      "attack_range": 8.0,
+      "min_range": 1.0,
+      "cooldown": 6.0,
+      "melee_armor": 3,
+      "pierce_armor": 9,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 9,
+        "STONE_DEFENSES": 0
+      },
+      "source_attacks": {
+        "SHIPS_CAMELS_SABOTEURS": 40,
+        "UNITS_PIERCE": 120
+      },
+      "footprint": [
+        1.0,
+        1.0
+      ]
+    },
+    "wonder": {
+      "hp": 4800,
+      "attack": 0,
+      "attack_range": 0.0,
+      "min_range": 0.0,
+      "cooldown": 0.0,
+      "melee_armor": 3,
+      "pierce_armor": 10,
+      "source_armors": {
+        "BUILDINGS": 0,
+        "BUILDINGS_NO_PORT": 0,
+        "UNITS_MELEE": 3,
+        "UNITS_PIERCE": 10
+      },
+      "source_attacks": {},
+      "footprint": [
+        5.0,
+        5.0
+      ]
+    }
+  }
+}

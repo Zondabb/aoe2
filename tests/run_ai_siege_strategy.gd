@@ -7,6 +7,7 @@ const Army := preload("res://scripts/systems/ai/ai_army_manager.gd")
 const Production := preload("res://scripts/systems/ai/ai_production_manager.gd")
 const Build := preload("res://scripts/systems/ai/ai_build_manager.gd")
 const Defense := preload("res://scripts/systems/ai/ai_defense_manager.gd")
+const Walls := preload("res://scripts/systems/wall_system.gd")
 const Executor := preload("res://scripts/ai_gateway/command_executor.gd")
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
 const Unit := preload("res://scenes/entities/unit_view.tscn")
@@ -71,8 +72,8 @@ func building(id: String, pos: Vector2, enemy := false) -> BuildingAgent:
 	world.add_child(actor)
 	return actor
 
-func capture() -> void:
-	ctx.blackboard.refresh(ctx.match_state, world, ctx.team, ctx.enemy_team, 240.0, ctx.profile.defend_radius)
+func capture(match_time := 240.0) -> void:
+	ctx.blackboard.refresh(ctx.match_state, world, ctx.team, ctx.enemy_team, match_time, ctx.profile.defend_radius)
 	ctx.begin_capture(checks)
 
 func attacks(actor: Node2D, target: Node2D) -> bool:
@@ -251,7 +252,7 @@ func _run() -> void:
 	check(not ctx.blackboard.threat_near_base, "defense fixture has no current raid")
 	Defense.new().tick(ctx)
 	var rows := ctx.pending_commands.filter(func(c): return c.op == "place_wall")
-	check(rows.size() == 1 and bool(rows[0].include_gate), "established AI proactively protects TC with a legal gated wall screen")
+	check(rows.size() == 1, "established AI proactively starts a legal base perimeter")
 	execute()
 	check(ctx.match_state.get_resource(ctx.team, Enums.ResourceType.FOOD) >= 100 and ctx.match_state.get_resource(ctx.team, Enums.ResourceType.WOOD) >= 150, "wall purchase preserves production reserves")
 	var first_center := (Vector2(rows[0].start[0], rows[0].start[1]) + Vector2(rows[0].end[0], rows[0].end[1])) * 0.5
@@ -263,14 +264,189 @@ func _run() -> void:
 	capture()
 	Defense.new().tick(ctx)
 	rows = ctx.pending_commands.filter(func(c): return c.op == "place_wall")
-	check(rows.size() == 1, "completed first wall permits another defensive side")
+	check(rows.size() == 1, "completed batch permits the next connected perimeter batch")
 	if rows.size() == 1:
 		var next_center := (Vector2(rows[0].start[0], rows[0].start[1]) + Vector2(rows[0].end[0], rows[0].end[1])) * 0.5
-		check(first_center.distance_to(next_center) > 16, "second screen covers an unprotected flank rather than duplicating the front")
+		check(first_center.distance_to(next_center) <= 16, "next batch extends the same perimeter rather than scattering short screens")
 	ctx.match_state.resources[ctx.team][Enums.ResourceType.WOOD] = 100
 	capture()
 	Defense.new().tick(ctx)
 	check(ctx.pending_commands.is_empty(), "wall expansion yields to scarce production resources")
+	_test_perimeter_progress()
+	_test_abandoned_foundation()
+	_test_perimeter_scout()
+	_test_perimeter_scout_monitor()
 	world.free()
 	print("AI SIEGE STRATEGY: %d checks, %d failures" % [checks, failures])
 	quit(0 if failures == 0 else 1)
+
+
+func _defense_fixture() -> void:
+	fixture(1)
+	building("town_center", Vector2(-40, -40))
+	building("barracks", Vector2(-54, -54))
+	for index in 8:
+		unit("villager", Vector2(-38 + index, -40))
+	for index in 3:
+		unit("militia", Vector2(-42 + index, -35))
+	for type in 4:
+		ctx.match_state.resources[ctx.team][type] = 20000
+
+
+func _complete_batch() -> void:
+	for actor in world.get_children():
+		if actor is BuildingAgent and not actor.is_complete:
+			actor._complete_construction()
+		elif actor is UnitAgent and actor.def.id == &"villager":
+			actor.command_stop()
+
+
+func _test_perimeter_progress() -> void:
+	_defense_fixture()
+	var defense := Defense.new()
+	var batches := 0
+	for index in 90:
+		capture(240.0 + index * 11.0)
+		defense.tick(ctx)
+		var rows := ctx.pending_commands.filter(func(c): return c.op == "place_wall")
+		if rows.is_empty(): break
+		batches += 1
+		execute()
+		_complete_batch()
+	var snapshot := preload("res://scripts/ai_gateway/observation_builder.gd").build_json_safe(ctx.match_state, world, ctx.team, ctx.enemy_team, 1300.0)
+	var plan: Dictionary = snapshot.decision_context.get("defense_plan", {})
+	check(batches > 5, "local AI continues construction after its former 30-piece wall limit")
+	check(int(plan.get("complete_segments", 0)) > 30, "completed defense encloses a larger base instead of ending with a short screen")
+	check(bool(plan.get("closed", false)) and int(plan.get("missing_segments", -1)) == 0, "repeated local AI ticks complete the entire planned perimeter")
+	var gates := world.get_children().filter(func(node): return node is BuildingAgent and node.def.id == &"gate")
+	check(not gates.is_empty() and gates.all(func(gate): return gate.is_complete and gate.gate_state == "auto"), "completed perimeter preserves access through automatic gates")
+	var walls := world.get_children().filter(func(node): return node is BuildingAgent and Walls.is_wall(node.def.id))
+	check(not walls.is_empty(), "perimeter contains actual wall pieces to exercise destruction and repair")
+	if not walls.is_empty():
+		walls[0].free()
+		capture(1400.0)
+		defense.tick(ctx)
+		check(ctx.pending_commands.any(func(c): return c.op == "place_wall"), "destroyed wall reopens the same perimeter for local repair")
+		execute()
+		_complete_batch()
+		snapshot = preload("res://scripts/ai_gateway/observation_builder.gd").build_json_safe(ctx.match_state, world, ctx.team, ctx.enemy_team, 1411.0)
+		check(bool(snapshot.decision_context.defense_plan.closed), "repair closes the destroyed perimeter gap")
+
+
+func _test_abandoned_foundation() -> void:
+	_defense_fixture()
+	var foundation := building("stone_wall", Vector2(-12, -40))
+	foundation.start_construction()
+	# No new wall budget remains, but paid foundations can still be completed.
+	ctx.match_state.resources[ctx.team][Enums.ResourceType.WOOD] = 0
+	capture()
+	Defense.new().tick(ctx)
+	check(ctx.pending_commands.any(func(c): return c.op == "build" and int(c.building_id) == Registry.id_of(foundation)), "orphaned wall foundation receives a worker even without another purchase budget")
+	execute()
+	capture(251.0)
+	Defense.new().tick(ctx)
+	check(ctx.pending_commands.is_empty(), "active foundation builder is retained rather than repeatedly reassigned")
+	for actor in ctx.blackboard.team_villagers:
+		actor.command_stop()
+		actor.set_meta("manual_control_until_sim_time", 1000.0)
+	capture(262.0)
+	Defense.new().tick(ctx)
+	check(ctx.pending_commands.is_empty(), "wall recovery preserves human worker control leases")
+
+
+func _test_perimeter_scout() -> void:
+	_defense_fixture()
+	capture()
+	var first := ctx.blackboard.team_villagers[0]
+	var second := ctx.blackboard.team_villagers[1]
+	var first_id := Registry.id_of(first)
+	var second_id := Registry.id_of(second)
+	var observation := {"entities": [], "decision_context": {"defense_scout_options": [
+		{"unit_id": first_id, "pos": [-10, -40]},
+		{"unit_id": second_id, "pos": [-40, -10]},
+	]}}
+	var defense := Defense.new()
+	defense._scout_perimeter(ctx, observation)
+	check(ctx.pending_commands.size() == 1 and int(ctx.pending_commands[0].unit_id) == first_id, "one empty-handed worker reveals the next perimeter construction area")
+	execute()
+	capture(251.0)
+	defense._scout_perimeter(ctx, observation)
+	check(ctx.pending_commands.is_empty(), "an active perimeter scout prevents sending a second worker")
+	first.command_stop()
+	first.carry_amount = 5.0
+	capture(262.0)
+	defense._scout_perimeter(ctx, observation)
+	check(ctx.pending_commands.size() == 1 and int(ctx.pending_commands[0].unit_id) == second_id, "perimeter scouting preserves carried resource deliveries")
+	first.carry_amount = 0.0
+	for worker in [first, second]:
+		worker.set_meta("manual_control_until_sim_time", 1000.0)
+	capture(273.0)
+	defense._scout_perimeter(ctx, observation)
+	check(ctx.pending_commands.is_empty(), "perimeter scouting respects manual worker control leases")
+	for worker in [first, second]:
+		worker.remove_meta("manual_control_until_sim_time")
+	var enemy := unit("militia", Vector2(-11, -40), true)
+	observation.entities = [{"kind": "unit", "team": ctx.enemy_team, "def_id": "militia", "pos": [enemy.sim_pos.x, enemy.sim_pos.y]}]
+	capture(284.0)
+	defense._scout_perimeter(ctx, observation)
+	check(ctx.pending_commands.size() == 1 and int(ctx.pending_commands[0].unit_id) == second_id, "perimeter scout avoids an observed enemy along its approach")
+
+
+func _test_perimeter_scout_monitor() -> void:
+	_defense_fixture()
+	capture()
+	var worker := ctx.blackboard.team_villagers[0]
+	var worker_id := Registry.id_of(worker)
+	var observation := {"entities": [], "decision_context": {"defense_scout_options": [
+		{"unit_id": worker_id, "pos": [-10, -40]},
+	]}}
+	var defense := Defense.new()
+	defense.next_check = 1000.0
+	defense._scout_perimeter(ctx, observation)
+	execute()
+	capture(245.0)
+	defense.tick(ctx)
+	check(ctx.pending_commands.is_empty(), "progress monitor does not interrupt a new safe perimeter survey")
+	capture(249.0)
+	defense.tick(ctx)
+	check(ctx.pending_commands.size() == 1 and ctx.pending_commands[0].op == "move" and Vector2(ctx.pending_commands[0].pos[0], ctx.pending_commands[0].pos[1]) == worker.sim_pos, "stalled perimeter survey is canceled between normal defense checks")
+	execute()
+	worker.command_stop()
+	capture(250.0)
+	defense._scout_perimeter(ctx, observation)
+	check(ctx.pending_commands.is_empty(), "stalled survey cools down before borrowing another economy worker")
+	capture(270.0)
+	defense._scout_perimeter(ctx, observation)
+	check(ctx.pending_commands.size() == 1, "bounded survey cooldown permits later exploration")
+	execute()
+	worker.sim_pos += Vector2.RIGHT
+	capture(291.0)
+	defense.tick(ctx)
+	check(ctx.pending_commands.size() == 1 and Vector2(ctx.pending_commands[0].pos[0], ctx.pending_commands[0].pos[1]) == worker.sim_pos, "survey deadline releases even a slowly progressing worker after twenty seconds")
+	execute()
+	worker.command_stop()
+	capture(312.0)
+	defense._scout_perimeter(ctx, observation)
+	execute()
+	var enemy := unit("militia", Vector2(-11, -40), true)
+	capture(313.0)
+	defense.tick(ctx)
+	check(ctx.pending_commands.size() == 1 and Vector2(ctx.pending_commands[0].pos[0], ctx.pending_commands[0].pos[1]) == ctx.blackboard.own_tc_pos, "newly visible enemies trigger immediate scout retreat to own TC")
+	execute()
+	worker.command_stop()
+	enemy.free()
+	capture(334.0)
+	defense._scout_perimeter(ctx, observation)
+	execute()
+	unit("militia", Vector2(-11, -40), true)
+	ctx.match_state.fog_enabled = true
+	ctx.match_state.fog = null
+	capture(335.0)
+	defense.tick(ctx)
+	check(ctx.pending_commands.is_empty(), "hidden enemies do not influence perimeter survey retreat")
+	ctx.match_state.fog_enabled = false
+	worker.set_meta("manual_control_until_sim_time", 1000.0)
+	worker.command_move(Vector2(-40, -10))
+	capture(336.0)
+	defense.tick(ctx)
+	check(ctx.pending_commands.is_empty() and defense.perimeter_scout_id == -1, "human takeover ends the survey lease without overriding the new move")

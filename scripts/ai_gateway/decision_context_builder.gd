@@ -10,6 +10,7 @@ const Build := preload("res://scripts/systems/build_system.gd")
 const Nav := preload("res://scripts/systems/nav_grid_service.gd")
 const Age := preload("res://scripts/systems/age_progression.gd")
 const Walls := preload("res://scripts/systems/wall_system.gd")
+const Perimeter := preload("res://scripts/ai_gateway/defense_perimeter.gd")
 const Context := preload("res://scripts/ai_gateway/command_execution_context.gd")
 const MAX_FRONTIERS := 12
 const POSITIONS_PER_BUILDING := 3
@@ -86,9 +87,12 @@ static func build(state: MatchState, entities: Node2D, team: int, snapshots: Arr
 	nav.setup_rect(Vector2i((bounds.position / CELL).floor()), Vector2i((bounds.end / CELL).ceil()), CELL)
 	nav.rebuild_from_blockers(known_static)
 	var army := _army(own, snapshots, derived, team, defend_radius, bounds, nav)
+	var defense := _defense_planning(state, entities, team, civ, builders, derived, bounds, nav)
 	return {
 		"catalog": catalog,
-		"defense_options": _defense_options(state, entities, team, civ, builders, derived, bounds, nav),
+		"defense_options": defense.options,
+		"defense_plan": defense.plan,
+		"defense_scout_options": defense.scouts,
 		"construction_options": _construction_options(state, team, builders, catalog.buildings, placement_blockers, bounds, nav, derived, snapshots),
 		"layout": {"base": derived.get("own_tc_pos", [0, 0]), "farm_reserve_radius": FARM_RESERVE_RADIUS, "lane_width": LANE_WIDTH, "planning_scale": PLANNING_SCALE},
 		"scouting": _scouting(state, team, own, bounds, nav, army.scout_ids, derived),
@@ -161,6 +165,8 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 	if free_builders.is_empty(): return result
 	var base := Protocol.array_to_vec2(derived.get("own_tc_pos", [0, 0])) as Vector2
 	if int(derived.get("own_tc_id", -1)) < 0: base = free_builders[0].get("sim_pos")
+	var stored_plans: Dictionary = state.get_meta(Perimeter.META_KEY, {})
+	var wall_plan: Dictionary = stored_plans.get("%d:%d" % [team, int(derived.get("own_tc_id", -1))], {})
 	var direction := (bounds.get_center() - base).normalized()
 	if direction == Vector2.ZERO: direction = Vector2.RIGHT
 	for record: Dictionary in records:
@@ -181,8 +187,11 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 			zone = "resource_drop_off"
 			anchors = _resource_anchors(record.id, snapshots, base)
 			radii = [10.0, 14.0, 18.0]
-			if anchors.is_empty() and record.id == "mill": anchors = [{"pos": base, "resource_id": null}]
-			if record.id == "mill" and anchors.size() == 1 and anchors[0].resource_id == null: radii = [26.0, 34.0]
+			if record.id == "mill":
+				# A reserved wall band can cover both old 26/34 fallback rings.
+				# Keep inner and outer alternatives even after berries disappear,
+				# so a missing mill cannot permanently block farms and enclosure.
+				anchors.append({"pos": base, "resource_id": null, "radii": [18.0, 22.0, 26.0, 34.0, 44.0, 50.0], "score_bonus": -10.0})
 		var candidates: Array = []
 		var seen := {}
 		for anchor: Dictionary in anchors:
@@ -196,6 +205,9 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 					seen[point] = true
 					if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue
 					if not _planning_clear(definition, point, base, blockers, bounds): continue
+					# Reserve the actual wall line, including production exit clearance,
+					# before the first foundation is paid for.
+					if not Perimeter.keeps_wall_strip_clear(wall_plan, point, definition.footprint + Vector2.ONE * 4): continue
 					if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): continue
 					if not Build.can_place(definition.footprint, point, blockers) or not _footprint_walkable(point, definition.footprint, nav): continue
 					var facing := (point - base).normalized().dot(direction)
@@ -227,61 +239,102 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 
 
 static func _defense_options(state: MatchState, entities: Node2D, team: int, civ: CivDef, builders: Array[Node2D], derived: Dictionary, bounds: Rect2, nav: RefCounted) -> Array:
+	return _defense_planning(state, entities, team, civ, builders, derived, bounds, nav).options
+
+
+static func _defense_planning(state: MatchState, entities: Node2D, team: int, civ: CivDef, builders: Array[Node2D], derived: Dictionary, bounds: Rect2, nav: RefCounted) -> Dictionary:
 	var options: Array = []
-	# A defensive purchase always preserves food and wood for production. Avoid
-	# scanning wall geometry every fast tick while that minimum is unavailable.
-	if state.get_resource(team, Enums.ResourceType.WOOD) < 60 or state.get_resource(team, Enums.ResourceType.FOOD) < 50: return options
+	var scouts: Array = []
+	var result := {"options": options, "scouts": scouts, "plan": {}}
+	if int(derived.get("own_tc_id", -1)) < 0: return result
 	var available := builders.filter(func(unit): return unit.get("order") in [Enums.OrderType.NONE, Enums.OrderType.GATHER] and unit.get_build_queue_ids().is_empty() and float(unit.get("carry_amount")) <= 0.001 and String(unit.get("_gather_state")) != "to_drop_off")
-	if available.is_empty() or int(derived.get("own_tc_id", -1)) < 0: return options
 	var ctx := Context.new()
 	ctx.match_state = state
 	ctx.entities = entities
 	ctx.team = team as Enums.Team
 	ctx.civ = civ
 	var base: Vector2 = Protocol.array_to_vec2(derived.own_tc_pos)
-	var toward := bounds.get_center() - base
-	if int(derived.get("enemy_tc_id", -1)) >= 0: toward = Protocol.array_to_vec2(derived.enemy_tc_pos) - base
-	if toward == Vector2.ZERO: toward = Vector2.RIGHT
-	var front := Vector2(signf(toward.x), 0) if absf(toward.x) >= absf(toward.y) else Vector2(0, signf(toward.y))
-	# Short screens on three sides leave the rear open. In the dark age each
-	# screen sits beside a four-tile traffic lane; later a gate spans the lane.
-	for normal: Vector2 in [front, front.rotated(PI / 2).round(), front.rotated(-PI / 2).round()]:
-		var tangent := Vector2(-normal.y, normal.x)
-		for material in ["stone_wall", "palisade_wall"]:
-			var definition := Catalog.get_building(StringName(material))
-			var reason := Catalog.building_reason(state, team, civ, definition, entities)
-			if not reason.is_empty() and reason != "资源不足": continue
-			var gate_reason := Catalog.building_reason(state, team, civ, Catalog.get_building(&"gate"), entities)
-			var with_gate := gate_reason.is_empty() or gate_reason == "资源不足"
-			for radius: float in [24.0, 20.0, 28.0]:
-				var center := (base + normal * radius).round()
-				var start := center - tangent * 6 if with_gate else center + tangent * 3
-				var end := center + tangent * 6 if with_gate else center + tangent * 10
-				var row := Walls.plan(material, start, end, with_gate)
-				if not Walls.validate_plan(row, ctx, false).is_empty(): continue
-				var price := Walls.cost(row, ctx)
-				if price.values().all(func(value): return value == 0): continue
-				# Keep every placement away from building exits and resource work
-				# areas. Only use visible objects when constructing planning hints.
-				var clear := true
-				for blocker in entities.get_children():
-					if not blocker is Node2D or not FogAccess.state_can_see(state, team, blocker): continue
-					var other := blocker.get("def") as BuildingDef
-					if other == null or Walls.is_fortification(other.id): continue
-					var margin := other.footprint * 2.0 + Vector2.ONE * 2.0
-					for piece: Dictionary in row:
-						if Rect2(blocker.get("sim_pos") - margin, margin * 2).has_point(piece.pos): clear = false
-				if not clear: continue
+	var perimeter := Perimeter.get_plan(state, entities, team, base, int(derived.own_tc_id), bounds, "palisade_wall")
+	if perimeter.rect.size.x < 12 or perimeter.rect.size.y < 12:
+		result.plan = {"id": perimeter.id, "closed": false, "phase": "blocked", "blocked_reason": "map_too_small_for_access_gates", "total_segments": 0, "missing_segments": 0, "blocked_segments": 0, "complete_segments": 0}
+		return result
+	var gate_reason := Catalog.building_reason(state, team, civ, Catalog.get_building(&"gate"), entities)
+	var gate_unlocked := gate_reason.is_empty() or gate_reason == "资源不足"
+	var seen: Dictionary = perimeter.seen_complete
+	var unique := {}
+	var complete := 0
+	var blocked_keys := {}
+	var unseen_keys := {}
+	var pending := 0
+	for batch: Dictionary in Perimeter.batches(perimeter):
+		var missing := 0
+		var missing_keys: Array[String] = []
+		var repair := false
+		var connected := false
+		var visible := true
+		for piece: Dictionary in batch.pieces:
+			var key := "%s:%s" % [piece.building_def_id, piece.pos]
+			var existing := Walls.existing_segment(piece, ctx)
+			if existing != null: connected = true
+			if existing == null:
+				missing += 1
+				missing_keys.append(key)
+				if seen.has(key): repair = true
+			var footprint := Walls.footprint_for(Catalog.get_building(piece.building_def_id), int(piece.orientation))
+			if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, piece.pos, footprint + Vector2.ONE * 2, true)): visible = false
+			if unique.has(key): continue
+			unique[key] = true
+			if existing != null:
+				if bool(existing.get("is_complete")):
+					complete += 1
+					seen[key] = true
+				else: pending += 1
+		if missing == 0: continue
+		if not visible:
+			for key in missing_keys: unseen_keys[key] = true
+			if not available.is_empty():
+				var point: Vector2 = (batch.start + batch.end) * 0.5 - batch.normal * 4
 				var builder: Node2D = available[0]
 				for unit in available:
-					if unit.get("sim_pos").distance_squared_to(start) < builder.get("sim_pos").distance_squared_to(start): builder = unit
-				var approach := start - normal * 2.0
-				var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), approach, builder.get("def").resolved_footprint_radius())
-				if route.is_empty() or route[-1].distance_to(approach) > 2: continue
-				var new_count := row.filter(func(piece): return Walls.existing_segment(piece, ctx) == null).size()
-				options.append({"building_def_id": material, "builder_id": Registry.id_of(builder), "start": Protocol.vec2_to_array(start), "end": Protocol.vec2_to_array(end), "include_gate": with_gate, "cost": price, "segment_count": new_count, "orientation": row[0].orientation, "zone": "defensive_front" if normal == front else "defensive_flank", "preserves_access": true})
-				break
-	return options
+					if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
+				# A survey is a short move within a leased builder task, rather than
+				# sending a villager across an entire unseen side in one order.
+				point = builder.get("sim_pos").move_toward(point, 14.0)
+				if not scouts.any(func(option): return option.side == batch.side):
+					scouts.append({"unit_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point), "side": batch.side, "reason": "reveal_perimeter"})
+			continue
+		if batch.include_gate and not gate_unlocked:
+			for key in missing_keys: blocked_keys[key] = true
+			continue
+		# Only consult authoritative geometry after the entire footprint and its
+		# inflation neighborhood are visible; hidden terrain cannot leak via hints.
+		if not Walls.validate_plan(batch.pieces, ctx, false).is_empty():
+			for key in missing_keys: blocked_keys[key] = true
+			continue
+		if available.is_empty(): continue
+		var approach: Vector2 = (batch.start + batch.end) * 0.5 - batch.normal * 3.0
+		var builder: Node2D = available[0]
+		for unit in available:
+			if unit.get("sim_pos").distance_squared_to(approach) < builder.get("sim_pos").distance_squared_to(approach): builder = unit
+		var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), approach, builder.get("def").resolved_footprint_radius())
+		if route.is_empty() or route[-1].distance_to(approach) > 2:
+			for key in missing_keys: blocked_keys[key] = true
+			continue
+		var price := Walls.cost(batch.pieces, ctx)
+		options.append({"building_def_id": perimeter.material, "builder_id": Registry.id_of(builder),
+			"start": Protocol.vec2_to_array(batch.start), "end": Protocol.vec2_to_array(batch.end), "include_gate": batch.include_gate,
+			"cost": price, "segment_count": missing, "orientation": batch.pieces[0].orientation,
+			"zone": "defensive_perimeter", "preserves_access": true, "perimeter_id": perimeter.id, "side": batch.side,
+			"repair": repair, "connected": connected, "priority": 1000 if repair else 100 if connected else 0})
+	var rectangle: Rect2 = perimeter.rect
+	var unseen := unseen_keys.size()
+	var closed := unique.size() > 0 and complete == unique.size()
+	result.plan = {"id": perimeter.id, "material": perimeter.material, "total_segments": unique.size(), "complete_segments": complete,
+		"missing_segments": unique.size() - complete - pending, "pending_segments": pending, "blocked_segments": blocked_keys.size(),
+		"unseen_segments": unseen, "closed": closed, "phase": "closed" if closed else "survey" if unseen > 0 and options.is_empty() else "building",
+		"bounds": [rectangle.position.x, rectangle.position.y, rectangle.size.x, rectangle.size.y]}
+	options.sort_custom(func(a, b): return a.priority > b.priority)
+	return result
 
 
 static func _farm_anchors(snapshots: Array, team: int, base: Vector2, tc_id: int) -> Array:

@@ -11,13 +11,21 @@ from dataclasses import dataclass, field
 import copy
 import json
 import math
+import os
 from typing import Any
 
 from brain.build_placement import footprint_visible
 from brain.land_progression import AGE_COSTS, PREREQUISITES, CATALOG
 from brain.profile_loader import profile_for_id
-from brain.llm_commander import LlmCommander, _DecisionFrame, _distance, _vec, RESOURCES, MILITARY_BUILDINGS, SCOUT_TYPES
+from brain.llm_commander import LlmCommander, _DecisionFrame, _distance, _vec, RESOURCES, MILITARY_BUILDINGS, SCOUT_TYPES, MAX_COMMANDS
 from protocol.models import ChatCompletionRequest
+
+from .combat_model import profile as combat_profile, simulate, unit_class
+from .doctrine import (COMPOSITION_CLASSES, COMPOSITIONS, DOCTRINE_GUIDE, DOCTRINES, TARGET_PRIORITIES,
+                       counter_scores, effects as doctrine_effects, recommend_doctrine)
+from .intel import OpponentModel
+from .memory_bank import derive_lessons
+from .tactics import TargetPlanner, kite_goal
 
 
 def _integer(low: int, high: int) -> dict:
@@ -38,14 +46,16 @@ def _schema(**properties: dict) -> dict:
 
 
 ROLE_SCHEMAS = {
-    "commander": _schema(stance=_enum("balanced", "pressure", "defend"), army_target=_integer(2, 24), muster_timeout=_integer(20, 120)),
+    "commander": _schema(stance=_enum("balanced", "pressure", "defend"), army_target=_integer(2, 24), muster_timeout=_integer(20, 120),
+                         strategy=_enum(*DOCTRINES)),
     "construction": _schema(military_zone=_enum("military_front", "military_flank"), farm_reserve_radius=_number(10, 24), max_builders=_integer(1, 4)),
     "economy": _schema(worker_target=_integer(8, 60), food_workers_ratio=_number(.2, .65), reserve_wood=_integer(0, 300)),
     "technology": _schema(target_age=_integer(0, 3), budget_fraction=_number(.1, .7), priority=_enum("economy", "military", "siege")),
     "scout": _schema(focus=_enum("enemy_base", "resources", "attack_route"), scout_count=_integer(1, 2), revisit_seconds=_integer(30, 180)),
-    "combat": _schema(army_target=_integer(2, 24), producer=_enum(*sorted(MILITARY_BUILDINGS)), producer_count=_integer(1, 4), retreat_hp_fraction=_number(.1, .45)),
+    "combat": _schema(army_target=_integer(2, 24), producer=_enum(*sorted(MILITARY_BUILDINGS)), producer_count=_integer(1, 4), retreat_hp_fraction=_number(.1, .45),
+                      composition=_enum(*COMPOSITIONS), target_priority=_enum(*TARGET_PRIORITIES)),
     "defense": _schema(policy=_enum("reactive", "balanced", "fortify"), material=_enum("auto", "palisade_wall", "stone_wall"),
-                       max_segments=_integer(4, 32), reserve_wood=_integer(0, 300), gate_mode=_enum("auto", "locked")),
+                       max_segments=_integer(4, 512), reserve_wood=_integer(0, 300), gate_mode=_enum("auto", "locked")),
 }
 WALL_TYPES = {"palisade_wall", "stone_wall", "fortified_wall"}
 FORTIFICATION_TYPES = WALL_TYPES | {"gate", "palisade_gate", "stone_gate"}
@@ -56,15 +66,24 @@ _COMMON_PROMPT = (
     "Use only observed capabilities and current catalog. Do not issue primitive commands, invent hidden enemies, prices or coordinates. "
     "The deterministic task executor keeps working while you plan. Compare shared_plans and force_summary with spending demand; "
     "adapt the initial defaults when observed shortages, threats or spare capacity justify it. Reaffirm a suitable plan otherwise. "
+    "intel is the team's opponent model from observed units only: estimated_enemy_army, enemy_style with evidence, "
+    "battle_forecast (our army vs the estimated enemy army, simulated with this game's real damage rules) and "
+    "recommended_counters ranked by resource-efficient trades. after_action summarizes kills, losses and income since "
+    "your previous plan; react to what actually happened, not to the opening defaults. "
 )
 ROLE_PROMPTS = {
-    "commander": _COMMON_PROMPT + "Own victory and tempo. stance=pressure shortens muster, defend delays departure briefly; defend only observed threats. army_target sets a finite sortie size; an already-started sortie keeps its frozen size and later plans affect the next. muster_timeout bounds waiting in seconds.",
+    "commander": _COMMON_PROMPT + "Own victory and tempo. stance=pressure shortens muster, defend delays departure briefly; defend only observed threats. army_target sets a finite sortie size; an already-started sortie keeps its frozen size and later plans affect the next. muster_timeout bounds waiting in seconds. " + DOCTRINE_GUIDE,
     "construction": _COMMON_PROMPT + "Own placement and builders. military_zone prefers front or flank among legal sites; farm_reserve_radius keeps military buildings outside the TC farm core. max_builders limits simultaneous builders: balance income against unfinished infrastructure and preserve delivery lanes/exits.",
     "economy": _COMMON_PROMPT + "Own civilian production and staffing. worker_target sets villager growth above the stage minimum in strategy_signals; 8 is an opening target, not a sustainable late economy. Increase it toward recommended_worker_target when safe, especially after the first army leaves. food_workers_ratio sets food staffing and farm demand; increase it when food supply or age savings lag. reserve_wood raises the wood stock target. Match spending demand and avoid surplus food/unoccupied farms.",
     "technology": _COMMON_PROMPT + "Own age and dependency goals. target_age controls advancement (siege needs may require age 2). Once a target age is reached, reassess the next age using income and threats instead of repeating a completed goal forever. budget_fraction controls savings/research affordability, trading current production for progress. priority orders available economy, military or siege upgrades. Use catalog prerequisites and supported capabilities.",
     "scout": _COMMON_PROMPT + "Own information missions. focus prioritizes enemy_base probes, resource frontiers or attack_route information. scout_count uses up to that many available scouts; revisit_seconds sets the delay before checking remembered buildings. Respond to missing resources/route information using observed knowledge only.",
-    "combat": _COMMON_PROMPT + "Own military capacity and a persistent destroy-TC objective. Siege demolishes blocking walls, then the enemy TC and production; regular soldiers screen siege against defenders and raid nearby villagers. A bounded siege complement is funded proactively once available; do not wait for a failed TC assault. Closest suitable soldiers handle base threats without recalling the whole siege force. producer/producer_count request that building type and total count; choose supported production suited to visible enemies and income. army_target affects the next sortie once the current size is frozen. Use strategy_signals and failed_sorties to rebuild after losses; raise capacity only when income can fund it. retreat_hp_fraction retreats a wounded force below that health share; lower it for commitment, raise it to preserve units.",
-    "defense": _COMMON_PROMPT + "Own defensive wall lines, gates and their builders. reactive builds after observed base threats; balanced adds a modest screen once economy and production are established; fortify expands perimeter protection. Use only defense_options supplied by the game: preserve access, prefer a gate when available, never surround delivery lanes with a sealed wall. material=auto chooses affordable palisades or available stone walls. max_segments caps current wall pieces including foundations, not a per-tick allowance. reserve_wood protects economy and military capacity. gate_mode=auto preserves friendly exits; locked is temporary during immediate enemy approach when no friendly traffic needs passage. Walls supplement troops and do not replace essential food, production or age savings.",
+    "combat": _COMMON_PROMPT + "Own military capacity and a persistent destroy-TC objective. Siege demolishes blocking walls, then the enemy TC and production; regular soldiers screen siege against defenders and raid nearby villagers. A bounded siege complement is funded proactively once available; do not wait for a failed TC assault. Closest suitable soldiers handle base threats without recalling the whole siege force. producer/producer_count request that building type and total count; choose supported production suited to visible enemies and income. army_target affects the next sortie once the current size is frozen. Use strategy_signals and failed_sorties to rebuild after losses; raise capacity only when income can fund it. retreat_hp_fraction retreats a wounded force below that health share; lower it for commitment, raise it to preserve units. "
+              "composition=counter trains the best resource-efficient answer to intel.estimated_enemy_army (this game's real damage rules, "
+              "which may differ from the original game's bonuses); infantry/archers/cavalry force a unit family; mixed diversifies. "
+              "target_priority=army fights enemy soldiers first, economy raids villagers while only answering soldiers that engage, "
+              "buildings ignores field units except attackers and pushes structures. The executor also focus-fires, avoids overkill, "
+              "kites with ranged units and disengages from fights battle_forecast shows as lost.",
+    "defense": _COMMON_PROMPT + "Own a stable closed base perimeter, its gates and builders. reactive builds after observed base threats; balanced completes the supplied perimeter in affordable connected batches once economy and production are established; fortify prioritizes perimeter completion. Use only defense_options supplied by the game, repair gaps and extend connected sections, preserve each gate and friendly delivery access. defense_plan reports actual closure and missing or blocked sections; a short line or an exhausted budget is not enclosure. defense_scout_options reveal the next hidden perimeter section using a safe empty-handed worker. defense_plan.material is authoritative for an established perimeter: complete its supplied material before requesting a different design; the material preference applies only to legacy observations without a perimeter material. material=auto prefers affordable palisades. max_segments is a finite TOTAL perimeter budget including foundations, not a per-tick allowance; typically use 384 for a full town perimeter, and never mistake hitting this cap for closure. reserve_wood protects economy and military capacity. gate_mode=auto preserves friendly exits; locked is temporary during immediate enemy approach when no friendly traffic needs passage. Walls supplement troops and do not replace essential food, production or age savings.",
 }
 
 
@@ -88,13 +107,14 @@ class MultiAgentRuntime:
         self.validator = LlmCommander(profile_id)
         target = max(2, min(24, self.validator.profile.military_attack_count))
         self.roles = {
-            "commander": RoleState({"stance": "balanced", "army_target": target, "muster_timeout": 75}),
+            "commander": RoleState({"stance": "balanced", "army_target": target, "muster_timeout": 75, "strategy": "adaptive"}),
             "construction": RoleState({"military_zone": "military_front", "farm_reserve_radius": 14.0, "max_builders": 2}),
             "economy": RoleState({"worker_target": max(8, self.validator.profile.villager_target), "food_workers_ratio": .4, "reserve_wood": 100}),
             "technology": RoleState({"target_age": 3, "budget_fraction": .5, "priority": "military"}),
             "scout": RoleState({"focus": "enemy_base", "scout_count": 1, "revisit_seconds": 90}),
-            "combat": RoleState({"army_target": target, "producer": "barracks", "producer_count": 1, "retreat_hp_fraction": .2}),
-            "defense": RoleState({"policy": "balanced", "material": "auto", "max_segments": 12, "reserve_wood": 100, "gate_mode": "auto"}),
+            "combat": RoleState({"army_target": target, "producer": "barracks", "producer_count": 1, "retreat_hp_fraction": .2,
+                                 "composition": "counter", "target_priority": "army"}),
+            "defense": RoleState({"policy": "balanced", "material": "auto", "max_segments": 384, "reserve_wood": 100, "gate_mode": "auto"}),
         }
         self.enemy_knowledge: dict[int, dict] = {}
         self.tasks: dict[str, dict] = {}
@@ -120,6 +140,95 @@ class MultiAgentRuntime:
         self.tech_reserve: dict = {}
         self.construction_reserve: dict = {}
         self.next_sortie_target = target
+        # Strategic intelligence layer: opponent model, counters, forecasts,
+        # doctrine accounting and cross-match memory (planning data only).
+        self.intel = OpponentModel()
+        self.strategic_memory: dict = {}
+        self.doctrine_ticks: Counter = Counter()
+        self.counter_ranking: list[dict] = []
+        self.counter_map: dict[str, float] = {}
+        self.battle_forecast: dict | None = None
+        self.recommended_doctrine: dict = {"strategy": "adaptive", "why": "opening"}
+        self.milestones: dict = {}
+        self.match_summary: dict | None = None
+        self._targets = TargetPlanner()
+        # Kill switch / A-B baseline: off restores the previous tactics exactly.
+        self.intelligence_enabled = os.environ.get("AOE2_AI_INTELLIGENCE", "on").strip().lower() not in ("0", "off", "false")
+
+    def load_strategic_memory(self, snapshot: dict) -> None:
+        """Cross-match records supplied by the service; advisory data only."""
+        self.strategic_memory = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+
+    @property
+    def doctrine(self) -> dict:
+        if not getattr(self, "intelligence_enabled", True):
+            return {}
+        return doctrine_effects(self.roles["commander"].plan.get("strategy", "adaptive"))
+
+    def _intelligence(self, f: _DecisionFrame) -> None:
+        """Update the opponent model, counter ranking and army forecast."""
+        self._targets = TargetPlanner(f.unit_defs)  # per-frame profiles and focus-fire ledger
+        for note in self.intel.update(f, self.enemy_knowledge, self.frame_events, self.now)[:4]:
+            self.debug.append({"category": "MULTI_AGENT", "message": f"intel: {note}"})
+        self.doctrine_ticks[self.roles["commander"].plan.get("strategy", "adaptive")] += 1
+        if self.goals.get("sortie_departed") is not None:
+            self.milestones.setdefault("first_sortie", round(self.now, 1))
+        if f.age > self.milestones.get("age", 0):
+            self.milestones["age"] = f.age
+            self.milestones[f"age_{f.age}"] = round(self.now, 1)
+        if not self.intelligence_enabled:
+            self.counter_ranking, self.counter_map, self.battle_forecast = [], {}, None
+            return
+        enemy_army = self.intel.estimated_army()
+        gold_known = any(e.get("kind") == "resource" and self._resource_kind(e) == "gold" and float(e.get("amount", 0)) > 0
+                         for e in f.obs.entities)
+        gold_weight = 1.0 if gold_known or f.budget["gold"] >= 150 else 1.8
+        civ = getattr(self.validator.profile, "civ_id", None) or self.validator.profile_id
+        known_civs = {c for d in f.unit_defs.values() if isinstance(d, dict) for c in d.get("civilizations", []) or []}
+        candidates = [name for name, definition in f.unit_defs.items()
+                      if isinstance(definition, dict) and int(definition.get("required_age", 0) or 0) <= f.age + 1
+                      # Never recommend another civilization's unique units.
+                      and (not definition.get("civilizations") or civ not in known_civs or civ in definition["civilizations"])]
+        ranking = counter_scores(candidates, enemy_army, f.unit_defs, gold_weight)
+        for item in ranking:
+            definition = f.unit_defs.get(item["unit"], {})
+            item["available_now"] = (int(definition.get("required_age", 0) or 0) <= f.age and definition.get("unlocked", True) is not False)
+            item["have_producer"] = any(b.get("def_id") == item["producer"] and b.get("is_complete") for b in f.buildings)
+        self.counter_map = {item["unit"]: item["score"] for item in ranking if item["available_now"]}
+        # Actionable answers first; next-age options remain visible after them.
+        self.counter_ranking = sorted(ranking, key=lambda item: (not item["available_now"], -item["score"]))[:5]
+        military = [u for u in f.units if unit_class(str(u.get("def_id", ""))) not in ("villager", "other")]
+        own = [combat_profile(str(u.get("def_id", "")), u, f.unit_defs) for u in military]
+        enemy = [combat_profile(name, catalog_units=f.unit_defs) for name, count in enemy_army.items() for _ in range(count)]
+        own, enemy = [p for p in own if p], [p for p in enemy if p]
+        self.battle_forecast = simulate(own, enemy).as_dict() if own and enemy else None
+        self.recommended_doctrine = recommend_doctrine(self.intel.styles, self.now, len(military),
+                                                       sum(enemy_army.values()), self.strategic_memory)
+
+    def _local_forecast(self, f: _DecisionFrame, own_units: list[dict], enemy_units: list[dict],
+                        own_support: list[dict] = (), enemy_support: list[dict] = ()):
+        planner = self._targets
+        profiles = lambda items: [p for p in (planner.profile_of(e) for e in items) if p is not None]
+        # Current distance between the forces decides who must close in, and
+        # whether melee is already inside a minimum-range weapon's blind spot.
+        gap = min((_distance(a["pos"], b["pos"]) for a in own_units for b in enemy_units), default=None)
+        return simulate(profiles(own_units), profiles(enemy_units), profiles(own_support), profiles(enemy_support), gap=gap)
+
+    def match_report(self, f: _DecisionFrame) -> dict:
+        report = self.intel.report()
+        doctrine = (self.doctrine_ticks.most_common(1)[0][0] if self.doctrine_ticks
+                    else self.roles["commander"].plan.get("strategy", "adaptive"))
+        result = "victory" if self.goals.get("victory_confirmed") else "defeat" if self.goals.get("phase") == "defeat" else "unknown"
+        summary = {"match_id": f.req.metadata.match_id, "team": f.team, "profile_id": self.validator.profile_id,
+                   "result": result, "duration_sec": round(self.now, 1), "doctrine": doctrine,
+                   "doctrines_used": dict(self.doctrine_ticks), "enemy_style": [s for s in report["enemy_style"] if s != "unknown"],
+                   "enemy_civilization_guess": report["enemy_civilization_guess"],
+                   "kill_value": report["trade_ledger"]["kill_value"], "loss_value": report["trade_ledger"]["loss_value"],
+                   "first_sortie_sec": self.milestones.get("first_sortie"), "final_age": f.age,
+                   "enemy_age_at_least": report["enemy_age_at_least"],
+                   "failed_sorties": self.roles["combat"].memory.get("failed_sorties", 0)}
+        summary["lessons"] = derive_lessons(summary)
+        return summary
 
     @property
     def goal_version(self) -> int:
@@ -131,7 +240,7 @@ class MultiAgentRuntime:
         # above this floor, staffing ratios and resource reserves.
         minimum = min(60, max(8, self.validator.profile.villager_target)
                       + 4 * age + (4 if self.roles["combat"].memory.get("initial_force") else 0))
-        return minimum, min(60, max(minimum, self.roles["economy"].plan["worker_target"]))
+        return minimum, min(60, max(minimum, self.roles["economy"].plan["worker_target"] + self.doctrine.get("worker_bonus", 0)))
 
     def _strategy_signals(self, f: _DecisionFrame) -> dict:
         workers = [u for u in f.units if u.get("def_id") == "villager"]
@@ -287,6 +396,17 @@ class MultiAgentRuntime:
                      "resource_demand": dict(self.demands), "force_summary": force_summary})
         if self.frame is not None:
             base["strategy_signals"] = self._strategy_signals(self.frame)
+        base["doctrine"] = {"strategy": self.roles["commander"].plan.get("strategy", "adaptive"), "effects": self.doctrine}
+        if self.intelligence_enabled:
+            base["after_action"] = self._after_action(state)
+        if self.intelligence_enabled and role != "construction":
+            base["intel"] = self._intel_brief(role)
+        if self.intelligence_enabled and role == "commander" and self.strategic_memory:
+            memory = self.strategic_memory
+            base["strategic_memory"] = bounded({"games": memory.get("games", 0),
+                                                "record_by_doctrine": memory.get("record_by_doctrine", {}),
+                                                "record_vs_style": memory.get("record_vs_style", {}),
+                                                "recent_lessons": memory.get("recent_lessons", [])[:4]})
         if role in ("commander", "combat", "scout", "defense"):
             # Current entities already carry live HP; memory supplies only
             # non-visible sites, avoiding duplicated/stale enemy records.
@@ -317,7 +437,9 @@ class MultiAgentRuntime:
         if role == "defense":
             base["catalog"]["buildings"] = catalog_records([item for item in ctx.get("catalog", {}).get("buildings", [])
                 if isinstance(item, dict) and item.get("id") in FORTIFICATION_TYPES | {"town_center", "farm", "barracks"}])
-            base["defense_options"] = [bounded(fields(site, ("building_def_id", "builder_id", "start", "end", "include_gate", "cost", "segment_count", "orientation", "zone", "preserves_access"))) for site in ctx.get("defense_options", [])[:12]]
+            base["defense_options"] = [bounded(fields(site, ("building_def_id", "builder_id", "start", "end", "include_gate", "cost", "segment_count", "orientation", "zone", "preserves_access", "perimeter_id", "side", "perimeter_total_segments", "perimeter_complete_count", "progress", "connected", "repair", "priority"))) for site in ctx.get("defense_options", [])[:12]]
+            base["defense_plan"] = bounded(ctx.get("defense_plan", {}))
+            base["defense_scout_options"] = [bounded(fields(site, ("unit_id", "builder_id", "pos", "side", "reason"))) for site in ctx.get("defense_scout_options", [])[:4]]
             base["fortifications"] = [bounded(fields(e, ("id", "def_id", "pos", "hp", "max_hp", "is_complete", "build_progress", "orientation", "gate_state", "gate_open"))) for e in own_buildings if e.get("def_id") in FORTIFICATION_TYPES][:24]
             base["reserved"] = {"technology": dict(self.tech_reserve), "construction": dict(self.construction_reserve)}
             base["recent_threat_until"] = state.memory.get("threat_until", 0)
@@ -350,6 +472,29 @@ class MultiAgentRuntime:
             max(candidates, key=lambda records: len(json.dumps(records, ensure_ascii=False))).pop()
         return copy.deepcopy(base)
 
+    def _intel_brief(self, role: str) -> dict:
+        report = self.intel.report()
+        brief = {key: report[key] for key in ("enemy_style", "evidence", "enemy_age_at_least", "enemy_civilization_guess",
+                                              "estimated_enemy_army", "estimated_enemy_army_value")}
+        brief["battle_forecast"] = self.battle_forecast
+        if role in ("commander", "combat", "technology"):
+            brief["recommended_counters"] = [{k: item[k] for k in ("unit", "score", "producer", "available_now", "have_producer")}
+                                             for item in self.counter_ranking[:3]]
+        if role == "commander":
+            brief["recommended_doctrine"] = dict(self.recommended_doctrine)
+            brief["trade_ledger"] = report["trade_ledger"]
+            brief["timeline"] = report["timeline"]
+        return brief
+
+    def _after_action(self, state: RoleState) -> dict:
+        summary = self.intel.summary_since(state.last_model_plan_at)
+        summary["since_sec"] = state.last_model_plan_at
+        summary["stock_change_per_min"] = self.intel.income_estimate()
+        combat = self.roles["combat"].memory
+        summary["failed_sorties"] = combat.get("failed_sorties", 0)
+        summary["disengagements"] = combat.get("disengagements", 0)
+        return summary
+
     def tick(self, req: ChatCompletionRequest) -> dict:
         if req.metadata.tick == self.last_tick and self.cached is not None:
             return copy.deepcopy(self.cached)
@@ -373,6 +518,7 @@ class MultiAgentRuntime:
         self.frame = f = _DecisionFrame(self.validator, req)
         self._reconcile(f)
         self._knowledge(f)
+        self._intelligence(f)
         if not self.goals.get("match_over", False):
             self._commander(f)
             self._scout(f)
@@ -410,7 +556,7 @@ class MultiAgentRuntime:
         self.failures = {k: v for k, v in self.failures.items() if self.now - v["last_failure"] < 300}
         self.leases = {uid: lease for uid, lease in self.leases.items() if lease["until"] > self.now and uid in f.entities}
         for role in self.roles.values():
-            for key in ("movement", "reported_stalls", "worker_progress"):
+            for key in ("movement", "reported_stalls", "worker_progress", "command_times", "last_attack"):
                 if key in role.memory:
                     role.memory[key] = {uid: value for uid, value in role.memory[key].items() if uid in f.entities}
         return copy.deepcopy(self.cached)
@@ -689,6 +835,7 @@ class MultiAgentRuntime:
                 self.enemy_knowledge.pop(eid, None)
         if self.goals.get("match_over", False) and not previously_over:
             self.goals["goal_version"] += 1
+            self.match_summary = self.match_report(f)
 
     def _claim(self, uid: int, role: str, emergency: bool = False) -> bool:
         lease = self.leases.get(uid)
@@ -701,6 +848,11 @@ class MultiAgentRuntime:
         return True
 
     def _emit(self, f: _DecisionFrame, role: str, op: str, args: dict, emergency: bool = False) -> bool:
+        # Large armies may all need new routes at once. Leave room for the
+        # later construction, production, defense and economy executors; the
+        # global command bound remains unchanged. Training is not a move slot.
+        if role in ("scout", "combat") and op in ("move", "attack", "stop") and len(f.commands) >= MAX_COMMANDS - 12:
+            return False
         command = {"op": op, **args}
         key = self.validator._key(command)
         failure = self.failures.get(key, {})
@@ -741,6 +893,10 @@ class MultiAgentRuntime:
                     prior["status"] = "cancelled"
         self.tasks[task["id"]] = task
         self.pending[task["id"]] = task
+        if role == "combat" and uid is not None:
+            self.roles[role].memory.setdefault("command_times", {})[uid] = self.now
+            if op == "attack":
+                self.roles[role].memory.setdefault("last_attack", {})[uid] = (args["target_id"], self.now)
         return True
 
     def _move(self, f: _DecisionFrame, role: str, unit: dict, goal: list, force: bool = False, arrival_radius: float = 3) -> bool:
@@ -997,11 +1153,25 @@ class MultiAgentRuntime:
         villagers = [e for e in enemies if e.get("kind") == "unit" and e.get("def_id") == "villager"
                      and _distance(unit["pos"], e["pos"]) < 26
                      and (not known or _distance(e["pos"], known["pos"]) < 36)]
-        candidates = soldiers or villagers
-        if candidates:
+        priority = self.roles["combat"].plan.get("target_priority", "army")
+        raid = priority == "economy" or bool(self.doctrine.get("raid_economy"))
+        pressing = [e for e in soldiers if _distance(unit["pos"], e["pos"]) < 6]
+        if raid and villagers:
+            candidates = pressing or villagers
+        elif priority == "buildings":
+            candidates = pressing
+        else:
+            candidates = soldiers or villagers
+        if candidates and not self.intelligence_enabled:
             current = next((e for e in candidates if e["id"] == unit.get("target_id") and unit.get("order") == "ATTACK"), None)
             nearest = min(candidates, key=lambda e: _distance(unit["pos"], e["pos"]))
             chosen = current if current and _distance(unit["pos"], current["pos"]) <= _distance(unit["pos"], nearest["pos"]) + 6 else nearest
+        elif candidates:
+            # Focus fire: dangerous/valuable targets that die quickly, spread
+            # across attackers to avoid overkill; the current target is sticky.
+            chosen = self._targets.choose(unit, candidates, raid, current=getattr(self, "_recent_targets", {}).get(unit["id"])) \
+                or min(candidates, key=lambda e: _distance(unit["pos"], e["pos"]))
+        if candidates:
             # Do not repeatedly walk melee soldiers into a closed wall to raid
             # a visible farmer behind it. Breach the actual approach first.
             obstruction = self._blocking_wall(f, unit, chosen)
@@ -1025,16 +1195,29 @@ class MultiAgentRuntime:
             self.goals["phase"] = "muster"
         elapsed = self.now - (self.goals["sortie_started"] if self.goals["sortie_started"] is not None else self.now)
         timeout = self.roles["commander"].plan["muster_timeout"]
-        if self.roles["commander"].plan["stance"] == "pressure":
+        stance = self.roles["commander"].plan["stance"]
+        doctrine = self.doctrine
+        if doctrine.get("defend_stance") and stance == "balanced":
+            stance = "defend"
+        if stance == "pressure":
             timeout = min(timeout, 40)
-        elif self.roles["commander"].plan["stance"] == "defend":
+        elif stance == "defend":
             timeout = min(120, timeout + 30)
+        if "muster_cap" in doctrine:
+            timeout = min(timeout, doctrine["muster_cap"])
+        if "muster_floor" in doctrine:
+            timeout = max(timeout, doctrine["muster_floor"])
+        sortie_target = max(doctrine.get("sortie_floor", 0), min(doctrine.get("sortie_cap", 99), self.goals["sortie_target"]))
         objective = self.enemy_knowledge.get(self.goals["target_id"], {})
         enemies_at_objective = [e for e in f.obs.entities if f.enemy(e) and e.get("kind") == "unit" and objective and _distance(e["pos"], objective["pos"]) < 24]
         unsafe = sum(self._unit_strength(f, e) for e in enemies_at_objective) > sum(self._unit_strength(f, u) for u in ready) * 1.5
+        if self.intelligence_enabled and not unsafe and ready and len(enemies_at_objective) >= 2:
+            # Raw attack x health misjudges armour, range and class bonuses.
+            # Do not march into a fight the real damage rules say is hopeless.
+            unsafe = self._local_forecast(f, ready, enemies_at_objective).decisive_loss
         minimum_timed_force = 4 if objective else 2
-        defense_window = self.roles["commander"].plan["stance"] == "defend" and elapsed < min(30, timeout)
-        if self.goals["sortie_departed"] is None and not unsafe and not defense_window and (len(ready) >= self.goals["sortie_target"] or elapsed >= timeout and len(ready) >= minimum_timed_force):
+        defense_window = stance == "defend" and elapsed < min(30, timeout)
+        if self.goals["sortie_departed"] is None and not unsafe and not defense_window and (len(ready) >= sortie_target or elapsed >= timeout and len(ready) >= minimum_timed_force):
             self.goals["sortie_departed"] = self.now
             self.goals["phase"] = "march"
             role.memory["initial_force"] = [u["id"] for u in ready]
@@ -1094,6 +1277,15 @@ class MultiAgentRuntime:
             if health < role.plan["retreat_hp_fraction"]:
                 self.goals["phase"] = "retreat"
                 role.memory["retreat_until"] = self.now + 20
+        if (self.intelligence_enabled and army and self.goals["sortie_departed"] is not None and not threats
+                and role.memory.get("retreat_until", 0) <= self.now and self._should_disengage(f, army, visible_tc)):
+            # Fall back to the rally point under our TC instead of feeding the
+            # whole force into a fight the damage model says is already lost.
+            self.goals["phase"] = "retreat"
+            role.memory["retreat_until"] = self.now + 20
+            role.memory["disengaged_at"] = self.now
+            role.memory["disengagements"] = role.memory.get("disengagements", 0) + 1
+            self.debug.append({"category": "MULTI_AGENT", "message": f"combat: disengage_losing_fight {role.memory.get('last_forecast')}"})
         retreat = role.memory.get("retreat_until", 0) > self.now
         if not retreat and self.goals["phase"] == "retreat":
             self.goals.update(sortie_departed=None, sortie_started=None, phase="rebuild", sortie_target=self.next_sortie_target)
@@ -1108,9 +1300,27 @@ class MultiAgentRuntime:
                 guarded += self._unit_strength(f, unit)
                 if guarded >= needed and len(defenders) >= min(2, len(army)):
                     break
+            chosen_defenders = [u for u in army if u["id"] in defenders]
+            covering_tcs = [b for b in f.buildings if b.get("def_id") == "town_center" and b.get("is_complete")
+                            and any(_distance(b["pos"], e["pos"]) <= 26 for e in threats)]
+            if self.intelligence_enabled and chosen_defenders and self._local_forecast(f, chosen_defenders, threats, own_support=covering_tcs).winner == "enemy":
+                # The minimum guard would lose even with TC fire: commit every
+                # nearby soldier rather than defending piecemeal.
+                defenders.update(u["id"] for u in army if not self._demolition(u) and _distance(u["pos"], f.base) < 45)
         role.memory["defender_ids"] = sorted(defenders)
         role.memory["siege_target"] = self._siege_target(f)
-        for unit in army:
+        command_times = role.memory.get("command_times", {})
+        enemy_units = [e for e in f.obs.entities if f.enemy(e) and e.get("kind") == "unit"]
+        kites = 0
+        # Credit every ongoing attack first so allocation is stable across frames;
+        # a unit that just kited (order MOVE) keeps its last target for 8 s.
+        self._recent_targets = {uid: target for uid, (target, at) in role.memory.get("last_attack", {}).items()
+                                if self.now - at <= 8}
+        self._targets.seed(army, f.entities, self._recent_targets)
+        # Respond to raids first, then rotate the oldest dispatched actors.
+        # A bounded tactical share must not repeatedly serve the same first
+        # soldiers while reinforcements never receive an order.
+        for unit in sorted(army, key=lambda u: (u["id"] not in defenders, command_times.get(u["id"], -math.inf))):
             uid = unit["id"]
             defending = uid in defenders
             if not self._claim(uid, "combat", emergency=defending):
@@ -1141,6 +1351,14 @@ class MultiAgentRuntime:
                         self._emit(f, "combat", "stop", {"unit_id": uid})
                     continue
                 self.goals["phase"] = "defend" if defending else "siege" if chosen.get("kind") == "building" else "engage"
+                if self.intelligence_enabled and kites < 6:
+                    # Ranged units step out of melee they cannot shoot (minimum
+                    # range) or can outpace; the attack resumes next frame.
+                    nearby = [(e, self._targets.profile_of(e)) for e in enemy_units if _distance(e["pos"], unit["pos"]) < 6]
+                    step = kite_goal(unit, self._targets.profile_of(unit), nearby, f.obs.map_bounds)
+                    if step and self._emit(f, "combat", "move", {"unit_id": uid, "pos": step}, emergency=defending):
+                        kites += 1
+                        continue
                 attack_range = self._attack_range(f, unit)
                 if not defending and _distance(unit["pos"], chosen["pos"]) > attack_range + 3 and self._recover_approach(f, unit, chosen["pos"]):
                     continue
@@ -1152,6 +1370,11 @@ class MultiAgentRuntime:
                     self._move(f, "combat", unit, goal)
         self._request_building(f, "barracks", 110 if f.pop_cap - f.pop_used > 0 else 95, "opening_military_capacity")
         self._request_building(f, role.plan["producer"], 60, "military_plan_capacity", role.plan["producer_count"])
+        composition_producer = self._composition_producer(f)
+        if composition_producer and composition_producer != role.plan["producer"]:
+            self._request_building(f, composition_producer, 61, "counter_unit_capacity")
+        if self.doctrine.get("siege_with_sortie") and f.age >= 2:
+            self.goals["needs_siege"] = True
         if self.goals["needs_siege"] or f.age >= 2 and known:
             # Workshop sites are absent while its blacksmith dependency is
             # missing. Expand catalog dependencies before asking for the site.
@@ -1168,6 +1391,40 @@ class MultiAgentRuntime:
             infrastructure("siege_workshop")
         if role.reason not in ("town_center_damage_stalled_request_siege", "town_center_damage_too_slow_request_siege", "route_stalled_reposition_and_scout", "observed_defenders_require_reinforcements", "insufficient_ready_force_rebuild_support"):
             self._status("combat", "running", self.goals["phase"])
+
+    def _should_disengage(self, f: _DecisionFrame, army: list[dict], visible_tc: dict | None) -> bool:
+        role = self.roles["combat"]
+        if self.now - role.memory.get("disengaged_at", -math.inf) < 45:
+            return False
+        field = [u for u in army if _distance(u["pos"], f.base) > 30]
+        if len(field) < 2:
+            return False
+        center = [sum(u["pos"][i] for u in field) / len(field) for i in (0, 1)]
+        enemies = [e for e in f.obs.entities if f.enemy(e) and e.get("kind") == "unit"
+                   and unit_class(str(e.get("def_id", ""))) != "villager" and _distance(e["pos"], center) < 18]
+        if len(enemies) < 2:
+            return False
+        if visible_tc and float(visible_tc.get("hp", 1)) < .3 * float(visible_tc.get("max_hp", 1)) and any(
+                self._demolition(u) and _distance(u["pos"], visible_tc["pos"]) < 14 for u in field):
+            return False  # Finish a nearly destroyed objective.
+        towers = [e for e in f.obs.entities if f.enemy(e) and e.get("kind") == "building" and _distance(e["pos"], center) < 26
+                  and getattr(self._targets.profile_of(e), "attack", 0) > 0]
+        own = [u for u in field if _distance(u["pos"], center) < 22]
+        forecast = self._local_forecast(f, own, enemies, enemy_support=towers)
+        role.memory["last_forecast"] = forecast.as_dict()
+        return forecast.decisive_loss
+
+    def _composition_producer(self, f: _DecisionFrame) -> str | None:
+        """Production building that trains the planned or best counter unit."""
+        if not any(b.get("def_id") in MILITARY_BUILDINGS and b.get("is_complete") for b in f.buildings):
+            return None  # The opening barracks request always comes first.
+        composition = self.roles["combat"].plan.get("composition", "counter")
+        if composition == "counter":
+            best = next((item for item in self.counter_ranking if item.get("available_now")), None)
+            name = best["producer"] if best and best["score"] >= .1 else None
+        else:
+            name = {"infantry": "barracks", "archers": "archery_range", "cavalry": "stable"}.get(composition)
+        return name if name in ("barracks", "archery_range", "stable") and name in f.building_defs else None
 
     def _recover_approach(self, f: _DecisionFrame, unit: dict, goal: list) -> bool:
         """Retain a detour until arrival/timeout; never overwrite it next tick."""
@@ -1204,13 +1461,22 @@ class MultiAgentRuntime:
             self._status("combat", "blocked", "route_stalled_reposition_and_scout")
         return True
 
+    def _technology_targets(self) -> tuple[int, float]:
+        """Technology plan adjusted by the commander's doctrine."""
+        plan, doctrine = self.roles["technology"].plan, self.doctrine
+        target = max(plan["target_age"], doctrine.get("min_target_age", 0))
+        if "age_cap_before_sortie" in doctrine and not self.roles["combat"].memory.get("initial_force"):
+            target = min(target, doctrine["age_cap_before_sortie"])
+        return target, max(plan["budget_fraction"], doctrine.get("tech_budget_floor", 0.0))
+
     def _technology(self, f: _DecisionFrame) -> None:
         role = self.roles["technology"]
         self.tech_reserve = {}
         if not f.progression_enabled:
             self._status("technology", "complete", "progression_disabled")
             return
-        need_age = f.age < role.plan["target_age"]
+        target_age, budget_fraction = self._technology_targets()
+        need_age = f.age < target_age
         if self.goals["needs_siege"] and f.age < 2:
             need_age = True
         counts = self._force_counts(f)
@@ -1266,7 +1532,7 @@ class MultiAgentRuntime:
                     # delivery and can never bank the complete age price.
                     self.tech_reserve = {
                         r: min(float(cost.get(r, 0)), f.budget[r], min(saved.get(r, 0), f.budget[r])
-                               + max(0, f.budget[r] - saved.get(r, 0)) * role.plan["budget_fraction"])
+                               + max(0, f.budget[r] - saved.get(r, 0)) * budget_fraction)
                         for r in RESOURCES}
                     role.memory["saved_budget"], role.memory["saved_age"] = dict(self.tech_reserve), f.age
                     for resource, amount in cost.items():
@@ -1297,7 +1563,7 @@ class MultiAgentRuntime:
             return (not (economic if priority == "economy" else siege if priority == "siege" else not economic), name)
         for building, option in sorted(options, key=score):
             cost = f.tech_defs[option["id"]].get("cost", {})
-            if all(f.budget[r] >= amount / max(.1, role.plan["budget_fraction"]) for r, amount in cost.items()):
+            if all(f.budget[r] >= amount / max(.1, budget_fraction) for r, amount in cost.items()):
                 if self._emit(f, "technology", "research_technology", {"building_id": building["id"], "technology_id": option["id"]}):
                     self._status("technology", "running", "research_available_upgrade")
                     return
@@ -1439,7 +1705,7 @@ class MultiAgentRuntime:
         self._status("construction", "waiting", "budget_or_legal_site")
 
     def _defense(self, f: _DecisionFrame) -> None:
-        """Buy a complete legal screen after the productive economy is funded."""
+        """Complete a persistent gated perimeter in affordable legal batches."""
         role = self.roles["defense"]
         capabilities = f.obs.capabilities or f.context.get("capabilities", {})
         if not capabilities.get("wall_segments"):
@@ -1455,7 +1721,7 @@ class MultiAgentRuntime:
             for gate in [b for b in fortifications if b.get("def_id") not in WALL_TYPES and b.get("is_complete")]:
                 gate_distance = _distance(gate["pos"], f.base)
                 needs_passage = any(_distance(u["pos"], gate["pos"]) < 8 or _distance(u["pos"], f.base) > gate_distance + 3 for u in f.units)
-                immediate_attack = any(_distance(enemy["pos"], gate["pos"]) < 10 for enemy in approaching)
+                immediate_attack = any(_distance(enemy["pos"], gate["pos"]) < 10 for enemy in enemies)
                 mode = "locked" if role.plan["gate_mode"] == "locked" and immediate_attack and not needs_passage else "auto"
                 if gate.get("gate_state", "auto") != mode:
                     self._emit(f, "defense", "set_gate_state", {"building_id": gate["id"], "gate_state": mode})
@@ -1471,7 +1737,7 @@ class MultiAgentRuntime:
                     continue
                 available = [u for u in workers if u.get("order", "NONE") in ("NONE", "GATHER") and not u.get("build_queue_ids")
                              and u.get("gather_state") != "to_drop_off" and float(u.get("carry_amount", 0)) <= .001
-                             and all(min(_distance(u["pos"], enemy["pos"]), _distance(foundation["pos"], enemy["pos"])) >= 8 for enemy in approaching)]
+                             and all(min(_distance(u["pos"], enemy["pos"]), _distance(foundation["pos"], enemy["pos"])) >= 8 for enemy in enemies)]
                 for worker in sorted(available, key=lambda u: _distance(u["pos"], foundation["pos"])):
                     if self._emit(f, "defense", "build", {"unit_id": worker["id"], "building_id": foundation["id"]}):
                         active.append(worker)
@@ -1481,7 +1747,7 @@ class MultiAgentRuntime:
         if any(t["role"] == "defense" and t["command"]["op"] == "place_wall" for t in self.pending.values()):
             self._status("defense", "waiting", "wall_receipt_pending")
             return
-        policy = role.plan["policy"]
+        policy = self.doctrine.get("defense_policy", role.plan["policy"])
         threat_active = role.memory.get("threat_until", 0) > self.now
         if policy == "reactive" and not threat_active:
             self._status("defense", "waiting", "monitor_observed_base_approaches")
@@ -1490,8 +1756,12 @@ class MultiAgentRuntime:
         if len(workers) < (6 if threat_active or policy == "fortify" else 8) or not has_production or not self._food_bridge(f):
             self._status("defense", "waiting", "preserve_opening_food_and_military")
             return
+        perimeter = f.context.get("defense_plan", {})
+        if perimeter.get("closed") is True:
+            self._status("defense", "ready", "perimeter_closed_maintain_gates")
+            return
         if len(fortifications) >= role.plan["max_segments"]:
-            self._status("defense", "ready", "wall_segment_target_met")
+            self._status("defense", "waiting", "perimeter_budget_limit_not_closure")
             return
         if len(active) >= self.roles["construction"].plan["max_builders"]:
             self._status("defense", "waiting", "preserve_economy_builder_capacity")
@@ -1507,19 +1777,31 @@ class MultiAgentRuntime:
             if not isinstance(option, dict) or option.get("preserves_access") is not True:
                 continue
             count = option.get("segment_count")
-            if isinstance(count, bool) or not isinstance(count, int) or count < 1 or len(fortifications) + count > role.plan["max_segments"]:
+            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 64 or len(fortifications) + count > role.plan["max_segments"]:
                 continue
             name = option.get("building_def_id")
-            if name not in WALL_TYPES or role.plan["material"] != "auto" and name != role.plan["material"]:
+            # Once the game fixes a perimeter, retain its material and physical
+            # footprint across later model updates. A material preference must
+            # not abandon a half-built ring or try overlapping replacements.
+            material = perimeter.get("material", role.plan["material"])
+            if name not in WALL_TYPES or material != "auto" and name != material:
                 continue
             start, end = _vec(option.get("start")), _vec(option.get("end"))
             cost = option.get("cost")
             if start is None or end is None or not isinstance(cost, dict) or not cost or any(r not in RESOURCES or isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount < 0 for r, amount in cost.items()):
                 continue
-            if not f._unlock(f.building_defs.get(name, {"available": False})):
+            definition = f.building_defs.get(name, {"available": False})
+            # Affordability in the live catalog is not an age/technology lock:
+            # retain this offered line as a gathering demand until it is funded.
+            if definition.get("available") is False and definition.get("blocked_reason") == "资源不足":
+                definition = {**definition, "available": True, "blocked_reason": ""}
+            if not f._unlock(definition):
                 continue
             worker = f.entities.get(option.get("builder_id"), {})
-            if not worker or any(min(line_distance(enemy["pos"], start, end), _distance(worker["pos"], enemy["pos"])) < 8 for enemy in approaching):
+            if (not worker or worker.get("order", "NONE") not in ("NONE", "GATHER")
+                    or worker.get("build_queue_ids") or worker.get("gather_state") == "to_drop_off"
+                    or float(worker.get("carry_amount", 0)) > .001
+                    or any(min(line_distance(enemy["pos"], start, end), _distance(worker["pos"], enemy["pos"])) < 8 for enemy in enemies)):
                 continue
             options.append(option)
         def score(option):
@@ -1527,8 +1809,9 @@ class MultiAgentRuntime:
             # A safe flank screen facing an observed raid is more useful than
             # adding another front row. Hidden enemies never influence placement.
             approach_distance = min((line_distance(enemy["pos"], option["start"], option["end"]) for enemy in approaching), default=0)
-            return (not affordable, approach_distance, not option.get("include_gate", False), option.get("zone") != "defensive_front",
-                    option["building_def_id"] == "palisade_wall" if f.age >= 1 and f.budget["stone"] >= 100 else option["building_def_id"] != "palisade_wall",
+            return (not affordable, not option.get("repair", False), not option.get("connected", False),
+                    -float(option.get("priority", 0)), approach_distance, not option.get("include_gate", False), option.get("zone") != "defensive_front",
+                    option["building_def_id"] != "palisade_wall",
                     sum(option["cost"].values()))
         for option in sorted(options, key=score):
             cost = option["cost"]
@@ -1537,13 +1820,58 @@ class MultiAgentRuntime:
                 continue
             args = {key: option[key] for key in ("builder_id", "building_def_id", "start", "end", "include_gate") if key in option}
             if self._emit(f, "defense", "place_wall", args):
+                role.memory.pop("perimeter_scout", None)
                 role.memory["last_wall_at"] = self.now
-                self._status("defense", "running", "build_defensive_screen_with_access")
+                self._status("defense", "running", "extend_gated_base_perimeter")
                 return
         if options:
             for resource, amount in sorted(options, key=score)[0]["cost"].items():
                 self.demands[resource] += amount
-        self._status("defense", "waiting", "wall_budget_or_safe_legal_line")
+        if self._defense_reveal(f, workers, enemies):
+            return
+        self._status("defense", "waiting", "perimeter_budget_or_hidden_or_blocked_section")
+
+    def _defense_reveal(self, f: _DecisionFrame, workers: list, enemies: list) -> bool:
+        """Reveal only authoritative nearby boundary probes with one safe worker."""
+        role = self.roles["defense"]
+        mission = role.memory.get("perimeter_scout", {})
+        worker = f.entities.get(mission.get("unit_id"), {})
+        if worker and self.leases.get(worker["id"], {}).get("role") == "human":
+            role.memory.pop("perimeter_scout", None)
+            return False
+        if worker and worker.get("order") == "MOVE":
+            safe = all(min(_distance(worker["pos"], enemy["pos"]), _distance(mission["pos"], enemy["pos"])) >= 12 for enemy in enemies)
+            if safe and self.now < mission.get("until", 0) and _distance(worker["pos"], mission["pos"]) > 2:
+                f.actors.add(worker["id"])
+                self.leases[worker["id"]] = {"role": "defense", "until": self.now + 15}
+                self._status("defense", "running", "reveal_next_perimeter_section")
+                return True
+            if not safe or self.now >= mission.get("until", 0):
+                role.memory.pop("perimeter_scout", None)
+                role.memory["probe_pause_until"] = self.now + 20
+                op, args = ("stop", {"unit_id": worker["id"]}) if safe else ("move", {"unit_id": worker["id"], "pos": list(f.base)})
+                if self._emit(f, "defense", op, args):
+                    self._status("defense", "waiting", "perimeter_probe_stalled" if safe else "perimeter_builder_retreat")
+                    return True
+        # A stale or completed probe is released; the game supplies a new small
+        # step from the latest visible geometry instead of a blind long move.
+        role.memory.pop("perimeter_scout", None)
+        if self.now < role.memory.get("probe_pause_until", 0):
+            return False
+        for option in f.context.get("defense_scout_options", []):
+            uid = option.get("unit_id", option.get("builder_id"))
+            candidate = f.entities.get(uid, {})
+            pos = _vec(option.get("pos"))
+            if (not pos or candidate not in workers or candidate.get("order", "NONE") not in ("NONE", "GATHER")
+                    or candidate.get("build_queue_ids") or candidate.get("gather_state") == "to_drop_off"
+                    or float(candidate.get("carry_amount", 0)) > .001 or _distance(candidate["pos"], pos) > 16
+                    or any(min(_distance(candidate["pos"], enemy["pos"]), _distance(pos, enemy["pos"])) < 12 for enemy in enemies)):
+                continue
+            if self._emit(f, "defense", "move", {"unit_id": uid, "pos": pos}):
+                role.memory["perimeter_scout"] = {"unit_id": uid, "pos": pos, "until": self.now + 20}
+                self._status("defense", "running", "reveal_next_perimeter_section")
+                return True
+        return False
 
     def _production(self, f: _DecisionFrame) -> None:
         workers = [u for u in f.units if u.get("def_id") == "villager"]
@@ -1581,6 +1909,14 @@ class MultiAgentRuntime:
             candidates = [name for name in building.get("trainable", []) if name in f.unit_defs and name not in ("petard", "villager") and f._unlock(f.unit_defs[name])
                           and (name not in DEMOLITION_UNITS or siege_count < siege_target)
                           and (building.get("def_id") != "siege_workshop" or name in DEMOLITION_UNITS)]
+            composition = self.roles["combat"].plan.get("composition", "counter")
+            preferred_classes = COMPOSITION_CLASSES.get(composition, set())
+
+            def composition_key(name):
+                if composition == "counter":
+                    return -round(self.counter_map.get(name, 0.0), 1)
+                return 0 if not preferred_classes or unit_class(name) in preferred_classes else 1
+
             def unit_score(name):
                 siege = name in DEMOLITION_UNITS
                 anti_cavalry = name in ("spearman", "pikeman", "halberdier", "skirmisher", "elite_skirmisher")
@@ -1588,6 +1924,7 @@ class MultiAgentRuntime:
                 # artillery just because that type's current count is zero.
                 siege_preference = 0 if "ram" in name else 1 if name in ("trebuchet", "bombard_cannon") else 2
                 return (0 if siege and siege_count < siege_target else 1, siege_preference if siege else 0,
+                        0 if siege else composition_key(name),
                         counts[name] + (4 if anti_cavalry else 0), -float(f.unit_defs[name].get("attack", 0)))
             for name in sorted(candidates, key=unit_score):
                 for r, amount in f.unit_defs[name].get("cost", {}).items():

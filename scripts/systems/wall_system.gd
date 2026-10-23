@@ -57,7 +57,11 @@ static func existing_segment(item: Dictionary, ctx: CommandExecutionContext) -> 
 		if not node is Node2D or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
 		var definition := node.get("def") as BuildingDef
 		if definition == null or int(node.get("team")) != int(ctx.team) or float(node.get("hp")) <= 0: continue
-		if String(definition.id) == item.building_def_id and node.get("sim_pos").distance_to(item.pos) < 0.01:
+		# A perimeter may connect to an older wall of a different material.
+		# Reuse the existing structure as-is; this never grants an upgrade.
+		var same_material: bool = String(definition.id) == item.building_def_id
+		var existing_wall := is_wall(definition.id) and is_wall(StringName(item.building_def_id))
+		if (same_material or existing_wall) and node.get("sim_pos").distance_to(item.pos) < 0.01:
 			if definition.id != &"gate" or int(node.get("wall_orientation")) == int(item.orientation): return node
 	return null
 

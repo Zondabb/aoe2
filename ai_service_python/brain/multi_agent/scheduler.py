@@ -105,13 +105,16 @@ class _Session:
     attempts: deque = field(default_factory=deque)
     next_role: int = 0
     plan_status: dict = field(default_factory=dict)
+    reported: bool = False
 
 
 class MultiAgentService:
     def __init__(self, forward: Callable = forward_openai, log: Callable | None = None,
                  runtime_factory: Callable | None = None, clock: Callable = time.monotonic,
-                 max_workers: int | None = None, calls_per_minute: int | None = None):
+                 max_workers: int | None = None, calls_per_minute: int | None = None, memory: Any = None):
         self.forward, self.log, self.runtime_factory, self.clock = forward, log, runtime_factory, clock
+        # Optional cross-match StrategyMemory; None keeps the service stateless.
+        self.memory = memory
         self.max_workers = max_workers or _limit("AOE2_AI_MODEL_CONCURRENCY", 4, 1, 16)
         self.per_match = _limit("AOE2_AI_MODEL_CONCURRENCY_PER_MATCH", 2, 1, self.max_workers)
         self.calls_per_minute = calls_per_minute or _limit("AOE2_AI_MODEL_CALLS_PER_MINUTE", 6, 1, 60)
@@ -193,6 +196,11 @@ class MultiAgentService:
             if session is None:
                 session = _Session(self._new_runtime(req.metadata.profile_id), epoch,
                                    req.metadata.profile_id, last_access=now)
+                if self.memory is not None and hasattr(session.runtime, "load_strategic_memory"):
+                    try:
+                        session.runtime.load_strategic_memory(self.memory.snapshot(req.metadata.profile_id))
+                    except Exception:  # Advisory history never blocks a match.
+                        pass
                 self._sessions[key] = session
             elif session.epoch != epoch or session.profile != req.metadata.profile_id:
                 raise SessionError("session_changed_restart_match")
@@ -232,6 +240,16 @@ class MultiAgentService:
                 raise SessionError("stale_observation")
             result = session.runtime.tick(req)
             session.last_seq, session.last_sim_time = seq, req.metadata.time_sec
+            summary = getattr(session.runtime, "match_summary", None)
+            if isinstance(summary, dict) and not session.reported:
+                session.reported = True
+                self._emit("match_summary", match_id=req.metadata.match_id, team=req.metadata.team,
+                           session_epoch=epoch, summary=summary)
+                if self.memory is not None:
+                    try:
+                        self.memory.record(summary)
+                    except Exception:
+                        logging.getLogger(__name__).warning("Strategy memory unavailable")
             session.last_access = self.clock()
             result.update(protocol_version=3, match_id=req.metadata.match_id, team=req.metadata.team,
                           session_epoch=epoch, for_tick=seq, acknowledged_observation_seq=seq)
