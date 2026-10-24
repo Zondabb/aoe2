@@ -58,6 +58,7 @@ ROLE_SCHEMAS = {
                        max_segments=_integer(4, 512), reserve_wood=_integer(0, 300), gate_mode=_enum("auto", "locked")),
 }
 WALL_TYPES = {"palisade_wall", "stone_wall", "fortified_wall"}
+DEFAULT_WORKER_TARGET = 16
 FORTIFICATION_TYPES = WALL_TYPES | {"gate", "palisade_gate", "stone_gate"}
 DEMOLITION_UNITS = {"battering_ram", "capped_ram", "siege_ram", "mangonel", "onager", "siege_onager", "bombard_cannon", "trebuchet"}
 
@@ -74,7 +75,7 @@ _COMMON_PROMPT = (
 ROLE_PROMPTS = {
     "commander": _COMMON_PROMPT + "Own victory and tempo. stance=pressure shortens muster, defend delays departure briefly; defend only observed threats. army_target sets a finite sortie size; an already-started sortie keeps its frozen size and later plans affect the next. muster_timeout bounds waiting in seconds. " + DOCTRINE_GUIDE,
     "construction": _COMMON_PROMPT + "Own placement and builders. military_zone prefers front or flank among legal sites; farm_reserve_radius keeps military buildings outside the TC farm core. max_builders limits simultaneous builders: balance income against unfinished infrastructure and preserve delivery lanes/exits.",
-    "economy": _COMMON_PROMPT + "Own civilian production and staffing. worker_target sets villager growth above the stage minimum in strategy_signals; 8 is an opening target, not a sustainable late economy. Increase it toward recommended_worker_target when safe, especially after the first army leaves. food_workers_ratio sets food staffing and farm demand; increase it when food supply or age savings lag. reserve_wood raises the wood stock target. Match spending demand and avoid surplus food/unoccupied farms.",
+    "economy": _COMMON_PROMPT + "Own civilian production and staffing. worker_target sets villager growth above the stage minimum in strategy_signals; the default 16 keeps villager production running through the Dark Age; lower it only for a deliberate early rush. Increase it toward recommended_worker_target when safe, especially after the first army leaves. food_workers_ratio sets food staffing and farm demand; increase it when food supply or age savings lag. reserve_wood raises the wood stock target. Match spending demand and avoid surplus food/unoccupied farms.",
     "technology": _COMMON_PROMPT + "Own age and dependency goals. target_age controls advancement (siege needs may require age 2). Once a target age is reached, reassess the next age using income and threats instead of repeating a completed goal forever. budget_fraction controls savings/research affordability, trading current production for progress. priority orders available economy, military or siege upgrades. Use catalog prerequisites and supported capabilities.",
     "scout": _COMMON_PROMPT + "Own information missions. focus prioritizes enemy_base probes, resource frontiers or attack_route information. scout_count uses up to that many available scouts; revisit_seconds sets the delay before checking remembered buildings. Respond to missing resources/route information using observed knowledge only.",
     "combat": _COMMON_PROMPT + "Own military capacity and a persistent destroy-TC objective. Siege demolishes blocking walls, then the enemy TC and production; regular soldiers screen siege against defenders and raid nearby villagers. A bounded siege complement is funded proactively once available; do not wait for a failed TC assault. Closest suitable soldiers handle base threats without recalling the whole siege force. producer/producer_count request that building type and total count; choose supported production suited to visible enemies and income. army_target affects the next sortie once the current size is frozen. Use strategy_signals and failed_sorties to rebuild after losses; raise capacity only when income can fund it. retreat_hp_fraction retreats a wounded force below that health share; lower it for commitment, raise it to preserve units. "
@@ -109,7 +110,10 @@ class MultiAgentRuntime:
         self.roles = {
             "commander": RoleState({"stance": "balanced", "army_target": target, "muster_timeout": 75, "strategy": "adaptive"}),
             "construction": RoleState({"military_zone": "military_front", "farm_reserve_radius": 14.0, "max_builders": 2}),
-            "economy": RoleState({"worker_target": max(8, self.validator.profile.villager_target), "food_workers_ratio": .4, "reserve_wood": 100}),
+            # Keep the town center producing villagers through the Dark Age.
+            # The profile's 8 stays the hard floor; the first-army food reserve,
+            # the age-up TC window and the model/doctrine still bound growth.
+            "economy": RoleState({"worker_target": max(DEFAULT_WORKER_TARGET, self.validator.profile.villager_target), "food_workers_ratio": .4, "reserve_wood": 100}),
             "technology": RoleState({"target_age": 3, "budget_fraction": .5, "priority": "military"}),
             "scout": RoleState({"focus": "enemy_base", "scout_count": 1, "revisit_seconds": 90}),
             "combat": RoleState({"army_target": target, "producer": "barracks", "producer_count": 1, "retreat_hp_fraction": .2,
@@ -154,6 +158,10 @@ class MultiAgentRuntime:
         self._targets = TargetPlanner()
         # Kill switch / A-B baseline: off restores the previous tactics exactly.
         self.intelligence_enabled = os.environ.get("AOE2_AI_INTELLIGENCE", "on").strip().lower() not in ("0", "off", "false")
+        # Resources never move. Remember sites this team has seen so economic
+        # decisions do not flicker when workers walk out of sight (see
+        # _remember_resources); forgotten only when observed gone or depleted.
+        self.resource_memory: dict[int, dict] = {}
 
     def load_strategic_memory(self, snapshot: dict) -> None:
         """Cross-match records supplied by the service; advisory data only."""
@@ -245,7 +253,7 @@ class MultiAgentRuntime:
     def _strategy_signals(self, f: _DecisionFrame) -> dict:
         workers = [u for u in f.units if u.get("def_id") == "villager"]
         minimum, target = self._worker_targets(f.age)
-        natural = sum(float(e.get("amount", 0)) for e in f.obs.entities
+        natural = sum(float(e.get("amount", 0)) for e in self._known_resources(f)
                       if e.get("kind") == "resource" and self._resource_kind(e) == "food"
                       and self._delivery_distance(f, e) <= 48)
         farms = sum(b.get("def_id") == "farm" and b.get("is_complete") and float(b.get("amount", 0)) > 0 for b in f.buildings)
@@ -518,6 +526,7 @@ class MultiAgentRuntime:
         self.frame = f = _DecisionFrame(self.validator, req)
         self._reconcile(f)
         self._knowledge(f)
+        self._remember_resources(f)
         self._intelligence(f)
         if not self.goals.get("match_over", False):
             self._commander(f)
@@ -1575,7 +1584,7 @@ class MultiAgentRuntime:
         if f.pop_cap - f.pop_used <= max(2, len(producers)):
             self._request_building(f, "house", 120 if f.pop_cap - f.pop_used <= 0 else 100, "population_headroom", sum(b.get("def_id") == "house" for b in f.buildings) + 1)
         dropoffs = [b["pos"] for b in f.buildings if b.get("def_id") in ("town_center", "mill") and b.get("is_complete")]
-        natural_food = sum(float(e.get("amount", 0)) for e in f.obs.entities if e.get("kind") == "resource" and str(e.get("resource_type", "")).upper() == "FOOD"
+        natural_food = sum(float(e.get("amount", 0)) for e in self._known_resources(f) if str(e.get("resource_type", "")).upper() == "FOOD"
                            and min((_distance(e["pos"], p) for p in dropoffs), default=_distance(e["pos"], f.base)) <= 48)
         if natural_food < max(200, len(workers) * 40):
             usable_farms = sum(b.get("def_id") == "farm" and b.get("is_complete") and float(b.get("amount", 0)) > 0 for b in f.buildings)
@@ -1590,7 +1599,7 @@ class MultiAgentRuntime:
             if f.budget["food"] > 800:
                 farmer_target = min(farmer_target, 2)
             self._request_building(f, "farm", farm_priority, "staffed_food_supply", farmer_target)
-        known = {str(e.get("resource_type", "")).lower() for e in f.obs.entities if e.get("kind") == "resource" and float(e.get("amount", 0)) > 0}
+        known = {str(e.get("resource_type", "")).lower() for e in self._known_resources(f)}
         if "wood" in known:
             distant_lumberjacks = 0
             for worker in workers:
@@ -1599,8 +1608,17 @@ class MultiAgentRuntime:
                 point = _vec(resource.get("pos")) or _vec(self.validator.gather_assignments.get(worker["id"], {}).get("pos"))
                 if worker.get("order") == "GATHER" and kind == "wood" and point and self._delivery_distance(f, {"pos": point, "resource_type": "WOOD"}) > 32:
                     distant_lumberjacks += 1
-            bottleneck = distant_lumberjacks >= 2 and self._food_bridge(f) and any(b.get("def_id") == "barracks" for b in f.buildings)
-            self._request_building(f, "lumber_camp", 108 if bottleneck else 62, "long_wood_delivery" if bottleneck else "wood_delivery")
+            nearest_wood = min((self._delivery_distance(f, e) for e in self._known_resources(f) if self._resource_kind(e) == "wood"), default=0.0)
+            has_barracks = any(b.get("def_id") == "barracks" for b in f.buildings)
+            has_camp = any(b.get("def_id") == "lumber_camp" for b in f.buildings)
+            bottleneck = distant_lumberjacks >= 2 and self._food_bridge(f)
+            # Opening: with the closest forest far away, walking every 10-wood
+            # load home starves both the camp and the 175-wood barracks. A
+            # 100-wood camp at the forest roughly doubles wood income, so the
+            # barracks completes sooner when the camp is funded first.
+            opening = not has_barracks and not has_camp and nearest_wood > 36 and distant_lumberjacks >= 1
+            priority = 111 if opening else 108 if bottleneck else 62
+            self._request_building(f, "lumber_camp", priority, "long_wood_delivery" if opening or bottleneck else "wood_delivery")
         if "gold" in known and len(workers) >= 8:
             self._request_building(f, "mining_camp", 58, "gold_delivery")
 
@@ -1666,6 +1684,8 @@ class MultiAgentRuntime:
                 if any(f.budget[r] - cost.get(r, 0) < amount for r, amount in saved["cost"].items()):
                     continue
             options = [o for o in f.context.get("construction_options", []) if o.get("building_def_id") == name and _vec(o.get("pos"))]
+            if name in ("lumber_camp", "mining_camp"):
+                options = self._sane_drop_off_sites(f, name, options)
             def site_score(option):
                 dist = _distance(option["pos"], f.base)
                 zone = option.get("zone", "")
@@ -1950,11 +1970,69 @@ class MultiAgentRuntime:
                     kind in ({str(r).lower() for r in b["drop_off_resources"]} if "drop_off_resources" in b else fallback.get(b.get("def_id"), set()))]
         return min((_distance(resource["pos"], p) for p in dropoffs), default=_distance(resource["pos"], f.base))
 
+    def _remember_resources(self, f: _DecisionFrame) -> None:
+        """Object permanence for resources the team has observed itself.
+
+        Only used when the observation carries fog geometry: without it the
+        game shows everything and memory adds nothing. A remembered site is
+        dropped on a depletion/destruction event, or when its cell is visible
+        again and the resource is no longer there.
+        """
+        visibility = f.obs.placement_visibility
+        if visibility is None:
+            self.resource_memory.clear()
+            return
+        for entity in f.obs.entities:
+            if entity.get("kind") != "resource" or _vec(entity.get("pos")) is None:
+                continue
+            if float(entity.get("amount", 0)) > 0:
+                self.resource_memory[entity["id"]] = {key: entity[key] for key in ("id", "kind", "resource_type", "def_id", "pos", "amount") if key in entity}
+                self.resource_memory[entity["id"]]["last_seen"] = self.now
+            else:
+                self.resource_memory.pop(entity["id"], None)
+        for report in self.frame_events:
+            if report.get("type") in ("resource_depleted", "entity_died", "entity_destroyed"):
+                self.resource_memory.pop(report.get("entity_id"), None)
+        for rid, remembered in list(self.resource_memory.items()):
+            if rid not in f.entities and footprint_visible(tuple(remembered["pos"]), [1, 1], visibility):
+                del self.resource_memory[rid]
+
+    def _known_resources(self, f: _DecisionFrame) -> list[dict]:
+        """Visible resources plus remembered, currently unseen ones."""
+        visible = [e for e in f.obs.entities if e.get("kind") == "resource" and float(e.get("amount", 0)) > 0 and _vec(e.get("pos"))]
+        seen = {e["id"] for e in visible}
+        return visible + [r for rid, r in self.resource_memory.items() if rid not in seen]
+
+    def _sane_drop_off_sites(self, f: _DecisionFrame, name: str, options: list[dict]) -> list[dict]:
+        """Keep resource camps at our own resources, not at a forest the scout saw.
+
+        Godot only offers sites inside current sight. While workers walk home
+        the nearest forest leaves sight, and the only offered camp sites can be
+        across the map. Reject sites much farther than our nearest known
+        resource of that kind, and sites closer to a known enemy TC than to ours.
+        """
+        kinds = {"lumber_camp": {"wood"}, "mining_camp": {"gold", "stone"}}[name]
+        known = self._known_resources(f)
+        by_id = {e["id"]: e for e in known}
+        enemy_tcs = [e["pos"] for e in self.enemy_knowledge.values() if e.get("def_id") == "town_center"]
+        sane = []
+        for option in options:
+            target = by_id.get(option.get("resource_target_id"))
+            wanted = {self._resource_kind(target)} if target else kinds
+            nearest = min((_distance(e["pos"], f.base) for e in known if self._resource_kind(e) in wanted), default=None)
+            distance = _distance(option["pos"], f.base)
+            if nearest is not None and distance > nearest + 24:
+                continue
+            if any(_distance(option["pos"], tc) <= distance for tc in enemy_tcs):
+                continue
+            sane.append(option)
+        return sane
+
     def _food_bridge(self, f: _DecisionFrame) -> bool:
         if any(b.get("def_id") == "farm" and b.get("is_complete") and float(b.get("amount", 0)) > 0 for b in f.buildings):
             return True
-        return sum(float(e.get("amount", 0)) for e in f.obs.entities if e.get("kind") == "resource"
-                   and self._resource_kind(e) == "food" and self._delivery_distance(f, e) <= 48) >= 100
+        return sum(float(e.get("amount", 0)) for e in self._known_resources(f)
+                   if self._resource_kind(e) == "food" and self._delivery_distance(f, e) <= 48) >= 100
 
     def _recover_loaded_worker(self, f: _DecisionFrame, worker: dict, resources: list[dict]) -> bool:
         """A healthy delivery keeps its order; a stationary load gets a new route.
@@ -1991,7 +2069,10 @@ class MultiAgentRuntime:
         ratios = {"food": role.plan["food_workers_ratio"], "wood": .35, "gold": .2, "stone": .05 if self.demands["stone"] else 0}
         for r in RESOURCES:
             target_stock = self.demands[r] * 2 + (role.plan["reserve_wood"] if r == "wood" else 100 if r == "food" else 0)
-            if f.budget[r] > max(600, target_stock * 3):
+            # Gold and stone are only spent on specific units, buildings and
+            # ages: a few hundred unused is already idle labour.
+            idle_stock = 200 if r in ("gold", "stone") else 600
+            if f.budget[r] > max(idle_stock, target_stock * 3):
                 ratios[r] *= .1
             elif f.budget[r] < target_stock:
                 ratios[r] += .25 * (target_stock - f.budget[r]) / max(1, target_stock)
@@ -2019,7 +2100,9 @@ class MultiAgentRuntime:
                                  or self._delivery_distance(f, e) <= 64]
             if affordable_travel or local_food_goal:
                 available = affordable_travel
-            kinds = {self._resource_kind(e) for e in available}
+            remembered = [r for rid, r in self.resource_memory.items() if rid not in f.entities
+                          and (self._resource_kind(r) != "stone" or self.demands["stone"] > 0)]
+            kinds = {self._resource_kind(e) for e in available} | {self._resource_kind(r) for r in remembered}
             desired = max(kinds, key=lambda r: ratios.get(r, 0) * len(workers) - assigned.get(r, 0), default="")
             current = worker_kind(worker)
             previous_resource = f.entities.get(worker.get("last_resource_id"), f.entities.get(worker.get("target_id"), {}))
@@ -2036,7 +2119,16 @@ class MultiAgentRuntime:
             # One approach is paid once; delivery repeats every ten resources.
             # Give the compatible drop-off round trip greater weight even if
             # the worker has already wandered near an enemy-side resource.
-            target = min(choices, key=lambda e: _distance(worker["pos"], e["pos"]) + 2 * self._delivery_distance(f, e), default=None)
+            trip = lambda e: _distance(worker["pos"], e["pos"]) + 2 * self._delivery_distance(f, e)
+            target = min(choices, key=trip, default=None)
+            # The home forest may be out of sight while its workers deliver.
+            # Gather orders need a visible target, so walk back into sight of a
+            # clearly cheaper remembered site instead of crossing the map.
+            recalled = min((r for r in remembered if self._resource_kind(r) == desired), key=trip, default=None)
+            if recalled is not None and (target is None or trip(recalled) + 20 < trip(target)):
+                if self._move(f, "economy", worker, list(recalled["pos"])) or worker.get("order") == "MOVE":
+                    assigned[desired] = assigned.get(desired, 0) + 1
+                continue
             if target is None and remote_food_order:
                 self._move(f, "economy", worker, f.base)
                 continue

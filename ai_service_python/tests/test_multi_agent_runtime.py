@@ -7,7 +7,7 @@ import json
 import pytest
 
 from brain.land_progression import CATALOG
-from brain.multi_agent.runtime import MultiAgentRuntime, ROLE_SCHEMAS
+from brain.multi_agent.runtime import DEFAULT_WORKER_TARGET, MultiAgentRuntime, ROLE_SCHEMAS
 from protocol.models import GameEvent
 from test_llm_commander import building, request, unit
 
@@ -671,8 +671,10 @@ def test_model_reaffirmation_does_not_cancel_age_based_worker_growth():
     later.observation.progression.age = 1
     runtime.tick(later)
     context = runtime.planning_context("economy")
-    assert context["force_summary"]["workers"]["target"] == 12
+    # The age floor (8 + 4 per age) survives a reaffirmed plan; the default
+    # Dark-Age growth target sits above it.
     assert context["strategy_signals"]["minimum_workers"] == 12
+    assert context["force_summary"]["workers"]["target"] == max(12, DEFAULT_WORKER_TARGET)
     assert any(c.get("unit_def_id") == "villager" for c in issued(before, "train"))
 
 

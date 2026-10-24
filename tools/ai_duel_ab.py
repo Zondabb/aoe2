@@ -45,11 +45,18 @@ def main() -> int:
     parser.add_argument("--llm-config", default="",
                         help="Service TOML with a real model (e.g. ai_service_python/config.toml); both sides then "
                              "plan with that model. Default: model-free deterministic executor")
+    parser.add_argument("--parallel", type=int, default=0, help="matches running at once (default: all)")
+    parser.add_argument("--calls-per-minute", type=int, default=6, help="LLM mode: model calls per team per minute")
+    parser.add_argument("--service-dir", default="", help="AI service directory to run (default: ai_service_python), "
+                        "e.g. an isolated copy with a candidate change; Godot always uses this repository")
+    parser.add_argument("--indices", default="", help="comma-separated match configurations to run, e.g. 0,2")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     (root / ".godot").mkdir(exist_ok=True)
     logs = Path(tempfile.mkdtemp(prefix="ai-duel-", dir=root / ".godot"))
     base_env = {k: v for k, v in os.environ.items() if not k.startswith(("AOE2_AI_", "AOE2_LLM_"))}
+    service_dir = Path(args.service_dir).resolve() if args.service_dir else root / "ai_service_python"
+    indices = [int(i) for i in args.indices.split(",") if i.strip()] if args.indices else list(range(args.matches))
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     processes, handles, matches = [], [], []
 
@@ -60,56 +67,77 @@ def main() -> int:
         processes.append(process)
         return process
 
+    def start_match(index):
+        arms = ("on", "off") if index % 2 == 0 else ("off", "on")
+        # Deterministic sim + deterministic AI: repeating a pairing replays
+        # the same game. Alternate sides, then civilizations, per match.
+        civs = list(args.civs) if (index // 2) % 2 == 0 else list(reversed(args.civs))
+        urls, services = [], []
+        for team, arm in enumerate(arms):
+            port = free_port()
+            directory = logs / f"m{index}-team{team}-{arm}"
+            directory.mkdir()
+            env = {**base_env, "AOE2_AI_INTELLIGENCE": arm, "AOE2_AI_STRATEGY_MEMORY": "off", "PYTHONUTF8": "1"}
+            if args.llm_config:
+                # Both sides plan with the same real model; only the switch differs.
+                # Use the operator's file in place (keys stay there, never copied).
+                # One local GPU model serves every service: mirror start_qwen3_proxy.ps1.
+                env.update(AOE2_AI_MODEL_CONCURRENCY="1", AOE2_AI_MODEL_CONCURRENCY_PER_MATCH="1",
+                           AOE2_AI_MODEL_CALLS_PER_MINUTE=str(args.calls_per_minute))
+                command = [sys.executable, "main.py", "--config", str(Path(args.llm_config).resolve()),
+                           "--port", str(port), "--log-dir", str(directory / "logs")]
+            else:
+                config = directory / "config.toml"
+                config.write_text('[service]\nhost = "127.0.0.1"\n'
+                                  f'port = {port}\napi_token = ""\nlog_dir = {json.dumps(str(directory / "logs"))}\n\n'
+                                  '[llm]\nbackend = "rules_compat"\n', encoding="utf-8")
+                command = [sys.executable, "main.py", "--config", str(config)]
+            service = launch(command, f"m{index}-service{team}", service_dir, env)
+            services.append(service)
+            deadline = time.monotonic() + 30
+            while True:
+                if service.poll() is not None:
+                    raise RuntimeError(f"service m{index} team{team} exited")
+                try:
+                    with urlopen(f"http://127.0.0.1:{port}/health", timeout=.5) as response:
+                        if response.status == 200:
+                            break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise RuntimeError("service startup timed out")
+                    time.sleep(.1)
+            urls.append(f"http://127.0.0.1:{port}")
+        report = logs / f"m{index}-report.json"
+        game_env = {**base_env, "APPDATA": str(logs / f"profile-m{index}")}
+        Path(game_env["APPDATA"]).mkdir()
+        game = launch([args.godot, "--headless", "--path", str(root), "--log-file", str(logs / f"m{index}-game.log"),
+                       "--script", "res://tests/run_ai_duel_match.gd", "--", *urls, str(args.duration), str(report), *civs],
+                      f"m{index}-game", root, game_env)
+        print(f"match {index} started: team0={arms[0]} {civs[0]} vs team1={arms[1]} {civs[1]}", flush=True)
+        return {"index": index, "arms": arms, "game": game, "report": report, "services": services, "stopped": False}
+
     try:
-        for index in range(args.matches):
-            arms = ("on", "off") if index % 2 == 0 else ("off", "on")
-            # Deterministic sim + deterministic AI: repeating a pairing replays
-            # the same game. Alternate sides, then civilizations, per match.
-            civs = list(args.civs) if (index // 2) % 2 == 0 else list(reversed(args.civs))
-            urls = []
-            for team, arm in enumerate(arms):
-                port = free_port()
-                directory = logs / f"m{index}-team{team}-{arm}"
-                directory.mkdir()
-                env = {**base_env, "AOE2_AI_INTELLIGENCE": arm, "AOE2_AI_STRATEGY_MEMORY": "off"}
-                if args.llm_config:
-                    # Both sides plan with the same real model; only the switch differs.
-                    # Use the operator's file in place (keys stay there, never copied).
-                    command = [sys.executable, "main.py", "--config", str(Path(args.llm_config).resolve()),
-                               "--port", str(port), "--log-dir", str(directory / "logs")]
-                else:
-                    config = directory / "config.toml"
-                    config.write_text('[service]\nhost = "127.0.0.1"\n'
-                                      f'port = {port}\napi_token = ""\nlog_dir = {json.dumps(str(directory / "logs"))}\n\n'
-                                      '[llm]\nbackend = "rules_compat"\n', encoding="utf-8")
-                    command = [sys.executable, "main.py", "--config", str(config)]
-                service = launch(command, f"m{index}-service{team}", root / "ai_service_python", env)
-                deadline = time.monotonic() + 20
-                while True:
-                    if service.poll() is not None:
-                        raise RuntimeError(f"service m{index} team{team} exited")
-                    try:
-                        with urlopen(f"http://127.0.0.1:{port}/health", timeout=.5) as response:
-                            if response.status == 200:
-                                break
-                    except OSError:
-                        if time.monotonic() > deadline:
-                            raise RuntimeError("service startup timed out")
-                        time.sleep(.1)
-                urls.append(f"http://127.0.0.1:{port}")
-            report = logs / f"m{index}-report.json"
-            game_env = {**base_env, "APPDATA": str(logs / f"profile-m{index}")}
-            Path(game_env["APPDATA"]).mkdir()
-            game = launch([args.godot, "--headless", "--path", str(root), "--log-file", str(logs / f"m{index}-game.log"),
-                           "--script", "res://tests/run_ai_duel_match.gd", "--", *urls, str(args.duration), str(report), *civs],
-                          f"m{index}-game", root, game_env)
-            matches.append({"index": index, "arms": arms, "game": game, "report": report})
+        pending = list(indices)
+        limit = args.parallel if args.parallel > 0 else len(indices)
         deadline = time.monotonic() + args.timeout
-        while any(m["game"].poll() is None for m in matches):
+        while pending or any(m["game"].poll() is None for m in matches):
+            running = [m for m in matches if m["game"].poll() is None]
+            while pending and len(running) < limit:
+                started = start_match(pending.pop(0))
+                matches.append(started)
+                running.append(started)
             for m in matches:
-                output = (logs / f"m{m['index']}-game.txt").read_text(encoding="utf-8", errors="replace")
-                if "SCRIPT ERROR:" in output:
-                    raise RuntimeError(f"match {m['index']} script error:\n{output[-6000:]}")
+                if m["game"].poll() is None:
+                    output = (logs / f"m{m['index']}-game.txt").read_text(encoding="utf-8", errors="replace")
+                    if "SCRIPT ERROR:" in output:
+                        raise RuntimeError(f"match {m['index']} script error:\n{output[-6000:]}")
+                elif not m["stopped"]:
+                    # Free the model/GPU and ports as soon as a match ends.
+                    m["stopped"] = True
+                    for service in m["services"]:
+                        if service.poll() is None:
+                            service.terminate()
+                    print(f"match {m['index']} finished", flush=True)
             if time.monotonic() > deadline:
                 raise RuntimeError("duel batch timed out")
             time.sleep(1)
@@ -135,7 +163,9 @@ def main() -> int:
                 for key in ("enemy_tc_hp_left", "lost_military_value", "killed_military_value", "final_military_value", "rejects"):
                     total[key] += side[key]
             results.append(row)
-        summary = {"duration": args.duration, "civs": args.civs, "totals": totals, "matches": results}
+        summary = {"mode": "llm:" + Path(args.llm_config).name if args.llm_config else "deterministic",
+                   "service_dir": str(service_dir),
+                   "duration": args.duration, "civs": args.civs, "totals": totals, "matches": results}
         (logs / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps(summary, ensure_ascii=False, indent=1))
         print(f"AI DUEL A/B COMPLETE; logs: {logs}")

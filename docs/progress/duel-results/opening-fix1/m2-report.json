@@ -1,0 +1,64 @@
+{
+	"failed": "",
+	"finished_at": 899.75,
+	"teams": [
+		{
+			"calls": 900,
+			"civ": "teutons",
+			"final": {
+				"age": 1,
+				"military": 6,
+				"military_value": 480,
+				"resources": {
+					"0": 30,
+					"1": 304,
+					"2": 610,
+					"3": 200
+				},
+				"tc_hp": 3000.0,
+				"villagers": 12
+			},
+			"lost_military_value": 480,
+			"max_http_ms": 193.562,
+			"milestones": {
+				"age_1": 868.75,
+				"barracks": 260.0,
+				"first_soldier": 281.75
+			},
+			"produced": {
+				"militia": 11
+			},
+			"produced_military_value": 880,
+			"rejects": {}
+		},
+		{
+			"calls": 900,
+			"civ": "chinese",
+			"final": {
+				"age": 0,
+				"military": 4,
+				"military_value": 320,
+				"resources": {
+					"0": 495,
+					"1": 625,
+					"2": 600,
+					"3": 200
+				},
+				"tc_hp": 2400.0,
+				"villagers": 12
+			},
+			"lost_military_value": 640,
+			"max_http_ms": 229.662,
+			"milestones": {
+				"barracks": 242.25,
+				"first_soldier": 453.75
+			},
+			"produced": {
+				"militia": 12
+			},
+			"produced_military_value": 960,
+			"rejects": {}
+		}
+	],
+	"winner": -1
+}

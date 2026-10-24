@@ -1,0 +1,284 @@
+{
+ "mode": "llm:config.toml",
+ "duration": 2400.0,
+ "civs": [
+  "chinese",
+  "teutons"
+ ],
+ "totals": {
+  "on": {
+   "matches": 4,
+   "wins": 2,
+   "losses": 1,
+   "enemy_tc_hp_left": 5998.0,
+   "lost_military_value": 15885,
+   "killed_military_value": 20890,
+   "final_military_value": 7865,
+   "rejects": 0
+  },
+  "off": {
+   "matches": 4,
+   "wins": 1,
+   "losses": 2,
+   "enemy_tc_hp_left": 8399.5,
+   "lost_military_value": 20890,
+   "killed_military_value": 15885,
+   "final_military_value": 2865,
+   "rejects": 0
+  }
+ },
+ "matches": [
+  {
+   "match": 0,
+   "winner_arm": "off",
+   "finished_at": 2235.5,
+   "sides": {
+    "on": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 3000.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 6330,
+     "killed_military_value": 5190,
+     "final_military_value": 130,
+     "villagers": 28,
+     "age": 1,
+     "rejects": 0,
+     "team": 0,
+     "civ": "chinese",
+     "produced": {
+      "archer": 34,
+      "man_at_arms": 20,
+      "militia": 7,
+      "skirmisher": 5,
+      "spearman": 27
+     },
+     "milestones": {
+      "age_1": 691.75,
+      "barracks": 561.75,
+      "first_soldier": 582.75
+     }
+    },
+    "off": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 3000.0,
+     "lost_military_value": 5190,
+     "killed_military_value": 6330,
+     "final_military_value": 2035,
+     "villagers": 24,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "teutons",
+     "produced": {
+      "archer": 10,
+      "battering_ram": 5,
+      "cavalry_archer": 3,
+      "crossbowman": 4,
+      "long_swordsman": 18,
+      "man_at_arms": 2,
+      "militia": 12,
+      "skirmisher": 17,
+      "spearman": 18
+     },
+     "milestones": {
+      "age_1": 659.75,
+      "age_2": 1392.75,
+      "barracks": 462.0,
+      "first_soldier": 587.75
+     }
+    }
+   }
+  },
+  {
+   "match": 1,
+   "winner_arm": "on",
+   "finished_at": 2275.75,
+   "sides": {
+    "off": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 3000.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 6500,
+     "killed_military_value": 3060,
+     "final_military_value": 60,
+     "villagers": 7,
+     "age": 1,
+     "rejects": 0,
+     "team": 0,
+     "civ": "chinese",
+     "produced": {
+      "archer": 24,
+      "man_at_arms": 39,
+      "militia": 4,
+      "skirmisher": 6,
+      "spearman": 18
+     },
+     "milestones": {
+      "age_1": 670.75,
+      "barracks": 540.5,
+      "first_soldier": 561.75
+     }
+    },
+    "on": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 3000.0,
+     "lost_military_value": 3060,
+     "killed_military_value": 6500,
+     "final_military_value": 2830,
+     "villagers": 35,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "teutons",
+     "produced": {
+      "battering_ram": 4,
+      "crossbowman": 11,
+      "man_at_arms": 20,
+      "militia": 12,
+      "spearman": 27
+     },
+     "milestones": {
+      "age_1": 794.75,
+      "age_2": 1861.75,
+      "barracks": 507.25,
+      "first_soldier": 528.75
+     }
+    }
+   }
+  },
+  {
+   "match": 2,
+   "winner_arm": "on",
+   "finished_at": 2354.0,
+   "sides": {
+    "on": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 3000.0,
+     "lost_military_value": 3160,
+     "killed_military_value": 5030,
+     "final_military_value": 2760,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 0,
+     "civ": "teutons",
+     "produced": {
+      "archer": 11,
+      "battering_ram": 4,
+      "cavalry_archer": 2,
+      "crossbowman": 5,
+      "elite_skirmisher": 2,
+      "man_at_arms": 28,
+      "militia": 7,
+      "spearman": 12
+     },
+     "milestones": {
+      "age_1": 739.75,
+      "age_2": 1965.75,
+      "barracks": 333.75,
+      "first_soldier": 354.75
+     }
+    },
+    "off": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 3000.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 5030,
+     "killed_military_value": 3160,
+     "final_military_value": 80,
+     "villagers": 19,
+     "age": 1,
+     "rejects": 0,
+     "team": 1,
+     "civ": "chinese",
+     "produced": {
+      "archer": 23,
+      "man_at_arms": 31,
+      "militia": 6,
+      "skirmisher": 2,
+      "spearman": 7
+     },
+     "milestones": {
+      "age_1": 801.75,
+      "barracks": 671.0,
+      "first_soldier": 692.75
+     }
+    }
+   }
+  },
+  {
+   "match": 3,
+   "winner_arm": null,
+   "finished_at": 2399.75,
+   "sides": {
+    "off": {
+     "won": false,
+     "lost": false,
+     "enemy_tc_hp_left": 2399.5,
+     "own_tc_hp": 2998.0,
+     "lost_military_value": 4170,
+     "killed_military_value": 3335,
+     "final_military_value": 690,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 0,
+     "civ": "teutons",
+     "produced": {
+      "archer": 25,
+      "battering_ram": 2,
+      "man_at_arms": 8,
+      "militia": 6,
+      "skirmisher": 2,
+      "spearman": 22
+     },
+     "milestones": {
+      "age_1": 749.75,
+      "age_2": 2052.75,
+      "barracks": 333.75,
+      "first_soldier": 354.75
+     }
+    },
+    "on": {
+     "won": false,
+     "lost": false,
+     "enemy_tc_hp_left": 2998.0,
+     "own_tc_hp": 2399.5,
+     "lost_military_value": 3335,
+     "killed_military_value": 4170,
+     "final_military_value": 2145,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "chinese",
+     "produced": {
+      "archer": 22,
+      "battering_ram": 3,
+      "camel": 1,
+      "cavalry_archer": 2,
+      "man_at_arms": 17,
+      "militia": 8,
+      "skirmisher": 4,
+      "spearman": 11
+     },
+     "milestones": {
+      "age_1": 919.75,
+      "age_2": 2120.75,
+      "barracks": 789.5,
+      "first_soldier": 810.75
+     }
+    }
+   }
+  }
+ ]
+}
