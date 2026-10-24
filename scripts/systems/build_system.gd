@@ -397,15 +397,19 @@ func _update_wall_preview(pos: Vector2) -> void:
 
 func _update_wall_validity() -> void:
 	var context := _placement_context()
-	placement_reason = Walls.validate_plan(_wall_plan, context)
-	_placement_valid = placement_reason.is_empty()
 	if _wall_plan.is_empty():
+		placement_reason = Walls.validate_plan(_wall_plan, context)
+		_placement_valid = false
 		for ghost in _wall_ghosts: ghost.call("set_ghost_visual", false)
 		return
-	var costs := _wall_costs()
+	# One scene snapshot for the whole preview refresh (ghosts are excluded).
+	var scene := Walls.scene_index(context)
+	placement_reason = Walls.validate_plan(_wall_plan, context, true, scene)
+	_placement_valid = placement_reason.is_empty()
+	var costs := _wall_costs(scene)
 	var affordable := match_state.can_afford(context.team, costs.food, costs.wood, costs.gold, costs.stone)
 	for index in _wall_ghosts.size():
-		var valid := affordable and Walls.validate_plan([_wall_plan[index]], context).is_empty()
+		var valid := affordable and Walls.validate_plan([_wall_plan[index]], context, true, scene).is_empty()
 		_wall_ghosts[index].call("set_ghost_visual", valid)
 
 func _confirm_wall_placement(continue_wall: bool) -> bool:
@@ -441,12 +445,13 @@ func _confirm_wall_placement(continue_wall: bool) -> bool:
 		cancel_placement()
 	return true
 
-func _wall_costs() -> Dictionary:
+func _wall_costs(scene: Dictionary = {}) -> Dictionary:
 	var context := _placement_context()
-	var result := Walls.cost(_wall_plan, context)
+	if scene.is_empty(): scene = Walls.scene_index(context)
+	var result := Walls.cost(_wall_plan, context, scene)
 	result.segments = 0
 	for entry: Dictionary in _wall_plan:
-		if Walls.existing_segment(entry, context) == null: result.segments += 1
+		if Walls.existing_segment(entry, context, scene) == null: result.segments += 1
 	return result
 
 func get_placement_hint() -> String:

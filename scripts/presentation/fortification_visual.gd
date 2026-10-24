@@ -7,6 +7,11 @@ const Colors := preload("res://scripts/presentation/team_color_catalog.gd")
 const Occlusion := preload("res://scripts/presentation/unit_occlusion.gd")
 const MANIFEST_PATH := "res://data/fortification_sprites.json"
 static var _manifest: Dictionary = {}
+## Neighbour lookup shared by all wall visuals refreshed in the same frame.
+## A gate tip (1.5) plus one tile bounds every delta that can connect.
+const NEIGHBOR_REACH := 2.6
+const NEIGHBOR_BUCKET := 4.0
+static var _neighbor_cache: Dictionary = {}
 var _refresh_remaining := 0.0
 var _signature: Array = []
 var sheet_base := ""
@@ -24,20 +29,61 @@ func _process(delta: float) -> void:
 		_refresh_remaining = 0.25
 		refresh()
 
+## One pass over the container per frame, instead of one full scan per wall.
+## Buildings are bucketed by position; placement ghosts move while the player
+## drags a preview, so they stay in a short list read at their current
+## position. A child added or freed changes the child count and rebuilds the
+## snapshot within the same frame; every other condition is checked per query.
+static func _neighbor_index(container: Node) -> Dictionary:
+	var key := container.get_instance_id()
+	var frame := Engine.get_process_frames()
+	var count := container.get_child_count()
+	var cached: Dictionary = _neighbor_cache.get(key, {})
+	if not cached.is_empty() and cached.frame == frame and cached.children == count: return cached
+	if cached.is_empty() or cached.frame != frame:
+		# Drop snapshots of earlier frames (including freed containers).
+		for other in _neighbor_cache.keys():
+			if _neighbor_cache[other].frame != frame: _neighbor_cache.erase(other)
+	var buckets := {}
+	var ghosts: Array = []
+	for node in container.get_children():
+		if node is not BuildingAgent: continue
+		if node.is_placement_ghost:
+			ghosts.append(node)
+			continue
+		var cell := _neighbor_cell(node.sim_pos)
+		if not buckets.has(cell): buckets[cell] = []
+		buckets[cell].append(node)
+	cached = {"frame": frame, "children": count, "buckets": buckets, "ghosts": ghosts}
+	_neighbor_cache[key] = cached
+	return cached
+
+static func _neighbor_cell(pos: Vector2) -> Vector2i:
+	return Vector2i(floori(pos.x / NEIGHBOR_BUCKET), floori(pos.y / NEIGHBOR_BUCKET))
+
+static func _add_direction(building: BuildingAgent, neighbor: Variant, directions: Array[Vector2]) -> void:
+	if not is_instance_valid(neighbor) or neighbor == building or neighbor.is_queued_for_deletion(): return
+	if neighbor.def == null or not Walls.is_fortification(neighbor.def.id) or neighbor.team != building.team: return
+	if neighbor.is_placement_ghost and not building.is_placement_ghost: return
+	var delta: Vector2 = neighbor.sim_pos - building.sim_pos
+	if neighbor.def.id == &"gate":
+		var tip := Walls.direction(neighbor.wall_orientation) * 1.5
+		delta = delta - tip if (delta - tip).length_squared() < (delta + tip).length_squared() else delta + tip
+	var snapped := delta.round()
+	if not delta.is_equal_approx(snapped) or maxf(absf(delta.x), absf(delta.y)) != 1.0: return
+	if not directions.has(snapped): directions.append(snapped)
+
 func _wall_shape(building: BuildingAgent, catalog: Dictionary) -> int:
 	var directions: Array[Vector2] = []
 	if building.get_parent() != null:
-		for neighbor in building.get_parent().get_children():
-			if neighbor == building or neighbor is not BuildingAgent or neighbor.is_queued_for_deletion(): continue
-			if neighbor.def == null or not Walls.is_fortification(neighbor.def.id) or neighbor.team != building.team: continue
-			if neighbor.is_placement_ghost and not building.is_placement_ghost: continue
-			var delta: Vector2 = neighbor.sim_pos - building.sim_pos
-			if neighbor.def.id == &"gate":
-				var tip := Walls.direction(neighbor.wall_orientation) * 1.5
-				delta = delta - tip if (delta - tip).length_squared() < (delta + tip).length_squared() else delta + tip
-			var snapped := delta.round()
-			if not delta.is_equal_approx(snapped) or maxf(absf(delta.x), absf(delta.y)) != 1.0: continue
-			if not directions.has(snapped): directions.append(snapped)
+		var index := _neighbor_index(building.get_parent())
+		for neighbor in index.ghosts: _add_direction(building, neighbor, directions)
+		var lo := _neighbor_cell(building.sim_pos - Vector2.ONE * NEIGHBOR_REACH)
+		var hi := _neighbor_cell(building.sim_pos + Vector2.ONE * NEIGHBOR_REACH)
+		var buckets: Dictionary = index.buckets
+		for y in range(lo.y, hi.y + 1):
+			for x in range(lo.x, hi.x + 1):
+				for neighbor in buckets.get(Vector2i(x, y), []): _add_direction(building, neighbor, directions)
 	# The original post covers an endpoint, a corner, or a junction. Only a
 	# straight run uses a panel; derive its axis from neighbours after demolition.
 	if directions.size() == 2 and directions[0] == -directions[1]:

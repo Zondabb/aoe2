@@ -90,6 +90,45 @@ func _on_construction_changed(_building: Node) -> void:
 func invalidate_static_geometry() -> void:
 	_queue_static_rebuild()
 
+## Refresh one tracked building's collision record in place. An auto gate
+## opening or closing changes only its own collision box: its navigation
+## footprint, the route grid and every other record stay the same, so a full
+## rebuild would produce exactly these records. Anything not already indexed
+## and clean falls back to the full deferred rebuild.
+func update_static_entity(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		_queue_static_rebuild()
+		return
+	var id := node.get_instance_id()
+	if _static_dirty or not _tracked_buildings.has(id) or not node.is_inside_tree() or node.is_queued_for_deletion() or not get_parent().is_ancestor_of(node):
+		_queue_static_rebuild()
+		return
+	var old: Dictionary = _static_records.get(id, {})
+	if not old.is_empty():
+		for cell in _bucket_cells(old.center, old.half):
+			var ids: Array = _static_buckets.get(cell, [])
+			ids.erase(id)
+			if ids.is_empty(): _static_buckets.erase(cell)
+		_static_records.erase(id)
+	if NavGridServiceScript._building_blocks_nav(node):
+		var half := CollisionResolverScript._blocker_half(node, 0.0)
+		if half.x > 0.0 and half.y > 0.0:
+			var center: Vector2 = node.get("sim_pos")
+			_static_records[id] = {"node": weakref(node), "center": center, "half": half}
+			for cell in _bucket_cells(center, half):
+				if not _static_buckets.has(cell): _static_buckets[cell] = []
+				_static_buckets[cell].append(id)
+	_tracked_buildings[id].signature = _building_signature(node)
+
+func _bucket_cells(center: Vector2, half: Vector2) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var minimum := Vector2i(((center - half) / STATIC_BUCKET_SIZE).floor())
+	var maximum := Vector2i(((center + half) / STATIC_BUCKET_SIZE).floor())
+	for y in range(minimum.y, maximum.y + 1):
+		for x in range(minimum.x, maximum.x + 1):
+			cells.append(Vector2i(x, y))
+	return cells
+
 func rebuild_from_scene() -> void:
 	if nav == null:
 		return

@@ -12,6 +12,7 @@ const Age := preload("res://scripts/systems/age_progression.gd")
 const Walls := preload("res://scripts/systems/wall_system.gd")
 const Perimeter := preload("res://scripts/ai_gateway/defense_perimeter.gd")
 const Context := preload("res://scripts/ai_gateway/command_execution_context.gd")
+const Shore := preload("res://scripts/world/shore_geometry.gd")
 const MAX_FRONTIERS := 12
 const POSITIONS_PER_BUILDING := 3
 const MAX_ROUTE_CHECKS_PER_BUILDING := 4
@@ -19,6 +20,8 @@ const MILITARY_BUILDINGS := ["barracks", "archery_range", "stable", "siege_works
 const PLANNING_SCALE := 4.0
 const FARM_RESERVE_RADIUS := 22.0
 const LANE_WIDTH := 3.0
+## Bucket size (simulation units) of the per-call construction site index.
+const SITE_BUCKET := 16.0
 const BUILD_PRIORITY := ["barracks", "house", "farm", "mill", "lumber_camp", "mining_camp", "archery_range", "stable", "blacksmith", "market", "siege_workshop", "castle", "town_center", "monastery", "university"]
 
 class ObservationNav extends NavGridService:
@@ -169,6 +172,9 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 	var wall_plan: Dictionary = stored_plans.get("%d:%d" % [team, int(derived.get("own_tc_id", -1))], {})
 	var direction := (bounds.get_center() - base).normalized()
 	if direction == Vector2.ZERO: direction = Vector2.RIGHT
+	# Hundreds of candidate points share one pass over the observed blockers.
+	var sites := _site_index(blockers)
+	var wall_strips := Perimeter.wall_strips(wall_plan)
 	for record: Dictionary in records:
 		if Walls.is_fortification(StringName(record.id)): continue
 		# Resource shortages do not invalidate geometry: the planner can save up.
@@ -204,12 +210,12 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 					if seen.has(point): continue
 					seen[point] = true
 					if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue
-					if not _planning_clear(definition, point, base, blockers, bounds): continue
+					if not _planning_clear(definition, point, base, sites, bounds): continue
 					# Reserve the actual wall line, including production exit clearance,
 					# before the first foundation is paid for.
-					if not Perimeter.keeps_wall_strip_clear(wall_plan, point, definition.footprint + Vector2.ONE * 4): continue
+					if not Perimeter.strips_clear(wall_strips, point, definition.footprint + Vector2.ONE * 4): continue
 					if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): continue
-					if not Build.can_place(definition.footprint, point, blockers) or not _footprint_walkable(point, definition.footprint, nav): continue
+					if not _can_place(definition.footprint, point, sites) or not _footprint_walkable(point, definition.footprint, nav): continue
 					var facing := (point - base).normalized().dot(direction)
 					var score: float = 100.0 - point.distance_to(anchor.pos) - point.distance_to(base) * 0.1 + float(anchor.get("score_bonus", 0))
 					if zone == "military": score += facing * 10.0
@@ -258,6 +264,8 @@ static func _defense_planning(state: MatchState, entities: Node2D, team: int, ci
 	if perimeter.rect.size.x < 12 or perimeter.rect.size.y < 12:
 		result.plan = {"id": perimeter.id, "closed": false, "phase": "blocked", "blocked_reason": "map_too_small_for_access_gates", "total_segments": 0, "missing_segments": 0, "blocked_segments": 0, "complete_segments": 0}
 		return result
+	# Hundreds of wall pieces share one scene pass (nothing is placed here).
+	var scene := Walls.scene_index(ctx)
 	var gate_reason := Catalog.building_reason(state, team, civ, Catalog.get_building(&"gate"), entities)
 	var gate_unlocked := gate_reason.is_empty() or gate_reason == "资源不足"
 	var seen: Dictionary = perimeter.seen_complete
@@ -274,7 +282,7 @@ static func _defense_planning(state: MatchState, entities: Node2D, team: int, ci
 		var visible := true
 		for piece: Dictionary in batch.pieces:
 			var key := "%s:%s" % [piece.building_def_id, piece.pos]
-			var existing := Walls.existing_segment(piece, ctx)
+			var existing := Walls.existing_segment(piece, ctx, scene)
 			if existing != null: connected = true
 			if existing == null:
 				missing += 1
@@ -308,7 +316,7 @@ static func _defense_planning(state: MatchState, entities: Node2D, team: int, ci
 			continue
 		# Only consult authoritative geometry after the entire footprint and its
 		# inflation neighborhood are visible; hidden terrain cannot leak via hints.
-		if not Walls.validate_plan(batch.pieces, ctx, false).is_empty():
+		if not Walls.validate_plan(batch.pieces, ctx, false, scene).is_empty():
 			for key in missing_keys: blocked_keys[key] = true
 			continue
 		if available.is_empty(): continue
@@ -320,7 +328,7 @@ static func _defense_planning(state: MatchState, entities: Node2D, team: int, ci
 		if route.is_empty() or route[-1].distance_to(approach) > 2:
 			for key in missing_keys: blocked_keys[key] = true
 			continue
-		var price := Walls.cost(batch.pieces, ctx)
+		var price := Walls.cost(batch.pieces, ctx, scene)
 		options.append({"building_def_id": perimeter.material, "builder_id": Registry.id_of(builder),
 			"start": Protocol.vec2_to_array(batch.start), "end": Protocol.vec2_to_array(batch.end), "include_gate": batch.include_gate,
 			"cost": price, "segment_count": missing, "orientation": batch.pieces[0].orientation,
@@ -365,7 +373,60 @@ static func _resource_anchors(building_id: String, snapshots: Array, base: Vecto
 	return result
 
 
-static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, blockers: Array, bounds: Rect2) -> bool:
+## Plain-geometry snapshot of the observed blockers for one site search.
+## "planning": building planning footprints (and military exits) for
+## _planning_clear; "placement" and "water": the same footprints and shore
+## contours that Build.can_place reads. Entries are bucketed by every bucket
+## their rectangles touch, so a query visits only nearby blockers; both tests
+## are any-match, so an entry seen in several buckets cannot change a result.
+static func _site_index(blockers: Array) -> Dictionary:
+	var planning := {}
+	var placement := {}
+	var water: Array = []
+	for value in blockers:
+		var blocker := value as Node2D
+		if blocker == null: continue
+		var other := blocker.get("def") as BuildingDef
+		var pos: Vector2 = blocker.get("sim_pos")
+		if other != null:
+			var other_size := planning_footprint(other)
+			var rect := Rect2(pos - other_size * 0.5, other_size)
+			var exit: Variant = null
+			var covered := rect
+			if String(other.id) in MILITARY_BUILDINGS:
+				# Preserve the default east-facing production exit. The authoritative
+				# producer can use other exits, but planners should not force a retry.
+				exit = Rect2(pos + Vector2(other.footprint.x * 0.5, -1.5), Vector2(5.0, 3.0))
+				covered = covered.merge(exit)
+			_bucket_insert(planning, covered, [rect, exit])
+		if blocker.is_queued_for_deletion() or blocker.get("is_placement_ghost") == true: continue
+		if blocker.has_method("get_water_contours") and not blocker.get_water_contours().is_empty():
+			water.append(blocker.get_water_contours())
+			continue
+		var footprint: Vector2 = other.footprint if other != null else (blocker.get("block_size") if blocker.get("block_size") is Vector2 else Vector2.ONE)
+		if blocker.has_method("get_placement_footprint"):
+			footprint = blocker.call("get_placement_footprint")
+		var half := footprint * 0.5
+		_bucket_insert(placement, Rect2(pos - half, footprint), [pos, half])
+	return {"planning": planning, "placement": placement, "water": water}
+
+static func _bucket_cells(rect: Rect2) -> Rect2i:
+	# Padding only adds buckets, so float rounding at a bucket edge cannot
+	# drop an overlapping blocker.
+	var padded := rect.grow(0.01)
+	var lo := Vector2i(floori(padded.position.x / SITE_BUCKET), floori(padded.position.y / SITE_BUCKET))
+	var hi := Vector2i(floori(padded.end.x / SITE_BUCKET), floori(padded.end.y / SITE_BUCKET))
+	return Rect2i(lo, hi - lo + Vector2i.ONE)
+
+static func _bucket_insert(buckets: Dictionary, rect: Rect2, entry: Array) -> void:
+	var cells := _bucket_cells(rect)
+	for y in range(cells.position.y, cells.end.y):
+		for x in range(cells.position.x, cells.end.x):
+			var key := Vector2i(x, y)
+			if not buckets.has(key): buckets[key] = []
+			buckets[key].append(entry)
+
+static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, sites: Dictionary, bounds: Rect2) -> bool:
 	var size := planning_footprint(definition)
 	var area := Rect2(pos - size * 0.5, size)
 	if not bounds.encloses(area.grow(1.0)): return false
@@ -373,17 +434,31 @@ static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2
 	# future walls and solid foundations from sealing the base's four exits.
 	var offset := pos - base
 	if absf(offset.x) < size.x * 0.5 + LANE_WIDTH * 0.5 or absf(offset.y) < size.y * 0.5 + LANE_WIDTH * 0.5: return false
-	for blocker in blockers:
-		var other: BuildingDef = blocker.get("def")
-		if other == null: continue
-		var other_pos: Vector2 = blocker.get("sim_pos")
-		var other_size := planning_footprint(other)
-		if area.grow(LANE_WIDTH * 0.5).intersects(Rect2(other_pos - other_size * 0.5, other_size)): return false
-		if String(other.id) in MILITARY_BUILDINGS:
-			# Preserve the default east-facing production exit. The authoritative
-			# producer can use other exits, but planners should not force a retry.
-			var exit := Rect2(other_pos + Vector2(other.footprint.x * 0.5, -1.5), Vector2(5.0, 3.0))
-			if area.intersects(exit): return false
+	var lane := area.grow(LANE_WIDTH * 0.5)
+	var planning: Dictionary = sites.planning
+	var cells := _bucket_cells(lane)
+	for y in range(cells.position.y, cells.end.y):
+		for x in range(cells.position.x, cells.end.x):
+			for entry: Array in planning.get(Vector2i(x, y), []):
+				if lane.intersects(entry[0]): return false
+				if entry[1] is Rect2 and area.intersects(entry[1]): return false
+	return true
+
+## Build.can_place over the site index: same footprints and strict overlap.
+static func _can_place(footprint: Vector2, center: Vector2, sites: Dictionary) -> bool:
+	var candidate_half := footprint * 0.5
+	var rect := Rect2(center - candidate_half, footprint)
+	for contours in sites.water:
+		if Shore.intersects_rect(rect, contours): return false
+	var placement: Dictionary = sites.placement
+	var cells := _bucket_cells(rect)
+	for y in range(cells.position.y, cells.end.y):
+		for x in range(cells.position.x, cells.end.x):
+			for entry: Array in placement.get(Vector2i(x, y), []):
+				var building_pos: Vector2 = entry[0]
+				var existing_half: Vector2 = entry[1]
+				if absf(center.x - building_pos.x) < candidate_half.x + existing_half.x and absf(center.y - building_pos.y) < candidate_half.y + existing_half.y:
+					return false
 	return true
 
 

@@ -169,10 +169,21 @@ static func batches(plan: Dictionary) -> Array:
 	return result
 
 static func keeps_wall_strip_clear(plan: Dictionary, point: Vector2, footprint: Vector2) -> bool:
-	if plan.is_empty(): return true
-	var area := Rect2(point - footprint * 0.5, footprint).grow(2.0)
+	return strips_clear(wall_strips(plan), point, footprint)
+
+## The reserved wall bands of a plan. Callers testing many points build these
+## once and use strips_clear; an empty plan reserves nothing.
+static func wall_strips(plan: Dictionary) -> Array[Rect2]:
+	var strips: Array[Rect2] = []
+	if plan.is_empty(): return strips
 	for side: Dictionary in sides(plan.rect):
 		var size: Vector2 = (side.end - side.start).abs() + Vector2.ONE
-		var strip := Rect2(side.start.min(side.end) - Vector2.ONE * 0.5, size)
+		strips.append(Rect2(side.start.min(side.end) - Vector2.ONE * 0.5, size))
+	return strips
+
+static func strips_clear(strips: Array[Rect2], point: Vector2, footprint: Vector2) -> bool:
+	if strips.is_empty(): return true
+	var area := Rect2(point - footprint * 0.5, footprint).grow(2.0)
+	for strip in strips:
 		if area.intersects(strip): return false
 	return true

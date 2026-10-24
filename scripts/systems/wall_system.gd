@@ -52,7 +52,81 @@ static func _overlaps(a: Vector2, a_size: Vector2, b: Vector2, b_size: Vector2) 
 	var half := (a_size + b_size) * 0.5 - Vector2.ONE * 0.001
 	return delta.x < half.x and delta.y < half.y
 
-static func existing_segment(item: Dictionary, ctx: CommandExecutionContext) -> Node2D:
+## Scene lookups shared by many wall pieces. Build one with scene_index(ctx)
+## for a single validation pass and drop it afterwards: it is a snapshot and is
+## not updated when entities spawn, move, die or resources deplete. Without an
+## index, existing_segment keeps its original full scan.
+const INDEX_BUCKET := 8.0
+
+static func scene_index(ctx: CommandExecutionContext) -> Dictionary:
+	var owned := {}
+	var buckets := {}
+	var water: Array = []
+	var order := 0
+	for node in ctx.entities.get_children():
+		order += 1
+		if not node is Node2D or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
+		if node.has_method("get_water_contours") and not node.get_water_contours().is_empty():
+			water.append(node)
+			continue
+		# Classify first, as the full scans do: only buildings, terrain blocks
+		# and live resources are read. Other children (fog memory views, other
+		# decorations) are plain Node2D without simulation fields.
+		var size := Vector2.ZERO
+		var definition := node.get("def") as BuildingDef
+		if definition != null:
+			size = node.call("get_placement_footprint") if node.has_method("get_placement_footprint") else definition.footprint
+		elif node.is_in_group("terrain_regions") and node.get("block_size") is Vector2:
+			size = node.get("block_size")
+		elif node.has_method("pathfinding_size") and float(node.get("amount")) > 0:
+			size = node.pathfinding_size()
+			if size == Vector2.ZERO: continue
+		else:
+			continue
+		var raw_pos: Variant = node.get("sim_pos")
+		if raw_pos is not Vector2: continue
+		var pos: Vector2 = raw_pos
+		if definition != null and int(node.get("team")) == int(ctx.team) and float(node.get("hp")) > 0:
+			var key := _pos_key(pos)
+			if not owned.has(key): owned[key] = []
+			owned[key].append({"node": node, "order": order, "def_id": definition.id})
+		var entry := {"node": node, "pos": pos, "size": size}
+		var lo := _bucket_of(pos - size * 0.5)
+		var hi := _bucket_of(pos + size * 0.5)
+		for by in range(lo.y, hi.y + 1):
+			for bx in range(lo.x, hi.x + 1):
+				var bucket := Vector2i(bx, by)
+				if not buckets.has(bucket): buckets[bucket] = []
+				buckets[bucket].append(entry)
+	return {"owned": owned, "buckets": buckets, "water": water, "reasons": {}}
+
+static func _pos_key(pos: Vector2) -> Vector2i:
+	return Vector2i(roundi(pos.x * 100.0), roundi(pos.y * 100.0))
+
+static func _bucket_of(pos: Vector2) -> Vector2i:
+	return Vector2i(floori(pos.x / INDEX_BUCKET), floori(pos.y / INDEX_BUCKET))
+
+static func _indexed_segment(item: Dictionary, index: Dictionary) -> Node2D:
+	var key := _pos_key(item.pos)
+	var best: Node2D = null
+	var best_order := 0
+	for dy in [-1, 0, 1]:
+		for dx in [-1, 0, 1]:
+			for entry: Dictionary in index.owned.get(key + Vector2i(dx, dy), []):
+				var node: Node2D = entry.node
+				var same_material: bool = String(entry.def_id) == item.building_def_id
+				var existing_wall := is_wall(entry.def_id) and is_wall(StringName(item.building_def_id))
+				if not (same_material or existing_wall) or node.get("sim_pos").distance_to(item.pos) >= 0.01: continue
+				if entry.def_id == &"gate" and int(node.get("wall_orientation")) != int(item.orientation): continue
+				# Same winner as the full scan: the earliest matching child.
+				if best == null or int(entry.order) < best_order:
+					best = node
+					best_order = int(entry.order)
+	return best
+
+static func existing_segment(item: Dictionary, ctx: CommandExecutionContext, index: Dictionary = {}) -> Node2D:
+	if not index.is_empty():
+		return _indexed_segment(item, index)
 	for node in ctx.entities.get_children():
 		if not node is Node2D or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
 		var definition := node.get("def") as BuildingDef
@@ -65,10 +139,11 @@ static func existing_segment(item: Dictionary, ctx: CommandExecutionContext) -> 
 			if definition.id != &"gate" or int(node.get("wall_orientation")) == int(item.orientation): return node
 	return null
 
-static func cost(plan_items: Array, ctx: CommandExecutionContext = null) -> Dictionary:
+static func cost(plan_items: Array, ctx: CommandExecutionContext = null, index: Dictionary = {}) -> Dictionary:
 	var total := {"food": 0, "wood": 0, "gold": 0, "stone": 0}
+	if ctx != null and index.is_empty() and plan_items.size() > 1: index = scene_index(ctx)
 	for item: Dictionary in plan_items:
-		if ctx != null and existing_segment(item, ctx) != null: continue
+		if ctx != null and existing_segment(item, ctx, index) != null: continue
 		var definition := Catalog.get_building(StringName(item.building_def_id))
 		if definition == null: continue
 		total.food += definition.cost_food
@@ -77,16 +152,21 @@ static func cost(plan_items: Array, ctx: CommandExecutionContext = null) -> Dict
 		total.stone += definition.cost_stone
 	return total
 
-static func validate_plan(plan_items: Array, ctx: CommandExecutionContext, check_budget := true) -> String:
+static func validate_plan(plan_items: Array, ctx: CommandExecutionContext, check_budget := true, index: Dictionary = {}) -> String:
 	if ctx == null or ctx.match_state == null or ctx.entities == null: return "missing_context"
 	if plan_items.is_empty() or plan_items.size() > MAX_SEGMENTS: return "invalid_wall_length"
+	# One scene pass per validation instead of two full scans per wall piece.
+	if index.is_empty(): index = scene_index(ctx)
 	var checked: Array[Dictionary] = []
 	for item: Dictionary in plan_items:
 		var definition := Catalog.get_building(StringName(item.get("building_def_id", "")))
 		if definition == null or not is_fortification(definition.id): return "invalid_wall_type"
 		if item.get("pos") is not Vector2 or not item.pos.is_finite(): return "invalid_pos"
 		if item.get("orientation", 0) is not int or int(item.get("orientation", 0)) not in range(4): return "invalid_orientation"
-		var reason := Catalog.building_reason(ctx.match_state, ctx.team, ctx.civ, definition, ctx.entities)
+		var reasons: Dictionary = index.reasons
+		if not reasons.has(definition.id):
+			reasons[definition.id] = Catalog.building_reason(ctx.match_state, ctx.team, ctx.civ, definition, ctx.entities)
+		var reason: String = reasons[definition.id]
 		if not reason.is_empty() and reason != "资源不足": return reason
 		var footprint := footprint_for(definition, int(item.get("orientation", 0)))
 		var rect := Rect2(item.pos - footprint * 0.5, footprint)
@@ -95,22 +175,17 @@ static func validate_plan(plan_items: Array, ctx: CommandExecutionContext, check
 		for other: Dictionary in checked:
 			if _overlaps(item.pos, footprint, other.pos, other.footprint): return "overlapping_segments"
 		checked.append({"pos": item.pos, "footprint": footprint})
-		var reused := existing_segment(item, ctx)
-		for node in ctx.entities.get_children():
-			if not node is Node2D or node == reused or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
-			if node.has_method("get_water_contours") and not node.get_water_contours().is_empty():
-				if Shore.intersects_rect(rect, node.get_water_contours()): return "invalid_placement"
-				continue
-			var other_def := node.get("def") as BuildingDef
-			if other_def != null:
-				var other_size: Vector2 = node.call("get_placement_footprint") if node.has_method("get_placement_footprint") else other_def.footprint
-				if _overlaps(item.pos, footprint, node.get("sim_pos"), other_size): return "invalid_placement"
-			elif node.is_in_group("terrain_regions") and node.get("block_size") is Vector2:
-				if _overlaps(item.pos, footprint, node.get("sim_pos"), node.get("block_size")): return "invalid_placement"
-			elif node.has_method("pathfinding_size") and float(node.get("amount")) > 0:
-				var size: Vector2 = node.pathfinding_size()
-				if size != Vector2.ZERO and _overlaps(item.pos, footprint, node.get("sim_pos"), size): return "invalid_placement"
-	var price := cost(plan_items, ctx)
+		var reused := existing_segment(item, ctx, index)
+		for node in index.water:
+			if node != reused and Shore.intersects_rect(rect, node.get_water_contours()): return "invalid_placement"
+		# Buildings, terrain blocks and live resources, bucketed by position.
+		var lo := _bucket_of(rect.position)
+		var hi := _bucket_of(rect.end)
+		for by in range(lo.y, hi.y + 1):
+			for bx in range(lo.x, hi.x + 1):
+				for entry: Dictionary in index.buckets.get(Vector2i(bx, by), []):
+					if entry.node != reused and _overlaps(item.pos, footprint, entry.pos, entry.size): return "invalid_placement"
+	var price := cost(plan_items, ctx, index)
 	if check_budget and not ctx.match_state.can_afford(ctx.team, price.food, price.wood, price.gold, price.stone): return "cannot_afford_wall"
 	return ""
 

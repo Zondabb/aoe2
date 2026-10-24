@@ -134,10 +134,14 @@ func _update_gate() -> void:
 	_sync_block_half()
 	var navigation := get_navigation_half()
 	if not changed and navigation == _last_gate_navigation: return
+	# Allies passing an auto gate only open and close the door: the route
+	# footprint is unchanged, so only this gate's collision record changes.
+	var route_changed := navigation != _last_gate_navigation
 	_last_gate_navigation = navigation
 	if is_inside_tree():
 		for holder in get_tree().get_nodes_in_group("nav_service"):
-			if holder.has_method("invalidate_static_geometry"): holder.call("invalidate_static_geometry")
+			if not route_changed and holder.has_method("update_static_entity"): holder.call("update_static_entity", self)
+			elif holder.has_method("invalidate_static_geometry"): holder.call("invalidate_static_geometry")
 	var visual := get_node_or_null("FortificationVisual") as CanvasItem
 	if visual != null: visual.refresh()
 
