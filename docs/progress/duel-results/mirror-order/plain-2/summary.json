@@ -1,0 +1,99 @@
+{
+ "mode": "deterministic",
+ "comparison": "code_version",
+ "map_seed": 2,
+ "alternate_order": false,
+ "service_dir": "E:\\workspace\\aoe2\\ai_service_python",
+ "arm_dirs": {
+  "on": "E:\\workspace\\aoe2\\ai_service_python",
+  "off": "E:\\workspace\\aoe2\\ai_service_python"
+ },
+ "duration": 2400.0,
+ "civs": [
+  "chinese",
+  "chinese"
+ ],
+ "totals": {
+  "on": {
+   "matches": 1,
+   "wins": 0,
+   "losses": 1,
+   "enemy_tc_hp_left": 2400.0,
+   "lost_military_value": 1460,
+   "killed_military_value": 1730,
+   "final_military_value": 0,
+   "rejects": 0
+  },
+  "off": {
+   "matches": 1,
+   "wins": 1,
+   "losses": 0,
+   "enemy_tc_hp_left": 0.0,
+   "lost_military_value": 1730,
+   "killed_military_value": 1460,
+   "final_military_value": 1235,
+   "rejects": 0
+  }
+ },
+ "matches": [
+  {
+   "match": 0,
+   "winner_arm": "off",
+   "finished_at": 1514.0,
+   "sides": {
+    "on": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 2400.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 1460,
+     "killed_military_value": 1730,
+     "final_military_value": 0,
+     "villagers": 0,
+     "age": 1,
+     "rejects": 0,
+     "team": 0,
+     "civ": "chinese",
+     "produced": {
+      "archer": 4,
+      "militia": 11,
+      "spearman": 5
+     },
+     "milestones": {
+      "age_1": 939.75,
+      "barracks": 342.75,
+      "first_soldier": 428.75
+     }
+    },
+    "off": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 2400.0,
+     "lost_military_value": 1730,
+     "killed_military_value": 1460,
+     "final_military_value": 1235,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "chinese",
+     "produced": {
+      "archer": 11,
+      "battering_ram": 1,
+      "cavalry_archer": 2,
+      "man_at_arms": 15,
+      "militia": 2,
+      "spearman": 5
+     },
+     "milestones": {
+      "age_1": 728.75,
+      "age_2": 1209.75,
+      "barracks": 313.25,
+      "first_soldier": 382.75
+     }
+    }
+   }
+  }
+ ]
+}

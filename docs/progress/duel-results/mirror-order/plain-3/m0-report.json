@@ -1,0 +1,76 @@
+{
+	"failed": "",
+	"finished_at": 1500.25,
+	"teams": [
+		{
+			"calls": 1501,
+			"civ": "chinese",
+			"final": {
+				"age": 2,
+				"military": 11,
+				"military_value": 1170,
+				"resources": {
+					"0": 372,
+					"1": 212,
+					"2": 835,
+					"3": 130
+				},
+				"tc_hp": 2400.0,
+				"villagers": 20
+			},
+			"lost_military_value": 2325,
+			"max_http_ms": 462.725,
+			"milestones": {
+				"age_1": 591.75,
+				"age_2": 1133.75,
+				"barracks": 354.5,
+				"first_soldier": 493.75
+			},
+			"produced": {
+				"archer": 13,
+				"battering_ram": 2,
+				"camel": 1,
+				"cavalry_archer": 2,
+				"man_at_arms": 10,
+				"militia": 6,
+				"spearman": 7
+			},
+			"produced_military_value": 3415,
+			"rejects": {}
+		},
+		{
+			"calls": 1501,
+			"civ": "chinese",
+			"final": {
+				"age": 1,
+				"military": 3,
+				"military_value": 220,
+				"resources": {
+					"0": 116,
+					"1": 414,
+					"2": 145,
+					"3": 140
+				},
+				"tc_hp": 0.0,
+				"villagers": 10
+			},
+			"lost_military_value": 3020,
+			"max_http_ms": 404.239,
+			"milestones": {
+				"age_1": 817.75,
+				"barracks": 311.25,
+				"first_soldier": 399.75
+			},
+			"produced": {
+				"archer": 10,
+				"man_at_arms": 9,
+				"militia": 19,
+				"skirmisher": 2,
+				"spearman": 3
+			},
+			"produced_military_value": 3240,
+			"rejects": {}
+		}
+	],
+	"winner": 0
+}

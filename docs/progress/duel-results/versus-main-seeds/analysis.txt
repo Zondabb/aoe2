@@ -1,0 +1,18 @@
+Version duels, 2400 game s, configs 0-3 on the default map and seeds 1, 2; deterministic, intelligence on for both.
+on = main 3ca924f code (raid response + plan_review + counter fix), off = a5726c9 baseline.
+
+default  seed=None m0 on=chinese/team0 winner=on at=1701 villagers on/off=20/0 army on/off=1280/0
+default  seed=None m1 on=teutons/team1 winner=off at=1694 villagers on/off=0/20 army on/off=70/760
+default  seed=None m2 on=teutons/team0 winner=on at=1560 villagers on/off=20/12 army on/off=1440/120
+default  seed=None m3 on=chinese/team1 winner=draw at=2400 villagers on/off=0/10 army on/off=0/640
+seed1    seed=1 m0 on=chinese/team0 winner=off at=2132 villagers on/off=0/20 army on/off=60/2375
+seed1    seed=1 m1 on=teutons/team1 winner=draw at=2400 villagers on/off=19/16 army on/off=470/990
+seed1    seed=1 m2 on=teutons/team0 winner=on at=1695 villagers on/off=20/0 army on/off=920/0
+seed1    seed=1 m3 on=chinese/team1 winner=draw at=2400 villagers on/off=0/10 army on/off=0/810
+seed2    seed=2 m0 on=chinese/team0 winner=on at=1456 villagers on/off=20/0 army on/off=1690/0
+seed2    seed=2 m1 on=teutons/team1 winner=off at=1743 villagers on/off=2/19 army on/off=70/930
+seed2    seed=2 m2 on=teutons/team0 winner=on at=2302 villagers on/off=20/0 army on/off=725/0
+seed2    seed=2 m3 on=chinese/team1 winner=off at=1524 villagers on/off=0/17 army on/off=0/755
+by arm: on 5 - off 4 - draw 3
+by team: team0 8 - team1 1 - draw 3
+military value killed on/off: 31265/24985; final army on/off: 6725/7380

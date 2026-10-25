@@ -1,0 +1,102 @@
+{
+ "mode": "deterministic",
+ "comparison": "code_version",
+ "map_seed": 3,
+ "alternate_order": true,
+ "service_dir": "E:\\workspace\\aoe2\\ai_service_python",
+ "arm_dirs": {
+  "on": "E:\\workspace\\aoe2\\ai_service_python",
+  "off": "E:\\workspace\\aoe2\\ai_service_python"
+ },
+ "duration": 2400.0,
+ "civs": [
+  "chinese",
+  "chinese"
+ ],
+ "totals": {
+  "on": {
+   "matches": 1,
+   "wins": 1,
+   "losses": 0,
+   "enemy_tc_hp_left": 0.0,
+   "lost_military_value": 2090,
+   "killed_military_value": 2560,
+   "final_military_value": 945,
+   "rejects": 0
+  },
+  "off": {
+   "matches": 1,
+   "wins": 0,
+   "losses": 1,
+   "enemy_tc_hp_left": 2400.0,
+   "lost_military_value": 2560,
+   "killed_military_value": 2090,
+   "final_military_value": 0,
+   "rejects": 0
+  }
+ },
+ "matches": [
+  {
+   "match": 0,
+   "winner_arm": "on",
+   "finished_at": 1612.5,
+   "sides": {
+    "on": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 2400.0,
+     "lost_military_value": 2090,
+     "killed_military_value": 2560,
+     "final_military_value": 945,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 0,
+     "civ": "chinese",
+     "produced": {
+      "archer": 18,
+      "battering_ram": 1,
+      "cavalry_archer": 2,
+      "man_at_arms": 4,
+      "militia": 5,
+      "skirmisher": 1,
+      "spearman": 9
+     },
+     "milestones": {
+      "age_1": 545.75,
+      "age_2": 1246.75,
+      "barracks": 313.0,
+      "first_soldier": 455.75
+     }
+    },
+    "off": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 2400.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 2560,
+     "killed_military_value": 2090,
+     "final_military_value": 0,
+     "villagers": 2,
+     "age": 1,
+     "rejects": 0,
+     "team": 1,
+     "civ": "chinese",
+     "produced": {
+      "archer": 2,
+      "man_at_arms": 5,
+      "militia": 20,
+      "skirmisher": 5,
+      "spearman": 2
+     },
+     "milestones": {
+      "age_1": 975.75,
+      "barracks": 367.75,
+      "first_soldier": 420.75
+     }
+    }
+   }
+  }
+ ]
+}

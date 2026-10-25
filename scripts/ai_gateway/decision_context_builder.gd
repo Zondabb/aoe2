@@ -242,6 +242,12 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 	var wall_plan: Dictionary = stored_plans.get("%d:%d" % [team, int(derived.get("own_tc_id", -1))], {})
 	var direction := (bounds.get_center() - base).normalized()
 	if direction == Vector2.ZERO: direction = Vector2.RIGHT
+	# Measure spoke angles from the map-center direction, not from world +X.
+	# Many plots tie on score and only the first few per building are offered,
+	# so a world-fixed start gave the two bases of a rotationally symmetric map
+	# different choices (e.g. one team's opening mill on the far side of its
+	# berries). Relative angles keep both teams' options symmetric.
+	var start_angle := direction.angle()
 	# Hundreds of candidate points share one pass over the observed blockers.
 	var sites := _site_index(blockers)
 	var wall_strips := Perimeter.wall_strips(wall_plan)
@@ -276,7 +282,7 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 				# legal plots along the irregular edge of the team's current sight.
 				var sectors := 32 if float(radius) > 44.0 else 16
 				for sector in sectors:
-					var point: Vector2 = (anchor.pos + Vector2.from_angle(TAU * (sector + 0.5) / float(sectors)) * float(radius)).round()
+					var point: Vector2 = (anchor.pos + Vector2.from_angle(start_angle + TAU * (sector + 0.5) / float(sectors)) * float(radius)).round()
 					if seen.has(point): continue
 					seen[point] = true
 					if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue

@@ -1,0 +1,104 @@
+{
+ "mode": "deterministic",
+ "comparison": "code_version",
+ "map_seed": 2,
+ "alternate_order": true,
+ "service_dir": "E:\\workspace\\aoe2\\ai_service_python",
+ "arm_dirs": {
+  "on": "E:\\workspace\\aoe2\\ai_service_python",
+  "off": "E:\\workspace\\aoe2\\ai_service_python"
+ },
+ "duration": 2400.0,
+ "civs": [
+  "chinese",
+  "chinese"
+ ],
+ "totals": {
+  "on": {
+   "matches": 1,
+   "wins": 1,
+   "losses": 0,
+   "enemy_tc_hp_left": 0.0,
+   "lost_military_value": 2920,
+   "killed_military_value": 2820,
+   "final_military_value": 980,
+   "rejects": 0
+  },
+  "off": {
+   "matches": 1,
+   "wins": 0,
+   "losses": 1,
+   "enemy_tc_hp_left": 2400.0,
+   "lost_military_value": 2820,
+   "killed_military_value": 2920,
+   "final_military_value": 120,
+   "rejects": 0
+  }
+ },
+ "matches": [
+  {
+   "match": 0,
+   "winner_arm": "on",
+   "finished_at": 1840.75,
+   "sides": {
+    "on": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 2400.0,
+     "lost_military_value": 2920,
+     "killed_military_value": 2820,
+     "final_military_value": 980,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 0,
+     "civ": "chinese",
+     "produced": {
+      "archer": 17,
+      "battering_ram": 2,
+      "camel": 1,
+      "cavalry_archer": 3,
+      "knight": 1,
+      "man_at_arms": 5,
+      "militia": 6,
+      "spearman": 13
+     },
+     "milestones": {
+      "age_1": 567.75,
+      "age_2": 1260.75,
+      "barracks": 309.25,
+      "first_soldier": 478.75
+     }
+    },
+    "off": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 2400.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 2820,
+     "killed_military_value": 2920,
+     "final_military_value": 120,
+     "villagers": 0,
+     "age": 1,
+     "rejects": 0,
+     "team": 1,
+     "civ": "chinese",
+     "produced": {
+      "archer": 4,
+      "man_at_arms": 9,
+      "militia": 8,
+      "scout_cavalry": 8,
+      "skirmisher": 7,
+      "spearman": 4
+     },
+     "milestones": {
+      "age_1": 779.75,
+      "barracks": 492.25,
+      "first_soldier": 596.75
+     }
+    }
+   }
+  }
+ ]
+}

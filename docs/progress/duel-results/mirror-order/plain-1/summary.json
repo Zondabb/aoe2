@@ -1,0 +1,104 @@
+{
+ "mode": "deterministic",
+ "comparison": "code_version",
+ "map_seed": 1,
+ "alternate_order": false,
+ "service_dir": "E:\\workspace\\aoe2\\ai_service_python",
+ "arm_dirs": {
+  "on": "E:\\workspace\\aoe2\\ai_service_python",
+  "off": "E:\\workspace\\aoe2\\ai_service_python"
+ },
+ "duration": 2400.0,
+ "civs": [
+  "chinese",
+  "chinese"
+ ],
+ "totals": {
+  "on": {
+   "matches": 1,
+   "wins": 0,
+   "losses": 1,
+   "enemy_tc_hp_left": 2400.0,
+   "lost_military_value": 2370,
+   "killed_military_value": 2855,
+   "final_military_value": 0,
+   "rejects": 0
+  },
+  "off": {
+   "matches": 1,
+   "wins": 1,
+   "losses": 0,
+   "enemy_tc_hp_left": 0.0,
+   "lost_military_value": 2855,
+   "killed_military_value": 2370,
+   "final_military_value": 1570,
+   "rejects": 0
+  }
+ },
+ "matches": [
+  {
+   "match": 0,
+   "winner_arm": "off",
+   "finished_at": 1783.25,
+   "sides": {
+    "on": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 2400.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 2370,
+     "killed_military_value": 2855,
+     "final_military_value": 0,
+     "villagers": 0,
+     "age": 1,
+     "rejects": 0,
+     "team": 0,
+     "civ": "chinese",
+     "produced": {
+      "archer": 7,
+      "man_at_arms": 11,
+      "militia": 5,
+      "skirmisher": 7,
+      "spearman": 3
+     },
+     "milestones": {
+      "age_1": 601.75,
+      "barracks": 378.25,
+      "first_soldier": 515.75
+     }
+    },
+    "off": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 2400.0,
+     "lost_military_value": 2855,
+     "killed_military_value": 2370,
+     "final_military_value": 1570,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "chinese",
+     "produced": {
+      "archer": 11,
+      "battering_ram": 1,
+      "cavalry_archer": 2,
+      "knight": 4,
+      "man_at_arms": 11,
+      "militia": 13,
+      "scout_cavalry": 1,
+      "skirmisher": 2,
+      "spearman": 9
+     },
+     "milestones": {
+      "age_1": 918.75,
+      "age_2": 1402.75,
+      "barracks": 320.5,
+      "first_soldier": 363.75
+     }
+    }
+   }
+  }
+ ]
+}

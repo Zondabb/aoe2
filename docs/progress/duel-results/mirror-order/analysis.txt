@@ -1,0 +1,11 @@
+Mirror duels: identical main code (3ca924f) on both sides, chinese vs chinese, 2400 game s, deterministic.
+plain = normal entity update order; alt = AOE2_DUEL_ALTERNATE_ORDER=1 (update order reversed on odd steps).
+
+plain map=default winner_team=0 at=2203 villagers t0/t1=19/11 final_army t0/t1=690/0 killed t0/t1=2950/4615
+plain map=1 winner_team=1 at=1783 villagers t0/t1=0/20 final_army t0/t1=0/1570 killed t0/t1=2855/2370
+plain map=2 winner_team=1 at=1514 villagers t0/t1=0/20 final_army t0/t1=0/1235 killed t0/t1=1730/1460
+plain map=3 winner_team=0 at=1500 villagers t0/t1=20/10 final_army t0/t1=1170/220 killed t0/t1=3020/2325
+alt map=default winner_team=0 at=1790 villagers t0/t1=20/0 final_army t0/t1=1730/0 killed t0/t1=2110/1970
+alt map=1 winner_team=0 at=2018 villagers t0/t1=20/1 final_army t0/t1=1320/0 killed t0/t1=4945/3120
+alt map=2 winner_team=0 at=1841 villagers t0/t1=20/0 final_army t0/t1=980/120 killed t0/t1=2820/2920
+alt map=3 winner_team=0 at=1612 villagers t0/t1=20/2 final_army t0/t1=945/0 killed t0/t1=2560/2090

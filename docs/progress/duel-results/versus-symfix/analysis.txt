@@ -1,0 +1,54 @@
+After the symmetric-site fix (scripts/ai_gateway/decision_context_builder.gd: construction spoke angles start at the map-center direction).
+Version duels, 2400 game s, configs 0-3 on the default map and seeds 1, 2; deterministic, intelligence on for both.
+on = main 3ca924f Python + the fix, off = a5726c9 baseline Python + the fix (the GDScript fix applies to both sides).
+Pre-fix run with the same setup (versus-main-seeds): on 5 - off 4 - draw 3; team0 8 - team1 1 - draw 3.
+
+default  seed=None m0 on=chinese/team0 winner=on at=1554 villagers on/off=20/0 army on/off=1045/0
+default  seed=None m1 on=teutons/team1 winner=on at=1958 villagers on/off=20/3 army on/off=2280/70
+default  seed=None m2 on=teutons/team0 winner=on at=1545 villagers on/off=20/11 army on/off=1765/70
+default  seed=None m3 on=chinese/team1 winner=off at=1672 villagers on/off=11/20 army on/off=360/1595
+seed1    seed=1 m0 on=chinese/team0 winner=on at=1634 villagers on/off=20/7 army on/off=1795/0
+seed1    seed=1 m1 on=teutons/team1 winner=on at=2171 villagers on/off=20/1 army on/off=3715/0
+seed1    seed=1 m2 on=teutons/team0 winner=on at=1680 villagers on/off=20/0 army on/off=1145/0
+seed1    seed=1 m3 on=chinese/team1 winner=off at=1750 villagers on/off=1/20 army on/off=0/1320
+seed2    seed=2 m0 on=chinese/team0 winner=on at=1733 villagers on/off=20/9 army on/off=1525/60
+seed2    seed=2 m1 on=teutons/team1 winner=on at=1753 villagers on/off=20/16 army on/off=590/390
+seed2    seed=2 m2 on=teutons/team0 winner=on at=1516 villagers on/off=20/0 army on/off=1340/0
+seed2    seed=2 m3 on=chinese/team1 winner=on at=1804 villagers on/off=20/0 army on/off=1025/0
+by arm: on 10 - off 2 - draw 0
+by team: team0 8 - team1 4 - draw 0
+military value killed on/off: 29085/28615; final army on/off: 16585/3505
+
+== villager losses (raid_losses.py)
+default m0 team0 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=4 shelter_moves=19 raid_ticks=35
+default m0 team1 teutons  off villagers_lost=20 first_loss_at=237.0 min_villagers=0 final_villagers=0 fight_orders=0 shelter_moves=13 raid_ticks=0
+default m1 team0 chinese  off villagers_lost=14 first_loss_at=1534.0 min_villagers=2 final_villagers=2 fight_orders=0 shelter_moves=11 raid_ticks=0
+default m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=38 shelter_moves=88 raid_ticks=256
+default m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=24 shelter_moves=29 raid_ticks=72
+default m2 team1 chinese  off villagers_lost=18 first_loss_at=287.0 min_villagers=4 final_villagers=11 fight_orders=0 shelter_moves=64 raid_ticks=0
+default m3 team0 teutons  off villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=7 raid_ticks=0
+default m3 team1 chinese  on  villagers_lost=10 first_loss_at=1410.0 min_villagers=4 final_villagers=11 fight_orders=294 shelter_moves=785 raid_ticks=899
+seed1  m0 team0 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=5 shelter_moves=11 raid_ticks=34
+seed1  m0 team1 teutons  off villagers_lost=20 first_loss_at=778.0 min_villagers=3 final_villagers=7 fight_orders=0 shelter_moves=21 raid_ticks=0
+seed1  m1 team0 chinese  off villagers_lost=16 first_loss_at=449.0 min_villagers=1 final_villagers=1 fight_orders=0 shelter_moves=3 raid_ticks=0
+seed1  m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=178 shelter_moves=397 raid_ticks=692
+seed1  m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=3 shelter_moves=14 raid_ticks=23
+seed1  m2 team1 chinese  off villagers_lost=21 first_loss_at=201.0 min_villagers=0 final_villagers=0 fight_orders=0 shelter_moves=20 raid_ticks=0
+seed1  m3 team0 teutons  off villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=4 raid_ticks=0
+seed1  m3 team1 chinese  on  villagers_lost=17 first_loss_at=508.0 min_villagers=1 final_villagers=1 fight_orders=202 shelter_moves=451 raid_ticks=657
+seed2  m0 team0 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=27 shelter_moves=75 raid_ticks=166
+seed2  m0 team1 teutons  off villagers_lost=15 first_loss_at=831.0 min_villagers=3 final_villagers=9 fight_orders=0 shelter_moves=76 raid_ticks=0
+seed2  m1 team0 chinese  off villagers_lost=5 first_loss_at=1551.0 min_villagers=4 final_villagers=16 fight_orders=0 shelter_moves=34 raid_ticks=0
+seed2  m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=22 shelter_moves=147 raid_ticks=456
+seed2  m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=3 shelter_moves=18 raid_ticks=27
+seed2  m2 team1 chinese  off villagers_lost=14 first_loss_at=219.0 min_villagers=0 final_villagers=0 fight_orders=0 shelter_moves=33 raid_ticks=0
+seed2  m3 team0 teutons  off villagers_lost=14 first_loss_at=467.0 min_villagers=0 final_villagers=0 fight_orders=0 shelter_moves=24 raid_ticks=0
+seed2  m3 team1 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=45 shelter_moves=48 raid_ticks=247
+
+== opening site probe (tests/probe_site_symmetry.gd, chinese vs teutons, t=0; team 1 positions rotated by 180 degrees)
+before the fix:
+  house: team0 [[[-22.0, -14.0], 79.1], [[-14.0, -22.0], 79.1], [[-22.0, 14.0], 73.1]] | team1 [[[-22.0, -14.0], 79.1], [[-14.0, -22.0], 79.1], [[14.0, -22.0], 73.1]]
+  mill: team0 [[[15.0, 10.0], 70.2], [[10.0, 15.0], 70.2], [[-10.0, 15.0], 70.2]] | team1 [[[-15.0, -10.0], 70.2], [[-10.0, -15.0], 70.2], [[10.0, -15.0], 70.2]]
+after the fix:
+  house: team0 [[[-22.0, -14.0], 79.1], [[-14.0, -22.0], 79.1], [[-22.0, 14.0], 73.1]] | team1 [[[-22.0, -14.0], 79.1], [[-14.0, -22.0], 79.1], [[-22.0, 14.0], 73.1]]
+  mill: team0 [[[10.0, 15.0], 70.2], [[-10.0, 15.0], 70.2], [[-15.0, 10.0], 70.2]] | team1 [[[10.0, 15.0], 70.2], [[-10.0, 15.0], 70.2], [[-15.0, 10.0], 70.2]]
