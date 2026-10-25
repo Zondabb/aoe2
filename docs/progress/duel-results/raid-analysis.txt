@@ -1,0 +1,32 @@
+Raid fix benchmark, 900 game s, configs 0-3, same GDScript (a5726c9). main = current code; fix2 = proximity trigger; fix3 = hostile-only trigger (merged).
+
+{"label": "main", "lost": 17, "final": 103, "barracks": 295.2, "soldier": 410.1, "feudal": 6, "feudal_mean": 611.1, "produced": 9320}
+{"label": "fix2", "lost": 8, "final": 118, "barracks": 315.5, "soldier": 426.9, "feudal": 5, "feudal_mean": 630.0, "produced": 7090}
+{"label": "fix3", "lost": 4, "final": 122, "barracks": 304.3, "soldier": 427.4, "feudal": 5, "feudal_mean": 615.0, "produced": 8200}
+--- main
+{"cfg": 0, "team": 0, "civ": "chinese", "arm": "on", "lost": 5, "final": 7, "barracks": 278.5, "soldier": 444.75, "feudal": 527.75, "produced": 1740, "fight": 0, "raid_ticks": 0}
+{"cfg": 0, "team": 1, "civ": "teutons", "arm": "off", "lost": 3, "final": 15, "barracks": 313.5, "soldier": 351.75, "feudal": null, "produced": 1040, "fight": 0, "raid_ticks": 0}
+{"cfg": 1, "team": 0, "civ": "chinese", "arm": "off", "lost": 4, "final": 11, "barracks": 280.25, "soldier": 454.75, "feudal": 546.75, "produced": 1210, "fight": 0, "raid_ticks": 0}
+{"cfg": 1, "team": 1, "civ": "teutons", "arm": "on", "lost": 1, "final": 15, "barracks": 313.5, "soldier": 351.75, "feudal": null, "produced": 1040, "fight": 0, "raid_ticks": 0}
+{"cfg": 2, "team": 0, "civ": "teutons", "arm": "on", "lost": 0, "final": 13, "barracks": 301.25, "soldier": 481.75, "feudal": 567.75, "produced": 1060, "fight": 0, "raid_ticks": 0}
+{"cfg": 2, "team": 1, "civ": "chinese", "arm": "off", "lost": 0, "final": 16, "barracks": 287.25, "soldier": 358.75, "feudal": 691.75, "produced": 990, "fight": 0, "raid_ticks": 0}
+{"cfg": 3, "team": 0, "civ": "teutons", "arm": "off", "lost": 4, "final": 10, "barracks": 300.75, "soldier": 475.75, "feudal": 560.75, "produced": 1160, "fight": 0, "raid_ticks": 0}
+{"cfg": 3, "team": 1, "civ": "chinese", "arm": "on", "lost": 0, "final": 16, "barracks": 286.75, "soldier": 361.75, "feudal": 771.75, "produced": 1080, "fight": 0, "raid_ticks": 0}
+--- fix2
+{"cfg": 0, "team": 0, "civ": "chinese", "arm": "on", "lost": 0, "final": 15, "barracks": 325.0, "soldier": 473.75, "feudal": 562.75, "produced": 1090, "fight": 14, "raid_ticks": 32}
+{"cfg": 0, "team": 1, "civ": "teutons", "arm": "off", "lost": 0, "final": 14, "barracks": 300.5, "soldier": 387.75, "feudal": 823.75, "produced": 620, "fight": 83, "raid_ticks": 256}
+{"cfg": 1, "team": 0, "civ": "chinese", "arm": "off", "lost": 0, "final": 15, "barracks": 305.0, "soldier": 484.75, "feudal": 567.75, "produced": 1130, "fight": 12, "raid_ticks": 73}
+{"cfg": 1, "team": 1, "civ": "teutons", "arm": "on", "lost": 3, "final": 15, "barracks": 302.75, "soldier": 343.75, "feudal": null, "produced": 640, "fight": 91, "raid_ticks": 199}
+{"cfg": 2, "team": 0, "civ": "teutons", "arm": "on", "lost": 1, "final": 13, "barracks": 339.0, "soldier": 510.75, "feudal": 598.75, "produced": 1080, "fight": 16, "raid_ticks": 71}
+{"cfg": 2, "team": 1, "civ": "chinese", "arm": "off", "lost": 2, "final": 16, "barracks": 304.0, "soldier": 361.75, "feudal": null, "produced": 800, "fight": 101, "raid_ticks": 179}
+{"cfg": 3, "team": 0, "civ": "teutons", "arm": "off", "lost": 1, "final": 14, "barracks": 344.75, "soldier": 507.75, "feudal": 596.75, "produced": 930, "fight": 50, "raid_ticks": 131}
+{"cfg": 3, "team": 1, "civ": "chinese", "arm": "on", "lost": 1, "final": 16, "barracks": 303.25, "soldier": 344.75, "feudal": null, "produced": 800, "fight": 102, "raid_ticks": 242}
+--- fix3
+{"cfg": 0, "team": 0, "civ": "chinese", "arm": "on", "lost": 0, "final": 14, "barracks": 325.5, "soldier": 478.75, "feudal": 563.75, "produced": 1060, "fight": 18, "raid_ticks": 93}
+{"cfg": 0, "team": 1, "civ": "teutons", "arm": "off", "lost": 0, "final": 16, "barracks": 268.5, "soldier": 356.75, "feudal": null, "produced": 1120, "fight": 48, "raid_ticks": 177}
+{"cfg": 1, "team": 0, "civ": "chinese", "arm": "off", "lost": 0, "final": 15, "barracks": 320.0, "soldier": 473.75, "feudal": 562.75, "produced": 1090, "fight": 14, "raid_ticks": 102}
+{"cfg": 1, "team": 1, "civ": "teutons", "arm": "on", "lost": 2, "final": 16, "barracks": 292.75, "soldier": 362.75, "feudal": null, "produced": 960, "fight": 58, "raid_ticks": 180}
+{"cfg": 2, "team": 0, "civ": "teutons", "arm": "on", "lost": 1, "final": 14, "barracks": 309.5, "soldier": 501.75, "feudal": 584.75, "produced": 940, "fight": 6, "raid_ticks": 73}
+{"cfg": 2, "team": 1, "civ": "chinese", "arm": "off", "lost": 0, "final": 16, "barracks": 301.75, "soldier": 396.75, "feudal": 775.75, "produced": 930, "fight": 63, "raid_ticks": 172}
+{"cfg": 3, "team": 0, "civ": "teutons", "arm": "off", "lost": 0, "final": 15, "barracks": 320.5, "soldier": 502.75, "feudal": 587.75, "produced": 1060, "fight": 8, "raid_ticks": 72}
+{"cfg": 3, "team": 1, "civ": "chinese", "arm": "on", "lost": 1, "final": 16, "barracks": 296.0, "soldier": 345.75, "feudal": null, "produced": 1040, "fight": 69, "raid_ticks": 261}
