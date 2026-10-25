@@ -5,6 +5,10 @@ is called, so the only difference between the sides is AOE2_AI_INTELLIGENCE.
 Matches alternate which team (and civilization) gets the layer. Each match is
 a real headless Godot simulation with fog, economy, combat and TC victory.
 Logs and reports stay under .godot/ai-duel-*/.
+
+With --baseline-dir the duel compares code versions instead: the "on" arm runs
+--service-dir and the "off" arm runs the baseline directory, both with the
+intelligence layer on. Arm names stay "on"/"off" so the analysis tools apply.
 """
 from __future__ import annotations
 
@@ -50,12 +54,19 @@ def main() -> int:
     parser.add_argument("--service-dir", default="", help="AI service directory to run (default: ai_service_python), "
                         "e.g. an isolated copy with a candidate change; Godot always uses this repository")
     parser.add_argument("--indices", default="", help="comma-separated match configurations to run, e.g. 0,2")
+    parser.add_argument("--seed", type=int, default=None, help="map seed for every match (default: the game's default "
+                        "map); the layout stays rotationally symmetric, forests move")
+    parser.add_argument("--baseline-dir", default="", help="version duel: the 'off' arm runs this AI service directory "
+                        "with the intelligence layer ON (the 'on' arm runs --service-dir), so only the code differs")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     (root / ".godot").mkdir(exist_ok=True)
     logs = Path(tempfile.mkdtemp(prefix="ai-duel-", dir=root / ".godot"))
     base_env = {k: v for k, v in os.environ.items() if not k.startswith(("AOE2_AI_", "AOE2_LLM_"))}
     service_dir = Path(args.service_dir).resolve() if args.service_dir else root / "ai_service_python"
+    baseline_dir = Path(args.baseline_dir).resolve() if args.baseline_dir else None
+    if baseline_dir is not None and not (baseline_dir / "main.py").exists():
+        parser.error(f"--baseline-dir has no main.py: {baseline_dir}")
     indices = [int(i) for i in args.indices.split(",") if i.strip()] if args.indices else list(range(args.matches))
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     processes, handles, matches = [], [], []
@@ -77,7 +88,10 @@ def main() -> int:
             port = free_port()
             directory = logs / f"m{index}-team{team}-{arm}"
             directory.mkdir()
-            env = {**base_env, "AOE2_AI_INTELLIGENCE": arm, "AOE2_AI_STRATEGY_MEMORY": "off", "PYTHONUTF8": "1"}
+            # A version duel keeps the layer on for both sides: only the code differs.
+            switch = "on" if baseline_dir is not None else arm
+            cwd = baseline_dir if baseline_dir is not None and arm == "off" else service_dir
+            env = {**base_env, "AOE2_AI_INTELLIGENCE": switch, "AOE2_AI_STRATEGY_MEMORY": "off", "PYTHONUTF8": "1"}
             if args.llm_config:
                 # Both sides plan with the same real model; only the switch differs.
                 # Use the operator's file in place (keys stay there, never copied).
@@ -92,7 +106,7 @@ def main() -> int:
                                   f'port = {port}\napi_token = ""\nlog_dir = {json.dumps(str(directory / "logs"))}\n\n'
                                   '[llm]\nbackend = "rules_compat"\n', encoding="utf-8")
                 command = [sys.executable, "main.py", "--config", str(config)]
-            service = launch(command, f"m{index}-service{team}", service_dir, env)
+            service = launch(command, f"m{index}-service{team}", cwd, env)
             services.append(service)
             deadline = time.monotonic() + 30
             while True:
@@ -111,7 +125,8 @@ def main() -> int:
         game_env = {**base_env, "APPDATA": str(logs / f"profile-m{index}")}
         Path(game_env["APPDATA"]).mkdir()
         game = launch([args.godot, "--headless", "--path", str(root), "--log-file", str(logs / f"m{index}-game.log"),
-                       "--script", "res://tests/run_ai_duel_match.gd", "--", *urls, str(args.duration), str(report), *civs],
+                       "--script", "res://tests/run_ai_duel_match.gd", "--", *urls, str(args.duration), str(report), *civs,
+                       *([str(args.seed)] if args.seed is not None else [])],
                       f"m{index}-game", root, game_env)
         print(f"match {index} started: team0={arms[0]} {civs[0]} vs team1={arms[1]} {civs[1]}", flush=True)
         return {"index": index, "arms": arms, "game": game, "report": report, "services": services, "stopped": False}
@@ -164,7 +179,10 @@ def main() -> int:
                     total[key] += side[key]
             results.append(row)
         summary = {"mode": "llm:" + Path(args.llm_config).name if args.llm_config else "deterministic",
+                   "comparison": "code_version" if baseline_dir is not None else "intelligence_switch",
+                   "map_seed": args.seed,
                    "service_dir": str(service_dir),
+                   "arm_dirs": {"on": str(service_dir), "off": str(baseline_dir or service_dir)},
                    "duration": args.duration, "civs": args.civs, "totals": totals, "matches": results}
         (logs / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps(summary, ensure_ascii=False, indent=1))

@@ -83,6 +83,9 @@ _COMMON_PROMPT = (
     "battle_forecast (our army vs the estimated enemy army, simulated with this game's real damage rules) and "
     "recommended_counters ranked by resource-efficient trades. after_action summarizes kills, losses and income since "
     "your previous plan; react to what actually happened, not to the opening defaults. "
+    "plan_review lists fields where the executor's evidence contradicts your current plan, each with a suggested value "
+    "and the reason. Adopt each suggestion unless the observations give a concrete reason against it; do not reaffirm "
+    "a contradicted plan by default. "
 )
 ROLE_PROMPTS = {
     "commander": _COMMON_PROMPT + "Own victory and tempo. stance=pressure shortens muster, defend delays departure briefly; defend only observed threats. army_target sets a finite sortie size; an already-started sortie keeps its frozen size and later plans affect the next. muster_timeout bounds waiting in seconds. " + DOCTRINE_GUIDE,
@@ -207,6 +210,8 @@ class MultiAgentRuntime:
         known_civs = {c for d in f.unit_defs.values() if isinstance(d, dict) for c in d.get("civilizations", []) or []}
         candidates = [name for name, definition in f.unit_defs.items()
                       if isinstance(definition, dict) and int(definition.get("required_age", 0) or 0) <= f.age + 1
+                      # Legacy map-only units (e.g. "swordsman") have no producer and can never be trained.
+                      and definition.get("train_at")
                       # Never recommend another civilization's unique units.
                       and (not definition.get("civilizations") or civ not in known_civs or civ in definition["civilizations"])]
         ranking = counter_scores(candidates, enemy_army, f.unit_defs, gold_weight)
@@ -421,6 +426,8 @@ class MultiAgentRuntime:
             base["after_action"] = self._after_action(state)
         if self.intelligence_enabled and role != "construction":
             base["intel"] = self._intel_brief(role)
+        if self.intelligence_enabled:
+            base["plan_review"] = self._plan_review(role)
         if self.intelligence_enabled and role == "commander" and self.strategic_memory:
             memory = self.strategic_memory
             base["strategic_memory"] = bounded({"games": memory.get("games", 0),
@@ -491,6 +498,60 @@ class MultiAgentRuntime:
                 break
             max(candidates, key=lambda records: len(json.dumps(records, ensure_ascii=False))).pop()
         return copy.deepcopy(base)
+
+    def _plan_review(self, role: str) -> list[dict]:
+        """Fields where a role's current plan disagrees with the evidence.
+
+        Small models mostly reaffirm the plan they already have. These checks
+        turn the intel the executor already computes into explicit, bounded
+        suggestions (field, current, suggested, why); the planner still decides.
+        """
+        f = self.frame
+        if f is None or role not in self.roles:
+            return []
+        plan, notes = self.roles[role].plan, []
+
+        def suggest(field, value, why):
+            if field in plan and value is not None and plan[field] != value:
+                notes.append({"field": field, "current": plan[field], "suggested": value, "why": why})
+
+        commander = self.roles["commander"].memory
+        under_attack = bool(commander.get("threat_ids") or commander.get("raid_ids"))
+        military = [u for u in f.units if unit_class(str(u.get("def_id", ""))) not in ("villager", "other")]
+        enemy_size = sum(self.intel.estimated_army().values())
+        forecast = self.battle_forecast or {}
+        if role in ("commander", "combat") and forecast.get("winner") == "enemy" and enemy_size:
+            needed = min(24, math.ceil(enemy_size * 1.3))
+            if needed > plan["army_target"]:
+                suggest("army_target", needed, f"battle_forecast: our {len(military)} soldiers lose to an estimated {enemy_size}")
+        if role == "commander":
+            advice = self.recommended_doctrine or {}
+            # "adaptive" means no decisive signal: never argue a deliberate choice back to it.
+            if advice.get("strategy") in DOCTRINES and advice["strategy"] != "adaptive":
+                suggest("strategy", advice["strategy"], advice.get("why", ""))
+            if under_attack and plan["stance"] == "pressure":
+                suggest("stance", "defend", "enemy soldiers are in our base or economy now")
+        elif role == "combat":
+            best = next((item for item in self.counter_ranking if item.get("available_now")), None)
+            if (plan.get("composition") == "counter" and best and best["score"] >= .1
+                    and best["producer"] in ROLE_SCHEMAS["combat"]["properties"]["producer"]["enum"]):
+                suggest("producer", best["producer"], f"best available counter to the estimated enemy army is {best['unit']}")
+        elif role == "economy":
+            workers = sum(u.get("def_id") == "villager" for u in f.units)
+            # Typical economy size per age; grow only once the current target is met.
+            age_target = {0: 16, 1: 24, 2: 32, 3: 40}.get(f.age, 40)
+            if not under_attack and workers >= plan["worker_target"] - 1 and age_target > plan["worker_target"]:
+                suggest("worker_target", age_target, f"{workers} villagers reached the target of {plan['worker_target']}; age {f.age} supports {age_target}")
+        elif role == "technology":
+            if not under_attack and f.age >= plan["target_age"] and plan["target_age"] < 3:
+                suggest("target_age", f.age + 1, f"age {f.age} reached; the current target is complete")
+        elif role == "defense":
+            if under_attack and plan["policy"] == "reactive":
+                suggest("policy", "balanced", "enemy soldiers are in our base or economy now")
+        elif role == "scout":
+            if not any(e.get("def_id") == "town_center" for e in self.enemy_knowledge.values()) and plan["focus"] != "enemy_base":
+                suggest("focus", "enemy_base", "the enemy town center has not been found")
+        return notes[:4]
 
     def _intel_brief(self, role: str) -> dict:
         report = self.intel.report()

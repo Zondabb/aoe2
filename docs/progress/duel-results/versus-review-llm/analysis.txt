@@ -1,0 +1,39 @@
+LLM version duel, qwen3:8b on both sides, 2400 game s, configs 0-3.
+on = main 01ce1d7 + plan_review (.godot/review copy), off = main 01ce1d7.
+Producer suggestions: 42 of 44 were empty strings from the untrainable 'swordsman' counter (all rejected; fixed afterwards); the 2 valid ones (castle, stable) were adopted. Valid suggestions adopted: 35 of 35. Team 0 won all four games.
+
+== plan_review adoption
+ai-duel-9i9hf8aw m0-team0-on: applied=76 changed=8 has_plan_review=True requests_with_notes=8 notes=9 adopted=5 by_field={'producer': '0/4', 'strategy': '2/2', 'target_age': '2/2', 'stance': '1/1'}
+ai-duel-9i9hf8aw m0-team1-off: applied=76 changed=3 has_plan_review=False requests_with_notes=0 notes=0 adopted=0 by_field={}
+ai-duel-9i9hf8aw m1-team0-off: applied=120 changed=15 has_plan_review=False requests_with_notes=0 notes=0 adopted=0 by_field={}
+ai-duel-9i9hf8aw m1-team1-on: applied=120 changed=18 has_plan_review=True requests_with_notes=23 notes=28 adopted=13 by_field={'producer': '2/17', 'army_target': '8/8', 'strategy': '1/1', 'stance': '1/1', 'target_age': '1/1'}
+ai-duel-9i9hf8aw m2-team0-on: applied=79 changed=14 has_plan_review=True requests_with_notes=10 notes=10 adopted=4 by_field={'producer': '0/6', 'strategy': '2/2', 'target_age': '2/2'}
+ai-duel-9i9hf8aw m2-team1-off: applied=80 changed=4 has_plan_review=False requests_with_notes=0 notes=0 adopted=0 by_field={}
+ai-duel-9i9hf8aw m3-team0-off: applied=100 changed=11 has_plan_review=False requests_with_notes=0 notes=0 adopted=0 by_field={}
+ai-duel-9i9hf8aw m3-team1-on: applied=100 changed=14 has_plan_review=True requests_with_notes=24 notes=29 adopted=12 by_field={'producer': '0/17', 'army_target': '7/7', 'strategy': '2/2', 'stance': '1/1', 'target_age': '1/1', 'worker_target': '1/1'}
+
+== LLM health
+m0-team0-on: requests=76 results=76 applied=76 changed=8 valid=76 failed=0 latency_s median=11.0 p90=13.3
+    states={'applied': 76} failures={}
+    applied choices={'composition=counter': 10, 'target_priority=army': 10, 'strategy=fast_castle': 7, 'stance=defend': 7, 'strategy=adaptive': 2, 'stance=pressure': 2, 'stance=balanced': 1, 'strategy=turtle': 1}
+m0-team1-off: requests=77 results=76 applied=76 changed=3 valid=76 failed=0 latency_s median=11.0 p90=12.8
+    states={'applied': 76} failures={}
+    applied choices={'composition=counter': 12, 'target_priority=army': 12, 'strategy=adaptive': 9, 'stance=pressure': 8, 'stance=balanced': 1}
+m1-team0-off: requests=121 results=121 applied=120 changed=15 valid=121 failed=0 latency_s median=11.0 p90=12.8
+    states={'applied': 120, 'session_closed': 1} failures={}
+    applied choices={'composition=counter': 19, 'target_priority=army': 19, 'strategy=fast_castle': 7, 'stance=pressure': 7, 'strategy=adaptive': 6, 'stance=balanced': 6}
+m1-team1-on: requests=121 results=120 applied=120 changed=18 valid=120 failed=0 latency_s median=10.9 p90=12.9
+    states={'applied': 120} failures={}
+    applied choices={'composition=counter': 20, 'target_priority=army': 20, 'stance=defend': 15, 'strategy=adaptive': 9, 'strategy=turtle': 8, 'stance=balanced': 1, 'stance=pressure': 1}
+m2-team0-on: requests=81 results=80 applied=79 changed=14 valid=80 failed=0 latency_s median=10.7 p90=12.7
+    states={'applied': 79, 'goal_changed': 1} failures={}
+    applied choices={'stance=pressure': 11, 'composition=counter': 10, 'target_priority=army': 10, 'strategy=fast_castle': 7, 'strategy=adaptive': 3, 'strategy=rush': 2, 'stance=balanced': 1}
+m2-team1-off: requests=81 results=80 applied=80 changed=4 valid=80 failed=0 latency_s median=10.8 p90=12.4
+    states={'applied': 80} failures={}
+    applied choices={'composition=counter': 15, 'target_priority=army': 15, 'strategy=adaptive': 10, 'stance=pressure': 8, 'stance=balanced': 2}
+m3-team0-off: requests=100 results=100 applied=100 changed=11 valid=100 failed=0 latency_s median=4.6 p90=11.1
+    states={'applied': 100} failures={}
+    applied choices={'composition=counter': 16, 'target_priority=army': 16, 'strategy=fast_castle': 10, 'stance=pressure': 10, 'strategy=adaptive': 5, 'stance=balanced': 5}
+m3-team1-on: requests=100 results=100 applied=100 changed=14 valid=100 failed=0 latency_s median=5.0 p90=11.7
+    states={'applied': 100} failures={}
+    applied choices={'composition=counter': 17, 'target_priority=army': 17, 'stance=defend': 12, 'strategy=adaptive': 10, 'strategy=turtle': 4, 'stance=pressure': 3, 'strategy=timing_push': 2, 'stance=balanced': 1}

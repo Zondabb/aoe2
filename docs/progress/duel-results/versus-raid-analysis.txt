@@ -1,0 +1,20 @@
+Version duels, 2400 game s, configs 0-3, deterministic, both sides with the intelligence layer on.
+on = candidate, off = a5726c9 baseline (before the raid response).
+fix3 = committed 01ce1d7 (summary in versus-raid/); fix4 = conservative fight forecast, not adopted (versus-raid-conservative/).
+
+fix3   m0 team0 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=3 shelter_moves=20 raid_ticks=31
+fix3   m0 team1 teutons  off villagers_lost=15 first_loss_at=228.0 min_villagers=0 final_villagers=0 fight_orders=0 shelter_moves=32 raid_ticks=0
+fix3   m1 team0 chinese  off villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=0 shelter_moves=10 raid_ticks=0
+fix3   m1 team1 teutons  on  villagers_lost=13 first_loss_at=667.0 min_villagers=1 final_villagers=1 fight_orders=118 shelter_moves=409 raid_ticks=578
+fix3   m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=6 shelter_moves=11 raid_ticks=27
+fix3   m2 team1 chinese  off villagers_lost=10 first_loss_at=860.0 min_villagers=1 final_villagers=1 fight_orders=0 shelter_moves=11 raid_ticks=0
+fix3   m3 team0 teutons  off villagers_lost=14 first_loss_at=433.0 min_villagers=3 final_villagers=12 fight_orders=0 shelter_moves=50 raid_ticks=0
+fix3   m3 team1 chinese  on  villagers_lost=4 first_loss_at=730.0 min_villagers=4 final_villagers=20 fight_orders=62 shelter_moves=84 raid_ticks=241
+fix4   m0 team0 chinese  on  villagers_lost=3 first_loss_at=2230.0 min_villagers=4 final_villagers=17 fight_orders=49 shelter_moves=396 raid_ticks=497
+fix4   m0 team1 teutons  off villagers_lost=6 first_loss_at=255.0 min_villagers=3 final_villagers=16 fight_orders=0 shelter_moves=31 raid_ticks=0
+fix4   m1 team0 chinese  off villagers_lost=10 first_loss_at=424.0 min_villagers=3 final_villagers=3 fight_orders=0 shelter_moves=0 raid_ticks=0
+fix4   m1 team1 teutons  on  villagers_lost=16 first_loss_at=1307.0 min_villagers=0 final_villagers=0 fight_orders=179 shelter_moves=919 raid_ticks=874
+fix4   m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=4 shelter_moves=5 raid_ticks=24
+fix4   m2 team1 chinese  off villagers_lost=26 first_loss_at=219.0 min_villagers=4 final_villagers=10 fight_orders=0 shelter_moves=48 raid_ticks=0
+fix4   m3 team0 teutons  off villagers_lost=4 first_loss_at=431.0 min_villagers=3 final_villagers=12 fight_orders=0 shelter_moves=0 raid_ticks=0
+fix4   m3 team1 chinese  on  villagers_lost=18 first_loss_at=1162.0 min_villagers=0 final_villagers=0 fight_orders=81 shelter_moves=852 raid_ticks=719

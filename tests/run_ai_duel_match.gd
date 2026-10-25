@@ -1,12 +1,15 @@
 extends SceneTree
 ## Headless AI-vs-AI duel: each team is controlled by its own external Python
 ## AI service over real v3 HTTP, with real fog, economy, combat and victory.
-## Args: url_team0 url_team1 duration_sec report_path civ_team0 civ_team1
+## Args: url_team0 url_team1 duration_sec report_path civ_team0 civ_team1 [map_seed]
+## Without map_seed the match uses the default map; a seed regenerates the same
+## rotationally symmetric layout with different forest placement.
 const Observation := preload("res://scripts/ai_gateway/observation_builder.gd")
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
 const Events := preload("res://scripts/ai_gateway/event_buffer.gd")
 const Executor := preload("res://scripts/ai_gateway/command_executor.gd")
 const ExecutionContext := preload("res://scripts/ai_gateway/command_execution_context.gd")
+const MapGenerator := preload("res://scripts/world/default_map_generator.gd")
 const DT := 0.25
 
 func _initialize() -> void:
@@ -41,6 +44,8 @@ func _run() -> void:
 	var session := root.get_node("GameSession")
 	session.match_ai_mode = "sandbox"
 	session.match_map_data = {}
+	if args.size() >= 7 and args[6].is_valid_int():
+		session.match_map_data = MapGenerator.generate(int(args[6]), civs[0], civs[1])
 	session.online_active = false
 	session.player_civ_id = civs[0]
 	session.ai_civ_id = civs[1]

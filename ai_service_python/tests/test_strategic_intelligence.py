@@ -91,6 +91,17 @@ def test_counter_recommendations_respect_civilization_and_put_trainable_units_fi
     assert flags == sorted(flags, reverse=True)
 
 
+def test_untrainable_legacy_units_are_never_recommended():
+    # Godot keeps a map-only "swordsman" with no producer; its stats look strong.
+    req = battle([building(1, "town_center"), *knights(6, [70, 70])], age=2)
+    req.observation.decision_context["catalog"]["units"].append(
+        {"id": "swordsman", "cost": {"food": 60, "gold": 20}, "required_age": 0, "unlocked": True, "train_at": "",
+         "hp": 60, "attack": 8, "attack_range": .75, "cooldown": 1.2, "is_ranged": False})
+    runtime = MultiAgentRuntime("chinese")
+    runtime.tick(req)
+    assert runtime.counter_ranking and "swordsman" not in [item["unit"] for item in runtime.counter_ranking]
+    assert all(item["producer"] for item in runtime.counter_ranking)
+
 def test_doctrine_recommendation_prefers_proven_records():
     memory = {"record_vs_style": {"boom": {"rush": {"wins": 3, "losses": 0}}}}
     assert recommend_doctrine(["boom"], 400, 5, 8, memory)["strategy"] == "rush"
