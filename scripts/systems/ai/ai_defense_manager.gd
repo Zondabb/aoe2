@@ -32,7 +32,10 @@ func tick(ctx: AiRunContext) -> void:
 	if (board.match_time >= threat_until and not established) or board.villager_count < 8: return
 	if ctx.pending_commands.any(func(c): return c.get("op") in ["place_building", "place_wall"]): return
 	if not board.team_buildings.any(func(b): return String(b.def.id) in ["barracks", "archery_range", "stable"] and b.is_complete): return
-	var observation := Observation.build_json_safe(ctx.match_state, ctx.entities, ctx.team, ctx.enemy_team, board.match_time)
+	# This manager only consumes wall options and visible hostile positions.
+	# Avoid serializing production/research for every wall and computing unrelated
+	# construction sites and exploration frontiers on a defense check.
+	var observation := Observation.build(ctx.match_state, ctx.entities, ctx.team, ctx.enemy_team, board.match_time, Observation.DEFAULT_DEFEND_RADIUS, true)
 	# Already purchased foundations must not depend on another wall budget. Recover
 	# an abandoned batch, while preserving workers' active construction queues.
 	if _finish_foundations(ctx, observation): return

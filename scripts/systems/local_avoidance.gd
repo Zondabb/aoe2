@@ -8,8 +8,27 @@ const HORIZON := 0.9
 const NEIGHBOR_RANGE := 10.0
 const MARGIN := 0.12
 const ANGLES := [0.0, 15.0, -15.0, 30.0, -30.0, 45.0, -45.0, 60.0, -60.0, 90.0, -90.0, 120.0, -120.0, 150.0, -150.0, 180.0]
+const STEERING_INTERVAL := 0.1
+const SCHEDULED_NEIGHBORS := 12
+const REUSE_RISK_INCREASE := 0.25
+const REUSE_DIRECTION_DOT := 0.996194698 # Five degrees.
 
-static func step(unit: Object, preferred: Vector2, previous: Vector2, delta: float, neighbors: Array, solids: Array, goal := Vector2.INF) -> Vector2:
+class BodySnapshot extends RefCounted:
+	var relative: Vector2
+	var velocity: Vector2
+	var distance_sq: float
+	var radius: float
+	var radius_sq: float
+	var gap: float
+	func _init(offset: Vector2, motion: Vector2, combined_radius: float) -> void:
+		relative = offset
+		velocity = motion
+		distance_sq = offset.length_squared()
+		radius = combined_radius
+		radius_sq = radius * radius
+		gap = distance_sq - (radius + MARGIN) * (radius + MARGIN)
+
+static func step(unit: Object, preferred: Vector2, previous: Vector2, delta: float, neighbors: Array, solids: Array, goal := Vector2.INF, result_state: Variant = null, prepared_bodies: Variant = null) -> Vector2:
 	var from: Vector2 = unit.get("sim_pos")
 	var speed := preferred.length()
 	if speed < 0.0001 or delta <= 0:
@@ -39,23 +58,14 @@ static func step(unit: Object, preferred: Vector2, previous: Vector2, delta: flo
 				geometry["radius"] = radius
 			nearby_solids.append(geometry)
 	# Snapshot neighbor properties once, outside the candidate loop.
-	var bodies: Array[Dictionary] = []
-	for other in neighbors:
-		if other == unit or not is_instance_valid(other):
-			continue
-		var health: Variant = other.get("hp")
-		if health != null and float(health) <= 0:
-			continue
-		var velocity := Vector2.ZERO
-		if other.has_method("locomotion_velocity"):
-			velocity = other.locomotion_velocity()
-		var relative: Vector2 = other.get("sim_pos") - from
-		bodies.append({"relative": relative, "distance_sq": relative.length_squared(), "velocity": velocity, "radius": radius + Collision.unit_radius(other)})
-	var direct_risk := _body_risk(preferred, delta, bodies)
+	var bodies: Array[BodySnapshot] = prepared_bodies if prepared_bodies != null else _snapshot_bodies(unit, from, radius, speed, delta, neighbors)
+	var direct_risk := _snapshot_risk(preferred, delta, bodies)
 	if direct_risk == 0 and Collision.clamp_to_map(from + preferred * delta, radius).is_equal_approx(from + preferred * delta) and Collision.static_geometry_step_safe(from, from + preferred * static_horizon, nearby_solids):
+		if result_state is Dictionary: result_state.risk = 0.0
 		return from + preferred * delta
 	var best := Vector2.ZERO
 	var best_score := INF
+	var best_risk := INF
 	for scale in [1.0, 0.5, 0.0]:
 		for angle in ANGLES:
 			if scale == 0 and angle != 0:
@@ -72,7 +82,8 @@ static func step(unit: Object, preferred: Vector2, previous: Vector2, delta: flo
 				score += 0.08
 			if score >= best_score:
 				continue
-			score += _body_risk(velocity, delta, bodies, best_score - score)
+			var risk := _snapshot_risk(velocity, delta, bodies, best_score - score)
+			score += risk
 			if score >= best_score or not Collision.static_geometry_step_safe(from, destination, nearby_solids):
 				continue
 			if not Collision.static_geometry_step_safe(from, from + velocity * static_horizon, nearby_solids):
@@ -80,9 +91,105 @@ static func step(unit: Object, preferred: Vector2, previous: Vector2, delta: flo
 			if score < best_score:
 				best_score = score
 				best = velocity
+				best_risk = risk
+	if result_state is Dictionary: result_state.risk = best_risk
 	return from + best * delta
 
+## Large crowds need a new 33-candidate steering choice at most every 0.1
+## simulation seconds. Every intervening move still uses current swept-body
+## tests, predicted contacts, static geometry and map bounds. Cache state belongs
+## to the caller; there are no process-global unit references or lifetimes.
+static func step_scheduled(unit: Object, preferred: Vector2, previous: Vector2, delta: float, neighbors: Array, solids: Array, goal: Vector2, cache: Dictionary) -> Vector2:
+	var from: Vector2 = unit.get("sim_pos")
+	var speed := preferred.length()
+	if neighbors.size() < SCHEDULED_NEIGHBORS or speed < 0.0001 or delta <= 0:
+		cache.clear()
+		return step(unit, preferred, previous, delta, neighbors, solids, goal)
+	var initialized := cache.has("velocity")
+	var remaining := float(cache.get("remaining", 0.0)) - delta
+	cache.remaining = remaining
+	var prepared_bodies: Variant = null
+	if initialized and remaining > 0.000001 and cache.goal == goal and from.distance_squared_to(cache.position) <= 0.0001:
+		var old_preferred: Vector2 = cache.preferred
+		var old_speed := old_preferred.length()
+		# Small length differences come from float position subtraction. Scale
+		# the retained direction to today's exact speed; actual speed/turn changes
+		# invalidate it immediately instead of waiting for the interval.
+		if old_speed > 0.0001 and absf(old_speed - speed) <= speed * 0.01 and old_preferred.dot(preferred) / (old_speed * speed) >= REUSE_DIRECTION_DOT:
+			var radius := Collision.unit_radius(unit)
+			var bodies := _snapshot_bodies(unit, from, radius, speed, delta, neighbors)
+			prepared_bodies = bodies
+			var horizon := maxf(HORIZON, delta)
+			if is_finite(goal.x) and is_finite(goal.y):
+				horizon = minf(horizon, maxf(delta, from.distance_to(goal) / speed))
+			var direct_risk := _snapshot_risk(preferred, delta, bodies)
+			var direct_to := from + preferred * delta
+			if direct_risk == 0 and Collision.clamp_to_map(direct_to, radius).is_equal_approx(direct_to) and Collision.static_step_safe(from, from + preferred * horizon, radius, solids):
+				cache.velocity = preferred
+				cache.preferred = preferred
+				cache.position = direct_to
+				cache.risk = 0.0
+				cache.reused = int(cache.get("reused", 0)) + 1
+				return direct_to
+			var velocity: Vector2 = cache.velocity * (speed / old_speed)
+			if velocity.length_squared() > speed * speed:
+				velocity = velocity.normalized() * speed
+			var to := from + velocity * delta
+			# A stopped/blocked choice must be reconsidered immediately. Retaining
+			# a stale zero velocity would turn temporary congestion into a stall.
+			if velocity.length_squared() > speed * speed * 0.01 and Collision.clamp_to_map(to, radius).is_equal_approx(to):
+				var risk := _snapshot_risk(velocity, delta, bodies)
+				if is_finite(risk) and risk <= float(cache.risk) + REUSE_RISK_INCREASE and direct_risk + REUSE_RISK_INCREASE >= risk and Collision.static_step_safe(from, to, radius, solids) and Collision.static_step_safe(from, from + velocity * horizon, radius, solids):
+					cache.position = to
+					cache.reused = int(cache.get("reused", 0)) + 1
+					return to
+	# A rejected retained velocity uses this same current-tick snapshot for the
+	# full solve; do not read and allocate every neighbour a second time.
+	var result := step(unit, preferred, previous, delta, neighbors, solids, goal, cache, prepared_bodies)
+	cache.velocity = (result - from) / delta
+	cache.preferred = preferred
+	cache.goal = goal
+	cache.position = result
+	# Spread the first refresh over six phases, then each unit keeps its own
+	# simulation-time clock. Pauses and game-speed changes follow delta.
+	cache.remaining = STEERING_INTERVAL if initialized else STEERING_INTERVAL * float(unit.get_instance_id() % 6 + 1) / 6.0
+	cache.solved = int(cache.get("solved", 0)) + 1
+	return result
+
+## No candidate travels faster than preferred. A body beyond even the maximum
+## relative travel plus both radii cannot overlap this frame or contact during
+## prediction, in any candidate direction. Keep all nearer bodies in their
+## original order, including overlaps and exact/tolerance boundary cases.
+static func _snapshot_bodies(unit: Object, from: Vector2, radius: float, speed: float, delta: float, neighbors: Array) -> Array[BodySnapshot]:
+	var bodies: Array[BodySnapshot] = []
+	var horizon := maxf(HORIZON, delta)
+	for other in neighbors:
+		if other == unit or not is_instance_valid(other):
+			continue
+		var health: Variant = other.get("hp")
+		if health != null and float(health) <= 0:
+			continue
+		var velocity := Vector2.ZERO
+		if other.has_method("locomotion_velocity"):
+			velocity = other.locomotion_velocity()
+		var relative: Vector2 = other.get("sim_pos") - from
+		var distance_sq := relative.length_squared()
+		var combined_radius := radius + Collision.unit_radius(other)
+		var reach := combined_radius + MARGIN + (speed + velocity.length()) * horizon
+		if distance_sq > reach * reach:
+			continue
+		bodies.append(BodySnapshot.new(relative, velocity, combined_radius))
+	return bodies
+
+## Dictionary input remains useful to deterministic geometry probes. The live
+## candidate loop uses typed snapshots directly, without repeated hash lookups.
 static func _body_risk(velocity: Vector2, delta: float, bodies: Array[Dictionary], limit: float = INF) -> float:
+	var snapshots: Array[BodySnapshot] = []
+	for body in bodies:
+		snapshots.append(BodySnapshot.new(body.relative, body.velocity, body.radius))
+	return _snapshot_risk(velocity, delta, snapshots, limit)
+
+static func _snapshot_risk(velocity: Vector2, delta: float, bodies: Array[BodySnapshot], limit: float = INF) -> float:
 	var score := 0.0
 	var motion := velocity * delta
 	var motion_length := motion.length()
@@ -90,18 +197,18 @@ static func _body_risk(velocity: Vector2, delta: float, bodies: Array[Dictionary
 		var relative: Vector2 = body.relative
 		var radius: float = body.radius
 		var distance_sq: float = body.distance_sq
-		if distance_sq < radius * radius - 0.0001:
+		if distance_sq < body.radius_sq - 0.0001:
 			if motion.dot(-relative) < -0.00001:
 				return INF
 		elif distance_sq < (radius + motion_length) * (radius + motion_length):
 			# A farther body cannot be touched by this frame's swept circle.
 			var closest := Geometry2D.get_closest_point_to_segment(relative, Vector2.ZERO, motion)
-			if closest.distance_squared_to(relative) < radius * radius - 0.0001:
+			if closest.distance_squared_to(relative) < body.radius_sq - 0.0001:
 				return INF
 		var relative_velocity: Vector2 = velocity - body.velocity
 		var closing := relative.dot(relative_velocity)
 		if closing <= 0.00001: continue
-		var gap := distance_sq - (radius + MARGIN) * (radius + MARGIN)
+		var gap := body.gap
 		var contact := 0.0
 		if gap > 0:
 			var speed_sq := relative_velocity.length_squared()

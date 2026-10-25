@@ -8,6 +8,9 @@ const DEFAULT_CELL_SIZE := 2.0
 var cell_size := DEFAULT_CELL_SIZE
 var _buckets: Dictionary = {}
 var _entity_cell: Dictionary = {}
+## Sorted occupied X cells for each Y row. Radius queries retain their original
+## row/column/bucket order without probing every empty cell in the rectangle.
+var _row_columns: Dictionary = {}
 
 
 func setup(p_cell_size: float = DEFAULT_CELL_SIZE) -> void:
@@ -18,6 +21,7 @@ func setup(p_cell_size: float = DEFAULT_CELL_SIZE) -> void:
 func clear() -> void:
 	_buckets.clear()
 	_entity_cell.clear()
+	_row_columns.clear()
 
 
 func world_to_cell(world: Vector2) -> Vector2i:
@@ -81,17 +85,25 @@ func query_radius(center: Vector2, radius: float) -> Array:
 	var radius_sq := radius * radius
 	var min_cell := world_to_cell(center - Vector2(radius, radius))
 	var max_cell := world_to_cell(center + Vector2(radius, radius))
+	var empty_cells: Array[Vector2i] = []
 	for cy in range(min_cell.y, max_cell.y + 1):
-		for cx in range(min_cell.x, max_cell.x + 1):
+		if not _row_columns.has(cy): continue
+		var columns: PackedInt32Array = _row_columns[cy]
+		var column_index := columns.bsearch(min_cell.x)
+		while column_index < columns.size():
+			var cx := columns[column_index]
+			if cx > max_cell.x: break
+			column_index += 1
 			var cell := Vector2i(cx, cy)
-			if not _buckets.has(cell):
-				continue
 			var bucket: Array = _buckets[cell]
 			var write := 0
 			for i in bucket.size():
-				var entity := bucket[i] as Object
-				if entity == null or not is_instance_valid(entity):
+				# A freed-object Variant must be rejected before casting it to
+				# Object; the cast itself raises an error in Godot 4.7.
+				var candidate: Variant = bucket[i]
+				if candidate == null or not is_instance_valid(candidate):
 					continue
+				var entity := candidate as Object
 				bucket[write] = entity
 				write += 1
 				var pos_variant: Variant = entity.get("sim_pos")
@@ -102,15 +114,24 @@ func query_radius(center: Vector2, radius: float) -> Array:
 			if write < bucket.size():
 				bucket.resize(write)
 				if write == 0:
-					_buckets.erase(cell)
+					empty_cells.append(cell)
 				else:
 					_buckets[cell] = bucket
+	# Defer removals until column traversal is done so packed-array mutation
+	# cannot shift the iterator past the next occupied bucket.
+	for cell in empty_cells:
+		_buckets.erase(cell)
+		_remove_row_column(cell)
 	return result
 
 
 func _bucket_add(cell: Vector2i, entity: Object) -> void:
 	if not _buckets.has(cell):
 		_buckets[cell] = []
+		var columns: PackedInt32Array = _row_columns.get(cell.y, PackedInt32Array())
+		var index := columns.bsearch(cell.x)
+		columns.insert(index, cell.x)
+		_row_columns[cell.y] = columns
 	var bucket: Array = _buckets[cell]
 	if bucket.has(entity):
 		return
@@ -127,5 +148,16 @@ func _bucket_remove(cell: Vector2i, entity: Object) -> void:
 		bucket.remove_at(idx)
 	if bucket.is_empty():
 		_buckets.erase(cell)
+		_remove_row_column(cell)
 	else:
 		_buckets[cell] = bucket
+
+
+func _remove_row_column(cell: Vector2i) -> void:
+	var columns: PackedInt32Array = _row_columns[cell.y]
+	var index := columns.bsearch(cell.x)
+	columns.remove_at(index)
+	if columns.is_empty():
+		_row_columns.erase(cell.y)
+	else:
+		_row_columns[cell.y] = columns

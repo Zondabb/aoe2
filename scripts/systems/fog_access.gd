@@ -30,6 +30,30 @@ static func state_can_see(state: Object, team: int, target: Variant) -> bool:
 	var fog: Object = state.get("fog")
 	return fog != null and fog.can_see(team, target)
 
+
+## Resolve once per synchronous observation. An unrelated world or replacement
+## fog mask must never lend its cached visibility to this team's observation.
+static func holder_for_snapshot(state: MatchState, entities: Node2D) -> Node:
+	if state == null or not state.fog_enabled or state.fog == null or entities == null:
+		return null
+	var parent := entities.get_parent()
+	if parent == null or not parent.has_meta("fog_holder"): return null
+	var holder: Variant = parent.get_meta("fog_holder")
+	if not is_instance_valid(holder) or not holder is Node or not holder.has_method("entity_visible_for"):
+		return null
+	return holder if holder.get("fog") == state.fog and holder.get("entities") == entities else null
+
+
+static func snapshot_can_see(state: MatchState, team: int, target: Node2D, holder: Node) -> bool:
+	if holder != null:
+		# These footprints are exactly FogOfWarService.footprint_of's runtime
+		# cases. Changed geometry and revisions fall back inside the holder.
+		if target is ResourceNode:
+			return holder.entity_visible_for(team, target, target.sim_pos, target.block_size)
+		if target is BuildingAgent and target.def != null:
+			return holder.entity_visible_for(team, target, target.sim_pos, target.def.footprint)
+	return state_can_see(state, team, target)
+
 static func view_can_see(node: Node) -> bool:
 	var parent: Node = node
 	while parent != null:

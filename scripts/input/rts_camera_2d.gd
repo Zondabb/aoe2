@@ -13,7 +13,12 @@ const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 @export var map_world_min := Vector2(-60.0, -60.0)
 @export var map_world_max := Vector2(60.0, 60.0)
 
+func _init() -> void:
+	# Camera panning and minimap focus run on rendered frames, not physics ticks.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+
 func _ready() -> void:
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	zoom = Vector2.ONE
 	_clamp_position()
 

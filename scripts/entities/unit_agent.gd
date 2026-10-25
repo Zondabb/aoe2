@@ -53,6 +53,9 @@ var melee_armor := 0.0
 var pierce_armor := 0.0
 var order: Enums.OrderType = Enums.OrderType.NONE
 var sim_pos := Vector2.ZERO
+## CanvasItem exposes the physics transform, not the server's interpolated
+## draw transform. The outline mask needs the same translation as the actor.
+var previous_physics_position := Vector2.ZERO
 var carry_type := -1
 var carry_amount := 0.0
 @export var carry_capacity := 10.0
@@ -84,6 +87,12 @@ var _anim_frame := 0.0
 var _sprite_metas: Dictionary = {}
 var _player_color_sheet := ""
 var _player_color_id := -1
+var _player_color_animation := &""
+var _player_color_unit_id := &""
+var _hotspot_animation := &""
+var _hotspot_frame := -1
+var _hotspot_flip := false
+var _hotspot_offset := Vector2.ZERO
 var _no_progress_frames := 0
 var _combat_action := &""
 var _combat_anim_time := 0.0
@@ -97,6 +106,7 @@ var _nav_goal := Vector2.ZERO
 var _stuck_repath_attempts := 0
 var _path_retry_cooldown := 0.0
 var _locomotion_velocity := Vector2.ZERO
+var _avoidance_cache := {}
 var _stuck_seconds := 0.0
 var _repath_cooldown := 0.0
 var _requested_move_target := Vector2.ZERO
@@ -142,6 +152,7 @@ func _ready() -> void:
 	if sim_pos == Vector2.ZERO:
 		sim_pos = position
 	_sync_visual()
+	previous_physics_position = position
 	hp = float(def.max_hp) if def != null else 0.0
 	_max_hp = hp
 	melee_armor = float(def.melee_armor) if def != null else 0.0
@@ -155,6 +166,11 @@ func _ready() -> void:
 	_vision_register()
 	# Spawn snapshots must contain initialized position, health and armor.
 	EntityRegistryScript.register(self)
+	# Units enter the tree at their simulation position, never interpolate from
+	# the scene's authored origin. Remote snapshots have their own update clock.
+	if has_meta("network_replica"):
+		physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	reset_physics_interpolation()
 
 
 func register_population() -> void:
@@ -180,6 +196,9 @@ func set_vision_radius(radius: float) -> void:
 	vision_radius_override = maxf(0.0, radius)
 
 func _physics_process(delta: float) -> void:
+	# Even a frozen or idle tick advances interpolation history to its current
+	# position, so the mask cannot keep replaying the last moving step.
+	previous_physics_position = position
 	if has_meta("network_replica"):
 		return
 	if def == null:
@@ -215,6 +234,25 @@ func _physics_process(delta: float) -> void:
 
 func locomotion_velocity() -> Vector2:
 	return _locomotion_velocity
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESET_PHYSICS_INTERPOLATION:
+		previous_physics_position = position
+
+
+func render_canvas_transform(source: Node2D) -> Transform2D:
+	var result := source.get_global_transform_with_canvas()
+	if not is_physics_interpolated_and_enabled() or source.is_set_as_top_level():
+		return result
+	# Unit simulation changes translation only. Billboard scale/rotation and
+	# hotspot offsets stay local to that translation. Transform the difference
+	# through the parent basis and canvas camera, preserving pan/zoom/stretch.
+	var delta := previous_physics_position.lerp(position, Engine.get_physics_interpolation_fraction()) - position
+	if not is_set_as_top_level() and get_parent() is CanvasItem:
+		delta = (get_parent() as CanvasItem).get_global_transform().basis_xform(delta)
+	result.origin += get_canvas_transform().basis_xform(delta)
+	return result
 
 func _process_move(delta: float) -> void:
 	_refresh_reserved_goal()
@@ -458,6 +496,7 @@ func _begin_attack() -> void:
 	_anim_frame = 0.0
 
 func _cancel_combat_action() -> void:
+	_avoidance_cache.clear()
 	_combat_action = &""
 	_combat_anim_time = 0.0
 	_attack_hit_applied = false
@@ -1026,7 +1065,9 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_con
 	var query_radius := maxf(Avoidance.NEIGHBOR_RANGE, 2.0 * (_pathfinding_radius() + def.move_speed * (Avoidance.HORIZON + delta)))
 	if is_inside_tree():
 		var vision := _get_vision_service()
-		if vision != null and vision.has_method("others_in_radius"):
+		if vision != null and vision.has_method("units_in_radius"):
+			units = vision.units_in_radius(self, query_radius)
+		elif vision != null and vision.has_method("others_in_radius"):
 			for other in vision.others_in_radius(self, query_radius):
 				if other.get("def") is UnitDef:
 					units.append(other)
@@ -1048,7 +1089,7 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_con
 				if resource.amount > 0 and ResourceNode.resource_blocks_pathfinding(resource.resource_type):
 					solids.append(resource)
 	var preferred := (desired_pos - from_pos) / maxf(delta, 0.00001)
-	sim_pos = Avoidance.step(self, preferred, _locomotion_velocity, delta, units, solids, _move_target)
+	sim_pos = Avoidance.step_scheduled(self, preferred, _locomotion_velocity, delta, units, solids, _move_target, _avoidance_cache)
 	_vision_sync_position()
 
 
@@ -1186,7 +1227,8 @@ func _track_move_progress(
 		_no_progress_frames = 0
 		_stuck_seconds = 0
 	else:
-		_no_progress_frames += 1
+		# Keep the legacy 60-Hz stalled-frame counters' real-time thresholds.
+		_no_progress_frames += maxi(1, roundi(60.0 / Engine.physics_ticks_per_second))
 		_stuck_seconds += delta
 		if _stuck_seconds >= STUCK_REPATH_SECONDS:
 			_try_recover_from_stuck()
@@ -1524,6 +1566,10 @@ func _setup_presentation() -> void:
 	_use_billboard = false
 	_player_color_sheet = ""
 	_player_color_id = -1
+	_player_color_animation = &""
+	_player_color_unit_id = &""
+	_hotspot_animation = &""
+	_hotspot_frame = -1
 	if billboard != null and def != null:
 		var sprite_frames: SpriteFrames = SpriteCatalogScript.unit_sprite_frames(def.id)
 		_sprite_metas = {}
@@ -1815,6 +1861,12 @@ func _apply_billboard_frame(
 func _apply_billboard_hotspot(
 	billboard: AnimatedSprite2D, anim: StringName, frame_idx: int
 ) -> void:
+	# Simulation commonly updates at 60 Hz while the same sprite frame remains
+	# on screen. Its hotspot depends only on animation, frame and mirroring.
+	if anim == _hotspot_animation and frame_idx == _hotspot_frame and _facing_flip == _hotspot_flip:
+		if not billboard.offset.is_equal_approx(_hotspot_offset):
+			billboard.offset = _hotspot_offset
+		return
 	var parsed: Dictionary = SpriteCatalogScript.parse_directional_animation(anim)
 	var action: StringName = parsed["action"]
 	var direction: int = int(parsed["direction"])
@@ -1824,6 +1876,10 @@ func _apply_billboard_hotspot(
 	var offset := SpriteCatalogScript.offset_for_frame_2d(
 		meta, direction, frame_idx, _facing_flip
 	)
+	_hotspot_animation = anim
+	_hotspot_frame = frame_idx
+	_hotspot_flip = _facing_flip
+	_hotspot_offset = offset
 	if not billboard.offset.is_equal_approx(offset):
 		billboard.offset = offset
 
@@ -1842,8 +1898,12 @@ func _apply_team_color() -> void:
 func _apply_billboard_player_color(billboard: AnimatedSprite2D, anim: StringName) -> void:
 	if def == null:
 		return
-	var base := SpriteCatalogScript.unit_animation_sheet_base(def.id, anim)
 	var color_id := TeamColorCatalogScript.resolve_color_id(team, match_state)
+	if anim == _player_color_animation and def.id == _player_color_unit_id and color_id == _player_color_id:
+		return
+	var base := SpriteCatalogScript.unit_animation_sheet_base(def.id, anim)
+	_player_color_animation = anim
+	_player_color_unit_id = def.id
 	if base == _player_color_sheet and color_id == _player_color_id:
 		return
 	_player_color_sheet = base

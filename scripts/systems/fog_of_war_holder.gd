@@ -5,6 +5,25 @@ const Memory := preload("res://scripts/presentation/fog_memory.gd")
 const Iso := preload("res://scripts/presentation/iso_math.gd")
 const Terrain := preload("res://scripts/presentation/terrain_visual.gd")
 const ALL := -1
+
+# These records are read several times per fog update. Typed fields avoid
+# hashing the same string keys for every resource and wall in each pass.
+class StaticRecord:
+	var entity: Node2D
+	var id: int
+	var kind: String
+	var resource: bool
+	var team: Variant
+	var definition: Variant
+	var position: Vector2
+	var footprint: Vector2
+	var cells: Rect2i
+	var size_override: Variant
+	var resource_type: Variant
+	var seen_mask := 0
+	var observed_mask := 0
+	var seen_geometry := Rect2()
+
 var fog := Fog.new()
 var match_state: MatchState
 var entities: Node2D
@@ -29,10 +48,9 @@ var _entities_dirty := true
 var _live_entities: Array[Node2D] = []
 var _dynamic_entities: Array[Node2D] = []
 var _vision_sources: Array[Node2D] = []
-var _static_records: Array[Dictionary] = []
+var _static_records: Array[StaticRecord] = []
 var _shown: Dictionary = {}
-var _static_seen := {0: {}, 1: {}}
-var _seen_geometry: Dictionary = {}
+var _records_by_id: Dictionary = {}
 var _static_seen_revision := -1
 var _proxy_states: Dictionary = {}
 var _resource_visual_cache: Dictionary = {}
@@ -126,6 +144,11 @@ func _ensure_entity_cache() -> void:
 	_dynamic_entities.clear()
 	_vision_sources.clear()
 	_static_records.clear()
+	# A trained/lost unit changes these lists without changing the forest or
+	# wall records. Reuse those records instead of allocating thousands again.
+	var existing_records := _records_by_id
+	_records_by_id = {}
+	_static_seen_revision = -1
 	var alive_ids := {}
 	for node in entities.get_children():
 		if node is not Node2D or node.has_meta("fog_memory") or node.get("sim_pos") == null or node.is_queued_for_deletion(): continue
@@ -139,9 +162,21 @@ func _ensure_entity_cache() -> void:
 			_dynamic_entities.append(node)
 		else:
 			var footprint := Fog.footprint_of(node)
-			_static_records.append({"entity":node, "id":id, "kind":static_kind, "resource":resource,
-				"team":node.get("team"), "definition":definition, "position":node.get("sim_pos"), "footprint":footprint,
-				"cells":fog.footprint_cells(node.get("sim_pos"), footprint), "size_override":node.get("block_size_override")})
+			var record: StaticRecord = existing_records.get(id)
+			if record == null: record = StaticRecord.new()
+			record.entity = node
+			record.id = id
+			record.kind = static_kind
+			record.resource = resource
+			record.team = node.get("team")
+			record.definition = definition
+			record.position = node.get("sim_pos")
+			record.footprint = footprint
+			record.cells = fog.footprint_cells(record.position, footprint)
+			record.size_override = node.get("block_size_override")
+			record.resource_type = node.get("resource_type")
+			_static_records.append(record)
+			_records_by_id[id] = record
 			if static_kind == "resource": _track_resource_visual(node, id)
 		if node.get("hp") != null and node.get("team") in Enums.Team.values(): _vision_sources.append(node)
 	for id in _shown.keys():
@@ -186,7 +221,7 @@ func _resource_snapshot(node: Node2D, key: int) -> Dictionary:
 		cached.dirty = false
 	return cached
 
-func _refresh_static_record(record: Dictionary) -> bool:
+func _refresh_static_record(record: StaticRecord) -> bool:
 	var node: Node2D = record.entity
 	if not is_instance_valid(node) or node.is_queued_for_deletion():
 		_entities_dirty = true
@@ -199,10 +234,19 @@ func _refresh_static_record(record: Dictionary) -> bool:
 		if definition != record.definition:
 			record.definition = definition
 			footprint = Fog.footprint_of(node)
+	elif node is ResourceNode:
+		var resource: ResourceNode = node
+		if resource.block_size_override != record.size_override or resource.resource_type != record.resource_type:
+			record.size_override = resource.block_size_override
+			record.resource_type = resource.resource_type
+			footprint = resource.block_size
 	elif record.resource or record.kind == "blocker":
 		var override: Variant = node.get("block_size_override")
+		var resource_type: Variant = node.get("resource_type") if record.resource else null
+		var type_changed: bool = resource_type != record.resource_type
+		record.resource_type = resource_type
 		if override is Vector2:
-			if override != record.size_override:
+			if override != record.size_override or type_changed:
 				record.size_override = override
 				footprint = Fog.footprint_of(node)
 		else:
@@ -216,25 +260,24 @@ func _refresh_static_record(record: Dictionary) -> bool:
 
 func _update_memories(_nodes: Array) -> void:
 	_ensure_entity_cache()
-	var observed := {0:{}, 1:{}}
-	_static_seen = {0:{}, 1:{}}
-	_seen_geometry.clear()
 	var seen_at := Time.get_ticks_msec()
 	for record in _static_records:
+		record.seen_mask = 0
+		record.observed_mask = 0
 		if not _refresh_static_record(record): continue
 		var node: Node2D = record.entity
 		if node.is_in_group("terrain_regions"): Terrain.bind_fog(node, self)
 		var key: int = record.id
-		_seen_geometry[key] = Rect2(record.position, record.footprint)
+		record.seen_geometry = Rect2(record.position, record.footprint)
 		var appearance := 0
 		var appearance_ready := false
 		var captured: Array = []
 		for team in Enums.Team.values():
 			var seen: bool = fog.ready and fog.rect_visible(team, record.cells)
-			_static_seen[team][key] = seen
+			if seen: record.seen_mask |= 1 << team
 			if not seen or record.team == team or node.get("is_placement_ghost") == true: continue
 			if (record.resource and node.get("amount") <= 0) or (record.kind == "building" and node.get("hp") != null and node.get("hp") <= 0): continue
-			observed[team][key] = true
+			record.observed_mask |= 1 << team
 			var known: Dictionary = fog.memories[team]
 			var previous: Dictionary = known.get(key, {})
 			if not appearance_ready:
@@ -259,7 +302,8 @@ func _update_memories(_nodes: Array) -> void:
 		for key in known.keys():
 			var snapshot: Dictionary = known[key]
 			var cells: Rect2i = snapshot.cells if snapshot.has("cells") else fog.footprint_cells(snapshot.sim_pos, snapshot.footprint)
-			if not observed[team].has(key) and fog.rect_visible(team, cells, true): known.erase(key)
+			var record: StaticRecord = _records_by_id.get(key)
+			if (record == null or (record.observed_mask & (1 << team)) == 0) and fog.rect_visible(team, cells, true): known.erase(key)
 	_static_seen_revision = fog.revision
 
 ## Consumers must treat the shared list as read-only. It excludes visual
@@ -275,9 +319,10 @@ func entity_visible_for(team: int, node: Variant, position: Vector2, footprint: 
 	if node.get("is_placement_ghost") == true: return node.get("team") == team
 	if node.get("team") == team and node.get("hp") != null and float(node.get("hp")) > 0: return true
 	var id: int = node.get_instance_id()
-	if fog.ready and _static_seen_revision == fog.revision and _seen_geometry.has(id):
-		if _seen_geometry[id] == Rect2(position, footprint) and _static_seen.get(team, {}).has(id):
-			return _static_seen[team][id]
+	var record: StaticRecord = _records_by_id.get(id)
+	if fog.ready and _static_seen_revision == fog.revision and record != null and fog.visible_now.has(team):
+		if record.seen_geometry == Rect2(position, footprint):
+			return (record.seen_mask & (1 << team)) != 0
 	return fog.can_see(team, node)
 
 func view_can_see(node: Node) -> bool:
@@ -303,7 +348,7 @@ func _apply_visibility(update_static := true, use_cached_seen := false) -> void:
 			if hp != null and float(hp) > 0: seen = true
 			elif node.get("is_placement_ghost") == true: seen = record.team == view_team
 			elif fog.ready:
-				seen = bool(_static_seen[view_team].get(record.id, false)) if use_cached_seen else fog.rect_visible(view_team, record.cells)
+				seen = (record.seen_mask & (1 << view_team)) != 0 if use_cached_seen else fog.rect_visible(view_team, record.cells)
 		_set_entity_visible(node, visible_visual and seen)
 	_sync_memory_views()
 

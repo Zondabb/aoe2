@@ -237,6 +237,9 @@ func _ensure_ai_service() -> bool:
 func _process(delta: float) -> void:
 	if not enabled or match_state == null:
 		return
+	if not is_instance_valid(entities) or not entities.is_inside_tree() or entities.is_queued_for_deletion():
+		stop()
+		return
 	if match_state.winner != -1:
 		stop()
 		return
@@ -363,7 +366,8 @@ func _apply_response(response: Dictionary) -> void:
 func _request_multi_agent_for_team(team_entry: Dictionary, current_tick: int, events: Array) -> void:
 	var generation := _generation
 	var team := int(team_entry.get("team", Enums.Team.AI))
-	var payload := _build_multi_agent_payload(team_entry, current_tick, events)
+	var payload := await _build_multi_agent_payload_budgeted(team_entry, current_tick, events)
+	if not _is_current(generation) or payload.is_empty(): return
 	var started := Time.get_ticks_usec()
 	var response := await _http_client.post_multi_agent_tick(payload)
 	if not _is_current(generation):
@@ -396,7 +400,15 @@ func _valid_multi_agent_response(response: Dictionary, expected_team: int = -1, 
 
 
 func _build_multi_agent_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
-	var payload := _build_tick_payload(team_entry, current_tick, events)
+	return _assemble_multi_agent_payload(_build_tick_payload(team_entry, current_tick, events), current_tick)
+
+
+func _build_multi_agent_payload_budgeted(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
+	return _assemble_multi_agent_payload(await _build_tick_payload_budgeted(team_entry, current_tick, events), current_tick)
+
+
+func _assemble_multi_agent_payload(payload: Dictionary, current_tick: int) -> Dictionary:
+	if payload.is_empty(): return {}
 	var delivery := _event_delivery.duplicate(true)
 	delivery.erase("events")
 	return {
@@ -404,7 +416,7 @@ func _build_multi_agent_payload(team_entry: Dictionary, current_tick: int, event
 		"messages": [], "tools": [], "observation": payload.observation, "events": payload.events,
 		"metadata": {
 			"protocol_version": 3, "match_id": match_id, "session_epoch": str(_generation),
-			"observation_seq": current_tick, "tick": current_tick, "time_sec": match_time,
+			"observation_seq": current_tick, "tick": current_tick, "time_sec": payload.time_sec,
 			"team": payload.team, "enemy_team": payload.enemy_team,
 			"profile_id": payload.profile_id, "event_delivery": delivery,
 		},
@@ -417,7 +429,9 @@ func _request_tick_batch(current_tick: int, events: Array = []) -> void:
 		return
 	var requests: Array = []
 	for team_entry in _teams:
-		requests.append(_build_tick_payload(team_entry, current_tick, events))
+		var request := await _build_tick_payload_budgeted(team_entry, current_tick, events)
+		if not _is_current(generation) or request.is_empty(): return
+		requests.append(request)
 	var payload := {
 		"protocol_version": AiProtocolScript.PROTOCOL_VERSION,
 		"match_id": match_id,
@@ -452,7 +466,8 @@ func _request_tick_for_team(
 	if not _is_current(generation):
 		return
 	var team := int(team_entry.get("team", Enums.Team.AI))
-	var request := _build_tick_payload(team_entry, current_tick, events)
+	var request := await _build_tick_payload_budgeted(team_entry, current_tick, events)
+	if not _is_current(generation) or request.is_empty(): return
 	var started_usec := Time.get_ticks_usec()
 	var response := await _http_client.post_tick(request)
 	if not _is_current(generation):
@@ -476,7 +491,9 @@ func _request_chat_batch(current_tick: int, events: Array = []) -> void:
 		return
 	var requests: Array = []
 	for team_entry in _teams:
-		requests.append(_build_chat_payload(team_entry, current_tick, events))
+		var request := await _build_chat_payload_budgeted(team_entry, current_tick, events)
+		if not _is_current(generation) or request.is_empty(): return
+		requests.append(request)
 	var payload := {"requests": requests}
 	var started_usec := Time.get_ticks_usec()
 	var completions := await _http_client.post_chat_completions_batch(payload)
@@ -514,7 +531,8 @@ func _request_chat_for_team(team_entry: Dictionary, current_tick: int, events: A
 	if not _is_current(generation):
 		return
 	var team := int(team_entry.get("team", Enums.Team.AI))
-	var request := _build_chat_payload(team_entry, current_tick, events)
+	var request := await _build_chat_payload_budgeted(team_entry, current_tick, events)
+	if not _is_current(generation) or request.is_empty(): return
 	var started_usec := Time.get_ticks_usec()
 	var completion := await _http_client.post_chat_completions(request)
 	if not _is_current(generation):
@@ -532,7 +550,15 @@ func _request_chat_for_team(team_entry: Dictionary, current_tick: int, events: A
 
 
 func _build_chat_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
-	var tick_payload := _build_tick_payload(team_entry, current_tick, events)
+	return _assemble_chat_payload(_build_tick_payload(team_entry, current_tick, events), current_tick)
+
+
+func _build_chat_payload_budgeted(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
+	return _assemble_chat_payload(await _build_tick_payload_budgeted(team_entry, current_tick, events), current_tick)
+
+
+func _assemble_chat_payload(tick_payload: Dictionary, current_tick: int) -> Dictionary:
+	if tick_payload.is_empty(): return {}
 	var team := int(tick_payload.get("team", 0))
 	return PromptAssemblerScript.assemble(
 		tick_payload.get("observation", {}),
@@ -541,7 +567,7 @@ func _build_chat_payload(team_entry: Dictionary, current_tick: int, events: Arra
 			"match_id": match_id,
 			"team": team,
 			"tick": current_tick,
-			"time_sec": match_time,
+			"time_sec": tick_payload.time_sec,
 			"profile_id": String(tick_payload.get("profile_id", "")),
 			"enemy_team": int(tick_payload.get("enemy_team", 0)),
 			"team_label": String(tick_payload.get("team_label", "")),
@@ -583,7 +609,7 @@ func _queue_response(response: Dictionary) -> void:
 	_pending_responses.append(response)
 
 
-func _build_tick_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
+func _prepare_tick_observation(team_entry: Dictionary) -> Dictionary:
 	var team := int(team_entry.get("team", Enums.Team.AI))
 	var context: CommandExecutionContext = _exec_contexts.get(team)
 	if context != null:
@@ -594,24 +620,63 @@ func _build_tick_payload(team_entry: Dictionary, current_tick: int, events: Arra
 	var enemy_team := int(team_entry.get("enemy_team", Enums.Team.PLAYER))
 	var civ: CivDef = team_entry.get("civ")
 	var profile := CivAiProfileScript.for_civ(civ)
-	var observation := ObservationBuilderScript.build(
-		match_state,
-		entities,
-		team,
-		enemy_team,
-		match_time,
-		profile.defend_radius if profile != null else 20.0,
-	)
+	var defend_radius: float = profile.defend_radius if profile != null else 20.0
+	return {"team": team, "enemy_team": enemy_team, "civ": civ, "defend_radius": defend_radius, "time_sec": match_time}
+
+
+func _build_tick_payload(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
+	var info := _prepare_tick_observation(team_entry)
+	var observation := ObservationBuilderScript.build(match_state, entities, info.team, info.enemy_team, info.time_sec, info.defend_radius)
+	return _assemble_tick_payload(team_entry, current_tick, events, info, observation)
+
+
+func _build_tick_payload_budgeted(team_entry: Dictionary, current_tick: int, events: Array) -> Dictionary:
+	var generation := _generation
+	if not _is_current(generation): return {}
+	if not is_instance_valid(entities) or not entities.is_inside_tree() or entities.is_queued_for_deletion():
+		_delivery_succeeded = false
+		return {}
+	var info := _prepare_tick_observation(team_entry)
+	var observation: Dictionary = await ObservationBuilderScript.build_budgeted(match_state, entities, info.team, info.enemy_team, info.time_sec,
+		info.defend_radius, false, _wait_observation_frame.bind(generation), _observation_frame_budget_usec())
+	if not _is_current(generation): return {}
+	if observation.is_empty():
+		# A cancelled preparation sent no HTTP request and cannot acknowledge the
+		# event delivery. Never let an old generation overwrite a new one's flag.
+		_delivery_succeeded = false
+		return {}
+	return _assemble_tick_payload(team_entry, current_tick, events, info, observation)
+
+
+func _assemble_tick_payload(team_entry: Dictionary, current_tick: int, events: Array, info: Dictionary, observation: Dictionary) -> Dictionary:
+	var team: int = info.team
+	var civ: CivDef = info.civ
 	return {
 		"team": team,
 		"team_label": String(team_entry.get("label", _team_label(team))),
 		"tick": current_tick,
-		"time_sec": match_time,
+		"time_sec": info.time_sec,
 		"profile_id": String(civ.id if civ != null else ""),
-		"enemy_team": enemy_team,
+		"enemy_team": info.enemy_team,
 		"events": EventBufferScript.for_team(events, team, match_state != null and match_state.fog_enabled),
 		"observation": observation,
 	}
+
+
+func _observation_frame_budget_usec() -> int:
+	return 4000
+
+
+func _wait_observation_frame(generation: int) -> bool:
+	if not _is_current(generation) or not is_instance_valid(_http_client): return false
+	var client := _http_client
+	var cancel_generation: int = client._cancel_generation
+	# The HTTP client's cancellable waiter is also woken synchronously by stop(),
+	# so all snapshot coroutines unwind before a Gateway can leave the tree.
+	var resumed: bool = await client._wait_frame()
+	return resumed and is_instance_valid(client) and client._cancel_generation == cancel_generation \
+		and _is_current(generation) and client == _http_client and is_instance_valid(entities) \
+		and entities.is_inside_tree() and not entities.is_queued_for_deletion()
 
 
 func _record_tick_skip(reason: String) -> void:

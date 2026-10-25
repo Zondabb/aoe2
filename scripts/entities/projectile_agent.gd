@@ -35,6 +35,10 @@ var _launch_height := 0.0
 var _stone := false
 var _ground_shadow: Sprite2D
 
+func _ready() -> void:
+	if has_meta("network_replica"):
+		physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+
 func setup(
 	origin: Vector2,
 	impact_aim: Vector2,
@@ -61,6 +65,9 @@ func setup(
 		aim_pos = _origin
 	_configure_visual()
 	_sync_visual(0.0)
+	# setup follows add_child in live combat. Start the interpolation history at
+	# the launch point, including the initial height, rather than the scene origin.
+	reset_physics_interpolation()
 
 func _physics_process(delta: float) -> void:
 	if has_meta("network_replica") or (match_state != null and match_state.frozen):
@@ -95,6 +102,8 @@ func network_presentation() -> Dictionary:
 
 
 func apply_network_presentation(data: Dictionary) -> void:
+	if has_meta("network_replica"):
+		physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	var source_def := StringName(data.get("source_def", ""))
 	var stone: bool = data.get("projectile_kind", "arrow") == "stone"
 	if stone != _stone or attacker_def == null or attacker_def.id != source_def:

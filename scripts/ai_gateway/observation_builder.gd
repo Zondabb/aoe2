@@ -18,16 +18,52 @@ static func build(
 	team: Enums.Team,
 	enemy_team: Enums.Team,
 	time_sec: float,
-	defend_radius: float = DEFAULT_DEFEND_RADIUS
+	defend_radius: float = DEFAULT_DEFEND_RADIUS,
+	defense_only: bool = false
 ) -> Dictionary:
+	# Godot marks every function containing await as a coroutine, even when an
+	# optional branch does not run. Dynamic dispatch keeps this established
+	# synchronous API usable without changing its callers.
+	return Callable(ObservationBuilder, &"_build_impl").call(match_state, entities, team, enemy_team, time_sec, defend_radius, defense_only)
+
+
+static func build_budgeted(
+	match_state: MatchState,
+	entities: Node2D,
+	team: Enums.Team,
+	enemy_team: Enums.Team,
+	time_sec: float,
+	defend_radius: float = DEFAULT_DEFEND_RADIUS,
+	defense_only: bool = false,
+	yield_frame: Callable = Callable(),
+	budget_usec: int = 4000
+) -> Dictionary:
+	return await _build_impl(match_state, entities, team, enemy_team, time_sec, defend_radius, defense_only, yield_frame, budget_usec)
+
+
+static func _build_impl(
+	match_state: MatchState,
+	entities: Node2D,
+	team: Enums.Team,
+	enemy_team: Enums.Team,
+	time_sec: float,
+	defend_radius: float = DEFAULT_DEFEND_RADIUS,
+	defense_only: bool = false,
+	yield_frame: Callable = Callable(),
+	budget_usec: int = 4000
+) -> Dictionary:
+	var budgeted := yield_frame.is_valid() and budget_usec > 0
+	var deadline := Time.get_ticks_usec() + budget_usec
 	var observation := {
 		"team": int(team),
 		"economy": _build_economy(match_state, team),
 		"derived": {},
 		"entities": [] as Array,
 	}
-	if match_state == null or entities == null:
+	if match_state == null or not is_instance_valid(entities):
+		if budgeted: return {}
 		return observation
+	if budgeted and (not entities.is_inside_tree() or entities.is_queued_for_deletion()): return {}
 	if match_state.map_bounds.has_area():
 		observation["map_bounds"] = {"min": AiProtocolScript.vec2_to_array(match_state.map_bounds.position), "max": AiProtocolScript.vec2_to_array(match_state.map_bounds.end)}
 	observation["capabilities"] = {"schema_version": 3, "zoned_construction": true,
@@ -53,6 +89,10 @@ static func build(
 	}
 
 	var entity_snapshots: Array = []
+	# One uninterrupted slice has a single age/civilization/catalog state.
+	# Reuse unlock lists across identical walls; checkpoints clear this cache.
+	var serialization_cache := {}
+	var fog_holder := FogAccess.holder_for_snapshot(match_state, entities)
 	var own_tc_pos := Vector2.ZERO
 	var vision := _vision_service(entities)
 	var observers := _team_observers(entities, team)
@@ -75,18 +115,31 @@ static func build(
 		observation["placement_visibility"] = {"origin": AiProtocolScript.vec2_to_array(fog.get("map_origin")), "cell_size": fog.get("cell_size"), "grid_size": [fog.get("grid_size").x, fog.get("grid_size").y], "sources": sources}
 
 	for node in entities.get_children():
+		# The default path never awaits, preserving direct Dictionary results for
+		# native AI and existing callers. Gateways can instead share this work
+		# across main-thread frames; no Node is handed to a worker thread.
+		if budgeted and Time.get_ticks_usec() >= deadline:
+			if not await yield_frame.call(): return {}
+			if not is_instance_valid(entities) or not entities.is_inside_tree() or entities.is_queued_for_deletion(): return {}
+			deadline = Time.get_ticks_usec() + budget_usec
+			fog_holder = FogAccess.holder_for_snapshot(match_state, entities)
+			# An age, technology or resource change can occur during the wait.
+			serialization_cache.clear()
+		# An earlier checkpoint may have freed a node retained in get_children's
+		# original list. Validate the raw reference before a typed cast.
+		if not is_instance_valid(node): continue
 		var entity := node as Node2D
 		if entity == null or entity.is_queued_for_deletion() or entity.get("is_placement_ghost") == true:
 			continue
 		if entity.get("hp") != null and float(entity.get("hp")) <= 0.0:
 			continue
-		if not FogAccess.state_can_see(match_state, team, entity):
+		if not FogAccess.snapshot_can_see(match_state, team, entity, fog_holder):
 			continue
 		if entity.has_method("extract") and not entity.get("def") is BuildingDef:
 			if not match_state.fog_enabled and vision != null and not _resource_visible(entity, observers, vision):
 				continue
 			var resource_id := EntityRegistryScript.register(entity)
-			entity_snapshots.append(serialize_entity(entity, resource_id))
+			entity_snapshots.append(_defense_snapshot(entity, resource_id) if defense_only else serialize_entity(entity, resource_id, serialization_cache))
 			continue
 		if entity.get("def") is BuildingDef:
 			var building := entity
@@ -108,14 +161,14 @@ static func build(
 			if building_team != team:
 				if not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
 					continue
-				var visible_building := serialize_entity(building, building_id)
+				var visible_building := _defense_snapshot(building, building_id) if defense_only else serialize_entity(building, building_id, serialization_cache)
 				visible_building.erase("gate_state")
 				# Queue contents and research are private orders, not visible enemy art.
 				for key in ["train_queue_empty", "train_queue", "train_progress", "trainable", "train_blocked_reasons", "is_researching", "technologies", "age_upgrade_reason", "production", "research"]:
 					visible_building.erase(key)
 				entity_snapshots.append(visible_building)
 				continue
-			entity_snapshots.append(serialize_entity(building, building_id))
+			entity_snapshots.append(_defense_snapshot(building, building_id) if defense_only else serialize_entity(building, building_id, serialization_cache))
 			if not bool(building.get("is_complete")):
 				derived["incomplete_buildings"] = int(derived["incomplete_buildings"]) + 1
 			continue
@@ -126,7 +179,7 @@ static func build(
 			if unit_team != team:
 				if not match_state.fog_enabled and vision != null and not _is_entity_visible(entity, observers, vision):
 					continue
-				var visible_unit := serialize_entity(unit, unit_id)
+				var visible_unit := _defense_snapshot(unit, unit_id) if defense_only else serialize_entity(unit, unit_id)
 				visible_unit.erase("move_goal")
 				visible_unit.erase("gather_resource_type")
 				visible_unit.erase("movement")
@@ -140,7 +193,7 @@ static func build(
 					if dist <= defend_radius:
 						derived["threat_near_base"] = true
 				continue
-			entity_snapshots.append(serialize_entity(unit, unit_id))
+			entity_snapshots.append(_defense_snapshot(unit, unit_id) if defense_only else serialize_entity(unit, unit_id))
 			var unit_def := unit.get("def") as UnitDef
 			if unit_def != null and unit_def.id == &"villager":
 				derived["villager_count"] = int(derived["villager_count"]) + 1
@@ -154,7 +207,15 @@ static func build(
 	for snapshot: Dictionary in entity_snapshots:
 		for key in ["target_id", "last_resource_id"]:
 			if snapshot.get(key) != null and not observed_ids.has(snapshot[key]): snapshot[key] = null
-	observation["decision_context"] = DecisionContext.build(match_state, entities, team, entity_snapshots, derived, defend_radius)
+	if budgeted:
+		if Time.get_ticks_usec() >= deadline:
+			if not await yield_frame.call(): return {}
+			if not is_instance_valid(entities) or not entities.is_inside_tree() or entities.is_queued_for_deletion(): return {}
+		var context: Dictionary = await DecisionContext.build_budgeted(match_state, entities, team, entity_snapshots, derived, defend_radius, defense_only, yield_frame, budget_usec)
+		if context.is_empty(): return {}
+		observation["decision_context"] = context
+	else:
+		observation["decision_context"] = DecisionContext.build(match_state, entities, team, entity_snapshots, derived, defend_radius, defense_only)
 	return observation
 
 
@@ -171,7 +232,13 @@ static func build_json_safe(
 	) as Dictionary
 
 
-static func serialize_entity(entity: Node2D, entity_id: int = -1) -> Dictionary:
+static func _defense_snapshot(entity: Node2D, entity_id: int) -> Dictionary:
+	var position: Vector2 = entity.get("sim_pos")
+	return {"id": entity_id, "kind": AiProtocolScript.entity_kind(entity), "team": entity.get("team"),
+		"def_id": AiProtocolScript.def_id_string(entity), "pos": AiProtocolScript.vec2_to_array(position)}
+
+
+static func serialize_entity(entity: Node2D, entity_id: int = -1, cache: Variant = null) -> Dictionary:
 	if entity_id < 0:
 		entity_id = EntityRegistryScript.id_of(entity)
 	var kind := AiProtocolScript.entity_kind(entity)
@@ -185,7 +252,7 @@ static func serialize_entity(entity: Node2D, entity_id: int = -1) -> Dictionary:
 		"resource":
 			_fill_resource(snapshot, entity)
 		"building":
-			_fill_building(snapshot, entity)
+			_fill_building(snapshot, entity, cache if cache is Dictionary else {})
 			if entity.has_method("extract"):
 				_fill_resource(snapshot, entity)
 		"unit":
@@ -220,7 +287,7 @@ static func _fill_resource(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["amount"] = float(entity.get("amount"))
 
 
-static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
+static func _fill_building(snapshot: Dictionary, entity: Node2D, cache: Dictionary) -> void:
 	snapshot["def_id"] = AiProtocolScript.def_id_string(entity)
 	snapshot["team"] = int(entity.get("team"))
 	snapshot["hp"] = float(entity.get("hp"))
@@ -251,9 +318,21 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["production"] = entity.production_status()
 	snapshot["research"] = {}
 	snapshot["is_researching"] = entity.is_age_researching() or entity.is_technology_researching()
-	snapshot["trainable"] = entity.get_trainable_units().map(func(u): return String(u.id))
+	# get_trainable_units scans the full unit catalog even for walls. Cache only
+	# this building-independent unlock list; queue/resource blocked reasons remain
+	# live per building. The cache lives for this build() call only.
+	var building_state: MatchState = entity.get("match_state")
+	var building_civ: CivDef = entity.get("civ")
+	var definition: BuildingDef = entity.get("def")
+	var unlock_key := [definition, building_state, building_civ, int(entity.get("team"))]
+	var trainable: Array
+	if cache.has(unlock_key): trainable = cache[unlock_key]
+	else:
+		trainable = entity.get_trainable_units()
+		cache[unlock_key] = trainable
+	snapshot["trainable"] = trainable.map(func(u): return String(u.id))
 	var blocked_reasons := {}
-	for definition in entity.get_trainable_units(): blocked_reasons[String(definition.id)] = entity.train_blocked_reason(definition)
+	for unit_definition in trainable: blocked_reasons[String(unit_definition.id)] = entity.train_blocked_reason(unit_definition)
 	snapshot["train_blocked_reasons"] = blocked_reasons
 	var state: MatchState = entity.get("match_state")
 	if state != null and state.progression_enabled:

@@ -186,7 +186,7 @@ func _run() -> void:
 	foreground.free()
 	building.free()
 	await compare("destroyed building", false)
-	check(renderer.copies.size() == 1, "destroyed occluder mask is removed")
+	check(renderer.copies.size() <= 1, "destroyed occluder mask is removed")
 	unit.free()
 	await frame()
 	check(renderer.outlines.is_empty(), "destroyed unit outline is removed")

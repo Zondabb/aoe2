@@ -5,6 +5,7 @@ const SHORE := preload("res://scripts/world/shore_geometry.gd")
 
 const Iso := preload("res://scripts/presentation/iso_math.gd")
 const Fog := preload("res://scripts/systems/fog_of_war_service.gd")
+const FogHolder := preload("res://scripts/systems/fog_of_war_holder.gd")
 const Colors := preload("res://scripts/presentation/team_color_catalog.gd")
 const Ui := preload("res://scripts/presentation/ui_catalog.gd")
 const GRASS := Color(0.34, 0.43, 0.20)
@@ -32,9 +33,23 @@ var _order_pos := Vector2.ZERO
 var _order_ttl := 0.0
 var _markers_team := -2
 var _marker_mesh: ArrayMesh
+var _tail_marker_mesh: ArrayMesh
 var _marker_mesh_size := Vector2(-1, -1)
 var _static_marker_cache: Dictionary = {}
 var _marker_refresh := 0
+var _terrain_base_key: Array = []
+var _terrain_lit: Image
+var _terrain_dimmed: Image
+var _terrain_pixels: Image
+var _terrain_view_key: Array = []
+var _terrain_explored_chunks: Array[PackedByteArray] = []
+var _terrain_current_chunks: Array[PackedByteArray] = []
+var _terrain_visibility := PackedByteArray()
+const TERRAIN_CHUNK_SIZE := 256
+var _static_mesh_key: Array = []
+var _static_mesh_vertices := PackedVector2Array()
+var _static_mesh_colors := PackedColorArray()
+var _static_mesh_indices := PackedInt32Array()
 
 func _ready() -> void:
 	# Blend the fog terrain between cells; marker visibility still uses fog.can_see.
@@ -69,6 +84,9 @@ func setup(state: MatchState, controller: Node, system: Node, spectator := false
 	build_system = system
 	read_only = spectator
 	_terrain_key.clear()
+	_terrain_base_key.clear()
+	_terrain_view_key.clear()
+	_static_mesh_key.clear()
 	_static_marker_cache.clear()
 	_elapsed = UPDATE_INTERVAL
 	_world = get_parent()
@@ -142,35 +160,75 @@ func _sync_terrain() -> void:
 
 ## Paint terrain beneath the fog, never as an unmasked footprint marker.
 func _terrain_image(dims: Vector2i) -> Image:
-	var pixels := Image.create(dims.x, dims.y, false, Image.FORMAT_RGB8)
+	# Coast membership and terrain colors are static between geometry changes.
+	# Build the bright/dimmed rasters once, then touch only cells whose fog state
+	# changed. Native packed-array chunk comparisons avoid a script visit to all
+	# 14400 cells when units move across a small part of the minimap.
+	var base_key := [dims, map_min, map_max, _terrain_shapes.duplicate(true)]
+	var reset := base_key != _terrain_base_key
+	if reset:
+		_terrain_base_key = base_key
+		_rasterize_terrain(dims)
 	var hidden := match_state != null and match_state.fog_enabled and _team != -1
-	pixels.fill(Color.BLACK if hidden else GRASS)
+	var view_key := [hidden, _fog, _team]
+	reset = reset or view_key != _terrain_view_key or _terrain_pixels == null
+	_terrain_view_key = view_key
+	if not hidden:
+		if reset: _terrain_pixels = _terrain_lit.duplicate()
+		return _terrain_pixels
+	var count := dims.x * dims.y
+	var chunks := ceili(float(count) / TERRAIN_CHUNK_SIZE)
+	if reset:
+		_terrain_pixels = Image.create(dims.x, dims.y, false, Image.FORMAT_RGB8)
+		_terrain_pixels.fill(Color.BLACK)
+		_terrain_visibility.resize(count)
+		_terrain_visibility.fill(0)
+		_terrain_explored_chunks.resize(chunks)
+		_terrain_current_chunks.resize(chunks)
 	var explored := PackedByteArray()
 	var current := PackedByteArray()
-	if hidden and _fog != null:
+	if _fog != null:
 		explored = _fog.explored.get(_team, PackedByteArray())
 		current = _fog.visible_now.get(_team, PackedByteArray())
-		for y in dims.y:
-			for x in dims.x:
-				var index := y * dims.x + x
-				if index < explored.size() and explored[index] != 0:
-					pixels.set_pixel(x, y, GRASS if index < current.size() and current[index] != 0 else GRASS.darkened(0.58))
+	for chunk in chunks:
+		var start := chunk * TERRAIN_CHUNK_SIZE
+		var end := mini(start + TERRAIN_CHUNK_SIZE, count)
+		# slice() owns a stable copy even when fog writes its live arrays in place.
+		var next_explored := explored.slice(start, end) if start < explored.size() else PackedByteArray()
+		var next_current := current.slice(start, end) if start < current.size() else PackedByteArray()
+		if not reset and next_explored == _terrain_explored_chunks[chunk] and next_current == _terrain_current_chunks[chunk]: continue
+		_terrain_explored_chunks[chunk] = next_explored
+		_terrain_current_chunks[chunk] = next_current
+		for index in range(start, end):
+			var visibility := 0 if index >= explored.size() or explored[index] == 0 else (2 if index < current.size() and current[index] != 0 else 1)
+			if not reset and _terrain_visibility[index] == visibility: continue
+			_terrain_visibility[index] = visibility
+			if visibility == 0:
+				if not reset: _terrain_pixels.set_pixel(index % dims.x, index / dims.x, Color.BLACK)
+			else:
+				var source := _terrain_lit if visibility == 2 else _terrain_dimmed
+				_terrain_pixels.set_pixel(index % dims.x, index / dims.x, source.get_pixel(index % dims.x, index / dims.x))
+	return _terrain_pixels
+
+func _rasterize_terrain(dims: Vector2i) -> void:
+	_terrain_lit = Image.create(dims.x, dims.y, false, Image.FORMAT_RGB8)
+	_terrain_dimmed = Image.create(dims.x, dims.y, false, Image.FORMAT_RGB8)
+	_terrain_lit.fill(GRASS)
+	_terrain_dimmed.fill(GRASS.darkened(0.58))
 	var scale := Vector2(dims) / (map_max - map_min)
 	for shape in _terrain_shapes:
 		var half: Vector2 = shape.footprint * 0.5
 		var first := Vector2i(((shape.sim_pos - half - map_min) * scale).floor()).clamp(Vector2i.ZERO, dims)
 		var last := Vector2i(((shape.sim_pos + half - map_min) * scale).ceil()).clamp(Vector2i.ZERO, dims)
 		var color := Color(0.18, 0.40, 0.60) if shape.kind == &"water" else Color(0.55, 0.53, 0.45)
+		var dimmed := color.darkened(0.58)
 		for y in range(first.y, last.y):
 			for x in range(first.x, last.x):
-				var index := y * dims.x + x
-				if hidden and (index >= explored.size() or explored[index] == 0): continue
 				if shape.kind == &"water" and not shape.get("coast", []).is_empty():
 					var logical := map_min + (Vector2(x, y) + Vector2.ONE * 0.5) / scale
 					if not SHORE.contains(logical, shape.coast): continue
-				var dimmed: bool = hidden and (index >= current.size() or current[index] == 0)
-				pixels.set_pixel(x, y, color.darkened(0.58) if dimmed else color)
-	return pixels
+				_terrain_lit.set_pixel(x, y, color)
+				_terrain_dimmed.set_pixel(x, y, dimmed)
 
 func refresh_markers() -> void:
 	_markers.clear()
@@ -181,23 +239,38 @@ func refresh_markers() -> void:
 	var terrain_shapes: Array[Dictionary] = []
 	var shown: Dictionary = {}
 	var restricted := match_state != null and match_state.fog_enabled and _team != -1
-	var reuse_visibility: bool = restricted and is_instance_valid(_holder) and _holder.has_method("entity_visible_for") and _holder.get("fog") == _fog
+	var reuse_visibility: bool = restricted and is_instance_valid(_holder) and _holder.has_method("entity_visible_for") and _holder.get("fog") == _fog and _holder.get("entities") == _entities
 	var live: Array = _holder.live_entities() if reuse_visibility else _entities.get_children()
+	# This is a read-only snapshot for this synchronous refresh. Resolving it
+	# after live_entities() matters: rebuilding that list invalidates old records.
+	var records: Dictionary = {}
+	if reuse_visibility and _holder is FogHolder and _fog.ready and _holder._static_seen_revision == _fog.revision:
+		records = _holder._records_by_id
+	var team_mask := 1 << _team if restricted and _team >= 0 else 0
 	for entity in live:
 		if not is_instance_valid(entity) or entity.is_queued_for_deletion(): continue
-		if entity.has_meta("fog_memory"): continue
+		if not reuse_visibility and entity.has_meta("fog_memory"): continue
+		var entity_id: int = entity.get_instance_id()
+		var record: FogHolder.StaticRecord = records.get(entity_id)
 		var marker: Dictionary
 		# These are almost all nodes on a large map. Typed reads avoid repeated
 		# Object.get() lookups for properties that resources do not even have.
 		if entity is ResourceNode:
 			var resource: ResourceNode = entity
 			if resource.amount <= 0.0: continue
-			marker = _resource_marker(resource)
+			# Forests outside sight need neither a live marker nor a projection
+			# cache entry. Reuse only the exact observed geometry; a moved/resized
+			# tree still takes the live visibility path before the next fog tick.
+			if record != null and (record.seen_mask & team_mask) == 0:
+				var footprint: Vector2 = record.footprint if record.position == resource.sim_pos and record.resource_type == resource.resource_type and record.size_override == resource.block_size_override else resource.block_size
+				if record.seen_geometry == Rect2(resource.sim_pos, footprint): continue
+			marker = _resource_marker(resource, entity_id)
 		elif entity is BuildingAgent and entity.def != null:
 			var building: BuildingAgent = entity
 			if building.hp <= 0.0 or building.is_placement_ghost: continue
 			if building.has_method("extract") and building.amount <= 0.0: continue
-			marker = _static_marker(building.get_instance_id(), building.sim_pos, building.def.footprint,
+			if record != null and building.team != _team and (record.seen_mask & team_mask) == 0 and record.seen_geometry == Rect2(building.sim_pos, building.def.footprint): continue
+			marker = _static_marker(entity_id, building.sim_pos, building.def.footprint,
 				"building", building.team, building.resource_type, null, building.def)
 		elif entity is UnitAgent and entity.def != null:
 			var unit: UnitAgent = entity
@@ -206,34 +279,44 @@ func refresh_markers() -> void:
 				"resource_type":null, "kind":null, "footprint":Vector2.ZERO, "memory":false}
 		elif entity is PathBlocker and entity.is_in_group("path_blockers"):
 			var blocker: PathBlocker = entity
-			marker = _static_marker(blocker.get_instance_id(), blocker.sim_pos, blocker.block_size,
+			marker = _static_marker(entity_id, blocker.sim_pos, blocker.block_size,
 				"blocker", null, null, blocker.kind)
 		else:
 			marker = _generic_marker(entity)
 			if marker.is_empty(): continue
-		if restricted and (_fog == null or not _marker_visible(entity, marker, reuse_visibility)):
-			continue
-		shown[entity.get_instance_id()] = true
+		if restricted:
+			if _fog == null: continue
+			if record != null and record.seen_geometry == Rect2(marker.sim_pos, marker.footprint):
+				# Live owned buildings were already checked for health/ghost state.
+				if marker.team != _team and (record.seen_mask & team_mask) == 0: continue
+			elif not _marker_visible(entity, marker, reuse_visibility):
+				continue
+		shown[entity_id] = true
 		if entity.is_in_group("terrain_regions"):
 			terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind,
 				"coast":entity.get_water_contours() if entity.has_method("get_water_contours") and marker.kind == &"water" else []})
 			continue
 		_markers.append(marker)
-	for id in _static_marker_cache.keys():
-		if _static_marker_cache[id]._refresh != _marker_refresh:
-			_static_marker_cache.erase(id)
 	if restricted and _fog != null:
 		var known: Dictionary = _fog.memories.get(_team, {})
 		for id in known:
 			if shown.has(id) or not known[id].has("minimap_kind"):
 				continue
-			var marker: Dictionary = known[id].duplicate()
+			var marker: Dictionary = known[id]
 			if marker.get("terrain_region", false):
 				terrain_shapes.append({"sim_pos": marker.sim_pos, "footprint": marker.footprint, "kind": marker.kind,
 					"coast":_remembered_coast(marker.get("parts", [])) if marker.kind == &"water" else []})
 				continue
+			# Memory has the same immutable projection needs as a live tree/wall.
+			# Negative IDs keep remembered and live entries separate during a view
+			# change without retaining an unseen live node in this cache.
+			marker = _static_marker(-int(id), marker.sim_pos, marker.footprint, marker.minimap_kind,
+				marker.get("team"), marker.get("resource_type"), marker.get("kind"))
 			marker["memory"] = true
 			_markers.append(marker)
+	for id in _static_marker_cache.keys():
+		if _static_marker_cache[id]._refresh != _marker_refresh:
+			_static_marker_cache.erase(id)
 	if terrain_shapes != _terrain_shapes:
 		_terrain_shapes = terrain_shapes
 		_terrain_key.clear()
@@ -264,8 +347,7 @@ func _remembered_coast(parts: Array) -> Array[PackedVector2Array]:
 				loop = PackedVector2Array()
 	return contours
 
-func _resource_marker(resource: ResourceNode) -> Dictionary:
-	var id := resource.get_instance_id()
+func _resource_marker(resource: ResourceNode, id: int) -> Dictionary:
 	var footprint: Vector2
 	if _static_marker_cache.has(id):
 		var previous: Dictionary = _static_marker_cache[id]
@@ -285,18 +367,27 @@ func _resource_marker(resource: ResourceNode) -> Dictionary:
 func _static_marker(id: int, position: Vector2, footprint: Vector2, kind: String,
 		team: Variant, resource_type: Variant, terrain_kind: Variant, definition: Variant = null) -> Dictionary:
 	var marker: Dictionary
+	var changed := true
 	if _static_marker_cache.has(id):
 		marker = _static_marker_cache[id]
+		changed = marker.sim_pos != position or marker.footprint != footprint or marker.team != team or marker.resource_type != resource_type or marker.minimap_kind != kind or marker.kind != terrain_kind
 		if marker.sim_pos != position or marker.footprint != footprint or marker.team != team or marker._definition != definition:
 			marker._visible_revision = -1
 		if marker.sim_pos != position or marker.footprint != footprint:
 			marker._polygon_dirty = true
+		if not changed:
+			marker._definition = definition
+			marker._refresh = _marker_refresh
+			return marker
 	else:
 		marker = {"memory":false, "_static_cache":true, "_visible_revision":-1, "_visible_fog":null,
 			"_visible_team":-2, "_visible_ready":false, "_visible":false, "_polygon_dirty":true,
 			"_polygon":PackedVector2Array(), "_projection_size":Vector2(-1, -1),
 			"_projection_min":Vector2.ZERO, "_projection_max":Vector2.ZERO, "_size_override":Vector2.ZERO}
 		_static_marker_cache[id] = marker
+	if changed:
+		marker._mesh_version = int(marker.get("_mesh_version", 0)) + 1
+		marker._mesh_key = "%d:%d" % [id, marker._mesh_version]
 	marker.sim_pos = position
 	marker.footprint = footprint
 	marker.minimap_kind = kind
@@ -363,6 +454,8 @@ func _draw() -> void:
 		_rebuild_marker_mesh()
 	if _marker_mesh != null:
 		draw_mesh(_marker_mesh, null)
+	if _tail_marker_mesh != null:
+		draw_mesh(_tail_marker_mesh, null)
 	for polygon in camera_polygons():
 		var outline := PackedVector2Array(polygon)
 		outline.append(outline[0])
@@ -380,30 +473,54 @@ func _draw_marker(marker: Dictionary) -> void:
 		draw_colored_polygon(polygon, marker_color(marker))
 
 
-## Cache all marker quads as one colored triangle mesh. Canvas redraws still
-## follow camera/input every frame without triangulating 1000 resource dots.
+## Keep the static prefix on the GPU; moving dots only upload the small tail.
+## Both draws retain the exact original marker order and opaque overlap.
 func _rebuild_marker_mesh() -> void:
 	_marker_mesh_size = size
+	# refresh_markers partitions static resources/buildings before mobile units.
+	# Preserve arbitrary caller order too: only cache the prefix before the first
+	# unit, then append the remaining quads in their original order.
+	var static_count := 0
+	var key: Array = [size, map_min, map_max, Colors.resolve_color_id(0, match_state), Colors.resolve_color_id(1, match_state)]
+	for marker in _markers:
+		if marker.minimap_kind == "unit": break
+		static_count += 1
+		key.append(marker._mesh_key if marker.has("_mesh_key") else [marker.sim_pos, marker.footprint,
+			marker.minimap_kind, marker.get("team"), marker.get("resource_type"), marker.get("kind"), marker.get("memory", false)])
+	if key != _static_mesh_key:
+		_static_mesh_key = key
+		_static_mesh_vertices = PackedVector2Array()
+		_static_mesh_colors = PackedColorArray()
+		_static_mesh_indices = PackedInt32Array()
+		for index in static_count:
+			_append_marker_quad(_markers[index], _static_mesh_vertices, _static_mesh_colors, _static_mesh_indices)
+		_marker_mesh = _make_marker_mesh(_static_mesh_vertices, _static_mesh_colors, _static_mesh_indices)
 	var vertices := PackedVector2Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
-	for marker in _markers:
-		var polygon := _marker_polygon(marker)
-		if polygon.is_empty(): continue
-		var base := vertices.size()
-		var color := marker_color(marker)
-		vertices.append_array(polygon)
-		for _corner in 4: colors.append(color)
-		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
-	_marker_mesh = null
-	if vertices.is_empty(): return
+	for index in range(static_count, _markers.size()):
+		_append_marker_quad(_markers[index], vertices, colors, indices)
+	_tail_marker_mesh = _make_marker_mesh(vertices, colors, indices)
+
+func _make_marker_mesh(vertices: PackedVector2Array, colors: PackedColorArray, indices: PackedInt32Array) -> ArrayMesh:
+	if vertices.is_empty(): return null
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
-	_marker_mesh = ArrayMesh.new()
-	_marker_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+func _append_marker_quad(marker: Dictionary, vertices: PackedVector2Array, colors: PackedColorArray, indices: PackedInt32Array) -> void:
+		var polygon := _marker_polygon(marker)
+		if polygon.is_empty(): return
+		var base := vertices.size()
+		var color := marker_color(marker)
+		vertices.append_array(polygon)
+		for _corner in 4: colors.append(color)
+		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
 
 
 func _marker_polygon(marker: Dictionary) -> PackedVector2Array:

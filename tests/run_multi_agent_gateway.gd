@@ -139,6 +139,14 @@ func _move(id: String = "v3_move") -> Dictionary:
 	return {"op": "move", "unit_id": Registry.id_of(unit), "pos": [8, 4],
 		"command_id": id, "task_id": "scout-route", "session_epoch": "7", "expires_at_sim_time": 100.0}
 
+func _wait_for_transport(client, expected_calls: int) -> void:
+	# Preparation may yield before the held HTTP fixture receives its payload.
+	# Exercise responses/manual commands at the intended transport boundary.
+	var started := Time.get_ticks_msec()
+	while client.calls < expected_calls and Time.get_ticks_msec() - started < 2000:
+		await process_frame
+	check(client.calls == expected_calls, "fixture reaches held transport call %d" % expected_calls)
+
 func _test_fast_path() -> void:
 	Events.clear()
 	var gateway = _new_gateway()
@@ -149,6 +157,7 @@ func _test_fast_path() -> void:
 		check(not chat.has(key) and not chat.metadata.has(key), "legacy chat excludes upstream option: %s" % key)
 	Events.push({"type": "receipt_to_retry", "_visible_to": [0]})
 	gateway._run_tick_requests(1)
+	await _wait_for_transport(client, 1)
 	check(client.calls == 1 and gateway._request_in_flight, "v3 starts exactly one asynchronous fast request")
 	check(client.last_payload.messages.is_empty() and client.last_payload.tools.is_empty(), "fast request sends observation once without duplicating huge model prompts")
 	check(client.last_payload.model == "aoe2-service", "fast request uses fixed service model placeholder")
@@ -161,6 +170,7 @@ func _test_fast_path() -> void:
 	await process_frame
 	check(not gateway._request_in_flight and Events.peek(gateway._event_subscriber).events.size() == 1, "HTTP failure keeps event unacknowledged for next observation")
 	gateway._run_tick_requests(2)
+	await _wait_for_transport(client, 2)
 	check(client.last_payload.events[0].type == "receipt_to_retry", "next request resends retained receipt")
 	Events.push({"type": "new_event_during_request", "_visible_to": [0]})
 	client.response = _response(2, [_move()])
@@ -173,12 +183,14 @@ func _test_fast_path() -> void:
 	check(retained.size() == 2 and retained[0].type == "new_event_during_request" and retained[1].type == "command_result", "accepted response acknowledges old events while new event and generated receipt stay pending")
 	check(retained[1].task_id == "scout-route" and retained[1].session_epoch == "7", "command result preserves task and string epoch lineage")
 	gateway._run_tick_requests(3)
+	await _wait_for_transport(client, 3)
 	client.response = _response(3, [_move("wrong_epoch")])
 	client.response.session_epoch = "6"
 	client.completed.emit()
 	await process_frame
 	check(not ctx.executed_command_ids.has("wrong_epoch") and not Events.peek(gateway._event_subscriber).events.is_empty(), "stale session response neither executes nor acknowledges events")
 	gateway._run_tick_requests(4)
+	await _wait_for_transport(client, 4)
 	client.response = _response(4, [_move("late_cancelled")])
 	gateway.stop()
 	client.completed.emit()
@@ -232,6 +244,7 @@ func _test_manual_inflight() -> void:
 	var gateway = _new_gateway()
 	var client = gateway._http_client
 	gateway._run_tick_requests(5)
+	await _wait_for_transport(client, 1)
 	var player = load("res://scripts/input/player_commands.gd")
 	player.unit_order(world, unit, "move", Vector2(-15, 4))
 	client.response = _response(5, [_move("pre_manual_snapshot")])
@@ -272,6 +285,7 @@ func _test_shared_gateway_manual_boundary() -> void:
 	var client = gateway._http_client
 	Events.clear()
 	gateway._run_tick_requests(6)
+	await _wait_for_transport(client, 1)
 	var revision_at_send := Registry.manual_revision
 	other.command_move(Vector2(20, 10))
 	Registry.report_manual_command({"op": "move", "unit_id": other_id, "pos": [20, 10]}, 1)
@@ -279,6 +293,7 @@ func _test_shared_gateway_manual_boundary() -> void:
 	client.response = _response(6)
 	client.completed.emit()
 	await process_frame
+	await _wait_for_transport(client, 2)
 	check(client.calls == 2 and client.last_payload.metadata.team == 1, "shared gateway requests second team after first asynchronous response")
 	check(not client.last_payload.events.any(func(event): return event.type == "human_command"), "second request still carries the round's original event snapshot")
 	check(other_context.observed_manual_revision == revision_at_send, "second team manual fence remains aligned with shared event snapshot")
@@ -298,18 +313,22 @@ func _test_shared_gateway_manual_boundary() -> void:
 	# One team accepting a later observation must not consume the failed team's
 	# private events. Both receive the retained batch again on the next round.
 	gateway._run_tick_requests(7)
+	await _wait_for_transport(client, 3)
 	client.response = _response(7)
 	client.completed.emit()
 	await process_frame
+	await _wait_for_transport(client, 4)
 	check(client.last_payload.events.any(func(event): return event.type == "human_command"), "next round finally delivers second team's manual event")
 	client.response = {}
 	client.completed.emit()
 	await process_frame
 	check(not Events.peek(gateway._event_subscriber).events.is_empty(), "one team's HTTP failure prevents shared event acknowledgement")
 	gateway._run_tick_requests(8)
+	await _wait_for_transport(client, 5)
 	client.response = _response(8)
 	client.completed.emit()
 	await process_frame
+	await _wait_for_transport(client, 6)
 	client.response = _response(8)
 	client.response.team = 1
 	client.completed.emit()

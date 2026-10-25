@@ -168,6 +168,14 @@ func _run() -> void:
 	check(holder.live_entities().all(func(node): return not node.has_meta("fog_memory")), "read-only entity list excludes all memory proxies")
 	holder.rebuild_now()
 	check(newly_added.visible and holder.fog.memories[0].has(newly_added.get_instance_id()), "new static entities enter visibility and memory caches")
+	var old_record: Variant = holder._records_by_id[newly_added.get_instance_id()]
+	var transient_unit := Source.new()
+	entities.add_child(transient_unit)
+	holder.live_entities()
+	check(holder._records_by_id[newly_added.get_instance_id()] == old_record, "a new mobile observer reuses existing static records")
+	check(holder._static_seen_revision == -1 and holder.entity_visible_for(0, newly_added, newly_added.sim_pos, newly_added.block_size) == holder.fog.can_see(0, newly_added), "rebuilding entity lists invalidates static seen bits until the next visibility update")
+	transient_unit.free()
+	holder.rebuild_now()
 	var new_key := newly_added.get_instance_id()
 	var freed_reference: Variant = newly_added
 	newly_added.free()

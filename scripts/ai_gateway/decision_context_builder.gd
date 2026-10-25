@@ -23,6 +23,41 @@ const LANE_WIDTH := 3.0
 ## Bucket size (simulation units) of the per-call construction site index.
 const SITE_BUCKET := 16.0
 const BUILD_PRIORITY := ["barracks", "house", "farm", "mill", "lumber_camp", "mining_camp", "archery_range", "stable", "blacksmith", "market", "siege_workshop", "castle", "town_center", "monastery", "university"]
+const FRONTIER_CACHE_META := &"ai_observation_frontier_geometry"
+
+## Optional main-thread planning slices. References collected before a frame
+## boundary may die in that frame; prune every shared list on both sides.
+class PreparationBudget extends RefCounted:
+	var callback: Callable
+	var budget_usec: int
+	var started_usec: int
+	var entities_ref: WeakRef
+	var node_lists: Array
+	func _init(frame_callback: Callable, budget: int, entities: Node2D, lists: Array) -> void:
+		callback = frame_callback
+		budget_usec = budget
+		started_usec = Time.get_ticks_usec()
+		entities_ref = weakref(entities)
+		node_lists = lists
+	func expired() -> bool:
+		return Time.get_ticks_usec() - started_usec >= budget_usec
+	func checkpoint() -> bool:
+		if not expired(): return true
+		_prune_nodes()
+		if not callback.is_valid(): return false
+		var keep_going := bool(await callback.call())
+		_prune_nodes()
+		if not keep_going: return false
+		var entities: Node = entities_ref.get_ref()
+		if entities == null or not entities.is_inside_tree() or entities.is_queued_for_deletion(): return false
+		started_usec = Time.get_ticks_usec()
+		return true
+	func _prune_nodes() -> void:
+		for nodes: Array in node_lists:
+			for index in range(nodes.size() - 1, -1, -1):
+				var node: Variant = nodes[index]
+				if not is_instance_valid(node) or node.is_queued_for_deletion():
+					nodes.remove_at(index)
 
 class ObservationNav extends NavGridService:
 	var fog: RefCounted
@@ -52,16 +87,39 @@ class ObservationNav extends NavGridService:
 		return layer
 
 
-static func build(state: MatchState, entities: Node2D, team: int, snapshots: Array, derived: Dictionary, defend_radius: float) -> Dictionary:
+## GDScript marks a function containing await as a coroutine even when that
+## branch is disabled. The legacy entry invokes the shared implementation with
+## no callback through a Callable: that path cannot yield and returns a Dictionary
+## immediately. build_budgeted is the explicit asynchronous public entry.
+static func build(state: MatchState, entities: Node2D, team: int, snapshots: Array, derived: Dictionary, defend_radius: float, defense_only: bool = false) -> Dictionary:
+	var implementation := Callable(load("res://scripts/ai_gateway/decision_context_builder.gd"), &"_build_impl")
+	return implementation.call(state, entities, team, snapshots, derived, defend_radius, defense_only, Callable(), 0)
+
+
+static func build_budgeted(state: MatchState, entities: Node2D, team: int, snapshots: Array, derived: Dictionary, defend_radius: float, defense_only: bool = false, yield_frame: Callable = Callable(), budget_usec: int = 4000) -> Dictionary:
+	return await _build_impl(state, entities, team, snapshots, derived, defend_radius, defense_only, yield_frame, budget_usec)
+
+
+static func _build_impl(state: MatchState, entities: Node2D, team: int, snapshots: Array, derived: Dictionary, defend_radius: float, defense_only: bool, yield_frame: Callable, budget_usec: int) -> Dictionary:
+	if not is_instance_valid(entities) or entities.is_queued_for_deletion(): return {}
 	var own: Array[Node2D] = []
 	var builders: Array[Node2D] = []
 	var known_static: Array = []
 	var placement_blockers: Array = []
 	var civ: CivDef
 	var observed_ids := {}
+	var budget: PreparationBudget
+	if yield_frame.is_valid() and budget_usec > 0:
+		if not entities.is_inside_tree(): return {}
+		budget = PreparationBudget.new(yield_frame, budget_usec, entities, [own, builders, known_static, placement_blockers])
+	var fog_holder := FogAccess.holder_for_snapshot(state, entities)
 	for snapshot: Dictionary in snapshots: observed_ids[snapshot.id] = true
 	for node in entities.get_children():
-		if not node is Node2D or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
+		if budget != null and budget.expired():
+			if not await budget.checkpoint(): return {}
+			fog_holder = FogAccess.holder_for_snapshot(state, entities)
+		# The saved child list can contain a node deleted during the callback.
+		if not is_instance_valid(node) or not node is Node2D or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
 		var definition: Variant = node.get("def")
 		if definition is UnitDef or definition is BuildingDef:
 			if float(node.get("hp")) <= 0: continue
@@ -69,14 +127,15 @@ static func build(state: MatchState, entities: Node2D, team: int, snapshots: Arr
 				own.append(node)
 				if civ == null: civ = node.get("civ") as CivDef
 				if definition is UnitDef and definition.id == &"villager": builders.append(node)
-		if not FogAccess.state_can_see(state, team, node): continue
+		if not FogAccess.snapshot_can_see(state, team, node, fog_holder): continue
 		if (definition is BuildingDef or definition is UnitDef or node.has_method("extract")) and not observed_ids.has(Registry.id_of(node)): continue
 		if definition is BuildingDef or node.is_in_group("terrain_regions"):
 			placement_blockers.append(node)
 			known_static.append(node)
 		elif node.has_method("extract"):
 			known_static.append(node)
-	var catalog := _catalog(state, entities, team, civ)
+	var catalog := {} if defense_only else _catalog(state, entities, team, civ)
+	if budget != null and not await budget.checkpoint(): return {}
 	var bounds := state.map_bounds
 	if not bounds.has_area():
 		var base := Protocol.array_to_vec2(derived.get("own_tc_pos", [0, 0])) as Vector2
@@ -88,17 +147,28 @@ static func build(state: MatchState, entities: Node2D, team: int, snapshots: Arr
 	nav.fog = state.fog if state.fog_enabled else null
 	const CELL := 2.0
 	nav.setup_rect(Vector2i((bounds.position / CELL).floor()), Vector2i((bounds.end / CELL).ceil()), CELL)
+	if budget != null and not await budget.checkpoint(): return {}
 	nav.rebuild_from_blockers(known_static)
-	var army := _army(own, snapshots, derived, team, defend_radius, bounds, nav)
+	if budget != null and not await budget.checkpoint(): return {}
+	var army := {} if defense_only else _army(own, snapshots, derived, team, defend_radius, bounds, nav)
+	if budget != null and not await budget.checkpoint(): return {}
 	var defense := _defense_planning(state, entities, team, civ, builders, derived, bounds, nav)
+	if budget != null and not await budget.checkpoint(): return {}
+	if defense_only:
+		return {"defense_options": defense.options, "defense_plan": defense.plan, "defense_scout_options": defense.scouts}
+	var construction := _construction_options(state, team, builders, catalog.buildings, placement_blockers, bounds, nav, derived, snapshots)
+	# This boundary is also immediately before scouting. No partial stage
+	# dictionary escapes if cancellation/scene teardown happens while yielding.
+	if budget != null and not await budget.checkpoint(): return {}
+	var scouting := _scouting(state, team, own, bounds, nav, army.scout_ids, derived)
 	return {
 		"catalog": catalog,
 		"defense_options": defense.options,
 		"defense_plan": defense.plan,
 		"defense_scout_options": defense.scouts,
-		"construction_options": _construction_options(state, team, builders, catalog.buildings, placement_blockers, bounds, nav, derived, snapshots),
+		"construction_options": construction,
 		"layout": {"base": derived.get("own_tc_pos", [0, 0]), "farm_reserve_radius": FARM_RESERVE_RADIUS, "lane_width": LANE_WIDTH, "planning_scale": PLANNING_SCALE},
-		"scouting": _scouting(state, team, own, bounds, nav, army.scout_ids, derived),
+		"scouting": scouting,
 		"army": army,
 	}
 
@@ -288,8 +358,9 @@ static func _defense_planning(state: MatchState, entities: Node2D, team: int, ci
 				missing += 1
 				missing_keys.append(key)
 				if seen.has(key): repair = true
-			var footprint := Walls.footprint_for(Catalog.get_building(piece.building_def_id), int(piece.orientation))
-			if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, piece.pos, footprint + Vector2.ONE * 2, true)): visible = false
+			# Completed/pending owned pieces need no new placement or survey. Their
+			# visibility matters only when this batch also contains a missing piece.
+			# Defer the footprint checks until missing is known below.
 			if unique.has(key): continue
 			unique[key] = true
 			if existing != null:
@@ -298,6 +369,11 @@ static func _defense_planning(state: MatchState, entities: Node2D, team: int, ci
 					seen[key] = true
 				else: pending += 1
 		if missing == 0: continue
+		for piece: Dictionary in batch.pieces:
+			var footprint := Walls.footprint_for(Catalog.get_building(piece.building_def_id), int(piece.orientation))
+			if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, piece.pos, footprint + Vector2.ONE * 2, true)):
+				visible = false
+				break
 		if not visible:
 			for key in missing_keys: unseen_keys[key] = true
 			if not available.is_empty():
@@ -514,13 +590,9 @@ static func _scouting(state: MatchState, team: int, own: Array[Node2D], bounds: 
 	if mask.is_empty():
 		result.explored_ratio = 0.0
 		return result
-	var explored_count := 0
-	for value in mask:
-		if value != 0: explored_count += 1
-	result.explored_ratio = snappedf(float(explored_count) / mask.size(), 0.0001)
+	var geometry := _frontier_geometry(state, team, mask, grid, bounds)
+	result.explored_ratio = geometry.explored_ratio
 	var candidates: Array = []
-	var origin: Vector2 = fog.get("map_origin")
-	var size: float = fog.get("cell_size")
 	var scout: Node2D
 	for node in own:
 		if Registry.id_of(node) in scout_ids:
@@ -543,6 +615,38 @@ static func _scouting(state: MatchState, team: int, own: Array[Node2D], bounds: 
 		# These are public geometric guesses. The actual enemy position is never
 		# consulted, even on maps whose starts are not symmetric.
 		result.probes.append({"kind": probe.kind, "pos": Protocol.vec2_to_array(point)})
+	for frontier: Dictionary in geometry.frontiers:
+		var point: Vector2 = frontier.point
+		if nav.is_world_solid(point): continue
+		var distance: float = scout.get("sim_pos").distance_to(point)
+		candidates.append({"pos": Protocol.vec2_to_array(point), "unknown_neighbors": frontier.unknown_neighbors, "distance": distance,
+			"center_score": point.distance_to(center) + distance * 0.15, "opposite_score": point.distance_to(opposite) + distance * 0.15})
+	candidates.sort_custom(func(a, b): return a.distance < b.distance)
+	var selected: Array = []
+	_append_frontiers(candidates, selected, scout, nav, 4)
+	candidates.sort_custom(func(a, b): return a.center_score < b.center_score)
+	_append_frontiers(candidates, selected, scout, nav, 8)
+	candidates.sort_custom(func(a, b): return a.opposite_score < b.opposite_score)
+	_append_frontiers(candidates, selected, scout, nav, MAX_FRONTIERS)
+	result.frontiers = selected
+	return result
+
+
+## Pure exploration geometry changes only when the explored mask or map geometry
+## changes. Current scout positions, blockers and routes are checked every call.
+## Retain an explicit mask copy: fog exploration writes into packed arrays in
+## place, so retaining the live array would hide those changes from comparison.
+static func _frontier_geometry(state: MatchState, team: int, mask: PackedByteArray, grid: Vector2i, bounds: Rect2) -> Dictionary:
+	var origin: Vector2 = state.fog.get("map_origin")
+	var size: float = state.fog.get("cell_size")
+	var caches: Dictionary = state.get_meta(FRONTIER_CACHE_META, {})
+	var previous: Dictionary = caches.get(team, {})
+	if not previous.is_empty() and previous.mask == mask and previous.grid == grid and previous.origin == origin and previous.cell_size == size and previous.bounds == bounds:
+		return previous
+	var count := 0
+	for value in mask:
+		if value != 0: count += 1
+	var frontiers: Array = []
 	var stride := maxi(1, ceili(4.0 / size))
 	for y in range(1, grid.y - 1, stride):
 		for x in range(1, grid.x - 1, stride):
@@ -555,21 +659,13 @@ static func _scouting(state: MatchState, team: int, own: Array[Node2D], bounds: 
 					unknown += 1
 					direction += Vector2(offset)
 			if unknown == 0: continue
-			# A small outward probe reveals new cells. Its direction is derived only
-			# from exploration history; it does not claim the unknown land is clear.
 			var point := origin + (Vector2(x, y) + Vector2.ONE * 0.5) * size + direction.normalized() * 4.0
 			point = point.clamp(bounds.position + Vector2.ONE * 2, bounds.end - Vector2.ONE * 2)
-			if nav.is_world_solid(point): continue
-			var distance: float = scout.get("sim_pos").distance_to(point)
-			candidates.append({"pos": Protocol.vec2_to_array(point), "unknown_neighbors": unknown, "distance": distance})
-	candidates.sort_custom(func(a, b): return a.distance < b.distance)
-	var selected: Array = []
-	_append_frontiers(candidates, selected, scout, nav, 4)
-	candidates.sort_custom(func(a, b): return Protocol.array_to_vec2(a.pos).distance_to(center) + a.distance * 0.15 < Protocol.array_to_vec2(b.pos).distance_to(center) + b.distance * 0.15)
-	_append_frontiers(candidates, selected, scout, nav, 8)
-	candidates.sort_custom(func(a, b): return Protocol.array_to_vec2(a.pos).distance_to(opposite) + a.distance * 0.15 < Protocol.array_to_vec2(b.pos).distance_to(opposite) + b.distance * 0.15)
-	_append_frontiers(candidates, selected, scout, nav, MAX_FRONTIERS)
-	result.frontiers = selected
+			frontiers.append({"point": point, "unknown_neighbors": unknown})
+	var result := {"mask": mask.duplicate(), "grid": grid, "origin": origin, "cell_size": size, "bounds": bounds,
+		"explored_ratio": snappedf(float(count) / mask.size(), 0.0001), "frontiers": frontiers}
+	caches[team] = result
+	state.set_meta(FRONTIER_CACHE_META, caches)
 	return result
 
 
@@ -584,4 +680,6 @@ static func _append_frontiers(candidates: Array, selected: Array, scout: Node2D,
 		if path.is_empty() or path[-1].distance_to(point) > 2: continue
 		var entry := candidate.duplicate()
 		entry.erase("distance")
+		entry.erase("center_score")
+		entry.erase("opposite_score")
 		selected.append(entry)

@@ -57,6 +57,11 @@ static func get_plan(state: MatchState, entities: Node2D, team: int, base: Vecto
 static func _choose_visible_boundary(state: MatchState, entities: Node2D, team: int, base: Vector2, preferred: Rect2, required: Rect2, bounds: Rect2) -> Rect2:
 	var blockers: Array[Rect2] = []
 	var shores: Array = []
+	# Every edge tested below lies in this bounded base district. Faraway trees
+	# cannot intersect one of those strips; remove them before visibility and the
+	# hundreds of edge-candidate collision scans. Merge the supplied rectangles
+	# as well so custom/small-map callers retain exactly the same search extent.
+	var search_bounds := Rect2(base - Vector2.ONE * 44.5, Vector2.ONE * 89.0).merge(preferred.grow(0.5)).merge(required.grow(0.5))
 	for node in entities.get_children():
 		if not node is Node2D or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
 		if node.has_method("get_water_contours") and not node.get_water_contours().is_empty():
@@ -74,8 +79,10 @@ static func _choose_visible_boundary(state: MatchState, entities: Node2D, team: 
 			size = node.get("block_size")
 		if size == Vector2.ZERO: continue
 		var point: Vector2 = node.get("sim_pos")
+		var rectangle := Rect2(point - size * 0.5, size)
+		if not search_bounds.intersects(rectangle): continue
 		if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, size, true)): continue
-		blockers.append(Rect2(point - size * 0.5, size))
+		blockers.append(rectangle)
 	var clear := true
 	for side: Dictionary in sides(preferred):
 		if _side_collisions(state, team, side, blockers, shores) > 0:

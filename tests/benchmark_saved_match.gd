@@ -149,7 +149,7 @@ func _profile_details() -> Dictionary:
 				for team in 2: fog.fog.rect_visible(team, record.cells),
 		"fog_resource_snapshots": func():
 			for record in fog._static_records:
-				if record.kind == "resource" and (fog._static_seen[0].get(record.id, false) or fog._static_seen[1].get(record.id, false)):
+				if record.kind == "resource" and record.seen_mask != 0:
 					fog._resource_snapshot(record.entity, record.id),
 		"fog_memory_proxies": func(): fog._sync_memory_views(),
 		"fog_visibility": func(): fog._apply_visibility(true, true),

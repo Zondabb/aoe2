@@ -31,6 +31,41 @@ var _composition_invalid := true
 var _pending_mask_frames := 0
 var _polygon_sources: Dictionary = {}
 var _white_texture: ImageTexture
+const FOCUS_MARGIN_PIXELS := 16.0
+var _static_geometry_revision := 0
+var _focus_revision := -1
+var _focus_canvas := Transform2D.IDENTITY
+var _focus_envelopes: Dictionary = {}
+var _focus_sources: Array = []
+
+## Typed fields keep the per-frame merge/sort/copy loop out of Variant-backed
+## dictionaries. Their values still come from the same source sprite state.
+class DrawPart extends RefCounted:
+	var actor: Node2D
+	var source: Node2D
+	var texture: Texture2D
+	var transform := Transform2D.IDENTITY
+	var dynamic := false
+	var needs_outline := false
+	var z := 0
+	var y := 0.0
+	var screen_bounds := Rect2()
+	func _init(owner_actor: Node2D, sprite: Node2D, image: Texture2D, xform: Transform2D, moving: bool, depth: int, world_y: float, bounds := Rect2()) -> void:
+		actor = owner_actor
+		source = sprite
+		texture = image
+		transform = xform
+		dynamic = moving
+		z = depth
+		y = world_y
+		screen_bounds = bounds
+
+class OutlineParameters extends RefCounted:
+	var outline_color := Color(-1, -1, -1, -1)
+	var mask_size := Vector2(-1, -1)
+	var unit_order := -1
+	var frame_uv := Vector4(-1, -1, -1, -1)
+	var outline_step := Vector2(-1, -1)
 
 ## Static sprites do not process every frame. This child receives inherited
 ## transform notifications, including when an actor/ancestor moves or scales.
@@ -39,8 +74,12 @@ class TransformTracker extends Node2D:
 	var source_id := 0
 	func _ready() -> void:
 		set_notify_transform(true)
+		get_global_transform()
 	func _notification(what: int) -> void:
 		if what == NOTIFICATION_TRANSFORM_CHANGED and owner_ref != null:
+			# Consume the invalid global transform so a later ancestor move can
+			# invalidate it again. This tracker has no drawing that would do so.
+			get_global_transform()
 			var renderer: Node = owner_ref.get_ref()
 			if renderer != null:
 				renderer._mark_source_dirty(source_id)
@@ -72,6 +111,8 @@ func _ready() -> void:
 	mask_view = SubViewport.new()
 	mask_view.name = "UnitOcclusionMask"
 	mask_view.disable_3d = true
+	# Copies receive an already interpolated screen transform every draw frame.
+	mask_view.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	mask_view.transparent_bg = true
 	mask_view.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
 	mask_view.render_target_update_mode = SubViewport.UPDATE_DISABLED
@@ -129,7 +170,7 @@ func _register_static_source(actor: Node2D, source: Node2D) -> void:
 	else:
 		# Polygon2D has no texture_changed signal. Geometry polling is confined
 		# to the few terrain polygons; the thousands of static sprites stay cached.
-		_polygon_sources[id] = [source.polygon, source.offset, source.invert_enabled, source.invert_border]
+		_polygon_sources[id] = [source.polygon, source.offset, source.invert_enabled, source.invert_border, source.texture]
 	var tracker := TransformTracker.new()
 	tracker.name = "OcclusionTransformTracker"
 	tracker.owner_ref = weakref(self)
@@ -168,6 +209,7 @@ func _release_copy(id: int) -> void:
 
 func _remove_static_source(id: int) -> void:
 	if not _static_sources.has(id): return
+	_static_geometry_revision += 1
 	_remove_source_cells(id)
 	_static_sources.erase(id)
 	_polygon_sources.erase(id)
@@ -183,6 +225,7 @@ func _remove_source_cells(id: int) -> void:
 	_static_sources[id].cells = []
 
 func _refresh_source(id: int) -> void:
+	_static_geometry_revision += 1
 	var record: Dictionary = _static_sources[id]
 	var source: Node2D = record.source
 	if not is_instance_valid(source):
@@ -191,7 +234,12 @@ func _refresh_source(id: int) -> void:
 	_remove_source_cells(id)
 	_unindexed_sources.erase(id)
 	var bounds := _source_bounds(source)
+	record.bounds = bounds
+	record.world_bounds = Rect2()
 	if not bounds.has_area(): return
+	record.world_transform = source.get_global_transform()
+	record.world_bounds = record.world_transform * bounds
+	record.texture = source.texture if source.texture != null else _opaque_texture()
 	# A CanvasLayer has its own camera transform; keep rare layer actors in the
 	# direct candidate set instead of incorrectly indexing them in world space.
 	var ancestor: Node = source
@@ -200,7 +248,7 @@ func _refresh_source(id: int) -> void:
 			_unindexed_sources[id] = true
 			return
 		ancestor = ancestor.get_parent()
-	var world_bounds: Rect2 = source.get_global_transform() * bounds
+	var world_bounds: Rect2 = record.world_bounds
 	var first := Vector2i((world_bounds.position / SPATIAL_CELL_PIXELS).floor())
 	var last := Vector2i((world_bounds.end / SPATIAL_CELL_PIXELS).floor())
 	for x in range(first.x, last.x + 1):
@@ -223,7 +271,7 @@ func _refresh_registry() -> void:
 			_register_static_actor(node.get_parent())
 	for id in _polygon_sources:
 		var polygon: Polygon2D = _static_sources[id].source
-		var geometry := [polygon.polygon, polygon.offset, polygon.invert_enabled, polygon.invert_border]
+		var geometry := [polygon.polygon, polygon.offset, polygon.invert_enabled, polygon.invert_border, polygon.texture]
 		if geometry != _polygon_sources[id]:
 			_polygon_sources[id] = geometry
 			_mark_source_dirty(id)
@@ -233,17 +281,77 @@ func _refresh_registry() -> void:
 		if _static_sources.has(id): _refresh_source(id)
 	static_registered = _static_sources.size()
 
-func _query_static_sources(screen: Rect2) -> Array:
-	var world_rect: Rect2 = get_viewport().get_canvas_transform().affine_inverse() * screen
-	var first := Vector2i((world_rect.position / SPATIAL_CELL_PIXELS).floor())
-	var last := Vector2i((world_rect.end / SPATIAL_CELL_PIXELS).floor())
+func _query_static_sources(screen: Rect2, unit_bounds: Array[Rect2] = []) -> Array:
+	var inverse := get_viewport().get_canvas_transform().affine_inverse()
+	var regions: Array[Rect2] = unit_bounds if not unit_bounds.is_empty() else [screen]
 	var found := _unindexed_sources.duplicate()
-	for x in range(first.x, last.x + 1):
-		for y in range(first.y, last.y + 1):
-			var cell := Vector2i(x, y)
-			if _spatial_cells.has(cell): found.merge(_spatial_cells[cell])
+	var visited := {}
+	for region in regions:
+		var world_rect: Rect2 = inverse * region
+		var first := Vector2i((world_rect.position / SPATIAL_CELL_PIXELS).floor())
+		var last := Vector2i((world_rect.end / SPATIAL_CELL_PIXELS).floor())
+		for x in range(first.x, last.x + 1):
+			for y in range(first.y, last.y + 1):
+				var cell := Vector2i(x, y)
+				if visited.has(cell): continue
+				visited[cell] = true
+				if _spatial_cells.has(cell): found.merge(_spatial_cells[cell])
 	static_candidates = found.size()
 	return found.keys()
+
+static func _overlaps_units(bounds: Rect2, buckets: Dictionary) -> bool:
+	var first := Vector2i((bounds.position / SPATIAL_CELL_PIXELS).floor())
+	var last := Vector2i((bounds.end / SPATIAL_CELL_PIXELS).floor())
+	for x in range(first.x, last.x + 1):
+		for y in range(first.y, last.y + 1):
+			for unit_rect: Rect2 in buckets.get(Vector2i(x, y), []):
+				if bounds.intersects(unit_rect): return true
+	return false
+
+static func _rect_buckets(regions: Array[Rect2]) -> Dictionary:
+	var buckets := {}
+	for bounds in regions:
+		var first := Vector2i((bounds.position / SPATIAL_CELL_PIXELS).floor())
+		var last := Vector2i((bounds.end / SPATIAL_CELL_PIXELS).floor())
+		for x in range(first.x, last.x + 1):
+			for y in range(first.y, last.y + 1):
+				var cell := Vector2i(x, y)
+				if not buckets.has(cell): buckets[cell] = []
+				buckets[cell].append(bounds)
+	return buckets
+
+func _focused_static_sources(screen: Rect2, unit_parts: Array[DrawPart]) -> Array:
+	var canvas := get_viewport().get_canvas_transform()
+	var reuse := _focus_revision == _static_geometry_revision and _focus_canvas == canvas and _focus_envelopes.size() == unit_parts.size()
+	if reuse:
+		for part in unit_parts:
+			var id := part.source.get_instance_id()
+			if not _focus_envelopes.has(id) or not (_focus_envelopes[id] as Rect2).encloses(part.screen_bounds):
+				reuse = false
+				break
+	if reuse:
+		static_candidates = _focus_sources.size()
+		return _focus_sources
+	# These envelopes are a conservative broad phase, not stale render data.
+	# Exact overlap, visibility, depth and all moving transforms are still read
+	# every frame. Rebuild as soon as any unit leaves its envelope or static
+	# geometry/camera changes; no refresh interval or visual precision changes.
+	_focus_revision = _static_geometry_revision
+	_focus_canvas = canvas
+	_focus_envelopes.clear()
+	var regions: Array[Rect2] = []
+	for part in unit_parts:
+		var envelope := part.screen_bounds.grow(FOCUS_MARGIN_PIXELS)
+		_focus_envelopes[part.source.get_instance_id()] = envelope
+		regions.append(envelope)
+	var buckets := _rect_buckets(regions)
+	_focus_sources = []
+	for id in _query_static_sources(screen, regions):
+		var record: Dictionary = _static_sources[id]
+		if _unindexed_sources.has(id) or (record.has("world_bounds") and _overlaps_units(canvas * record.world_bounds, buckets)):
+			_focus_sources.append(id)
+	static_candidates = _focus_sources.size()
+	return _focus_sources
 
 func _visible(node: CanvasItem) -> bool:
 	return node.get_viewport() == get_viewport() and node.is_visible_in_tree() and node.modulate.a > 0.01
@@ -255,7 +363,7 @@ static func _effective_z(item: CanvasItem) -> int:
 		value += item.z_index
 	return value
 
-static func _before(a: Dictionary, b: Dictionary) -> bool:
+static func _before(a: DrawPart, b: DrawPart) -> bool:
 	if a.z != b.z:
 		return a.z < b.z
 	if a.y != b.y:
@@ -282,28 +390,29 @@ func _opaque_texture() -> ImageTexture:
 		_white_texture = ImageTexture.create_from_image(white)
 	return _white_texture
 
-func _part(actor: Node2D, source: Node2D, dynamic: bool, screen: Rect2) -> Dictionary:
+func _part(actor: Node2D, source: Node2D, dynamic: bool, screen: Rect2) -> DrawPart:
 	if not _visible(source):
-		return {}
+		return null
 	var texture: Texture2D
 	if source is AnimatedSprite2D:
 		if source.sprite_frames == null or not source.sprite_frames.has_animation(source.animation):
-			return {}
+			return null
 		texture = source.sprite_frames.get_frame_texture(source.animation, source.frame)
 	elif source is Sprite2D:
 		texture = source.texture
 	elif source is Polygon2D:
 		texture = source.texture if source.texture != null else _opaque_texture()
 	else:
-		return {}
+		return null
 	if texture == null:
-		return {}
+		return null
 	var transform := source.get_global_transform_with_canvas()
+	if dynamic and actor.has_method("render_canvas_transform"):
+		transform = actor.render_canvas_transform(source)
 	var bounds := _source_bounds(source, texture)
 	if not screen.intersects(transform * bounds):
-		return {}
-	return {"actor": actor, "source": source, "texture": texture, "transform": transform,
-		"dynamic": dynamic, "z": _effective_z(source), "y": source.global_position.y}
+		return null
+	return DrawPart.new(actor, source, texture, transform, dynamic, _effective_z(source), source.global_position.y, transform * bounds)
 
 func update_mask() -> void:
 	var started := Time.get_ticks_usec()
@@ -327,7 +436,7 @@ func update_mask() -> void:
 		_composition_invalid = true
 	var screen := Rect2(Vector2.ZERO, Vector2(size))
 	_refresh_registry()
-	var parts: Array[Dictionary] = []
+	var parts: Array[DrawPart] = []
 	var alive_outlines: Dictionary = {}
 	var shown_outlines: Dictionary = {}
 	var static_count := 0
@@ -343,22 +452,76 @@ func update_mask() -> void:
 			if source == null:
 				continue
 			var part := _part(actor, source, true, screen)
-			if not part.is_empty():
+			if part != null:
 				parts.append(part)
 				break
 	# A viewport without a visible unit needs neither static queries nor a mask.
 	var visible_units := parts.size()
+	var unit_bounds: Array[Rect2] = []
+	for part in parts:
+		unit_bounds.append(part.screen_bounds)
+	var unit_buckets := _rect_buckets(unit_bounds)
 	static_candidates = 0
 	if visible_units > 0:
-		for id in _query_static_sources(screen):
+		var actor_states := {}
+		var canvas := get_viewport().get_canvas_transform()
+		for id in _focused_static_sources(screen, parts):
 			var record: Dictionary = _static_sources[id]
+			if not record.has("world_bounds") or not record.world_bounds.has_area(): continue
+			# Global-transform notifications can be deferred until the transform
+			# is requested. Refresh moved candidates before rejecting their cache.
+			if record.source.get_global_transform() != record.world_transform:
+				_refresh_source(id)
+			var source_canvas: Transform2D = record.source.get_canvas_transform() if _unindexed_sources.has(id) else canvas
+			# Only pixels inside a visible unit can produce an outline. Static
+			# silhouettes elsewhere cannot change the result, including foreground
+			# units clearing depth; omit their copies and repeated property reads.
+			if not _overlaps_units(source_canvas * record.world_bounds, unit_buckets): continue
 			var actor: Node2D = record.actor
 			var source: Node2D = record.source
-			if not _is_static_actor(actor) or not _visible(actor) or actor.get("is_placement_ghost") == true or _effective_z(source) < 0: continue
-			var part := _part(actor, source, false, screen)
-			if not part.is_empty():
-				parts.append(part)
-				static_count += 1
+			var actor_id := actor.get_instance_id()
+			if not actor_states.has(actor_id):
+				actor_states[actor_id] = _is_static_actor(actor) and _visible(actor) and actor.get("is_placement_ghost") != true
+			if not actor_states[actor_id] or not _visible(source): continue
+			var z := _effective_z(source)
+			if z < 0: continue
+			var transform: Transform2D = source_canvas * record.world_transform
+			var bounds: Rect2 = transform * record.bounds
+			if not _overlaps_units(bounds, unit_buckets): continue
+			parts.append(DrawPart.new(actor, source, record.texture, transform, false, z, record.world_transform.origin.y, bounds))
+			static_count += 1
+	# A unit outside every retained static silhouette cannot be occluded and
+	# cannot clear depth for another unit beneath one. Keep all intersecting
+	# foreground units in the mask, but create an outline only where a later
+	# static in the exact Z/Y/tree order can cover that unit.
+	var static_buckets := {}
+	for part in parts:
+		if part.dynamic: continue
+		var bounds := part.screen_bounds
+		var first := Vector2i((bounds.position / SPATIAL_CELL_PIXELS).floor())
+		var last := Vector2i((bounds.end / SPATIAL_CELL_PIXELS).floor())
+		for x in range(first.x, last.x + 1):
+			for y in range(first.y, last.y + 1):
+				var cell := Vector2i(x, y)
+				if not static_buckets.has(cell): static_buckets[cell] = []
+				static_buckets[cell].append(part)
+	var relevant_parts: Array[DrawPart] = []
+	for part in parts:
+		if not part.dynamic:
+			relevant_parts.append(part)
+			continue
+		var intersects_static := false
+		var bounds := part.screen_bounds
+		var first := Vector2i((bounds.position / SPATIAL_CELL_PIXELS).floor())
+		var last := Vector2i((bounds.end / SPATIAL_CELL_PIXELS).floor())
+		for x in range(first.x, last.x + 1):
+			for y in range(first.y, last.y + 1):
+				for occluder: DrawPart in static_buckets.get(Vector2i(x, y), []):
+					if not bounds.intersects(occluder.screen_bounds): continue
+					intersects_static = true
+					part.needs_outline = part.needs_outline or _before(part, occluder)
+		if intersects_static: relevant_parts.append(part)
+	parts = relevant_parts
 	for id in outlines.keys():
 		if not alive_outlines.has(id):
 			if is_instance_valid(outlines[id]):
@@ -377,6 +540,7 @@ func update_mask() -> void:
 		var copy := _copy_pool.get(id) as Node2D
 		if copy == null:
 			copy = Polygon2D.new() if source is Polygon2D else Sprite2D.new()
+			copy.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 			copy.material = ShaderMaterial.new()
 			copy.material.shader = DEPTH
 			mask_view.add_child(copy)
@@ -406,7 +570,7 @@ func update_mask() -> void:
 		if copy.get_index() != order - 1:
 			mask_view.move_child(copy, order - 1)
 			composition_changed = true
-		if part.dynamic and static_count > 0:
+		if part.dynamic and part.needs_outline:
 			_update_outline(part, order)
 			shown_outlines[part.actor.get_instance_id()] = true
 	for id in outlines:
@@ -464,7 +628,7 @@ static func _copy_polygon(copy: Polygon2D, source: Polygon2D, texture: Texture2D
 		changed = true
 	return changed
 
-func _update_outline(part: Dictionary, order: int) -> void:
+func _update_outline(part: DrawPart, order: int) -> void:
 	var actor: Node2D = part.actor
 	var source: Node2D = part.source
 	var id := actor.get_instance_id()
@@ -472,6 +636,9 @@ func _update_outline(part: Dictionary, order: int) -> void:
 	if overlay == null:
 		overlay = Sprite2D.new()
 		overlay.name = "OccludedOutline"
+		# Its parent supplies the actor interpolation; this local copy is updated
+		# in _process and must not acquire a second interpolation delay.
+		overlay.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 		overlay.z_index = 2
 		overlay.material = ShaderMaterial.new()
 		overlay.material.shader = OUTLINE
@@ -490,12 +657,27 @@ func _update_outline(part: Dictionary, order: int) -> void:
 		uv = Rect2(texture.region.position / sheet_size, texture.region.size / sheet_size)
 	var pixel_scale: float = minf(part.transform.x.length(), part.transform.y.length())
 	var color := COLORS.fallback_color(COLORS.resolve_color_id(int(actor.get("team")), actor.get("match_state")))
-	if not _outline_params.has(id): _outline_params[id] = {}
-	var parameters := {"outline_color": color.lightened(0.2), "mask_size": Vector2(mask_view.size),
-		"unit_order":float(order), "frame_uv":Vector4(uv.position.x, uv.position.y, uv.end.x, uv.end.y),
-		"outline_step":Vector2.ONE / sheet_size * maxf(1.0, 1.5 / maxf(pixel_scale, 0.01))}
-	for key in parameters:
-		if _outline_params[id].get(key) != parameters[key]:
-			overlay.material.set_shader_parameter(key, parameters[key])
-			_outline_params[id][key] = parameters[key]
+	var parameters: OutlineParameters = _outline_params.get(id)
+	if parameters == null:
+		parameters = OutlineParameters.new()
+		_outline_params[id] = parameters
+	var outline_color := color.lightened(0.2)
+	if parameters.outline_color != outline_color:
+		overlay.material.set_shader_parameter(&"outline_color", outline_color)
+		parameters.outline_color = outline_color
+	var mask_size := Vector2(mask_view.size)
+	if parameters.mask_size != mask_size:
+		overlay.material.set_shader_parameter(&"mask_size", mask_size)
+		parameters.mask_size = mask_size
+	if parameters.unit_order != order:
+		overlay.material.set_shader_parameter(&"unit_order", float(order))
+		parameters.unit_order = order
+	var frame_uv := Vector4(uv.position.x, uv.position.y, uv.end.x, uv.end.y)
+	if parameters.frame_uv != frame_uv:
+		overlay.material.set_shader_parameter(&"frame_uv", frame_uv)
+		parameters.frame_uv = frame_uv
+	var outline_step := Vector2.ONE / sheet_size * maxf(1.0, 1.5 / maxf(pixel_scale, 0.01))
+	if parameters.outline_step != outline_step:
+		overlay.material.set_shader_parameter(&"outline_step", outline_step)
+		parameters.outline_step = outline_step
 	if not overlay.visible: overlay.show()

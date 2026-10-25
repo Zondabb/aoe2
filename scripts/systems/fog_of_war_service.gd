@@ -18,6 +18,9 @@ var revision := 0
 var elapsed_ms := 0.0
 var ready := false
 var dirty := false
+var _static_sources: Dictionary = {}
+var _static_masks: Dictionary = {}
+var _static_rows: Dictionary = {}
 
 func setup(minimum: float, maximum: float, size := 1.0) -> void:
 	setup_rect(Vector2(minimum, minimum), Vector2(maximum, maximum), size)
@@ -33,6 +36,9 @@ func setup_rect(minimum: Vector2, maximum: Vector2, size := 1.0) -> void:
 	reset()
 
 func reset() -> void:
+	_static_sources.clear()
+	_static_masks.clear()
+	_static_rows.clear()
 	for team in Enums.Team.values():
 		var mask := PackedByteArray()
 		mask.resize(grid_size.x * grid_size.y)
@@ -126,6 +132,22 @@ static func radius_of(entity: Object) -> float:
 func rebuild(entities: Array) -> void:
 	var started := Time.get_ticks_usec()
 	var changed := not ready
+	# A completed wall ring contributes hundreds of stationary circles. Cache
+	# their union; moving units still stamp their exact position each refresh.
+	# Use value signatures so moves, upgrades, deaths and team changes invalidate
+	# immediately, including callers that directly mutate simulation fields.
+	var stationary := {0: [], 1: []}
+	var moving := {0: [], 1: []}
+	for entity in entities:
+		if not is_instance_valid(entity): continue
+		var team: Variant = entity.get("team")
+		if not stationary.has(team): continue
+		if entity.get("is_placement_ghost") == true or entity.get("hp") == null or float(entity.get("hp")) <= 0: continue
+		var radius := radius_of(entity)
+		if radius <= 0: continue
+		var source := [entity.get("sim_pos"), radius]
+		if entity.get("def") is BuildingDef: stationary[team].append(source)
+		else: moving[team].append(source)
 	for team in Enums.Team.values():
 		var mask := PackedByteArray()
 		mask.resize(grid_size.x * grid_size.y)
@@ -136,17 +158,16 @@ func rebuild(entities: Array) -> void:
 		row_max.resize(grid_size.y)
 		row_min.fill(side)
 		row_max.fill(-1)
-		var count := 0
-		for entity in entities:
-			if not is_instance_valid(entity) or entity.get("team") != team:
-				continue
-			if entity.get("is_placement_ghost") == true or entity.get("hp") == null or float(entity.get("hp")) <= 0:
-				continue
-			var radius := radius_of(entity)
-			if radius <= 0:
-				continue
-			count += 1
-			_stamp(mask, entity.get("sim_pos"), radius, row_min, row_max)
+		if not _static_sources.has(team) or _static_sources[team] != stationary[team]:
+			for source in stationary[team]: _stamp(mask, source[0], source[1], row_min, row_max)
+			_static_sources[team] = stationary[team]
+			_static_masks[team] = mask.duplicate()
+			_static_rows[team] = [row_min.duplicate(), row_max.duplicate()]
+		else:
+			mask = _static_masks[team].duplicate()
+			row_min = _static_rows[team][0].duplicate()
+			row_max = _static_rows[team][1].duplicate()
+		for source in moving[team]: _stamp(mask, source[0], source[1], row_min, row_max)
 		changed = changed or visible_now[team] != mask
 		visible_now[team] = mask
 		var history: PackedByteArray = explored[team]
@@ -154,7 +175,7 @@ func rebuild(entities: Array) -> void:
 			if mask[i] != 0:
 				history[i] = 255
 		explored[team] = history
-		source_counts[team] = count
+		source_counts[team] = stationary[team].size() + moving[team].size()
 	ready = true
 	dirty = false
 	if changed:

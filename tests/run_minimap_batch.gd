@@ -9,6 +9,7 @@ class MarkerLayer extends Control:
 	func _draw() -> void:
 		if batched:
 			if map._marker_mesh != null: draw_mesh(map._marker_mesh, null)
+			if map._tail_marker_mesh != null: draw_mesh(map._tail_marker_mesh, null)
 		else:
 			for marker in map._markers:
 				var polygon := map._marker_polygon(marker)
@@ -41,13 +42,13 @@ func _run() -> void:
 		map._markers.append({"sim_pos": Vector2(team * 30, 5), "minimap_kind": "unit", "team": team,
 			"footprint": Vector2.ONE, "memory": false})
 	map._rebuild_marker_mesh()
-	check(map._marker_mesh.get_surface_count() == 1, "1004 markers share one mesh surface")
-	var arrays := map._marker_mesh.surface_get_arrays(0)
+	check(map._marker_mesh.get_surface_count() == 1 and map._tail_marker_mesh.get_surface_count() == 1, "static prefix and mobile tail each use one mesh surface")
+	var arrays := _mesh_arrays(map)
 	check(arrays[Mesh.ARRAY_VERTEX].size() == 4016 and arrays[Mesh.ARRAY_INDEX].size() == 6024, "one quad and two triangles per marker")
 	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
 	check(_color_distance(colors[0], map.marker_color(map._markers[0])) <= 1.0 / 255.0 and _color_distance(colors[4], map.marker_color(map._markers[1])) <= 1.0 / 255.0, "visible and remembered colors survive 8-bit mesh color storage")
 	state.set_team_color_id(0, 4)
-	arrays = map._marker_mesh.surface_get_arrays(0)
+	arrays = _mesh_arrays(map)
 	check(_color_distance(arrays[Mesh.ARRAY_COLOR][4000], map.marker_color(map._markers[1000])) <= 1.0 / 255.0, "palette changes immediately refresh cached marker colors")
 	map._markers.append({"sim_pos": Vector2(240, 240), "minimap_kind": "building", "team": 0,
 		"footprint": Vector2(20, 20), "memory": true})
@@ -61,10 +62,28 @@ func _run() -> void:
 	check(map._marker_mesh_size == map.size, "resizing refreshes the cached projection")
 	map._markers.clear()
 	map._rebuild_marker_mesh()
-	check(map._marker_mesh == null, "empty visibility clears the previous marker surface")
+	check(map._marker_mesh == null and map._tail_marker_mesh == null, "empty visibility clears both previous marker surfaces")
 	map.free()
 	print("MINIMAP BATCH: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)
+
+func _mesh_arrays(map: Minimap) -> Array:
+	var vertices := PackedVector2Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	for mesh in [map._marker_mesh, map._tail_marker_mesh]:
+		if mesh == null: continue
+		var part: Array = mesh.surface_get_arrays(0)
+		var base := vertices.size()
+		vertices.append_array(part[Mesh.ARRAY_VERTEX])
+		colors.append_array(part[Mesh.ARRAY_COLOR])
+		for index in part[Mesh.ARRAY_INDEX]: indices.append(base + index)
+	var result := []
+	result.resize(Mesh.ARRAY_MAX)
+	result[Mesh.ARRAY_VERTEX] = vertices
+	result[Mesh.ARRAY_COLOR] = colors
+	result[Mesh.ARRAY_INDEX] = indices
+	return result
 
 func _compare_pixels(map: Minimap) -> void:
 	var views: Array[SubViewport] = []

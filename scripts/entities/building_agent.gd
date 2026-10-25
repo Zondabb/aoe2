@@ -113,18 +113,26 @@ func _process(delta: float) -> void:
 func _update_gate() -> void:
 	if def == null or def.id != &"gate": return
 	var should_open := is_complete and gate_state == "open"
+	# Every real unit registers this group in _ready. Walls and natural
+	# resources cannot open or occupy a door, so never scan them here.
+	var nearby_candidates: Array = []
+	if is_inside_tree() and (is_complete and gate_state == "auto" or gate_open and not should_open):
+		nearby_candidates = get_tree().get_nodes_in_group("units")
 	if is_complete and gate_state == "auto" and is_inside_tree():
-		for node in get_parent().get_children():
+		for node in nearby_candidates:
+			if node.get_parent() != get_parent(): continue
 			if node.get("def") is UnitDef and node.get("team") == team and float(node.get("hp")) > 0 and not node.is_queued_for_deletion():
-				if sim_pos.distance_to(node.get("sim_pos")) <= 7.0:
+				if sim_pos.distance_squared_to(node.get("sim_pos")) <= 49.0:
 					should_open = true
 					break
 	# Do not close a door on a unit already occupying its footprint.
 	if gate_open and not should_open and is_inside_tree():
-		for node in get_parent().get_children():
+		var half := get_placement_footprint() * 0.5 + Vector2.ONE * 0.5
+		for node in nearby_candidates:
+			if node.get_parent() != get_parent(): continue
 			if node.get("def") is UnitDef and float(node.get("hp")) > 0:
 				var offset: Vector2 = (node.get("sim_pos") - sim_pos).abs()
-				if offset.x < get_placement_footprint().x * 0.5 + 0.5 and offset.y < get_placement_footprint().y * 0.5 + 0.5:
+				if offset.x < half.x and offset.y < half.y:
 					should_open = true
 					break
 	var changed := gate_open != should_open
@@ -146,6 +154,8 @@ func _update_gate() -> void:
 	if visual != null: visual.refresh()
 
 func _ready() -> void:
+	# Buildings and cursor previews have no simulated motion to interpolate.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_visual_age = match_state.age_of(team) if match_state != null else 0
 	if match_state != null and not match_state.age_changed.is_connected(_on_age_changed):
 		match_state.age_changed.connect(_on_age_changed)

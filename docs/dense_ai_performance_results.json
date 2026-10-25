@@ -1,0 +1,758 @@
+{
+  "schema_version": 1,
+  "task": "多单位、城墙与AI帧率优化",
+  "report_date_local": "2026-10-25",
+  "timezone": "Asia/Shanghai",
+  "baseline_commit": "4f33b9c01e29e2f9bf7add597b1a5024e10e5bb9",
+  "optimized_revision": "working_tree",
+  "measurement": {
+    "kind": "actual_gpu_rendering",
+    "headless": false,
+    "os_display_server": "Windows",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+    "gpu": "NVIDIA GeForce RTX 3060",
+    "engine_version": "4.7.2.stable.official.ed1daf0bf",
+    "rendering_method": "gl_compatibility",
+    "graphics_api": "OpenGL 3.3.0",
+    "driver": "NVIDIA 595.79",
+    "resolution": [
+      1280,
+      720
+    ],
+    "camera_zoom": 0.6,
+    "time_scale": 2.0,
+    "fixed_render_fps_argument": 60,
+    "warmup_render_frames": 120,
+    "sample_render_frames": 600,
+    "nominal_sample_simulation_seconds": 20.0,
+    "seed": 12345,
+    "rounds_per_configuration": 1,
+    "execution": "serial; no concurrent performance benchmarks or test processes",
+    "baseline_physics_hz": 60,
+    "final_physics_hz": 30,
+    "baseline_physics_interpolation": false,
+    "final_physics_interpolation": true,
+    "raw_renderer_field_note": "WALL BENCHMARK.renderer contains the DisplayServer name Windows; the log header confirms OpenGL Compatibility.",
+    "legacy_observation_bytes_note_zh": "历史日志的observation_bytes实际记录String.length()字符数，不是UTF-8字节数，不能用于精确带宽计算；raw_benchmark保留历史键和值。后续基准输出已将该键更名为observation_characters，不影响本轮FPS或行为结果。"
+  },
+  "cases": [
+    {
+      "id": "69_units_216_completed_walls_full_observation",
+      "description_zh": "69单位、216块完整城墙、内置AI和每1模拟秒一次完整观测",
+      "units": 69,
+      "wall_pieces": 216,
+      "observation_interval_sim_sec": 1.0,
+      "before": {
+        "source_log": ".godot/dense-gpu-69-observation-before.log",
+        "source_contains_script_errors": false,
+        "raw_benchmark": {
+          "ai": true,
+          "average_fps": 31.4,
+          "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+          "entity_children": 1361,
+          "fog_revisions": 176,
+          "frame_ms": {
+            "max": 134.26,
+            "mean": 31.83,
+            "p50": 28.93,
+            "p95": 52.38,
+            "p99": 124.37
+          },
+          "frames_over_16ms": 600,
+          "frames_over_33ms": 163,
+          "gate_toggles": 8,
+          "gates": 4,
+          "gpu": "NVIDIA GeForce RTX 3060",
+          "initial_units": 69,
+          "observation_background_encodes": 0,
+          "observation_build_ms": {
+            "max": 77.38,
+            "mean": 68.67,
+            "p50": 68.9,
+            "p95": 77.38,
+            "p99": 77.38
+          },
+          "observation_bytes": 217612,
+          "observation_interval_sim_sec": 1.0,
+          "observation_latency_ms": {
+            "max": 99.65,
+            "mean": 90.85,
+            "p50": 91.18,
+            "p95": 99.65,
+            "p99": 99.65
+          },
+          "observation_prepare_ms": {
+            "max": 100.4,
+            "mean": 91.6,
+            "p50": 91.91,
+            "p95": 100.4,
+            "p99": 100.4
+          },
+          "observation_ticks": 19,
+          "physics_hz": 60,
+          "physics_interpolation": false,
+          "rejected_batches": 0,
+          "renderer": "Windows",
+          "resolution": [
+            1280,
+            720
+          ],
+          "resources_gathered": 79590,
+          "sample_frames": 600,
+          "scenario": "walls",
+          "steering_reused": 0,
+          "steering_solved": 0,
+          "time_scale": 2.0,
+          "units_moved": 64,
+          "wall_pieces": 216,
+          "walls_completed_during_sample": 0
+        }
+      },
+      "after": {
+        "source_log": ".godot/dense-gpu-69-budgeted-final.log",
+        "source_contains_script_errors": false,
+        "raw_benchmark": {
+          "ai": true,
+          "average_fps": 55.7,
+          "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+          "entity_children": 1361,
+          "fog_revisions": 139,
+          "frame_ms": {
+            "max": 53.52,
+            "mean": 17.96,
+            "p50": 17.32,
+            "p95": 33.32,
+            "p99": 44.45
+          },
+          "frames_over_16ms": 315,
+          "frames_over_33ms": 30,
+          "gate_toggles": 8,
+          "gates": 4,
+          "gpu": "NVIDIA GeForce RTX 3060",
+          "initial_units": 69,
+          "observation_background_encodes": 19,
+          "observation_budget_usec": 4000,
+          "observation_build_ms": {
+            "max": 220.46,
+            "mean": 190.22,
+            "p50": 194.53,
+            "p95": 220.46,
+            "p99": 220.46
+          },
+          "observation_bytes": 209364,
+          "observation_interval_sim_sec": 1.0,
+          "observation_latency_ms": {
+            "max": 265.49,
+            "mean": 240.3,
+            "p50": 245.4,
+            "p95": 265.49,
+            "p99": 265.49
+          },
+          "observation_main_slice_ms": {
+            "max": 20.33,
+            "mean": 6.26,
+            "p50": 4.05,
+            "p95": 17.0,
+            "p99": 19.44
+          },
+          "observation_prepare_ms": {
+            "max": 4.06,
+            "mean": 4.05,
+            "p50": 4.05,
+            "p95": 4.06,
+            "p99": 4.06
+          },
+          "observation_ticks": 19,
+          "physics_hz": 30,
+          "physics_interpolation": true,
+          "rejected_batches": 0,
+          "renderer": "Windows",
+          "resolution": [
+            1280,
+            720
+          ],
+          "resources_gathered": 79590,
+          "sample_frames": 600,
+          "scenario": "walls",
+          "steering_reused": 431,
+          "steering_solved": 614,
+          "time_scale": 2.0,
+          "units_moved": 64,
+          "wall_pieces": 216,
+          "walls_completed_during_sample": 0
+        }
+      }
+    },
+    {
+      "id": "69_units_216_wall_foundations_full_observation",
+      "description_zh": "69单位、216块规划墙体施工、内置AI和每1模拟秒一次完整观测",
+      "units": 69,
+      "wall_pieces": 216,
+      "observation_interval_sim_sec": 1.0,
+      "before": {
+        "source_log": ".godot/dense-gpu-69-building-before.log",
+        "source_contains_script_errors": false,
+        "raw_benchmark": {
+          "ai": true,
+          "average_fps": 41.9,
+          "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+          "entity_children": 1361,
+          "fog_revisions": 114,
+          "frame_ms": {
+            "max": 132.42,
+            "mean": 23.89,
+            "p50": 19.9,
+            "p95": 45.52,
+            "p99": 105.84
+          },
+          "frames_over_16ms": 362,
+          "frames_over_33ms": 84,
+          "gate_toggles": 0,
+          "gates": 4,
+          "gpu": "NVIDIA GeForce RTX 3060",
+          "initial_units": 69,
+          "observation_background_encodes": 0,
+          "observation_budget_usec": 0,
+          "observation_build_ms": {
+            "max": 72.19,
+            "mean": 63.97,
+            "p50": 63.47,
+            "p95": 72.19,
+            "p99": 72.19
+          },
+          "observation_bytes": 208492,
+          "observation_interval_sim_sec": 1.0,
+          "observation_latency_ms": {
+            "max": 94.66,
+            "mean": 85.09,
+            "p50": 84.65,
+            "p95": 94.66,
+            "p99": 94.66
+          },
+          "observation_main_slice_ms": {
+            "max": 72.19,
+            "mean": 63.97,
+            "p50": 63.47,
+            "p95": 72.19,
+            "p99": 72.19
+          },
+          "observation_prepare_ms": {
+            "max": 95.39,
+            "mean": 85.81,
+            "p50": 85.43,
+            "p95": 95.39,
+            "p99": 95.39
+          },
+          "observation_ticks": 19,
+          "physics_hz": 60,
+          "physics_interpolation": false,
+          "rejected_batches": 0,
+          "renderer": "Windows",
+          "resolution": [
+            1280,
+            720
+          ],
+          "resources_gathered": 79735,
+          "sample_frames": 600,
+          "scenario": "build",
+          "steering_reused": 0,
+          "steering_solved": 0,
+          "time_scale": 2.0,
+          "units_moved": 26,
+          "wall_pieces": 216,
+          "walls_completed_during_sample": 31
+        }
+      },
+      "after": {
+        "source_log": ".godot/dense-gpu-69-building-final.log",
+        "source_contains_script_errors": false,
+        "raw_benchmark": {
+          "ai": true,
+          "average_fps": 64.1,
+          "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+          "entity_children": 1361,
+          "fog_revisions": 101,
+          "frame_ms": {
+            "max": 48.57,
+            "mean": 15.59,
+            "p50": 13.63,
+            "p95": 32.01,
+            "p99": 42.04
+          },
+          "frames_over_16ms": 249,
+          "frames_over_33ms": 25,
+          "gate_toggles": 0,
+          "gates": 4,
+          "gpu": "NVIDIA GeForce RTX 3060",
+          "initial_units": 69,
+          "observation_background_encodes": 19,
+          "observation_budget_usec": 4000,
+          "observation_build_ms": {
+            "max": 207.53,
+            "mean": 173.72,
+            "p50": 172.32,
+            "p95": 207.53,
+            "p99": 207.53
+          },
+          "observation_bytes": 208531,
+          "observation_interval_sim_sec": 1.0,
+          "observation_latency_ms": {
+            "max": 252.92,
+            "mean": 220.37,
+            "p50": 220.78,
+            "p95": 252.92,
+            "p99": 252.92
+          },
+          "observation_main_slice_ms": {
+            "max": 21.77,
+            "mean": 6.12,
+            "p50": 4.06,
+            "p95": 14.35,
+            "p99": 18.37
+          },
+          "observation_prepare_ms": {
+            "max": 4.05,
+            "mean": 4.05,
+            "p50": 4.05,
+            "p95": 4.05,
+            "p99": 4.05
+          },
+          "observation_ticks": 19,
+          "physics_hz": 30,
+          "physics_interpolation": true,
+          "rejected_batches": 0,
+          "renderer": "Windows",
+          "resolution": [
+            1280,
+            720
+          ],
+          "resources_gathered": 79735,
+          "sample_frames": 600,
+          "scenario": "build",
+          "steering_reused": 0,
+          "steering_solved": 0,
+          "time_scale": 2.0,
+          "units_moved": 26,
+          "wall_pieces": 216,
+          "walls_completed_during_sample": 32
+        }
+      },
+      "construction_note_zh": "采样期间完成墙体31块至32块；30Hz物理会产生跨tick事件量化差异。"
+    },
+    {
+      "id": "89_units_432_completed_walls_native_ai",
+      "description_zh": "89单位、432块完整城墙、内置AI，不额外周期性构建完整观测",
+      "units": 89,
+      "wall_pieces": 432,
+      "observation_interval_sim_sec": 0.0,
+      "before": {
+        "source_log": ".godot/dense-gpu-89-before.log",
+        "source_contains_script_errors": false,
+        "raw_benchmark": {
+          "ai": true,
+          "average_fps": 27.6,
+          "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+          "entity_children": 1597,
+          "fog_revisions": 185,
+          "frame_ms": {
+            "max": 82.56,
+            "mean": 36.19,
+            "p50": 33.38,
+            "p95": 58.12,
+            "p99": 73.39
+          },
+          "frames_over_16ms": 600,
+          "frames_over_33ms": 302,
+          "gate_toggles": 6,
+          "gates": 8,
+          "gpu": "NVIDIA GeForce RTX 3060",
+          "initial_units": 89,
+          "observation_interval_sim_sec": 0.0,
+          "physics_hz": 60,
+          "physics_interpolation": false,
+          "rejected_batches": 0,
+          "renderer": "Windows",
+          "resolution": [
+            1280,
+            720
+          ],
+          "resources_gathered": 79415,
+          "sample_frames": 600,
+          "scenario": "walls",
+          "steering_reused": 0,
+          "steering_solved": 0,
+          "time_scale": 2.0,
+          "units_moved": 84,
+          "wall_pieces": 432,
+          "walls_completed_during_sample": 0
+        }
+      },
+      "after": {
+        "source_log": ".godot/dense-gpu-89-native-final.log",
+        "source_contains_script_errors": false,
+        "raw_benchmark": {
+          "ai": true,
+          "average_fps": 50.8,
+          "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+          "entity_children": 1597,
+          "fog_revisions": 149,
+          "frame_ms": {
+            "max": 43.22,
+            "mean": 19.68,
+            "p50": 18.19,
+            "p95": 35.81,
+            "p99": 40.8
+          },
+          "frames_over_16ms": 328,
+          "frames_over_33ms": 69,
+          "gate_toggles": 6,
+          "gates": 8,
+          "gpu": "NVIDIA GeForce RTX 3060",
+          "initial_units": 89,
+          "observation_budget_usec": 4000,
+          "observation_interval_sim_sec": 0.0,
+          "physics_hz": 30,
+          "physics_interpolation": true,
+          "rejected_batches": 0,
+          "renderer": "Windows",
+          "resolution": [
+            1280,
+            720
+          ],
+          "resources_gathered": 79415,
+          "sample_frames": 600,
+          "scenario": "walls",
+          "steering_reused": 500,
+          "steering_solved": 994,
+          "time_scale": 2.0,
+          "units_moved": 84,
+          "wall_pieces": 432,
+          "walls_completed_during_sample": 0
+        }
+      }
+    },
+    {
+      "id": "89_units_432_completed_walls_full_observation",
+      "description_zh": "89单位、432块完整城墙、内置AI和每1模拟秒一次完整观测",
+      "units": 89,
+      "wall_pieces": 432,
+      "observation_interval_sim_sec": 1.0,
+      "before": null,
+      "after": {
+        "source_log": ".godot/dense-gpu-89-budgeted-final.log",
+        "source_contains_script_errors": false,
+        "raw_benchmark": {
+          "ai": true,
+          "average_fps": 44.3,
+          "cpu": "13th Gen Intel(R) Core(TM) i5-13400F",
+          "entity_children": 1597,
+          "fog_revisions": 149,
+          "frame_ms": {
+            "max": 57.99,
+            "mean": 22.55,
+            "p50": 21.87,
+            "p95": 42.93,
+            "p99": 52.19
+          },
+          "frames_over_16ms": 360,
+          "frames_over_33ms": 132,
+          "gate_toggles": 6,
+          "gates": 8,
+          "gpu": "NVIDIA GeForce RTX 3060",
+          "initial_units": 89,
+          "observation_background_encodes": 19,
+          "observation_budget_usec": 4000,
+          "observation_build_ms": {
+            "max": 284.5,
+            "mean": 252.99,
+            "p50": 253.36,
+            "p95": 284.5,
+            "p99": 284.5
+          },
+          "observation_bytes": 225909,
+          "observation_interval_sim_sec": 1.0,
+          "observation_latency_ms": {
+            "max": 339.11,
+            "mean": 308.41,
+            "p50": 308.06,
+            "p95": 339.11,
+            "p99": 339.11
+          },
+          "observation_main_slice_ms": {
+            "max": 22.39,
+            "mean": 6.01,
+            "p50": 4.05,
+            "p95": 16.7,
+            "p99": 20.69
+          },
+          "observation_prepare_ms": {
+            "max": 4.07,
+            "mean": 4.05,
+            "p50": 4.05,
+            "p95": 4.07,
+            "p99": 4.07
+          },
+          "observation_ticks": 19,
+          "physics_hz": 30,
+          "physics_interpolation": true,
+          "rejected_batches": 0,
+          "renderer": "Windows",
+          "resolution": [
+            1280,
+            720
+          ],
+          "resources_gathered": 79415,
+          "sample_frames": 600,
+          "scenario": "walls",
+          "steering_reused": 467,
+          "steering_solved": 985,
+          "time_scale": 2.0,
+          "units_moved": 84,
+          "wall_pieces": 432,
+          "walls_completed_during_sample": 0
+        }
+      },
+      "comparison_note_zh": "此完整观测重场景没有纳入有效的同配置旧版基线；不能将无额外观测的89单位结果当作同负载对照。"
+    }
+  ],
+  "interpretation": {
+    "target_status": "partially_achieved",
+    "stable_60fps_for_all_cases": false,
+    "summary_zh": "69单位、216墙的完整观测场景平均55.7 FPS，施工场景64.1 FPS，接近60左右的目标；89单位、432墙并周期性完整观测仍为44.3 FPS，未达到稳定60 FPS。",
+    "single_run_caveat_zh": "同机每配置单轮串行，不能据此保证不同硬件或任意单位数量下的稳定帧率。",
+    "latency_note_zh": "预算版observation_build_ms与observation_latency_ms包含跨多个渲染窗口的墙钟总延迟，不是主线程CPU耗时；observation_main_slice_ms用于查看各主线程工作片段。",
+    "prepare_note_zh": "observation_prepare_ms为采样循环启动准备协程时的首段调用耗时，不能当成全部观测CPU成本。",
+    "frame_threshold_note_zh": "frames_over_16ms使用16.667ms阈值，frames_over_33ms使用33.3ms阈值；原始字段名称原样保留。",
+    "soft_budget_note_zh": "4ms观测预算仅在检查点之间让出，单个规划阶段仍不可抢占；2ms寻路队列预算也不能中断单条A*。"
+  },
+  "excluded_logs": [
+    {
+      "source_log": ".godot/dense-gpu-89-observation-final.log",
+      "reason": "Contains SCRIPT ERROR / compilation failures; excluded from all benchmark results."
+    }
+  ],
+  "validation": {
+    "all_recorded_suites_pass": true,
+    "root_confirmation_received": true,
+    "headless_source": ".godot/dense-final-test-results.json",
+    "gpu_source": ".godot/dense-final-gpu-test-results.json",
+    "headless_suites_passed": 31,
+    "gpu_suites_passed": 4,
+    "total_suites_passed": 35,
+    "headless": [
+      {
+        "test": "run_budgeted_gateway",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "BUDGETED GATEWAY: 170 checks, 0 failures"
+      },
+      {
+        "test": "run_budgeted_observation",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "BUDGETED OBSERVATION: 24 checks, 0 failures"
+      },
+      {
+        "test": "run_budgeted_decision_context",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "BUDGETED DECISION CONTEXT: 27 checks, 0 failures"
+      },
+      {
+        "test": "run_http_json_encoding",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "HTTP JSON ENCODING: 40 checks, 0 failures"
+      },
+      {
+        "test": "run_http_ai_cancellation",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "HTTP AI CANCELLATION: cancellation checks completed without request warnings | HTTP AI CANCELLATION: 66 checks, 0 failures"
+      },
+      {
+        "test": "run_ai_gateway_lifecycle",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "AI GATEWAY LIFECYCLE: 55 checks, 0 failures"
+      },
+      {
+        "test": "run_multi_agent_gateway",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "MULTI AGENT GATEWAY: 85 checks, 0 failures"
+      },
+      {
+        "test": "run_ai_observation_cache",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "AI OBSERVATION CACHE: 48 checks, 0 failures"
+      },
+      {
+        "test": "run_external_ai_visibility",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "EXTERNAL AI VISIBILITY: 12 checks, 0 failures"
+      },
+      {
+        "test": "run_spatial_hash_rows",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "SPATIAL HASH ROWS: 1663 checks, 0 failures"
+      },
+      {
+        "test": "run_unit_neighbor_index",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "UNIT NEIGHBOUR INDEX: 108 checks, 0 failures"
+      },
+      {
+        "test": "run_scheduled_avoidance",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "SCHEDULED AVOIDANCE: 20 checks, 0 failures, delta 0.0333"
+      },
+      {
+        "test": "run_avoidance_body_pruning",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "AVOIDANCE BODY PRUNING: 24001 checks, 0 failures, 3516 discarded neighbours"
+      },
+      {
+        "test": "run_crowd_movement",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "CROWD MOVEMENT: 95 checks, 0 failures"
+      },
+      {
+        "test": "run_static_navigation",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "STATIC NAVIGATION: 3831 checks, 0 failures"
+      },
+      {
+        "test": "run_navigation_radius_queries",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "NAVIGATION RADIUS QUERIES: 2128 checks, 0 failures, 10 A* synchronizations"
+      },
+      {
+        "test": "run_fog_cache",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "FOG CACHE: 49 checks, 0 failures"
+      },
+      {
+        "test": "run_fog_of_war",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "FOG TESTS: 73 checks, 0 failures"
+      },
+      {
+        "test": "run_fog_static_sources",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "FOG STATIC SOURCES: 5491 checks, 0 failures, 685 refreshes, 18790108 compared bytes"
+      },
+      {
+        "test": "run_minimap_incremental",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "MINIMAP INCREMENTAL: 64 checks, 0 failures"
+      },
+      {
+        "test": "run_minimap_cache",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "MINIMAP CACHE: 47 checks, 0 failures"
+      },
+      {
+        "test": "run_unit_presentation_cache",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "UNIT PRESENTATION CACHE: 1288 checks, 0 failures"
+      },
+      {
+        "test": "run_wall_system",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "WALL SYSTEM: 93 checks, 0 failures"
+      },
+      {
+        "test": "run_wall_controls",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "WALL CONTROLS: 43 checks, 0 failures"
+      },
+      {
+        "test": "run_gate_static_index",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "GATE STATIC INDEX: 12 checks, 0 failures, 24 toggles, 13 compared"
+      },
+      {
+        "test": "run_simulation_tick_rates",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "SIMULATION TICK RATES: 117 checks, 0 failures"
+      },
+      {
+        "test": "run_resource_gathering",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "RESOURCE GATHERING: 55 checks, 0 failures"
+      },
+      {
+        "test": "run_ranged_combat",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "Ranged combat: 2966 checks, 0 failures"
+      },
+      {
+        "test": "run_siege_combat",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "Siege combat: 110 checks, 0 failures"
+      },
+      {
+        "test": "run_save_game",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "SAVE GAME TESTS: 79 checks, 0 failures"
+      },
+      {
+        "test": "run_network_runtime",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "NETWORK RUNTIME TESTS PASSED"
+      }
+    ],
+    "gpu": [
+      {
+        "test": "render_occlusion_focus",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "FOCUSED OCCLUSION RENDER: 21 checks, 0 failures"
+      },
+      {
+        "test": "render_physics_interpolation",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "PHYSICS INTERPOLATION DISPLAY: 186 checks, 0 failures, 36 intermediate frames, 20 outline frames"
+      },
+      {
+        "test": "render_unit_occlusion",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "UNIT OCCLUSION RENDER: 69 checks, 0 failures"
+      },
+      {
+        "test": "run_minimap_batch",
+        "exit_code": 0,
+        "ok": true,
+        "summary": "MINIMAP BATCH: 13 checks, 0 failures"
+      }
+    ],
+    "display_test_count_note_zh": "插值显示测试的检查数随捕获帧数变化，此轮记录为186项。"
+  }
+}

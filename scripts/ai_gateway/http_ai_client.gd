@@ -2,6 +2,33 @@ class_name HttpAiClient
 extends Node
 
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
+const BACKGROUND_ENTITY_COUNT := 96
+const BACKGROUND_VALUE_COUNT := 2048
+const BACKGROUND_TEXT_LENGTH := 32768
+const MAX_JSON_DEPTH := 128
+
+class JsonPayloadInfo extends RefCounted:
+	var values := 0
+	var text_length := 0
+	var large_entities := false
+	var worker_safe := true
+	var error := ""
+
+## The worker Callable retains only this pure-data job, never the HTTP client.
+## Main-thread code reads body only after joining the completed task.
+class JsonEncodingJob extends RefCounted:
+	var snapshot: Dictionary
+	var body := ""
+	func encode() -> void:
+		body = JSON.stringify(AiProtocolScript.json_safe(snapshot))
+
+class RequestFrameWaiter extends RefCounted:
+	signal resumed
+	var released := false
+	func wake() -> void:
+		if released: return
+		released = true
+		resumed.emit()
 
 var config: AiConfig
 
@@ -11,6 +38,9 @@ var _active_result: Dictionary = {}
 var _active_request: Dictionary = {}
 var _cancel_generation := 0
 var _active_generation := -1
+var _json_task_id := -1
+var _json_job: JsonEncodingJob
+var _frame_waiters: Array[RequestFrameWaiter] = []
 var last_error := ""
 
 
@@ -37,6 +67,15 @@ func cancel_requests() -> void:
 		_active_request["done"] = true
 	if _http != null and is_instance_valid(_http):
 		_http.cancel_request()
+	# Native JSON encoding cannot be interrupted. Cancellation/exit joins the
+	# current pure-data task rather than leaving a cleanup coroutine or a worker
+	# that could outlive its owning request's resource bookkeeping.
+	_release_json_task(_json_task_id)
+	# Finish existing Node coroutines while _exit_tree still has a live client.
+	# Waking can resume callers that start a new generation, so touch no old
+	# transport/encoding ownership after this point and wake only this snapshot.
+	for waiter: RequestFrameWaiter in _frame_waiters.duplicate():
+		waiter.wake()
 
 
 func get_health() -> Dictionary:
@@ -154,7 +193,15 @@ func _request_json(method: String, url: String, payload: Dictionary, generation:
 	var headers := _auth_headers()
 	var body := ""
 	if method != "GET":
-		body = JSON.stringify(AiProtocolScript.json_safe(payload))
+		var encoded := await _encode_payload(payload, generation)
+		if generation != _cancel_generation:
+			return {"ok": false, "reason": "cancelled"}
+		if not encoded.get("ok", false):
+			_active = false
+			request["done"] = true
+			request["result"] = encoded
+			return encoded
+		body = encoded.body
 	if generation != _cancel_generation:
 		return {"ok": false, "reason": "cancelled"}
 	var http_method := HTTPClient.METHOD_GET if method == "GET" else HTTPClient.METHOD_POST
@@ -176,11 +223,114 @@ func _request_json(method: String, url: String, payload: Dictionary, generation:
 	return request["result"]
 
 
+## Also usable by the observation benchmark without sending a network request.
+## Small requests and unusual reference-valued variants keep the original
+## synchronous encoder. Web exports retain that path regardless of thread setup.
+func _encode_payload(payload: Dictionary, generation: int = -1) -> Dictionary:
+	if generation == -1: generation = _cancel_generation
+	if generation != _cancel_generation:
+		return {"ok": false, "reason": "cancelled"}
+	var info := JsonPayloadInfo.new()
+	_inspect_json_value(payload, [], info)
+	if not info.error.is_empty():
+		return {"ok": false, "reason": info.error}
+	var large := info.large_entities or info.values >= BACKGROUND_VALUE_COUNT or info.text_length >= BACKGROUND_TEXT_LENGTH
+	if not large or not info.worker_safe or OS.has_feature("web") or not is_inside_tree():
+		return {"ok": true, "body": JSON.stringify(AiProtocolScript.json_safe(payload)), "background": false}
+	# Freeze before any await, including waiting for a direct helper caller's
+	# previous job. A caller can mutate its original payload as soon as we yield.
+	var job := _new_json_job(payload.duplicate(true))
+	# The transport already serializes requests; this additional guard makes
+	# direct benchmark/helper callers obey the same one-encoding-job ownership.
+	while _json_task_id >= 0 and generation == _cancel_generation:
+		if not await _wait_frame():
+			return {"ok": false, "reason": "tree_exited"}
+	if generation != _cancel_generation:
+		return {"ok": false, "reason": "cancelled"}
+	_json_job = job
+	var task_id := WorkerThreadPool.add_task(job.encode, false, "AI JSON encoding")
+	_json_task_id = task_id
+	if task_id < 0:
+		_json_job = null
+		return {"ok": true, "body": JSON.stringify(AiProtocolScript.json_safe(job.snapshot)), "background": false}
+	while not WorkerThreadPool.is_task_completed(task_id):
+		if generation != _cancel_generation:
+			_release_json_task(task_id)
+			return {"ok": false, "reason": "cancelled"}
+		if not await _wait_frame():
+			# _exit_tree joins before a freed client can leave this await behind.
+			if is_instance_valid(self): _release_json_task(task_id)
+			return {"ok": false, "reason": "tree_exited"}
+		# cancel_requests may have joined/released this ID while we yielded.
+		# Never query or wait for an already-released task on the next loop test.
+		if generation != _cancel_generation:
+			return {"ok": false, "reason": "cancelled"}
+	_release_json_task(task_id)
+	if generation != _cancel_generation:
+		return {"ok": false, "reason": "cancelled"}
+	return {"ok": true, "body": job.body, "background": true}
+
+
+func _new_json_job(snapshot: Dictionary) -> JsonEncodingJob:
+	var job := JsonEncodingJob.new()
+	job.snapshot = snapshot
+	return job
+
+
+func _release_json_task(task_id: int) -> void:
+	if task_id < 0 or task_id != _json_task_id: return
+	WorkerThreadPool.wait_for_task_completion(task_id)
+	_json_task_id = -1
+	_json_job = null
+
+
+## Inspect both keys and values: json_safe stringifies keys too. Track identity
+## along the current ancestor chain so shared subtrees are allowed but cycles
+## cannot reach either the recursive converter or duplicate(true).
+static func _inspect_json_value(value: Variant, ancestors: Array, info: JsonPayloadInfo, depth: int = 0) -> void:
+	if not info.error.is_empty(): return
+	info.values += 1
+	if depth > MAX_JSON_DEPTH:
+		info.error = "json_payload_too_deep"
+		return
+	var kind := typeof(value)
+	if kind == TYPE_ARRAY or kind == TYPE_DICTIONARY:
+		for parent in ancestors:
+			if is_same(value, parent):
+				info.error = "json_payload_cycle"
+				return
+		ancestors.append(value)
+		if kind == TYPE_DICTIONARY:
+			for key in value:
+				_inspect_json_value(key, ancestors, info, depth + 1)
+				if (key is String or key is StringName) and key == "entities" and value[key] is Array and value[key].size() >= BACKGROUND_ENTITY_COUNT:
+					info.large_entities = true
+				_inspect_json_value(value[key], ancestors, info, depth + 1)
+		else:
+			for item in value:
+				_inspect_json_value(item, ancestors, info, depth + 1)
+		ancestors.pop_back()
+	elif kind == TYPE_STRING or kind == TYPE_STRING_NAME:
+		info.text_length += String(value).length()
+	elif kind == TYPE_OBJECT or kind == TYPE_CALLABLE or kind == TYPE_SIGNAL or kind == TYPE_RID or kind >= TYPE_PACKED_BYTE_ARRAY:
+		# Packed arrays are reference-valued, and deep Dictionary duplication
+		# need not isolate their backing storage. Preserve the old main-thread
+		# path for these as well as Node/Resource/callable/signal references.
+		info.worker_safe = false
+
+
 func _wait_frame() -> bool:
 	var tree := _scene_tree()
 	if tree == null:
 		return false
-	await tree.process_frame
+	var waiter := RequestFrameWaiter.new()
+	_frame_waiters.append(waiter)
+	tree.process_frame.connect(waiter.wake, CONNECT_ONE_SHOT)
+	await waiter.resumed
+	if not is_instance_valid(self): return false
+	_frame_waiters.erase(waiter)
+	if tree.process_frame.is_connected(waiter.wake):
+		tree.process_frame.disconnect(waiter.wake)
 	return is_instance_valid(self)
 
 

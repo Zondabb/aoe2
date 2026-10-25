@@ -125,6 +125,13 @@ func _new_gateway():
 func _move_command() -> Dictionary:
 	return {"command_id":"test_move", "op":"move", "unit_id":unit_id, "pos":[8,4]}
 
+func _wait_for_transport(client, expected_calls: int) -> void:
+	# Observation preparation now has its own cancellable frame boundaries.
+	# These tests deliberately cancel after reaching the held transport instead.
+	var started := Time.get_ticks_msec()
+	while client.calls < expected_calls and Time.get_ticks_msec() - started < 2000:
+		await process_frame
+
 func _test_request_cancel(operation: String) -> void:
 	var gateway = _new_gateway()
 	var client = gateway._http_client
@@ -137,6 +144,7 @@ func _test_request_cancel(operation: String) -> void:
 		"tick": gateway._request_tick_for_team(entry, 1, [])
 		"chat_batch": gateway._request_chat_batch(1)
 		"tick_batch": gateway._request_tick_batch(1)
+	await _wait_for_transport(client, 1)
 	check(client.calls == 1, "%s request reaches its asynchronous boundary" % operation)
 	gateway.stop()
 	check(gateway._pending_responses.is_empty() and client.cancels == 1, "%s stop clears pending commands and cancels transport immediately" % operation)
@@ -156,6 +164,7 @@ func _test_restart_generation() -> void:
 	client.response = PARSER.wrap_commands([_move_command()])
 	gateway.config.use_tick_batch = false
 	gateway._run_tick_requests(1)
+	await _wait_for_transport(client, 1)
 	check(client.calls == 1 and gateway._request_in_flight, "sequential team requests share one active coroutine")
 	gateway.stop()
 	# Re-enabling the same object cannot make its earlier awaited response valid.
@@ -166,6 +175,7 @@ func _test_restart_generation() -> void:
 	check(client.calls == 1 and gateway._pending_responses.is_empty(), "generation guard rejects old response and prevents a second team's old request after restart")
 	check(not gateway._request_in_flight, "cancelled old coroutine cannot leave the new gateway busy")
 	gateway._request_chat_for_team(gateway._teams[0], 2, [])
+	await _wait_for_transport(client, 2)
 	client.completed.emit()
 	await process_frame
 	check(gateway._pending_responses.size() == 1, "new generation still accepts its own current response")

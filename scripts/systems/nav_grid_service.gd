@@ -13,6 +13,7 @@ const CELL_SIZE := 1.0
 const DEFAULT_MAP_MIN := -40
 const DEFAULT_MAP_MAX := 40
 const MAX_PATH_REQUESTS_PER_FRAME := 12
+const PATH_TIME_BUDGET_USEC := 2000
 const WAYPOINT_ARRIVAL := 0.35
 const MAX_WALKABLE_SEARCH := 24
 const MAX_PATH_CACHE := 512
@@ -40,6 +41,7 @@ var _solid_by_radius: Dictionary = {}
 var _solid_indices_by_radius: Dictionary = {}
 var _solid_radius_order: Array[String] = []
 var _active_radius_key := ""
+var _grid_radius_key := ""
 var _query_radius := DEFAULT_UNIT_RADIUS
 var _grid_solid := PackedByteArray()
 var _grid_solid_indices := PackedInt32Array()
@@ -68,6 +70,7 @@ func setup_rect(minimum: Vector2i, maximum: Vector2i, p_cell_size: float = CELL_
 	_solid_indices_by_radius.clear()
 	_solid_radius_order.clear()
 	_active_radius_key = ""
+	_grid_radius_key = ""
 	_solid_cells_dirty = true
 	_clear_path_cache()
 	_solid = PackedByteArray()
@@ -94,6 +97,7 @@ func clear_solids() -> void:
 	_solid_indices_by_radius.clear()
 	_solid_radius_order.clear()
 	_active_radius_key = ""
+	_grid_radius_key = ""
 	_solid_cells_dirty = true
 	_clear_path_cache()
 	for idx in _grid_solid_indices:
@@ -129,6 +133,7 @@ func rebuild_from_blockers(blockers: Array) -> bool:
 	_solid_indices_by_radius.clear()
 	_solid_radius_order.clear()
 	_active_radius_key = ""
+	_grid_radius_key = ""
 	_manual_changed = false
 	_clear_path_cache()
 	_ensure_active_radius(DEFAULT_UNIT_RADIUS)
@@ -156,6 +161,9 @@ func set_cell_solid(cell: Vector2i, solid: bool) -> void:
 	if _solid[idx] != (1 if solid else 0):
 		_solid_cells_dirty = true
 		_manual_changed = true
+		# Manual edits may target a queried layer different from the last A*
+		# search. Reconcile that grid before its next use as well.
+		_grid_radius_key = ""
 		_clear_path_cache()
 		_grid.set_point_solid(cell, solid)
 		_grid_solid[idx] = 1 if solid else 0
@@ -208,8 +216,12 @@ func find_path(
 		return _adapt_cached_path(
 			_path_cache[cache_key] as PackedVector2Array, safe_from, to, safe_to, radius
 		)
+	_ensure_grid_for_active_layer()
 	var id_path: Array = _grid.get_id_path(start, goal)
 	if id_path.is_empty():
+		# An enclosed wall ring otherwise repeats the full failed search on
+		# every retry. Static geometry changes already invalidate this cache.
+		_store_cached_path(cache_key, PackedVector2Array())
 		return PackedVector2Array()
 	var points := PackedVector2Array()
 	for cell_variant in id_path:
@@ -234,6 +246,7 @@ func find_path_avoiding_units(
 	var radius := _quantize_radius(unit_radius)
 	_query_radius = radius
 	_ensure_active_radius(radius)
+	_ensure_grid_for_active_layer()
 	var changed: Array[Dictionary] = []
 	for value in units:
 		var unit := value as Object
@@ -329,6 +342,7 @@ func enqueue_path(
 func flush_pending_paths() -> Dictionary:
 	var results := {}
 	var count := 0
+	var started := Time.get_ticks_usec()
 	while not _pending_requests.is_empty() and count < _frame_budget:
 		var req: Dictionary = _pending_requests.pop_front()
 		var radius := float(req.get("radius", DEFAULT_UNIT_RADIUS))
@@ -339,6 +353,11 @@ func flush_pending_paths() -> Dictionary:
 				avoid.append(other)
 		results[int(req["id"])] = find_path_avoiding_units(req["from"], req["to"], radius, avoid)
 		count += 1
+		# The count cap alone can put twelve expensive wall detours in one
+		# frame. Yield the remaining FIFO queue once this frame's time is used;
+		# always finish at least one request so a difficult route cannot starve.
+		if Time.get_ticks_usec() - started >= PATH_TIME_BUDGET_USEC:
+			break
 	return results
 
 
@@ -428,8 +447,18 @@ func _ensure_active_radius(radius: float) -> void:
 		return
 	_active_radius_key = key
 	_solid = _get_or_build_solid_for_radius(_quantize_radius(radius))
-	_sync_grid_from_solid()
 	_solid_cells_dirty = true
+
+
+## Clearance/placement queries only read the cached byte layer. Copying its
+## thousands of obstacle cells into A* on every mixed-unit radius query makes
+## even a single-cell test expensive. Synchronize only before an actual path
+## search; the previous grid remains valid until a different layer is needed.
+func _ensure_grid_for_active_layer() -> void:
+	if _grid_radius_key == _active_radius_key:
+		return
+	_sync_grid_from_solid()
+	_grid_radius_key = _active_radius_key
 
 
 func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
@@ -572,6 +601,7 @@ func _find_path_uncached(
 	var goal := world_to_cell(safe_to)
 	if start == Vector2i(-99999, -99999) or goal == Vector2i(-99999, -99999):
 		return PackedVector2Array()
+	_ensure_grid_for_active_layer()
 	var id_path: Array = _grid.get_id_path(start, goal)
 	if id_path.is_empty():
 		return PackedVector2Array()
@@ -703,6 +733,11 @@ func _line_clear(a: Vector2, b: Vector2) -> bool:
 	for s in range(0, steps + 1):
 		var t := float(s) / float(steps)
 		var p := a.lerp(b, t)
-		if is_world_solid(p):
+		# The same samples as is_world_solid(), without its three-call chain and
+		# temporary Vector2i per sample. Long waypoint visibility probes revisit
+		# thousands of these cells per frame in a marching army.
+		var x := floori(p.x / cell_size) - _origin_cell.x
+		var y := floori(p.y / cell_size) - _origin_cell.y
+		if x < 0 or y < 0 or x >= _width or y >= _height or _solid[y * _width + x] != 0:
 			return false
 	return true

@@ -10,24 +10,34 @@ const DEFAULT_VISION_RADIUS := 16.0
 const DEFAULT_CELL_SIZE := 2.0
 
 var hash: SpatialHashScript = SpatialHashScript.new()
+## Movement neighbours never include buildings. Keep their buckets separate so
+## a dense wall does not turn each moving unit's query into a wall scan.
+var unit_hash: SpatialHashScript = SpatialHashScript.new()
 
 
 func setup(cell_size: float = DEFAULT_CELL_SIZE) -> void:
 	hash.setup(cell_size)
+	unit_hash.setup(cell_size)
 
 
 func clear() -> void:
 	hash.clear()
+	unit_hash.clear()
 
 
 func register(entity: Object) -> void:
 	if not _is_indexable(entity):
 		return
 	hash.insert(entity, entity.get("sim_pos") as Vector2)
+	if entity.get("def") is UnitDef:
+		unit_hash.insert(entity, entity.get("sim_pos") as Vector2)
+	else:
+		unit_hash.remove(entity)
 
 
 func unregister(entity: Object) -> void:
 	hash.remove(entity)
+	unit_hash.remove(entity)
 
 
 func sync_position(entity: Object) -> void:
@@ -41,6 +51,10 @@ func sync_position(entity: Object) -> void:
 		unregister(entity)
 		return
 	hash.move(entity, entity.get("sim_pos") as Vector2)
+	if entity.get("def") is UnitDef:
+		unit_hash.move(entity, entity.get("sim_pos") as Vector2)
+	else:
+		unit_hash.remove(entity)
 
 
 func rebuild_from_tree(tree: SceneTree) -> void:
@@ -87,6 +101,25 @@ func others_in_radius(observer: Object, radius: float = -1.0) -> Array:
 		if float(entity.get("hp")) <= 0.0:
 			continue
 		result.append(entity)
+	return result
+
+
+func units_in_radius(observer: Object, radius: float = -1.0) -> Array:
+	## Same living/ghost/radius rules as others_in_radius, restricted to units.
+	var result: Array = []
+	if observer == null or not is_instance_valid(observer):
+		return result
+	var pos_variant: Variant = observer.get("sim_pos")
+	if not (pos_variant is Vector2):
+		return result
+	var query_radius := radius if radius >= 0.0 else vision_radius_of(observer)
+	for entity in unit_hash.query_radius(pos_variant as Vector2, query_radius):
+		if entity == observer or not is_instance_valid(entity):
+			continue
+		if entity.get("def") is not UnitDef or entity.get("is_placement_ghost") == true:
+			continue
+		if float(entity.get("hp")) > 0.0:
+			result.append(entity)
 	return result
 
 
