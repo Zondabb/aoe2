@@ -1169,9 +1169,12 @@ func _skip_visible_waypoints() -> void:
 func _move_toward(target: Vector2, delta: float) -> void:
 	_move_target = target
 	if (_nav_goal.distance_to(target) > 0.75 or _path.is_empty()) and not _path_pending and _path_retry_cooldown <= 0:
-		_request_nav_path(target)
+		if _path.is_empty():
+			_request_nav_path(target)
+		else:
+			_request_nav_path_keeping_route(target)
 		_nav_goal = target
-	if _path_pending:
+	if _path_pending and _path.is_empty():
 		var steer := _steer_velocity_toward(delta)
 		if steer.length_squared() > 0.0001:
 			_update_move_facing(steer, delta, false)
@@ -1278,6 +1281,20 @@ func _request_nav_path(target: Vector2) -> void:
 		_path = PackedVector2Array()
 	elif nav.has_method("find_path"):
 		_path = nav.call("find_path", sim_pos, target, radius) as PackedVector2Array
+
+
+## The goal drifted (a moving attack target): keep walking the current route
+## while the new one is computed. Clearing it stalled the chaser on every
+## re-path, and a target that moved more than the drift tolerance per frame
+## (any fast unit at a coarse simulation step) froze its chaser in place.
+func _request_nav_path_keeping_route(target: Vector2) -> void:
+	var nav := _get_nav_service()
+	if nav == null or not nav.has_method("enqueue_path"):
+		_request_nav_path(target)
+		return
+	_pending_crowd_route = false
+	nav.call("enqueue_path", get_instance_id(), sim_pos, target, _pathfinding_radius())
+	_path_pending = true
 
 
 func _pathfinding_radius() -> float:

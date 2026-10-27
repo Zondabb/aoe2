@@ -1,6 +1,5 @@
 """Wall investment, legal placement, queue ownership and gate access regressions."""
 import copy
-import math
 
 import pytest
 
@@ -240,9 +239,8 @@ def test_expanded_perimeter_worker_avoids_visible_enemy_outside_old_base_radius(
         context["defense_scout_options"] = [{"unit_id": 10, "pos": [44, 10]}]
     result = runtime.tick(req)
     assert not issued(result, "place_wall") and not issued(result, "build")
-    # The only move allowed is the raid reflex sheltering the worker at the TC.
-    moves = [c for c in issued(result, "move") if c["unit_id"] == 10]
-    assert all(math.dist(c["pos"], [0, 0]) <= 6 for c in moves)
+    # Villagers keep working through raids: nothing moves the threatened builder.
+    assert not [c for c in issued(result, "move") if c["unit_id"] == 10]
 
 
 def test_defense_prioritizes_safe_screen_facing_observed_flank_raid():

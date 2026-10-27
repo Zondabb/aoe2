@@ -1,11 +1,9 @@
-"""Raids on outlying workers: shelter, fight back, call the guard, avoid the spot."""
+"""Raids on outlying workers: call the guard, avoid the spot, keep working."""
 from __future__ import annotations
-
-import math
 
 from brain.multi_agent.runtime import MultiAgentRuntime
 from test_llm_commander import building, unit
-from test_multi_agent_runtime import accept, frame, issued
+from test_multi_agent_runtime import frame, issued
 
 
 def villager(eid, pos, **extra):
@@ -23,57 +21,16 @@ def step(runtime, seq, entities, time, events=()):
     return runtime.tick(frame(seq, entities=entities, time=time, events=events))
 
 
-def orders(result, uid):
-    return [c for c in result["commands"] if c.get("unit_id") == uid]
-
-
-def work(result, uid):
-    return [c for c in result["commands"] if c.get("unit_id", c.get("builder_id")) == uid
-            and c["op"] in ("gather", "build", "place_building", "place_wall")]
-
-
-def test_lone_lumberjack_shelters_at_the_tc_and_resumes_after_the_raider_leaves():
-    runtime = MultiAgentRuntime("chinese")
-    tc, forest = [building(1, "town_center"), CAMP], wood(101, [62, 0])
-    worker = villager(10, [60, 0], order="GATHER", target_id=101, gather_resource_type="WOOD")
-    raider = unit(200, "militia", [66, 0], team=1, order="ATTACK", target_id=10)
-    first = step(runtime, 1, [*tc, worker, forest, raider], 100)
-    moves = [c for c in orders(first, 10) if c["op"] == "move"]
-    assert moves and math.dist(moves[0]["pos"], [0, 0]) <= 6
-    assert runtime._sheltered()[10]["mode"] == "flee"
-    assert runtime.roles["commander"].memory["raid_ids"] == [200]
-    # Still chased on the way home: no gather order sends it back.
-    running = {**worker, "pos": [45, 0], "order": "MOVE", "move_goal": moves[0]["pos"]}
-    second = step(runtime, 2, [*tc, running, forest, {**raider, "pos": [52, 0]}], 101, accept(first))
-    assert not orders(second, 10)
-    # Raider gone: hold briefly, then the economy puts the worker back to work.
-    home = {**running, "pos": [4, 0], "order": "NONE"}
-    third = step(runtime, 3, [*tc, home, forest], 106, accept(second, 10))
-    assert not work(third, 10) and 10 in runtime._sheltered()
-    fourth = step(runtime, 4, [*tc, home, forest], 110, accept(third, 20))
-    assert 10 not in runtime._sheltered()
-    assert work(fourth, 10)                       # gather or build again
-
-
-def test_enough_villagers_fight_back_a_lone_scout_but_not_the_whole_camp():
-    runtime = MultiAgentRuntime("chinese")
-    workers = [villager(10 + i, [60 + i % 3, i // 3], order="GATHER", target_id=101, gather_resource_type="WOOD") for i in range(6)]
-    scout = unit(200, "scout_cavalry", [64, 0], team=1, hp=45, max_hp=45)
-    result = step(runtime, 1, [building(1, "town_center"), *workers, wood(101, [62, 0]), scout], 100)
-    attackers = [c["unit_id"] for c in issued(result, "attack") if c["target_id"] == 200]
-    assert 2 <= len(attackers) < 6
-    assert not [c for c in issued(result, "move") if c["unit_id"] in attackers]
-    assert all(runtime._sheltered()[uid]["mode"] == "fight" for uid in attackers)
-
-
-def test_villagers_shelter_from_a_raid_they_cannot_beat():
-    runtime = MultiAgentRuntime("chinese")
-    workers = [villager(10 + i, [60, i], order="GATHER", target_id=101, gather_resource_type="WOOD") for i in range(3)]
-    raiders = [unit(200 + i, "man_at_arms", [65, i], team=1, hp=45, max_hp=45, order="ATTACK", target_id=10 + i) for i in range(3)]
-    result = step(runtime, 1, [building(1, "town_center"), *workers, wood(101, [62, 0]), *raiders], 100)
-    assert not [c for c in issued(result, "attack") if c["unit_id"] in (10, 11, 12)]
-    moved = {c["unit_id"] for c in issued(result, "move")}
-    assert {10, 11, 12} <= moved
+def test_raided_villagers_keep_working_instead_of_fleeing_or_fighting():
+    # Duels with working chases: sheltering villagers were run down on the way
+    # to the TC and fighting ones often lost, so neither reflex is used.
+    for raiders in ([unit(200, "scout_cavalry", [64, 0], team=1, hp=45, max_hp=45, order="ATTACK", target_id=10)],
+                    [unit(200 + i, "man_at_arms", [65, i], team=1, hp=45, max_hp=45, order="ATTACK", target_id=10 + i) for i in range(3)]):
+        runtime = MultiAgentRuntime("chinese")
+        workers = [villager(10 + i, [60 + i % 3, i // 3], order="GATHER", target_id=101, gather_resource_type="WOOD") for i in range(6)]
+        result = step(runtime, 1, [building(1, "town_center"), CAMP, *workers, wood(101, [62, 0]), *raiders], 100)
+        assert runtime.roles["commander"].memory["raid_ids"] == [r["id"] for r in raiders]
+        assert not [c for c in result["commands"] if c.get("unit_id") in range(10, 16) and c["op"] in ("move", "attack", "stop")]
 
 
 def test_economy_raid_calls_the_nearest_guard_without_pausing_scouting():
@@ -126,7 +83,6 @@ def test_a_passing_scout_does_not_stop_work():
     scout = unit(200, "scout_cavalry", [68, 0], team=1, hp=45, max_hp=45, order="MOVE")
     result = step(runtime, 1, [building(1, "town_center"), CAMP, *workers, wood(101, [62, 0]), scout], 100)
     assert not [c for c in result["commands"] if c.get("unit_id") in (10, 11) and c["op"] in ("move", "attack", "stop")]
-    assert runtime._sheltered() == {}
     assert runtime.roles["commander"].memory["raid_ids"] == [200]        # the guard still answers it
 
 
@@ -137,7 +93,6 @@ def test_a_worker_far_from_our_buildings_does_not_call_the_guard():
     result = step(runtime, 1, entities, 100)
     assert runtime.roles["commander"].memory["raid_ids"] == []
     assert not [c for c in issued(result, "attack") if c["target_id"] == 200 and c["unit_id"] >= 30]
-    assert [c for c in issued(result, "move") if c["unit_id"] == 10]      # its own reflex still runs
 
 
 def test_villagers_are_never_sent_scouting_when_the_scout_is_lost():

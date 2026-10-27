@@ -4,6 +4,9 @@ extends SceneTree
 ## Args: url_team0 url_team1 duration_sec report_path civ_team0 civ_team1 [map_seed]
 ## Without map_seed the match uses the default map; a seed regenerates the same
 ## rotationally symmetric layout with different forest placement.
+## AOE2_DUEL_SYMMETRY_TRACE=1 (mirror matches: same code and civ on both sides)
+## prints the first steps where the two teams' units and buildings stop being
+## 180-degree rotations of each other.
 const Observation := preload("res://scripts/ai_gateway/observation_builder.gd")
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
 const Events := preload("res://scripts/ai_gateway/event_buffer.gd")
@@ -11,6 +14,50 @@ const Executor := preload("res://scripts/ai_gateway/command_executor.gd")
 const ExecutionContext := preload("res://scripts/ai_gateway/command_execution_context.gd")
 const MapGenerator := preload("res://scripts/world/default_map_generator.gd")
 const DT := 0.25
+
+func _team_digest(entities: Node2D, team: int) -> Array:
+	var rows: Array = []
+	for entity in entities.get_children():
+		if entity.is_queued_for_deletion(): continue
+		if not (entity is UnitAgent or entity is BuildingAgent): continue
+		if int(entity.get("team")) != team: continue
+		var pos: Vector2 = entity.get("sim_pos")
+		if team == 1: pos = -pos
+		var order := int(entity.get("order")) if entity is UnitAgent else -1
+		rows.append("%s %d,%d hp=%d order=%d" % [String(entity.get("def").id), roundi(pos.x), roundi(pos.y), roundi(float(entity.get("hp"))), order])
+	rows.sort()
+	return rows
+
+func _team_shape(entities: Node2D, team: int) -> Dictionary:
+	var counts := {}
+	for entity in entities.get_children():
+		if entity.is_queued_for_deletion(): continue
+		if not (entity is UnitAgent or entity is BuildingAgent): continue
+		if int(entity.get("team")) != team: continue
+		var key := String(entity.get("def").id)
+		if entity is BuildingAgent and not bool(entity.get("is_complete")): key += "(site)"
+		counts[key] = int(counts.get(key, 0)) + 1
+	return counts
+
+func _symmetry_diff(entities: Node2D) -> String:
+	var a := _team_digest(entities, 0)
+	var b := _team_digest(entities, 1)
+	if a == b: return ""
+	var only_a := a.filter(func(row): return not b.has(row))
+	var only_b := b.filter(func(row): return not a.has(row))
+	return "team0 only %s | team1 only %s" % [JSON.stringify(only_a.slice(0, 6)), JSON.stringify(only_b.slice(0, 6))]
+
+func _unit_trace(entities: Node2D, team: int) -> Array:
+	# Soldiers and wounded units only, team1 rotated like _team_digest.
+	var rows: Array = []
+	for entity in entities.get_children():
+		if entity.is_queued_for_deletion() or not entity is UnitAgent or int(entity.get("team")) != team: continue
+		if entity.def.id == &"villager" and float(entity.hp) >= float(entity.def.max_hp): continue
+		var pos: Vector2 = entity.get("sim_pos")
+		if team == 1: pos = -pos
+		rows.append("%s %d,%d hp=%d order=%d" % [String(entity.def.id), roundi(pos.x), roundi(pos.y), roundi(float(entity.hp)), int(entity.get("order"))])
+	rows.sort()
+	return rows
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -95,6 +142,9 @@ func _run() -> void:
 	for entity in entities.get_children():
 		initial[entity.get_instance_id()] = true
 	var duration := float(args[2])
+	var symmetry_trace := OS.get_environment("AOE2_DUEL_SYMMETRY_TRACE") == "1"
+	var symmetry_reports := 0
+	var shape_reports := 0
 	var finished_at := 0.0
 	var failed := ""
 	for step in ceili(duration / DT):
@@ -102,6 +152,28 @@ func _run() -> void:
 		finished_at = now
 		state.fog.rebuild(entities.get_children())
 		if step % 4 == 0:
+			if symmetry_trace and symmetry_reports < 3:
+				var diff := _symmetry_diff(entities)
+				if diff != "":
+					print("AI DUEL SYMMETRY %.2fs: %s" % [now, diff])
+					symmetry_reports += 1
+			if symmetry_trace and now >= 55.0 and now <= 110.0:
+				print("AI DUEL UNITS %.2fs: team0 %s | team1 %s" % [now, JSON.stringify(_unit_trace(entities, 0)), JSON.stringify(_unit_trace(entities, 1))])
+			if symmetry_trace:
+				# Structural divergence: stockpiles, unit/building counts, TC health.
+				var rows := _summary(state, entities)
+				var shape0 := _team_shape(entities, 0)
+				var shape1 := _team_shape(entities, 1)
+				if (rows[0]["resources"] != rows[1]["resources"] or shape0 != shape1 or rows[0]["tc_hp"] != rows[1]["tc_hp"]) and (shape_reports < 40 or step % 240 == 0):
+					print("AI DUEL SHAPE %.2fs: team0 %s %s | team1 %s %s" % [now, JSON.stringify(rows[0]["resources"]), JSON.stringify(shape0), JSON.stringify(rows[1]["resources"]), JSON.stringify(shape1)])
+					shape_reports += 1
+			# Simultaneous turns: both teams observe the same state before either
+			# team's commands run, and the commands are interleaved with the lead
+			# alternating each decision tick, so neither side always acts first.
+			var lead := int(step / 4.0) % 2
+			var turn_order := [lead, 1 - lead]
+			var deliveries := {}
+			var payloads := {}
 			for team in 2:
 				Registry.sample_owned_state(entities, team, now)
 				var delivery := Events.peek(subscribers[team])
@@ -112,26 +184,43 @@ func _run() -> void:
 					"backend": "openai", "session_epoch": epoch, "event_delivery": delivery.duplicate()},
 					"observation": observation, "events": Events.for_team(delivery.events, team, state.fog_enabled)}
 				payload["metadata"]["event_delivery"].erase("events")
+				deliveries[team] = delivery
+				payloads[team] = payload
+			var queues := {0: [], 1: []}
+			for team in turn_order:
 				var before := Time.get_ticks_usec()
-				var response: Dictionary = await clients[team].post_multi_agent_tick(payload)
+				var response: Dictionary = await clients[team].post_multi_agent_tick(payloads[team])
 				stats[team]["max_http_ms"] = maxf(stats[team]["max_http_ms"], float(Time.get_ticks_usec() - before) / 1000.0)
 				if response.is_empty():
 					failed = "team %d HTTP failed: %s" % [team, clients[team].last_error]
 					break
 				stats[team]["calls"] += 1
-				Events.acknowledge(subscribers[team], delivery.to_seq)
+				Events.acknowledge(subscribers[team], deliveries[team].to_seq)
 				contexts[team].sim_time = now
-				for cmd in response.get("commands", []):
-					var result := Executor.execute(cmd, contexts[team])
-					var event := {"type": "command_result", "command_id": cmd.command_id, "op": cmd.op,
-						"ok": result.ok, "reason": result.reason, "command": cmd, "time_sec": now, "_visible_to": [team]}
-					for key in ["created_entity_id", "created_entity_ids", "segment_count", "queue_id", "building_id"]:
-						if result.has(key): event[key] = result[key]
-					Events.push(event)
-					if not result.ok:
-						stats[team]["rejects"][result.reason] = stats[team]["rejects"].get(result.reason, 0) + 1
+				queues[team] = response.get("commands", [])
+			if failed.is_empty():
+				for index in maxi(queues[0].size(), queues[1].size()):
+					for team in turn_order:
+						if index >= queues[team].size(): continue
+						var cmd = queues[team][index]
+						var result := Executor.execute(cmd, contexts[team])
+						var event := {"type": "command_result", "command_id": cmd.command_id, "op": cmd.op,
+							"ok": result.ok, "reason": result.reason, "command": cmd, "time_sec": now, "_visible_to": [team]}
+						for key in ["created_entity_id", "created_entity_ids", "segment_count", "queue_id", "building_id"]:
+							if result.has(key): event[key] = result[key]
+						Events.push(event)
+						if not result.ok:
+							stats[team]["rejects"][result.reason] = stats[team]["rejects"].get(result.reason, 0) + 1
 			if not failed.is_empty(): break
-		world.get_node("NavService")._process(DT)
+		var nav_service = world.get_node("NavService")
+		nav_service._process(DT)
+		# Fairness and determinism: resolve every queued path this step. The live
+		# game spreads path requests over frames under a 2 ms wall-clock budget,
+		# which serves whichever team queued first and depends on machine load.
+		var flushes := 0
+		while nav_service.nav != null and nav_service.nav.pending_count() > 0 and flushes < 256:
+			nav_service._process(DT)
+			flushes += 1
 		for entity in entities.get_children():
 			if entity.is_queued_for_deletion(): continue
 			if entity is BuildingAgent: entity._process(DT)

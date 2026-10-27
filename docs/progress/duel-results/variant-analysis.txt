@@ -1,0 +1,87 @@
+Variant duels in the fair harness, 2400 game s, configs 0-3, default map and seeds 1, 2. on = variant (copy under .godot/), off = current main (uncommitted fair-harness work included).
+econfix: age banking waits while the TC is still training villagers below the age's worker target.
+noreflex: villager raid reflex (_worker_safety) disabled; commander raid detection, guard response and raided-resource avoidance kept.
+
+## econfix (on) vs main (off)
+default  seed=None m0 on=chinese/team0 winner=on at=1840 villagers on/off=20/0 army on/off=1110/0
+default  seed=None m1 on=teutons/team1 winner=on at=2090 villagers on/off=20/2 army on/off=1060/350
+default  seed=None m2 on=teutons/team0 winner=draw at=2400 villagers on/off=10/20 army on/off=235/970
+default  seed=None m3 on=chinese/team1 winner=off at=1717 villagers on/off=0/20 army on/off=150/1220
+seed1    seed=1 m0 on=chinese/team0 winner=on at=1928 villagers on/off=20/8 army on/off=1130/150
+seed1    seed=1 m1 on=teutons/team1 winner=on at=1540 villagers on/off=20/0 army on/off=1800/80
+seed1    seed=1 m2 on=teutons/team0 winner=on at=1862 villagers on/off=20/0 army on/off=1495/0
+seed1    seed=1 m3 on=chinese/team1 winner=draw at=2400 villagers on/off=16/0 army on/off=910/80
+seed2    seed=2 m0 on=chinese/team0 winner=off at=1796 villagers on/off=16/20 army on/off=60/2115
+seed2    seed=2 m1 on=teutons/team1 winner=on at=1641 villagers on/off=20/0 army on/off=2575/0
+seed2    seed=2 m2 on=teutons/team0 winner=on at=2088 villagers on/off=20/0 army on/off=2970/80
+seed2    seed=2 m3 on=chinese/team1 winner=off at=2286 villagers on/off=0/18 army on/off=0/1280
+by arm: on 7 - off 3 - draw 2
+by team: team0 6 - team1 4 - draw 2
+military value killed on/off: 44155/47050; final army on/off: 13495/6325
+
+default m0 team0 chinese  on  villagers_lost=1 first_loss_at=704.0 min_villagers=4 final_villagers=20 fight_orders=100 shelter_moves=177 raid_ticks=560
+default m0 team1 teutons  off villagers_lost=21 first_loss_at=1198.0 min_villagers=0 final_villagers=0 fight_orders=196 shelter_moves=610 raid_ticks=539
+default m1 team0 chinese  off villagers_lost=23 first_loss_at=982.0 min_villagers=2 final_villagers=2 fight_orders=297 shelter_moves=918 raid_ticks=761
+default m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=81 shelter_moves=147 raid_ticks=548
+default m2 team0 teutons  on  villagers_lost=13 first_loss_at=1546.0 min_villagers=3 final_villagers=10 fight_orders=175 shelter_moves=459 raid_ticks=992
+default m2 team1 chinese  off villagers_lost=2 first_loss_at=1136.0 min_villagers=4 final_villagers=20 fight_orders=175 shelter_moves=441 raid_ticks=1121
+default m3 team0 teutons  off villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=74 shelter_moves=179 raid_ticks=520
+default m3 team1 chinese  on  villagers_lost=18 first_loss_at=1333.0 min_villagers=0 final_villagers=0 fight_orders=267 shelter_moves=617 raid_ticks=771
+seed1  m0 team0 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=102 shelter_moves=181 raid_ticks=657
+seed1  m0 team1 teutons  off villagers_lost=16 first_loss_at=1120.0 min_villagers=3 final_villagers=8 fight_orders=228 shelter_moves=514 raid_ticks=758
+seed1  m1 team0 chinese  off villagers_lost=23 first_loss_at=1205.0 min_villagers=0 final_villagers=0 fight_orders=157 shelter_moves=764 raid_ticks=440
+seed1  m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=33 shelter_moves=107 raid_ticks=479
+seed1  m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=46 shelter_moves=84 raid_ticks=398
+seed1  m2 team1 chinese  off villagers_lost=21 first_loss_at=922.0 min_villagers=0 final_villagers=0 fight_orders=207 shelter_moves=590 raid_ticks=519
+seed1  m3 team0 teutons  off villagers_lost=27 first_loss_at=1450.0 min_villagers=0 final_villagers=0 fight_orders=297 shelter_moves=837 raid_ticks=801
+seed1  m3 team1 chinese  on  villagers_lost=4 first_loss_at=1176.0 min_villagers=4 final_villagers=16 fight_orders=186 shelter_moves=303 raid_ticks=676
+seed2  m0 team0 chinese  on  villagers_lost=1 first_loss_at=1094.0 min_villagers=4 final_villagers=16 fight_orders=242 shelter_moves=574 raid_ticks=678
+seed2  m0 team1 teutons  off villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=61 shelter_moves=103 raid_ticks=567
+seed2  m1 team0 chinese  off villagers_lost=19 first_loss_at=833.0 min_villagers=0 final_villagers=0 fight_orders=277 shelter_moves=785 raid_ticks=402
+seed2  m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=28 shelter_moves=45 raid_ticks=194
+seed2  m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=88 shelter_moves=254 raid_ticks=660
+seed2  m2 team1 chinese  off villagers_lost=20 first_loss_at=1357.0 min_villagers=0 final_villagers=0 fight_orders=149 shelter_moves=699 raid_ticks=686
+seed2  m3 team0 teutons  off villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=18 fight_orders=99 shelter_moves=181 raid_ticks=592
+seed2  m3 team1 chinese  on  villagers_lost=19 first_loss_at=1574.0 min_villagers=0 final_villagers=0 fight_orders=301 shelter_moves=945 raid_ticks=714
+
+## noreflex (on) vs main (off)
+default  seed=None m0 on=chinese/team0 winner=on at=1737 villagers on/off=20/0 army on/off=1270/0
+default  seed=None m1 on=teutons/team1 winner=on at=2065 villagers on/off=20/0 army on/off=1125/80
+default  seed=None m2 on=teutons/team0 winner=on at=1745 villagers on/off=20/16 army on/off=950/440
+default  seed=None m3 on=chinese/team1 winner=on at=2121 villagers on/off=20/20 army on/off=1290/710
+seed1    seed=1 m0 on=chinese/team0 winner=on at=1863 villagers on/off=20/0 army on/off=2350/80
+seed1    seed=1 m1 on=teutons/team1 winner=on at=1787 villagers on/off=20/0 army on/off=1805/80
+seed1    seed=1 m2 on=teutons/team0 winner=on at=2125 villagers on/off=20/16 army on/off=1080/1030
+seed1    seed=1 m3 on=chinese/team1 winner=on at=2217 villagers on/off=20/12 army on/off=1530/385
+seed2    seed=2 m0 on=chinese/team0 winner=off at=1963 villagers on/off=15/20 army on/off=310/2085
+seed2    seed=2 m1 on=teutons/team1 winner=on at=1659 villagers on/off=20/0 army on/off=1270/0
+seed2    seed=2 m2 on=teutons/team0 winner=on at=1846 villagers on/off=20/6 army on/off=1070/620
+seed2    seed=2 m3 on=chinese/team1 winner=on at=1903 villagers on/off=20/19 army on/off=905/1080
+by arm: on 11 - off 1 - draw 0
+by team: team0 5 - team1 7 - draw 0
+military value killed on/off: 46575/53225; final army on/off: 14955/6590
+
+default m0 team0 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=0 shelter_moves=42 raid_ticks=429
+default m0 team1 teutons  off villagers_lost=21 first_loss_at=1069.0 min_villagers=0 final_villagers=0 fight_orders=125 shelter_moves=545 raid_ticks=570
+default m1 team0 chinese  off villagers_lost=27 first_loss_at=1346.0 min_villagers=0 final_villagers=0 fight_orders=177 shelter_moves=720 raid_ticks=735
+default m1 team1 teutons  on  villagers_lost=2 first_loss_at=1177.0 min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=74 raid_ticks=633
+default m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=49 raid_ticks=483
+default m2 team1 chinese  off villagers_lost=5 first_loss_at=1371.0 min_villagers=4 final_villagers=16 fight_orders=203 shelter_moves=478 raid_ticks=777
+default m3 team0 teutons  off villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=107 shelter_moves=234 raid_ticks=668
+default m3 team1 chinese  on  villagers_lost=1 first_loss_at=1733.0 min_villagers=4 final_villagers=20 fight_orders=0 shelter_moves=147 raid_ticks=924
+seed1  m0 team0 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=0 shelter_moves=87 raid_ticks=769
+seed1  m0 team1 teutons  off villagers_lost=20 first_loss_at=1206.0 min_villagers=0 final_villagers=0 fight_orders=165 shelter_moves=471 raid_ticks=621
+seed1  m1 team0 chinese  off villagers_lost=20 first_loss_at=1216.0 min_villagers=0 final_villagers=0 fight_orders=306 shelter_moves=697 raid_ticks=624
+seed1  m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=60 raid_ticks=488
+seed1  m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=122 raid_ticks=784
+seed1  m2 team1 chinese  off villagers_lost=7 first_loss_at=1647.0 min_villagers=4 final_villagers=16 fight_orders=149 shelter_moves=325 raid_ticks=722
+seed1  m3 team0 teutons  off villagers_lost=11 first_loss_at=2105.0 min_villagers=3 final_villagers=12 fight_orders=123 shelter_moves=538 raid_ticks=700
+seed1  m3 team1 chinese  on  villagers_lost=1 first_loss_at=841.0 min_villagers=4 final_villagers=20 fight_orders=0 shelter_moves=124 raid_ticks=1028
+seed2  m0 team0 chinese  on  villagers_lost=12 first_loss_at=973.0 min_villagers=4 final_villagers=15 fight_orders=0 shelter_moves=120 raid_ticks=644
+seed2  m0 team1 teutons  off villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=52 shelter_moves=88 raid_ticks=482
+seed2  m1 team0 chinese  off villagers_lost=18 first_loss_at=1376.0 min_villagers=0 final_villagers=0 fight_orders=103 shelter_moves=366 raid_ticks=521
+seed2  m1 team1 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=61 raid_ticks=368
+seed2  m2 team0 teutons  on  villagers_lost=0 first_loss_at=None min_villagers=3 final_villagers=20 fight_orders=0 shelter_moves=63 raid_ticks=580
+seed2  m2 team1 chinese  off villagers_lost=15 first_loss_at=1441.0 min_villagers=4 final_villagers=6 fight_orders=212 shelter_moves=659 raid_ticks=572
+seed2  m3 team0 teutons  off villagers_lost=1 first_loss_at=1844.0 min_villagers=3 final_villagers=19 fight_orders=130 shelter_moves=296 raid_ticks=697
+seed2  m3 team1 chinese  on  villagers_lost=0 first_loss_at=None min_villagers=4 final_villagers=20 fight_orders=0 shelter_moves=83 raid_ticks=742
