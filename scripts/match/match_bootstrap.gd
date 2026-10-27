@@ -120,6 +120,10 @@ func _finish_setup() -> void:
 		network.name = "NetworkMatch"
 		get_parent().add_child(network)
 		network.setup(self)
+	var audio := load("res://scripts/audio/match_audio.gd").new() as Node
+	audio.name = "MatchAudio"
+	get_parent().add_child(audio)
+	audio.setup(get_parent(), match_state)
 
 func _setup_debug_overlay() -> void:
 	var match_root := get_parent()

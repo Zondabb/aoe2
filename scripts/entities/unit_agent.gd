@@ -1,6 +1,10 @@
 class_name UnitAgent
 extends Node2D
 
+## Presentation hooks: listeners never participate in the simulation.
+signal audio_cue(event: StringName)
+signal damaged(entity: Node)
+
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 const UnitOcclusion := preload("res://scripts/presentation/unit_occlusion.gd")
 
@@ -518,11 +522,13 @@ func _process_attack_animation(delta: float) -> void:
 		if not _projectile_spawned and _combat_anim_time >= release_time:
 			if _in_attack_range(_attack_target):
 				_spawn_projectile()
+				audio_cue.emit(&"arrow")
 				_projectile_spawned = true
 	elif not _attack_hit_applied:
 		if _combat_anim_time >= duration * ATTACK_HIT_FRACTION:
 			if _attack_target_available():
 				CombatSystemScript.apply_hit(def, _attack_target, {"attacker": self})
+				audio_cue.emit(&"melee")
 			_attack_hit_applied = true
 	if _combat_anim_time >= duration:
 		_cancel_combat_action()
@@ -553,6 +559,7 @@ func _process_die(delta: float) -> void:
 		queue_free()
 
 func _begin_die() -> void:
+	audio_cue.emit(&"death")
 	_cancel_gather_search()
 	if match_state != null and match_state.fog != null:
 		match_state.fog.dirty = true
@@ -598,6 +605,7 @@ func take_damage(amount: float, source: Node = null) -> void:
 	if amount <= 0.0 or hp <= 0.0 or _combat_action == &"die":
 		return
 	hp = maxf(0.0, hp - amount)
+	damaged.emit(self)
 	_refresh_world_hp_bar()
 	if hp <= 0.0:
 		_begin_die()

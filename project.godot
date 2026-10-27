@@ -24,6 +24,7 @@ config/icon="res://icon.svg"
 
 GameSession="*res://scripts/core/game_session.gd"
 NetworkSession="*res://scripts/network/network_session.gd"
+GameAudio="*res://scripts/audio/game_audio.gd"
 
 [display]
 

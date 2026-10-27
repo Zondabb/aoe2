@@ -37,6 +37,8 @@ static func submit(node: Node, command: Dictionary) -> bool:
 	return bool(network.submit_command(command)) if network != null else false
 
 static func unit_order(source: Node, unit: Node2D, op: String, target: Variant = null, formation_speed := 0.0) -> void:
+	if not is_instance_valid(unit) or unit.is_queued_for_deletion():
+		return
 	if is_online(source):
 		var command := {"op": op, "unit_id": entity_id(source, unit)}
 		if op == "move":
@@ -46,7 +48,8 @@ static func unit_order(source: Node, unit: Node2D, op: String, target: Variant =
 			command["building_id"] = entity_id(source, target)
 		elif op in ["attack", "gather"]:
 			command["target_id"] = entity_id(source, target)
-		submit(source, command)
+		if not submit(source, command):
+			return
 	elif op == "stop":
 		unit.call("command_stop")
 	else:
@@ -59,6 +62,45 @@ static func unit_order(source: Node, unit: Node2D, op: String, target: Variant =
 		elif op == "build": command["building_id"] = Registry.id_of(target)
 		elif op in ["attack", "gather"]: command["target_id"] = Registry.id_of(target)
 		Registry.report_manual_command(command, local_team(source))
+	_play_order_voice(source, unit, op, target)
+
+
+## Keep confirmations on the local input route: replicated and AI orders call
+## the unit methods directly and must never produce player acknowledgements.
+static func _play_order_voice(source: Node, unit: Node2D, op: String, target: Variant) -> void:
+	if unit.get("team") != local_team(source):
+		return
+	var health: Variant = unit.get("hp")
+	if health != null and float(health) <= 0.0:
+		return
+	var audio := audio_service(source)
+	if audio == null:
+		return
+	# A group order calls unit_order once per member in the same input frame.
+	# Let its first accepted member speak, including when a guest sends orders.
+	var frame := Engine.get_process_frames()
+	if source.get_meta("audio_order_frame", -1) == frame:
+		return
+	var action := StringName(op)
+	if op == "gather" and is_instance_valid(target):
+		match target.get("resource_type"):
+			Enums.ResourceType.WOOD: action = &"gather_wood"
+			Enums.ResourceType.FOOD: action = &"gather_food"
+			Enums.ResourceType.GOLD, Enums.ResourceType.STONE: action = &"gather_mine"
+	if bool(audio.call("play_unit_voice", unit, action)):
+		source.set_meta("audio_order_frame", frame)
+
+
+static func audio_service(source: Node) -> Node:
+	if not is_instance_valid(source) or not source.is_inside_tree():
+		return null
+	return source.get_node_or_null("/root/GameAudio")
+
+
+static func play_ui(source: Node, event: StringName) -> void:
+	var audio := audio_service(source)
+	if audio != null:
+		audio.call("play_event", event, &"ui")
 
 
 static func research_age(source: Node, building: Node2D, cancel: bool = false) -> bool:

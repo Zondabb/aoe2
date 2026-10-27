@@ -145,6 +145,8 @@ func _select_click(screen_position: Vector2, additive: bool) -> void:
 		else:
 			_add_selection(closest, false)
 	_emit_selection_changed()
+	if closest != null and closest in _selected:
+		_play_selection_audio(closest)
 
 func _entity_at_screen(screen_position: Vector2) -> Node2D:
 	var canvas_pos := _viewport_to_canvas(screen_position)
@@ -177,14 +179,35 @@ func _select_same_type(screen_position: Vector2, additive: bool) -> void:
 		if candidate != null and candidate.id == definition.id and _entity_intersects_screen_box(unit, viewport_box):
 			_add_selection(unit, false)
 	_emit_selection_changed()
+	_play_selection_audio(hit)
 
 func _select_box(box: Rect2, additive: bool) -> void:
 	if not additive:
 		_clear_selection(false)
+	var speaker: Node2D
 	for unit in _selectable_units():
 		if _entity_intersects_screen_box(unit, box):
 			_add_selection(unit, false)
+			if speaker == null and unit in _selected:
+				speaker = unit
 	_emit_selection_changed()
+	if speaker != null:
+		_play_selection_audio(speaker)
+
+## Only explicit selection gestures speak. Pruning dead/hidden selections,
+## UI refreshes and AI/spectator inspection never enter this path.
+func _play_selection_audio(entity: Node2D) -> void:
+	if read_only or FogAccess.local_read_only(self) or not _is_live_entity(entity):
+		return
+	if entity.get("team") != PlayerCommands.local_team(self):
+		return
+	var audio := PlayerCommands.audio_service(self)
+	if audio == null:
+		return
+	if entity.is_in_group("units"):
+		audio.call("play_unit_voice", entity, &"select")
+	elif entity.is_in_group("buildings"):
+		audio.call("play_event", &"building_select", &"ui", entity)
 
 ## UI commands share formation spacing, ownership checks and the world marker.
 func issue_minimap_move(target: Vector2) -> void:
@@ -512,6 +535,7 @@ func recall_control_group(index: int, additive := false, focus := false) -> void
 	if not additive: _clear_selection(false)
 	for entity in members: _add_selection(entity, false)
 	_emit_selection_changed()
+	_play_selection_audio(members[0])
 	if focus: _focus_group(members)
 
 func _focus_group(members: Array[Node2D]) -> void:

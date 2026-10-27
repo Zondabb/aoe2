@@ -5,6 +5,8 @@ signal construction_completed(building: BuildingAgent)
 signal construction_started(building: BuildingAgent)
 signal train_queue_changed
 signal destroyed(building: BuildingAgent)
+signal damaged(entity: Node)
+signal unit_trained(unit: Node)
 
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const TeamColorCatalogScript := preload("res://scripts/presentation/team_color_catalog.gd")
@@ -256,6 +258,7 @@ func take_damage(amount: float, _source: Node = null) -> void:
 	if is_placement_ghost or amount <= 0.0 or hp <= 0.0:
 		return
 	hp = maxf(0.0, hp - amount)
+	damaged.emit(self)
 	if hp > 0.0:
 		return
 	cancel_age_upgrade()
@@ -541,6 +544,7 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	var lineage: Dictionary = get_meta("ai_queue_lineage", {}).get(queue_id, {}).duplicate(true)
 	unit.set_meta("ai_production_lineage", {"building_id": EntityRegistryScript.id_of(self), "queue_id": queue_id, "lineage": lineage})
 	parent.add_child(unit)
+	unit_trained.emit(unit)
 	AiEventBufferScript.push({"type": "train_completed", "team": int(team), "_visible_to": [int(team)],
 		"building_id": EntityRegistryScript.id_of(self), "queue_id": queue_id,
 		"created_entity_id": EntityRegistryScript.id_of(unit), "unit_def_id": String(unit_def.id), "lineage": lineage})

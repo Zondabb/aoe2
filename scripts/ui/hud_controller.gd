@@ -228,9 +228,11 @@ func _process(_delta: float) -> void:
 
 func _request_build(building_def: BuildingDef) -> void:
 	if not _can_build(building_def):
+		PlayerCommands.play_ui(self, &"error")
 		return
 	if build_system != null:
 		build_system.call("begin_placement", building_def)
+		PlayerCommands.play_ui(self, &"click")
 
 func _civ_allows_stable() -> bool:
 	if match_state != null and match_state.progression_enabled: return true
@@ -683,6 +685,9 @@ func _add_command_button(slot: int, command_id: String, label: String, icon_base
 	button.set_meta("hotkey", hotkey)
 	button.set_meta("label", label)
 	button.set_meta("slot", slot)
+	# These callbacks report acceptance themselves, including keyboard use.
+	if meta_key in ["unit_def", "building_def", "gate_state", "technology_id", "age_upgrade"] or command_id in ["cancel_age", "cancel_technology"]:
+		button.set_meta("audio_skip_click", true)
 	if meta_key != "":
 		button.set_meta(meta_key, meta_value)
 	for state in ["normal", "hover", "pressed", "disabled"]:
@@ -748,10 +753,14 @@ func _add_gate_commands() -> void:
 func _set_gate_state(state: String) -> void:
 	if not _commands_enabled() or not is_instance_valid(_selected_building) or _selected_building.get("team") != PlayerCommands.local_team(self) or not _selected_building.has_method("set_gate_state"):
 		return
+	var accepted := false
 	if PlayerCommands.is_online(self):
-		PlayerCommands.submit(self, {"op": "set_gate_state", "building_id": PlayerCommands.entity_id(self, _selected_building), "gate_state": state})
-	elif _selected_building.call("set_gate_state", state):
-		PlayerCommands.Registry.report_manual_command({"op": "set_gate_state", "building_id": PlayerCommands.Registry.id_of(_selected_building), "gate_state": state}, PlayerCommands.local_team(self))
+		accepted = PlayerCommands.submit(self, {"op": "set_gate_state", "building_id": PlayerCommands.entity_id(self, _selected_building), "gate_state": state})
+	else:
+		accepted = bool(_selected_building.call("set_gate_state", state))
+		if accepted:
+			PlayerCommands.Registry.report_manual_command({"op": "set_gate_state", "building_id": PlayerCommands.Registry.id_of(_selected_building), "gate_state": state}, PlayerCommands.local_team(self))
+	PlayerCommands.play_ui(self, &"click" if accepted else &"error")
 	_refresh_command_grid_states()
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -772,6 +781,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if child is BaseButton and child.get_meta("hotkey", KEY_NONE) == key:
 			if not child.disabled:
 				child.pressed.emit()
+			else:
+				PlayerCommands.play_ui(self, &"error")
 			get_viewport().set_input_as_handled()
 			return
 
@@ -784,6 +795,8 @@ func _select_town_center() -> bool:
 			continue
 		selection.call("_clear_selection", false)
 		selection.call("_add_selection", building)
+		if selection.has_method("_play_selection_audio"):
+			selection.call("_play_selection_audio", building)
 		var camera := get_viewport().get_camera_2d()
 		if camera != null and camera.has_method("focus_on"):
 			camera.call("focus_on", building.get("sim_pos"))
@@ -827,6 +840,7 @@ func _setup_production_queue() -> void:
 		icon.offset_top = 2
 		icon.offset_right = -2
 		icon.offset_bottom = -2
+		button.set_meta("audio_skip_click", true)
 		button.pressed.connect(func(): _cancel_queued_train(int(button.get_meta("queue_id", -1))))
 		_production_queue.add_child(button)
 	var fill := StyleBoxFlat.new()
@@ -868,25 +882,32 @@ func _refresh_production_queue() -> void:
 func _cancel_queued_train(queue_id: int) -> void:
 	if not _commands_enabled() or not is_instance_valid(_selected_building) or _selected_building.team != PlayerCommands.local_team(self):
 		return
+	var accepted := false
 	if PlayerCommands.is_online(self):
-		PlayerCommands.submit(self, {"op": "cancel_train", "building_id": PlayerCommands.entity_id(self, _selected_building), "queue_id": queue_id})
+		accepted = PlayerCommands.submit(self, {"op": "cancel_train", "building_id": PlayerCommands.entity_id(self, _selected_building), "queue_id": queue_id})
 	else:
-		if _selected_building.cancel_train(queue_id):
+		accepted = bool(_selected_building.cancel_train(queue_id))
+		if accepted:
 			PlayerCommands.Registry.report_manual_command({"op": "cancel_train", "building_id": PlayerCommands.Registry.id_of(_selected_building), "queue_id": queue_id}, PlayerCommands.local_team(self))
+	PlayerCommands.play_ui(self, &"click" if accepted else &"error")
 
 func _enqueue_train(unit_def: UnitDef) -> void:
 	if not _can_enqueue(unit_def):
+		PlayerCommands.play_ui(self, &"error")
 		return
+	var accepted := false
 	if _selected_building != null and is_instance_valid(_selected_building):
 		if PlayerCommands.is_online(self):
-			PlayerCommands.submit(self, {
+			accepted = PlayerCommands.submit(self, {
 				"op": "train",
 				"building_id": PlayerCommands.entity_id(self, _selected_building),
 				"unit_def_id": String(unit_def.id),
 			})
 		else:
-			if _selected_building.call("enqueue_train", unit_def):
+			accepted = bool(_selected_building.call("enqueue_train", unit_def))
+			if accepted:
 				PlayerCommands.Registry.report_manual_command({"op": "train", "building_id": PlayerCommands.Registry.id_of(_selected_building), "unit_def_id": String(unit_def.id), "queue_id": _selected_building.train_queue_ids[-1]}, PlayerCommands.local_team(self))
+	PlayerCommands.play_ui(self, &"click" if accepted else &"error")
 
 func _can_enqueue(unit_def: UnitDef) -> bool:
 	return (
@@ -1092,7 +1113,11 @@ func _add_production_commands() -> void:
 		_add_command_button(12,"cancel_technology","取消研究",UiCatalogScript.ICONS_COMMANDS_BASE,UiCatalogScript.FRAME_STOP,KEY_ESCAPE,_research_technology.bind("",true))
 
 func _research_age(cancel: bool) -> void:
-	if is_instance_valid(_selected_building): PlayerCommands.research_age(self,_selected_building,cancel)
+	if is_instance_valid(_selected_building):
+		var accepted := PlayerCommands.research_age(self, _selected_building, cancel)
+		PlayerCommands.play_ui(self, &"click" if accepted else &"error")
 
 func _research_technology(id: String, cancel := false) -> void:
-	if is_instance_valid(_selected_building): PlayerCommands.research_technology(self,_selected_building,id,cancel)
+	if is_instance_valid(_selected_building):
+		var accepted := PlayerCommands.research_technology(self, _selected_building, id, cancel)
+		PlayerCommands.play_ui(self, &"click" if accepted else &"error")

@@ -213,3 +213,7 @@ func _setup_hint() -> void:
 func _setup_fog() -> void:
 	_rebuild_vision()
 	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, Enums.Team.PLAYER)
+	var audio := load("res://scripts/audio/match_audio.gd").new() as Node
+	audio.name = "MatchAudio"
+	get_parent().add_child(audio)
+	audio.setup(get_parent(), match_state)

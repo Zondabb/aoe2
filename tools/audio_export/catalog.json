@@ -1,0 +1,1857 @@
+{
+  "version": 1,
+  "source_edition": "Age of Empires II HD (original PCM WAV resources)",
+  "sources": {
+    "interface_50301": {
+      "archive": "interface",
+      "resource_id": 50301,
+      "original_filename": "button2.wav",
+      "sha256": "81d796836b987a0fe2e1fb797280c7d7d99fd3c8a7dd8f4a905bd0c6162345b6",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "interface_50303": {
+      "archive": "interface",
+      "resource_id": 50303,
+      "original_filename": "cantdo.wav",
+      "sha256": "12246eb64d039cc9d4b3169da674968620d0bf59c86c5c114e584a7b296b9524",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "interface_50305": {
+      "archive": "interface",
+      "resource_id": 50305,
+      "original_filename": "resdone.wav",
+      "sha256": "fde2371fe26f626112bf79ebbe72fbc44ff4d72a2c2215917be45ae1c370b0eb",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "interface_50320": {
+      "archive": "interface",
+      "resource_id": 50320,
+      "original_filename": "won.wav",
+      "sha256": "1044ca4b7742524b687ce36ecee00b84264937f85500d2935a10b0f52cff7249",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "interface_50321": {
+      "archive": "interface",
+      "resource_id": 50321,
+      "original_filename": "lost.wav",
+      "sha256": "24adbcace22fffa977420d905bcab8c8771374d9941378f004348dde1bcefc39",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "interface_50315": {
+      "archive": "interface",
+      "resource_id": 50315,
+      "original_filename": "atakwarn.wav",
+      "sha256": "20e48c2f68b34e0f09f81d518ad4b0f87a745f3f5b6d301679343c24dd8de36f",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "interface_50316": {
+      "archive": "interface",
+      "resource_id": 50316,
+      "original_filename": "enemwarn.wav",
+      "sha256": "7a9feb1b38b8377db7b430b9017e0ba520453da6e1303a46dc5751bc63e118ea",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "interface_50357": {
+      "archive": "interface",
+      "resource_id": 50357,
+      "original_filename": "townbell.wav",
+      "sha256": "1b9caec466397a9d052275a4527085f406022917eb2d869ae61e502179a72b7f",
+      "evidence": "AoK HD.exe interface sound registration; see tools/audio_export/README.md"
+    },
+    "sounds_5358": {
+      "archive": "sounds",
+      "resource_id": 5358,
+      "original_filename": "sword.wav",
+      "sha256": "64d8359b30a6731276468768eb83e78c8d8ef2d6f9797a381d70ed7c411c58d3",
+      "evidence": "empires2_x1_p1.dat sound[329]"
+    },
+    "sounds_5359": {
+      "archive": "sounds",
+      "resource_id": 5359,
+      "original_filename": "sword1.wav",
+      "sha256": "1804b19f448b1e85002ac15fe8f3249e0d35da4e3e6f71b3a4121b94e90a520e",
+      "evidence": "empires2_x1_p1.dat sound[329]"
+    },
+    "sounds_5286": {
+      "archive": "sounds",
+      "resource_id": 5286,
+      "original_filename": "arrow1.wav",
+      "sha256": "3e217650a845250cefc14a76c2f10cbf274ea6452bf09b301b6443a2d2933a30",
+      "evidence": "empires2_x1_p1.dat sound[314]"
+    },
+    "sounds_5287": {
+      "archive": "sounds",
+      "resource_id": 5287,
+      "original_filename": "arrow2.wav",
+      "sha256": "d662a37c56d009688e2c1d0dbae508e2041b657661413785b417e76949bfa148",
+      "evidence": "empires2_x1_p1.dat sound[314]"
+    },
+    "sounds_5309": {
+      "archive": "sounds",
+      "resource_id": 5309,
+      "original_filename": "death1.wav",
+      "sha256": "4c2def46af11b834d9102b4947b8b06446d69e976bc229f983c722b723fec143",
+      "evidence": "empires2_x1_p1.dat sound[294]"
+    },
+    "sounds_5310": {
+      "archive": "sounds",
+      "resource_id": 5310,
+      "original_filename": "death2.wav",
+      "sha256": "4d06134b1ef4ba6a55d442fdf3333447a2fb50342ebac5cf73af6cd66d316eb9",
+      "evidence": "empires2_x1_p1.dat sound[294]"
+    },
+    "sounds_5301": {
+      "archive": "sounds",
+      "resource_id": 5301,
+      "original_filename": "chops1.wav",
+      "sha256": "713788ad618e491cc92129b790983e06920269b55961f4f424e239c079c5c47c",
+      "evidence": "empires2_x1_p1.dat sound[310]"
+    },
+    "sounds_5302": {
+      "archive": "sounds",
+      "resource_id": 5302,
+      "original_filename": "chops2.wav",
+      "sha256": "4b5c5b8db281e4783225517e623ed7de610592b0d74ed502843accc44e2deb9d",
+      "evidence": "empires2_x1_p1.dat sound[310]"
+    },
+    "sounds_5350": {
+      "archive": "sounds",
+      "resource_id": 5350,
+      "original_filename": "ore1.wav",
+      "sha256": "d5ac87a7bf32559430ab8a0cbe8e507ddaf542a1a195fb2972714009caf6e65b",
+      "evidence": "empires2_x1_p1.dat sound[311]"
+    },
+    "sounds_5351": {
+      "archive": "sounds",
+      "resource_id": 5351,
+      "original_filename": "ore2.wav",
+      "sha256": "0bb46ef0f14f8c6f782b1472aa2cc2d3872e69cc764f24f7cc3640e97bb4ac35",
+      "evidence": "empires2_x1_p1.dat sound[311]"
+    },
+    "sounds_5319": {
+      "archive": "sounds",
+      "resource_id": 5319,
+      "original_filename": "farm1.wav",
+      "sha256": "f3425b1553aa5de5b768c7cb4e6bda0a1902330a3f6bc85199ed9ab6277b5367",
+      "evidence": "empires2_x1_p1.dat sound[309]"
+    },
+    "sounds_5320": {
+      "archive": "sounds",
+      "resource_id": 5320,
+      "original_filename": "farm2.wav",
+      "sha256": "f3425b1553aa5de5b768c7cb4e6bda0a1902330a3f6bc85199ed9ab6277b5367",
+      "evidence": "empires2_x1_p1.dat sound[309]"
+    },
+    "sounds_5332": {
+      "archive": "sounds",
+      "resource_id": 5332,
+      "original_filename": "hammer1.wav",
+      "sha256": "5205e512f815c279f2cc7d84733e230442bf16c7cd9436ead46eb41d9d344051",
+      "evidence": "empires2_x1_p1.dat sound[308]"
+    },
+    "sounds_5333": {
+      "archive": "sounds",
+      "resource_id": 5333,
+      "original_filename": "hammer2.wav",
+      "sha256": "5205e512f815c279f2cc7d84733e230442bf16c7cd9436ead46eb41d9d344051",
+      "evidence": "empires2_x1_p1.dat sound[308]"
+    },
+    "sounds_6190": {
+      "archive": "sounds",
+      "resource_id": 6190,
+      "original_filename": "gather1.wav",
+      "sha256": "aee6f204b7ca2bfae8bfbbbc9756fee362fcfcbbab9bd4ff04e25d58a0761402",
+      "evidence": "empires2_x1_p1.dat sound[471]"
+    },
+    "sounds_6191": {
+      "archive": "sounds",
+      "resource_id": 6191,
+      "original_filename": "gather2.wav",
+      "sha256": "0d921bcc9c5a9d418755394ca8b27e1da1e79af826500c48788d712a7a6abc9c",
+      "evidence": "empires2_x1_p1.dat sound[471]"
+    },
+    "sounds_5423": {
+      "archive": "sounds",
+      "resource_id": 5423,
+      "original_filename": "readym.wav",
+      "sha256": "a1fb38f10a3ddf847bc60a88cac66ce4762c84fa9113bbb6805d7c9680b02d41",
+      "evidence": "empires2_x1_p1.dat sound[337]"
+    },
+    "sounds_5353": {
+      "archive": "sounds",
+      "resource_id": 5353,
+      "original_filename": "ready.wav",
+      "sha256": "da396e2106e3c22d60e28f310bdf199870e01d1b5178a1f3d67f167a901743bd",
+      "evidence": "empires2_x1_p1.dat sound[317]"
+    },
+    "sounds_5123": {
+      "archive": "sounds",
+      "resource_id": 5123,
+      "original_filename": "RTWC.wav",
+      "sha256": "f1955f500c4b3dede71595251cd07a11a7bc8018abf78a184203ba9a63320e12",
+      "evidence": "empires2_x1_p1.dat sound[17]"
+    },
+    "sounds_5463": {
+      "archive": "sounds",
+      "resource_id": 5463,
+      "original_filename": "housing.wav",
+      "sha256": "8ba4a8939d72d333044c01020c0b38e0c27a6195b324d6e5e3998906b56f6492",
+      "evidence": "empires2_x1_p1.dat sound[403]"
+    },
+    "sounds_5012": {
+      "archive": "sounds",
+      "resource_id": 5012,
+      "original_filename": "BRKS.wav",
+      "sha256": "4bd4b4f534d1e3534159af39f38ca47054ddd4335eb3a084353f21b7f782c4cf",
+      "evidence": "empires2_x1_p1.dat sound[2]"
+    },
+    "sounds_5003": {
+      "archive": "sounds",
+      "resource_id": 5003,
+      "original_filename": "ARRG.wav",
+      "sha256": "301ebbf0eabe3514fe8c2994219856ff64c54a6182ecb196976d093749c86aa4",
+      "evidence": "empires2_x1_p1.dat sound[322]"
+    },
+    "sounds_5134": {
+      "archive": "sounds",
+      "resource_id": 5134,
+      "original_filename": "STBL.wav",
+      "sha256": "8b3a8efd10a28f979c550db87d12aefab4c6fb964fbf7ab1b06933a9fc3b872c",
+      "evidence": "empires2_x1_p1.dat sound[19]"
+    },
+    "sounds_5100": {
+      "archive": "sounds",
+      "resource_id": 5100,
+      "original_filename": "MILL.wav",
+      "sha256": "b95bc467d9618738d35c0e4e82b74235fb60df441624b3c1748f7a86c931e780",
+      "evidence": "empires2_x1_p1.dat sound[15]"
+    },
+    "sounds_5925": {
+      "archive": "sounds",
+      "resource_id": 5925,
+      "original_filename": "lcamp.wav",
+      "sha256": "b5fa05238fb2749fa22ed389c446410613f6bd59614010294deba5622532e170",
+      "evidence": "empires2_x1_p1.dat sound[446]"
+    },
+    "sounds_5926": {
+      "archive": "sounds",
+      "resource_id": 5926,
+      "original_filename": "mcamp.wav",
+      "sha256": "15c3f8b83fe5a73574848184e0c69bc1719de35510bcb177111401ddb0d08cab",
+      "evidence": "empires2_x1_p1.dat sound[447]"
+    },
+    "sounds_5011": {
+      "archive": "sounds",
+      "resource_id": 5011,
+      "original_filename": "BLAC.wav",
+      "sha256": "50e8cf573e48c6af3c6c1636d3e080d2bd425e30b38a115d6d6cd441e3ca996a",
+      "evidence": "empires2_x1_p1.dat sound[1]"
+    },
+    "sounds_5110": {
+      "archive": "sounds",
+      "resource_id": 5110,
+      "original_filename": "MRKT.wav",
+      "sha256": "5e33415a1706da4d297914df207a52af1ad965ea08d63307d57cd96b6f14c04b",
+      "evidence": "empires2_x1_p1.dat sound[16]"
+    },
+    "sounds_5031": {
+      "archive": "sounds",
+      "resource_id": 5031,
+      "original_filename": "CRCH.wav",
+      "sha256": "818d5f2d9fd49d69df10665617d704ab55851d05824746cc20d16b4b0334219d",
+      "evidence": "empires2_x1_p1.dat sound[3]"
+    },
+    "sounds_5032": {
+      "archive": "sounds",
+      "resource_id": 5032,
+      "original_filename": "CSTL.wav",
+      "sha256": "a18567bc3aecf9ebb41c44ea05bdd55cfe68c438dcb6a7be76eb33b877aa0ed3",
+      "evidence": "empires2_x1_p1.dat sound[4]"
+    },
+    "sounds_5229": {
+      "archive": "sounds",
+      "resource_id": 5229,
+      "original_filename": "UNIV.wav",
+      "sha256": "ad932bbb457343a396a5827f4fae3a422d2367da759e31ac17f3ef88bcccaa10",
+      "evidence": "empires2_x1_p1.dat sound[21]"
+    },
+    "sounds_5489": {
+      "archive": "sounds",
+      "resource_id": 5489,
+      "original_filename": "wall.wav",
+      "sha256": "d5570563f3122de9d098ecea6c0dcc42ad6f4d8e8a0858bcf7545bbbc98cf150",
+      "evidence": "empires2_x1_p1.dat sound[412]"
+    },
+    "sounds_5326": {
+      "archive": "sounds",
+      "resource_id": 5326,
+      "original_filename": "gateo.wav",
+      "sha256": "47e0f28c758a4bd6ded78689ff981e05e650a86c068a6b18cce2f42c5835cfa6",
+      "evidence": "empires2_x1_p1.dat sound[328]"
+    },
+    "sounds_5276": {
+      "archive": "sounds",
+      "resource_id": 5276,
+      "original_filename": "WCTW.wav",
+      "sha256": "3d371d4fd3211e9539bbab41f5d11b8ff959dc6df8faa4b98ad233c449dc277f",
+      "evidence": "empires2_x1_p1.dat sound[23]"
+    },
+    "sounds_5127": {
+      "archive": "sounds",
+      "resource_id": 5127,
+      "original_filename": "SIWS.wav",
+      "sha256": "eab8171b3a26097f20a286d5fad062dd48f1532a898038ce3b55d51ab4705fb5",
+      "evidence": "empires2_x1_p1.dat sound[18]"
+    },
+    "sounds_5496": {
+      "archive": "sounds",
+      "resource_id": 5496,
+      "original_filename": "farm.wav",
+      "sha256": "4eb9fc56b5f8a02ba8c539b902333b9119a5dfc31c2b4b4e699a386a21a7eb7a",
+      "evidence": "empires2_x1_p1.dat sound[416]"
+    },
+    "sounds_5714": {
+      "archive": "sounds",
+      "resource_id": 5714,
+      "original_filename": "cvms1.wav",
+      "sha256": "847ed5eeefd9f5299918fd5bab54daf35e7a2562f5f85f89dc90040edf88cf28",
+      "evidence": "empires2_x1_p1.dat sound[303] civilization_id=6"
+    },
+    "sounds_5715": {
+      "archive": "sounds",
+      "resource_id": 5715,
+      "original_filename": "cvms2.wav",
+      "sha256": "5cee8990dd7427d05f32bfd8ddef9c73bc6fdac95b475162453a30f669c309a1",
+      "evidence": "empires2_x1_p1.dat sound[303] civilization_id=6"
+    },
+    "sounds_5699": {
+      "archive": "sounds",
+      "resource_id": 5699,
+      "original_filename": "cvmm1.wav",
+      "sha256": "e5943721c52047b309f8e23ce612a3927b07b2ad41dde01ff148f29d1bb01b2a",
+      "evidence": "empires2_x1_p1.dat sound[301] civilization_id=6"
+    },
+    "sounds_5700": {
+      "archive": "sounds",
+      "resource_id": 5700,
+      "original_filename": "cvmm2.wav",
+      "sha256": "c65b67c47cc4137a24fd1a94fb24224ef4e9bc3695e5894a3a3217a7ce5d92ec",
+      "evidence": "empires2_x1_p1.dat sound[301] civilization_id=6"
+    },
+    "sounds_5692": {
+      "archive": "sounds",
+      "resource_id": 5692,
+      "original_filename": "cvma.wav",
+      "sha256": "ba44454c3175aae485339b70ea8b244605a8e1bce57e9db0d2ea3b0b3f9d1279",
+      "evidence": "empires2_x1_p1.dat sound[425] civilization_id=6"
+    },
+    "sounds_5693": {
+      "archive": "sounds",
+      "resource_id": 5693,
+      "original_filename": "cvmb.wav",
+      "sha256": "146e8b3a31b362ea775522571eb0600a2354560a5449ef2ac1230a232524e65a",
+      "evidence": "empires2_x1_p1.dat sound[295] civilization_id=6"
+    },
+    "sounds_5695": {
+      "archive": "sounds",
+      "resource_id": 5695,
+      "original_filename": "cvmfo.wav",
+      "sha256": "a2cd17c60d465c087929c6e881b8392e6d32941f281d78b627803f4c96f7a347",
+      "evidence": "empires2_x1_p1.dat sound[297] civilization_id=6"
+    },
+    "sounds_5697": {
+      "archive": "sounds",
+      "resource_id": 5697,
+      "original_filename": "cvml.wav",
+      "sha256": "9f16eebb02566d28597bae086843cffb2e308f2c7395dc062b7ef164e5fd7541",
+      "evidence": "empires2_x1_p1.dat sound[299] civilization_id=6"
+    },
+    "sounds_5698": {
+      "archive": "sounds",
+      "resource_id": 5698,
+      "original_filename": "cvmm.wav",
+      "sha256": "b0af1c65a10d9f3d4f4401c085f612a2f942b892ae4639c022e18a5ee2c5e26f",
+      "evidence": "empires2_x1_p1.dat sound[300] civilization_id=6"
+    },
+    "sounds_5710": {
+      "archive": "sounds",
+      "resource_id": 5710,
+      "original_filename": "cvmms1.wav",
+      "sha256": "cad2906b1c058cc1ce3008f61fdbe95d5f02cbb7f7977fb50858ca9f1e9551a3",
+      "evidence": "empires2_x1_p1.dat sound[420] civilization_id=6"
+    },
+    "sounds_5711": {
+      "archive": "sounds",
+      "resource_id": 5711,
+      "original_filename": "cvmms2.wav",
+      "sha256": "db730da3153716c816f603b664e6411c13744cfaab6c226faef7724070049c26",
+      "evidence": "empires2_x1_p1.dat sound[420] civilization_id=6"
+    },
+    "sounds_5707": {
+      "archive": "sounds",
+      "resource_id": 5707,
+      "original_filename": "cvmmm1.wav",
+      "sha256": "fac09620792a90118f1c32bbe4e01ebc42a7b0b49d622e0bb704a66e130d451f",
+      "evidence": "empires2_x1_p1.dat sound[421] civilization_id=6"
+    },
+    "sounds_5708": {
+      "archive": "sounds",
+      "resource_id": 5708,
+      "original_filename": "cvmmm2.wav",
+      "sha256": "0a024a94af313cbc46ea5d9ea2b0290929594b7c68b848ef410157551a931975",
+      "evidence": "empires2_x1_p1.dat sound[421] civilization_id=6"
+    },
+    "sounds_5703": {
+      "archive": "sounds",
+      "resource_id": 5703,
+      "original_filename": "cvmma1.wav",
+      "sha256": "732720bf6efb3612d99d8baca3832b1d3dd2c11ac887c95e397d7867417d3c73",
+      "evidence": "empires2_x1_p1.dat sound[422] civilization_id=6"
+    },
+    "sounds_5704": {
+      "archive": "sounds",
+      "resource_id": 5704,
+      "original_filename": "cvmma2.wav",
+      "sha256": "d8794ac6315e5656dc3e9fc5fdacb2c19e9d1ab8c14cb623bb1bcbfc1fe20531",
+      "evidence": "empires2_x1_p1.dat sound[422] civilization_id=6"
+    },
+    "sounds_5904": {
+      "archive": "sounds",
+      "resource_id": 5904,
+      "original_filename": "gvms1.wav",
+      "sha256": "20f73e945ae838ba1f50380f350f248628b1cc8eff226d2a5ea94e6c2b600ed3",
+      "evidence": "empires2_x1_p1.dat sound[303] civilization_id=4"
+    },
+    "sounds_5905": {
+      "archive": "sounds",
+      "resource_id": 5905,
+      "original_filename": "gvms2.wav",
+      "sha256": "4b8336bc3d72dfa06b41c76532a6eab1748ac9295d35d33bcb5daa6fc7c0ef2b",
+      "evidence": "empires2_x1_p1.dat sound[303] civilization_id=4"
+    },
+    "sounds_5890": {
+      "archive": "sounds",
+      "resource_id": 5890,
+      "original_filename": "gvmm1.wav",
+      "sha256": "9830ee34e11e64cd731bb127cde02c33b6b461ef0581594ac1201380593d137e",
+      "evidence": "empires2_x1_p1.dat sound[301] civilization_id=4"
+    },
+    "sounds_5891": {
+      "archive": "sounds",
+      "resource_id": 5891,
+      "original_filename": "gvmm3.wav",
+      "sha256": "fbdf18f1c33c2ee69b6f67276cfbaf6d53efa1141462268e651f3106fbc6a01e",
+      "evidence": "empires2_x1_p1.dat sound[301] civilization_id=4"
+    },
+    "sounds_5883": {
+      "archive": "sounds",
+      "resource_id": 5883,
+      "original_filename": "gvma.wav",
+      "sha256": "ad8c5e69e053259a437b47bfa64d599a92c46bfd0f243ee42e57d96782945872",
+      "evidence": "empires2_x1_p1.dat sound[425] civilization_id=4"
+    },
+    "sounds_5884": {
+      "archive": "sounds",
+      "resource_id": 5884,
+      "original_filename": "gvmb.wav",
+      "sha256": "7bc763030cb1ce1bcd8bce29f5d55862a112bef2c6b57cf8d9c00ccb34c7deb0",
+      "evidence": "empires2_x1_p1.dat sound[295] civilization_id=4"
+    },
+    "sounds_5886": {
+      "archive": "sounds",
+      "resource_id": 5886,
+      "original_filename": "gvmfo.wav",
+      "sha256": "b978ffda3b75f403c9689087c0d8853327cf1d5d262c1e84fa2804888f11ea34",
+      "evidence": "empires2_x1_p1.dat sound[297] civilization_id=4"
+    },
+    "sounds_5888": {
+      "archive": "sounds",
+      "resource_id": 5888,
+      "original_filename": "gvml.wav",
+      "sha256": "c67132e6fdf6bb87ea4d8b1faf93058ad510260c4baf51ff316bbd2f2802fbcc",
+      "evidence": "empires2_x1_p1.dat sound[299] civilization_id=4"
+    },
+    "sounds_5889": {
+      "archive": "sounds",
+      "resource_id": 5889,
+      "original_filename": "gvmm.wav",
+      "sha256": "205590a423bb89ec1419ebb95f46504eac39819222454b8dc32bc56ca5dbfc4e",
+      "evidence": "empires2_x1_p1.dat sound[300] civilization_id=4"
+    },
+    "sounds_5900": {
+      "archive": "sounds",
+      "resource_id": 5900,
+      "original_filename": "gvmms1.wav",
+      "sha256": "804d131a301f8654b01f65f664e4f2bf2ca0c78f06d1b3ffc53715c3397754de",
+      "evidence": "empires2_x1_p1.dat sound[420] civilization_id=4"
+    },
+    "sounds_5901": {
+      "archive": "sounds",
+      "resource_id": 5901,
+      "original_filename": "gvmms2.wav",
+      "sha256": "f7a8b1ea68665aaf8e8fa1f425e4cb214f4508f64066d5f6762dbf60a9825538",
+      "evidence": "empires2_x1_p1.dat sound[420] civilization_id=4"
+    },
+    "sounds_5897": {
+      "archive": "sounds",
+      "resource_id": 5897,
+      "original_filename": "gvmmm1.wav",
+      "sha256": "8a9435c542ce9c054004a531f755cae9bb15e20d8d9f8da604950cef97789ed9",
+      "evidence": "empires2_x1_p1.dat sound[421] civilization_id=4"
+    },
+    "sounds_5898": {
+      "archive": "sounds",
+      "resource_id": 5898,
+      "original_filename": "gvmmm2.wav",
+      "sha256": "6143e733814328fd2ebb23e36d6f2ce38108209f17e03779ab682cee826ae3e9",
+      "evidence": "empires2_x1_p1.dat sound[421] civilization_id=4"
+    },
+    "sounds_5893": {
+      "archive": "sounds",
+      "resource_id": 5893,
+      "original_filename": "gvmma1.wav",
+      "sha256": "4d91af2278eed22f6beaf99519fa0a5ef2a58d269849430c456f18307490d3ab",
+      "evidence": "empires2_x1_p1.dat sound[422] civilization_id=4"
+    },
+    "sounds_5894": {
+      "archive": "sounds",
+      "resource_id": 5894,
+      "original_filename": "gvmma2.wav",
+      "sha256": "dcf69a9a17bfbdf0867185b8f60f18471984fd835053413bb342ddd3f0f9e3df",
+      "evidence": "empires2_x1_p1.dat sound[422] civilization_id=4"
+    },
+    "sounds_5316": {
+      "archive": "sounds",
+      "resource_id": 5316,
+      "original_filename": "exp1.wav",
+      "sha256": "a15e8001142f03297985876b295e9883e310bfb48f64b4efb56984e4b88f2f0c",
+      "evidence": "DAT unit[109].dying_graphic=40; graphic[40].sound_id=323; sound[323]"
+    },
+    "sounds_5317": {
+      "archive": "sounds",
+      "resource_id": 5317,
+      "original_filename": "exp2.wav",
+      "sha256": "d76bac293011562475960172affc80278a2a1306389fa198c0ea9149ea6b6d1c",
+      "evidence": "DAT unit[109].dying_graphic=40; graphic[40].sound_id=323; sound[323]"
+    },
+    "sounds_5097": {
+      "archive": "sounds",
+      "resource_id": 5097,
+      "original_filename": "MANGO.wav",
+      "sha256": "c9c604b370c159f497ce6a9257c47ebacbe97030abe9e9afb079668dabe33175",
+      "evidence": "DAT unit[280].attack_sprite_id=979; graphic[979].graphic_attack_sounds[*].sound_props[0].sound_id=107; sound[107]"
+    },
+    "sounds_6153": {
+      "archive": "sounds",
+      "resource_id": 6153,
+      "original_filename": "mango1.wav",
+      "sha256": "5ab5de38bf6cdd00bb26f13fbf6105191cd826362f32a008a5d0223604c1a88f",
+      "evidence": "DAT unit[280].attack_sprite_id=979; graphic[979].graphic_attack_sounds[*].sound_props[0].sound_id=107; sound[107]"
+    },
+    "sounds_5451": {
+      "archive": "sounds",
+      "resource_id": 5451,
+      "original_filename": "can1.wav",
+      "sha256": "53b64b810b0f0470c2ae5ee8c6c34d3760d1f5a8f916376a4c84523f52ba31ca",
+      "evidence": "DAT unit[36].attack_sprite_id=654; graphic[654].graphic_attack_sounds[*].sound_props[0].sound_id=385; sound[385]"
+    },
+    "sounds_5452": {
+      "archive": "sounds",
+      "resource_id": 5452,
+      "original_filename": "can2.wav",
+      "sha256": "53b64b810b0f0470c2ae5ee8c6c34d3760d1f5a8f916376a4c84523f52ba31ca",
+      "evidence": "DAT unit[36].attack_sprite_id=654; graphic[654].graphic_attack_sounds[*].sound_props[0].sound_id=385; sound[385]"
+    },
+    "sounds_5425": {
+      "archive": "sounds",
+      "resource_id": 5425,
+      "original_filename": "trebfir1.wav",
+      "sha256": "e7a068a50e305153ea02aa5779a367927aac84f30fa018fad4e8d383e91dd472",
+      "evidence": "DAT unit[42].attack_sprite_id=1174; graphic[1174].graphic_attack_sounds[*].sound_props[0].sound_id=290; sound[290]"
+    },
+    "sounds_5426": {
+      "archive": "sounds",
+      "resource_id": 5426,
+      "original_filename": "trebfir2.wav",
+      "sha256": "0a446d42b84cad887a7094cddab49b11be5ff8489ab415a47a94a435184622ad",
+      "evidence": "DAT unit[42].attack_sprite_id=1174; graphic[1174].graphic_attack_sounds[*].sound_props[0].sound_id=290; sound[290]"
+    },
+    "sounds_6158": {
+      "archive": "sounds",
+      "resource_id": 6158,
+      "original_filename": "sonar1.wav",
+      "sha256": "7f1adfa6ff1031258e057c20408a857ed2cb8c8edc304f6d0404717ab00cb60c",
+      "evidence": "DAT unit[588].attack_sprite_id=3159; graphic[3159].graphic_attack_sounds[*].sound_props[0].sound_id=466; sound[466]"
+    },
+    "sounds_6159": {
+      "archive": "sounds",
+      "resource_id": 6159,
+      "original_filename": "sonar2.wav",
+      "sha256": "3903012d7f53a538991a2c5200f00f2da313728303ae592219c9f0e34b06e1f6",
+      "evidence": "DAT unit[588].attack_sprite_id=3159; graphic[3159].graphic_attack_sounds[*].sound_props[0].sound_id=466; sound[466]"
+    },
+    "sounds_5447": {
+      "archive": "sounds",
+      "resource_id": 5447,
+      "original_filename": "balista2.wav",
+      "sha256": "63cd39c8a60111c08ed72dc8d0ab7657b8eb3ea3a720a7f977f994527d19069b",
+      "evidence": "DAT unit[279].attack_sprite_id=1070; graphic[1070].graphic_attack_sounds[*].sound_props[0].sound_id=384; sound[384]"
+    },
+    "sounds_5448": {
+      "archive": "sounds",
+      "resource_id": 5448,
+      "original_filename": "balista3.wav",
+      "sha256": "9d3ff701c469cead459808028c2afdc66bbabea77892d5b9385b067744199567",
+      "evidence": "DAT unit[279].attack_sprite_id=1070; graphic[1070].graphic_attack_sounds[*].sound_props[0].sound_id=384; sound[384]"
+    },
+    "sounds_5343": {
+      "archive": "sounds",
+      "resource_id": 5343,
+      "original_filename": "knight1.wav",
+      "sha256": "68dc72a682d94ee61959932681224a70a3d9519a25d442ec2ac4d9c7ea7b2f53",
+      "evidence": "empires2_x1_p1.dat sound[325] civilization_id=-1"
+    },
+    "sounds_5344": {
+      "archive": "sounds",
+      "resource_id": 5344,
+      "original_filename": "knight2.wav",
+      "sha256": "6d40a7a1cf9bcdfe3f284790f6a60491c1718b235055a36f6e67cdf7105b5926",
+      "evidence": "empires2_x1_p1.dat sound[325] civilization_id=-1"
+    },
+    "sounds_5346": {
+      "archive": "sounds",
+      "resource_id": 5346,
+      "original_filename": "knightm.wav",
+      "sha256": "05e8db7076e832e495ec2a9a96d9f1706321d31138fcb3c115daa90a430e8b3c",
+      "evidence": "empires2_x1_p1.dat sound[326] civilization_id=-1"
+    },
+    "sounds_6194": {
+      "archive": "sounds",
+      "resource_id": 6194,
+      "original_filename": "horsewa1.wav",
+      "sha256": "f55cf6be657129a970352949ad14d526971854da310b60ab12ec4f9668ea0f13",
+      "evidence": "empires2_x1_p1.dat sound[474] civilization_id=-1"
+    },
+    "sounds_6195": {
+      "archive": "sounds",
+      "resource_id": 6195,
+      "original_filename": "horsewa2.wav",
+      "sha256": "f9386e64b2ba9d6bb914f06023f4fdaeb23b6ecb775176d8de023039ebe5fd0f",
+      "evidence": "empires2_x1_p1.dat sound[474] civilization_id=-1"
+    },
+    "sounds_5565": {
+      "archive": "sounds",
+      "resource_id": 5565,
+      "original_filename": "camel1.wav",
+      "sha256": "c9acdf277e61eaab986b135e277c76f9331ffee6eceff2379e4ba99e6c368b53",
+      "evidence": "empires2_x1_p1.dat sound[430] civilization_id=-1"
+    },
+    "sounds_5566": {
+      "archive": "sounds",
+      "resource_id": 5566,
+      "original_filename": "camel2.wav",
+      "sha256": "3cba60b3b0a4265b0aa0263b54c69e2fcf0fd807508cb2a3158fe4b231466826",
+      "evidence": "empires2_x1_p1.dat sound[430] civilization_id=-1"
+    },
+    "sounds_5491": {
+      "archive": "sounds",
+      "resource_id": 5491,
+      "original_filename": "cavmov.wav",
+      "sha256": "1809864404463921932287c470f6b6124912bf30230a97faf25ba02b6c3b81a3",
+      "evidence": "empires2_x1_p1.dat sound[415] civilization_id=-1"
+    },
+    "sounds_5688": {
+      "archive": "sounds",
+      "resource_id": 5688,
+      "original_filename": "cpms1.wav",
+      "sha256": "6f0d42d70db43a144ee74c20d1b3f6bb03d459041661b99264ee21234c0687c7",
+      "evidence": "empires2_x1_p1.dat sound[423] civilization_id=6"
+    },
+    "sounds_5689": {
+      "archive": "sounds",
+      "resource_id": 5689,
+      "original_filename": "cpms2.wav",
+      "sha256": "d7988bbf8f61638b24c5e9c156c551439b30fee905b31cfc9d686933c06cc73b",
+      "evidence": "empires2_x1_p1.dat sound[423] civilization_id=6"
+    },
+    "sounds_5684": {
+      "archive": "sounds",
+      "resource_id": 5684,
+      "original_filename": "cpmm1.wav",
+      "sha256": "c0853b39ae18c3572d9ccfdc7dea082d044ae4a71badf2dd7e9d39fd2452c1fe",
+      "evidence": "empires2_x1_p1.dat sound[424] civilization_id=6"
+    },
+    "sounds_5685": {
+      "archive": "sounds",
+      "resource_id": 5685,
+      "original_filename": "cpmm2.wav",
+      "sha256": "d551f22d4348bbef67068522ae41e2d5ad38b2e9f366462fce2264c5838f66bb",
+      "evidence": "empires2_x1_p1.dat sound[424] civilization_id=6"
+    },
+    "sounds_5862": {
+      "archive": "sounds",
+      "resource_id": 5862,
+      "original_filename": "gpms1.wav",
+      "sha256": "d52627590e116f3fb0c54aef57e2556988411ee89bae58ba6449e467f8c6be72",
+      "evidence": "empires2_x1_p1.dat sound[423] civilization_id=4"
+    },
+    "sounds_5863": {
+      "archive": "sounds",
+      "resource_id": 5863,
+      "original_filename": "gpms2.wav",
+      "sha256": "9caf7ae3c8a1500cbeff8bc360eeb1bc1f77c35b5c535e9633446633eb34ce76",
+      "evidence": "empires2_x1_p1.dat sound[423] civilization_id=4"
+    },
+    "sounds_5858": {
+      "archive": "sounds",
+      "resource_id": 5858,
+      "original_filename": "gpmm1.wav",
+      "sha256": "3fdd84504f00a9eef785cac8197adbca5b359e4edbea8dfba3be032e7e95ccc8",
+      "evidence": "empires2_x1_p1.dat sound[424] civilization_id=4"
+    },
+    "sounds_5859": {
+      "archive": "sounds",
+      "resource_id": 5859,
+      "original_filename": "gpmm2.wav",
+      "sha256": "7470866729289ce2841b9279b5e122d88d868720f16dc648a910b1223d8e3a58",
+      "evidence": "empires2_x1_p1.dat sound[424] civilization_id=4"
+    },
+    "sounds_6433": {
+      "archive": "sounds",
+      "resource_id": 6433,
+      "original_filename": "onager.wav",
+      "sha256": "b5456d723c8a8fd5515f4ce5ea1b24aa0123b29f3018f472bb1e1d5376248e9f",
+      "evidence": "empires2_x1_p1.dat sound[489] civilization_id=-1"
+    },
+    "sounds_6196": {
+      "archive": "sounds",
+      "resource_id": 6196,
+      "original_filename": "mangmv.wav",
+      "sha256": "b313ec94d5a6dafb7d1318c913de9cd9a85632458c5b240224129b6da050addd",
+      "evidence": "empires2_x1_p1.dat sound[476] civilization_id=-1"
+    },
+    "sounds_6435": {
+      "archive": "sounds",
+      "resource_id": 6435,
+      "original_filename": "scorp.wav",
+      "sha256": "8320348cb56c03f70cd64aabde2aca6ea8a59a9ccfa3a057d46e219f46cf5c9a",
+      "evidence": "empires2_x1_p1.dat sound[490] civilization_id=-1"
+    },
+    "sounds_5366": {
+      "archive": "sounds",
+      "resource_id": 5366,
+      "original_filename": "trebbrth.wav",
+      "sha256": "a52baf16a93e54742b58f758ddff007dfedd4a205064d1b26fec2ab35a7c8e5b",
+      "evidence": "empires2_x1_p1.dat sound[291] civilization_id=-1"
+    },
+    "sounds_6424": {
+      "archive": "sounds",
+      "resource_id": 6424,
+      "original_filename": "trebm.wav",
+      "sha256": "4c86addf492d0bec228768ff969d17958ad91d044be15697790bc38cdc31933c",
+      "evidence": "empires2_x1_p1.dat sound[484] civilization_id=-1"
+    },
+    "sounds_5363": {
+      "archive": "sounds",
+      "resource_id": 5363,
+      "original_filename": "tcartbt1.wav",
+      "sha256": "fb9195848ccb77067853f48297cbf5e2a67eb44983a5c977cfc7fb03bbfee765",
+      "evidence": "empires2_x1_p1.dat sound[305] civilization_id=-1"
+    },
+    "sounds_5364": {
+      "archive": "sounds",
+      "resource_id": 5364,
+      "original_filename": "tcartbt2.wav",
+      "sha256": "0b766b88f92dbe430249c6e4807ce0ae01f6fd270d272a95b1a4f88ddc29bd92",
+      "evidence": "empires2_x1_p1.dat sound[305] civilization_id=-1"
+    },
+    "sounds_5365": {
+      "archive": "sounds",
+      "resource_id": 5365,
+      "original_filename": "tcartmov.wav",
+      "sha256": "9c7f55983ad9489723cb91e251f3f20ea2d4779a310e6baa49db6b6d5525ff98",
+      "evidence": "empires2_x1_p1.dat sound[306] civilization_id=-1"
+    }
+  },
+  "events": {
+    "click": {
+      "sources": [
+        "interface_50301"
+      ],
+      "category": "ui",
+      "volume_db": -10,
+      "cooldown": 0.07
+    },
+    "error": {
+      "sources": [
+        "interface_50303"
+      ],
+      "category": "ui",
+      "volume_db": -6,
+      "cooldown": 0.3
+    },
+    "age_up": {
+      "sources": [
+        "interface_50305"
+      ],
+      "category": "ui",
+      "volume_db": -5,
+      "cooldown": 1,
+      "note": "Original research completion cue, also used for age research here."
+    },
+    "victory": {
+      "sources": [
+        "interface_50320"
+      ],
+      "category": "ui",
+      "volume_db": -4,
+      "cooldown": 1
+    },
+    "defeat": {
+      "sources": [
+        "interface_50321"
+      ],
+      "category": "ui",
+      "volume_db": -4,
+      "cooldown": 1
+    },
+    "attack_warning": {
+      "sources": [
+        "interface_50315"
+      ],
+      "category": "ui",
+      "volume_db": -7,
+      "cooldown": 6
+    },
+    "civilian_attack_warning": {
+      "sources": [
+        "interface_50316"
+      ],
+      "category": "ui",
+      "volume_db": -7,
+      "cooldown": 6
+    },
+    "town_bell": {
+      "sources": [
+        "interface_50357"
+      ],
+      "category": "ui",
+      "volume_db": -7,
+      "cooldown": 1
+    },
+    "melee": {
+      "sources": [
+        "sounds_5358",
+        "sounds_5359"
+      ],
+      "category": "world",
+      "volume_db": -14,
+      "cooldown": 0.12
+    },
+    "arrow": {
+      "sources": [
+        "sounds_5286",
+        "sounds_5287"
+      ],
+      "category": "world",
+      "volume_db": -13,
+      "cooldown": 0.1
+    },
+    "death": {
+      "sources": [
+        "sounds_5309",
+        "sounds_5310"
+      ],
+      "category": "world",
+      "volume_db": -13,
+      "cooldown": 0.15
+    },
+    "chop": {
+      "sources": [
+        "sounds_5301",
+        "sounds_5302"
+      ],
+      "category": "world",
+      "volume_db": -17,
+      "cooldown": 0.2
+    },
+    "mine": {
+      "sources": [
+        "sounds_5350",
+        "sounds_5351"
+      ],
+      "category": "world",
+      "volume_db": -18,
+      "cooldown": 0.2
+    },
+    "farm": {
+      "sources": [
+        "sounds_5319",
+        "sounds_5320"
+      ],
+      "category": "world",
+      "volume_db": -18,
+      "cooldown": 0.3
+    },
+    "hammer": {
+      "sources": [
+        "sounds_5332",
+        "sounds_5333"
+      ],
+      "category": "world",
+      "volume_db": -17,
+      "cooldown": 0.2
+    },
+    "gather": {
+      "sources": [
+        "sounds_6190",
+        "sounds_6191"
+      ],
+      "category": "world",
+      "volume_db": -19,
+      "cooldown": 0.3
+    },
+    "unit_ready": {
+      "sources": [
+        "sounds_5423"
+      ],
+      "category": "world",
+      "volume_db": -8,
+      "cooldown": 0.4
+    },
+    "villager_ready": {
+      "sources": [
+        "sounds_5353"
+      ],
+      "category": "world",
+      "volume_db": -8,
+      "cooldown": 0.4
+    },
+    "building_select_town_center": {
+      "sources": [
+        "sounds_5123"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[109] RTWC.selection_sound_id=17"
+    },
+    "building_select_house": {
+      "sources": [
+        "sounds_5463"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[70] HOUS.selection_sound_id=403"
+    },
+    "building_select_barracks": {
+      "sources": [
+        "sounds_5012"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[12] BRKS.selection_sound_id=2"
+    },
+    "building_select_archery_range": {
+      "sources": [
+        "sounds_5003"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[87] ARRG.selection_sound_id=322"
+    },
+    "building_select_stable": {
+      "sources": [
+        "sounds_5134"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[101] STBL.selection_sound_id=19"
+    },
+    "building_select_mill": {
+      "sources": [
+        "sounds_5100"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[68] MILL.selection_sound_id=15"
+    },
+    "building_select_lumber_camp": {
+      "sources": [
+        "sounds_5925"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[562] SMIL.selection_sound_id=446"
+    },
+    "building_select_mining_camp": {
+      "sources": [
+        "sounds_5926"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[584] MINE.selection_sound_id=447"
+    },
+    "building_select_blacksmith": {
+      "sources": [
+        "sounds_5011"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[103] BLAC.selection_sound_id=1"
+    },
+    "building_select_market": {
+      "sources": [
+        "sounds_5110"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[84] MRKT.selection_sound_id=16"
+    },
+    "building_select_monastery": {
+      "sources": [
+        "sounds_5031"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[104] CRCH.selection_sound_id=3"
+    },
+    "building_select_castle": {
+      "sources": [
+        "sounds_5032"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[82] CSTL.selection_sound_id=4"
+    },
+    "building_select_university": {
+      "sources": [
+        "sounds_5229"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[209] UNIV.selection_sound_id=21"
+    },
+    "building_select_stone_wall": {
+      "sources": [
+        "sounds_5489"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[117] WALL2.selection_sound_id=412"
+    },
+    "building_select_gate": {
+      "sources": [
+        "sounds_5326"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "Original gate opening sound (DAT sound[328]); obsolete gate selection resource 5062 is absent in HD."
+    },
+    "building_select_tower": {
+      "sources": [
+        "sounds_5276"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[79] WCTW.selection_sound_id=23"
+    },
+    "building_select_siege_workshop": {
+      "sources": [
+        "sounds_5127"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[49] SIWS.selection_sound_id=18"
+    },
+    "building_select_farm": {
+      "sources": [
+        "sounds_5496"
+      ],
+      "category": "world",
+      "volume_db": -10,
+      "cooldown": 0.25,
+      "note": "DAT unit[50] FARM.selection_sound_id=416"
+    },
+    "building_select": {
+      "alias": "building_select_house"
+    },
+    "construction_complete": {
+      "alias": "building_select_house",
+      "note": "Generic completed-building cue. Specialized building cues share the original selection/construction sounds."
+    },
+    "voice_villager_select_chinese": {
+      "sources": [
+        "sounds_5714",
+        "sounds_5715"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_move_chinese": {
+      "sources": [
+        "sounds_5699",
+        "sounds_5700"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_attack_chinese": {
+      "sources": [
+        "sounds_5692"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_build_chinese": {
+      "sources": [
+        "sounds_5693"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_food_chinese": {
+      "sources": [
+        "sounds_5695"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_wood_chinese": {
+      "sources": [
+        "sounds_5697"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_mine_chinese": {
+      "sources": [
+        "sounds_5698"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_chinese": {
+      "alias": "voice_villager_gather_wood_chinese",
+      "note": "Generic gather command uses original woodcutter acknowledgment."
+    },
+    "voice_villager_stop_chinese": {
+      "alias": "voice_villager_move_chinese",
+      "note": "No dedicated stop clip; reuse movement acknowledgment."
+    },
+    "voice_military_select_chinese": {
+      "sources": [
+        "sounds_5710",
+        "sounds_5711"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_military_move_chinese": {
+      "sources": [
+        "sounds_5707",
+        "sounds_5708"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_military_attack_chinese": {
+      "sources": [
+        "sounds_5703",
+        "sounds_5704"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_military_stop_chinese": {
+      "alias": "voice_military_move_chinese",
+      "note": "No dedicated stop clip; reuse movement acknowledgment."
+    },
+    "voice_villager_select_teutons": {
+      "sources": [
+        "sounds_5904",
+        "sounds_5905"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_move_teutons": {
+      "sources": [
+        "sounds_5890",
+        "sounds_5891"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_attack_teutons": {
+      "sources": [
+        "sounds_5883"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_build_teutons": {
+      "sources": [
+        "sounds_5884"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_food_teutons": {
+      "sources": [
+        "sounds_5886"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_wood_teutons": {
+      "sources": [
+        "sounds_5888"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_mine_teutons": {
+      "sources": [
+        "sounds_5889"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_villager_gather_teutons": {
+      "alias": "voice_villager_gather_wood_teutons",
+      "note": "Generic gather command uses original woodcutter acknowledgment."
+    },
+    "voice_villager_stop_teutons": {
+      "alias": "voice_villager_move_teutons",
+      "note": "No dedicated stop clip; reuse movement acknowledgment."
+    },
+    "voice_military_select_teutons": {
+      "sources": [
+        "sounds_5900",
+        "sounds_5901"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_military_move_teutons": {
+      "sources": [
+        "sounds_5897",
+        "sounds_5898"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_military_attack_teutons": {
+      "sources": [
+        "sounds_5893",
+        "sounds_5894"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28
+    },
+    "voice_military_stop_teutons": {
+      "alias": "voice_military_move_teutons",
+      "note": "No dedicated stop clip; reuse movement acknowledgment."
+    },
+    "building_destroyed": {
+      "sources": [
+        "sounds_5316",
+        "sounds_5317"
+      ],
+      "category": "world",
+      "volume_db": -13,
+      "cooldown": 0.2,
+      "note": "DAT unit[109].dying_graphic=40; graphic[40].sound_id=323"
+    },
+    "siege_fire_stone": {
+      "sources": [
+        "sounds_5097",
+        "sounds_6153"
+      ],
+      "category": "world",
+      "volume_db": -14,
+      "cooldown": 0.18,
+      "note": "DAT unit[280].attack_sprite_id=979; graphic[979].graphic_attack_sounds[*].sound_props[0].sound_id=107"
+    },
+    "siege_fire_cannon": {
+      "sources": [
+        "sounds_5451",
+        "sounds_5452"
+      ],
+      "category": "world",
+      "volume_db": -15,
+      "cooldown": 0.2,
+      "note": "DAT unit[36].attack_sprite_id=654; graphic[654].graphic_attack_sounds[*].sound_props[0].sound_id=385"
+    },
+    "siege_fire_trebuchet": {
+      "sources": [
+        "sounds_5425",
+        "sounds_5426"
+      ],
+      "category": "world",
+      "volume_db": -14,
+      "cooldown": 0.2,
+      "note": "DAT unit[42].attack_sprite_id=1174; graphic[1174].graphic_attack_sounds[*].sound_props[0].sound_id=290"
+    },
+    "siege_fire_onager": {
+      "sources": [
+        "sounds_6158",
+        "sounds_6159"
+      ],
+      "category": "world",
+      "volume_db": -14,
+      "cooldown": 0.18,
+      "note": "DAT unit[588].attack_sprite_id=3159; graphic[3159].graphic_attack_sounds[*].sound_props[0].sound_id=466"
+    },
+    "siege_fire_bolt": {
+      "sources": [
+        "sounds_5447",
+        "sounds_5448"
+      ],
+      "category": "world",
+      "volume_db": -14,
+      "cooldown": 0.12,
+      "note": "DAT unit[279].attack_sprite_id=1070; graphic[1070].graphic_attack_sounds[*].sound_props[0].sound_id=384"
+    },
+    "voice_cavalry_select_chinese": {
+      "sources": [
+        "sounds_5343",
+        "sounds_5344"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry selection sound[325]"
+    },
+    "voice_cavalry_move_chinese": {
+      "sources": [
+        "sounds_5346"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry command sound[326]"
+    },
+    "voice_cavalry_attack_chinese": {
+      "alias": "voice_cavalry_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_cavalry_stop_chinese": {
+      "alias": "voice_cavalry_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_cavalry_select_teutons": {
+      "sources": [
+        "sounds_5343",
+        "sounds_5344"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry selection sound[325]"
+    },
+    "voice_cavalry_move_teutons": {
+      "sources": [
+        "sounds_5346"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry command sound[326]"
+    },
+    "voice_cavalry_attack_teutons": {
+      "alias": "voice_cavalry_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_cavalry_stop_teutons": {
+      "alias": "voice_cavalry_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scout_select_chinese": {
+      "sources": [
+        "sounds_5343",
+        "sounds_5344"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scout selection sound[325]"
+    },
+    "voice_scout_move_chinese": {
+      "sources": [
+        "sounds_6194",
+        "sounds_6195"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scout command sound[474]"
+    },
+    "voice_scout_attack_chinese": {
+      "alias": "voice_scout_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scout_stop_chinese": {
+      "alias": "voice_scout_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scout_select_teutons": {
+      "sources": [
+        "sounds_5343",
+        "sounds_5344"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scout selection sound[325]"
+    },
+    "voice_scout_move_teutons": {
+      "sources": [
+        "sounds_6194",
+        "sounds_6195"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scout command sound[474]"
+    },
+    "voice_scout_attack_teutons": {
+      "alias": "voice_scout_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scout_stop_teutons": {
+      "alias": "voice_scout_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_camel_select_chinese": {
+      "sources": [
+        "sounds_5565",
+        "sounds_5566"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original camel selection sound[430]"
+    },
+    "voice_camel_move_chinese": {
+      "sources": [
+        "sounds_5346"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original camel command sound[326]"
+    },
+    "voice_camel_attack_chinese": {
+      "alias": "voice_camel_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_camel_stop_chinese": {
+      "alias": "voice_camel_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_camel_select_teutons": {
+      "sources": [
+        "sounds_5565",
+        "sounds_5566"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original camel selection sound[430]"
+    },
+    "voice_camel_move_teutons": {
+      "sources": [
+        "sounds_5346"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original camel command sound[326]"
+    },
+    "voice_camel_attack_teutons": {
+      "alias": "voice_camel_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_camel_stop_teutons": {
+      "alias": "voice_camel_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_cavalry_archer_select_chinese": {
+      "sources": [
+        "sounds_5343",
+        "sounds_5344"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry_archer selection sound[325]"
+    },
+    "voice_cavalry_archer_move_chinese": {
+      "sources": [
+        "sounds_5491"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry_archer command sound[415]"
+    },
+    "voice_cavalry_archer_attack_chinese": {
+      "alias": "voice_cavalry_archer_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_cavalry_archer_stop_chinese": {
+      "alias": "voice_cavalry_archer_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_cavalry_archer_select_teutons": {
+      "sources": [
+        "sounds_5343",
+        "sounds_5344"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry_archer selection sound[325]"
+    },
+    "voice_cavalry_archer_move_teutons": {
+      "sources": [
+        "sounds_5491"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original cavalry_archer command sound[415]"
+    },
+    "voice_cavalry_archer_attack_teutons": {
+      "alias": "voice_cavalry_archer_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_cavalry_archer_stop_teutons": {
+      "alias": "voice_cavalry_archer_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_monk_select_chinese": {
+      "sources": [
+        "sounds_5688",
+        "sounds_5689"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original monk selection sound[423]"
+    },
+    "voice_monk_move_chinese": {
+      "sources": [
+        "sounds_5684",
+        "sounds_5685"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original monk command sound[424]"
+    },
+    "voice_monk_attack_chinese": {
+      "alias": "voice_monk_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_monk_stop_chinese": {
+      "alias": "voice_monk_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_monk_select_teutons": {
+      "sources": [
+        "sounds_5862",
+        "sounds_5863"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original monk selection sound[423]"
+    },
+    "voice_monk_move_teutons": {
+      "sources": [
+        "sounds_5858",
+        "sounds_5859"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original monk command sound[424]"
+    },
+    "voice_monk_attack_teutons": {
+      "alias": "voice_monk_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_monk_stop_teutons": {
+      "alias": "voice_monk_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_mangonel_select_chinese": {
+      "sources": [
+        "sounds_6433"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original mangonel selection sound[489]"
+    },
+    "voice_mangonel_move_chinese": {
+      "sources": [
+        "sounds_6196"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original mangonel command sound[476]"
+    },
+    "voice_mangonel_attack_chinese": {
+      "alias": "voice_mangonel_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_mangonel_stop_chinese": {
+      "alias": "voice_mangonel_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_mangonel_select_teutons": {
+      "sources": [
+        "sounds_6433"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original mangonel selection sound[489]"
+    },
+    "voice_mangonel_move_teutons": {
+      "sources": [
+        "sounds_6196"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original mangonel command sound[476]"
+    },
+    "voice_mangonel_attack_teutons": {
+      "alias": "voice_mangonel_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_mangonel_stop_teutons": {
+      "alias": "voice_mangonel_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scorpion_select_chinese": {
+      "sources": [
+        "sounds_6435"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scorpion selection sound[490]"
+    },
+    "voice_scorpion_move_chinese": {
+      "sources": [
+        "sounds_6196"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scorpion command sound[476]"
+    },
+    "voice_scorpion_attack_chinese": {
+      "alias": "voice_scorpion_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scorpion_stop_chinese": {
+      "alias": "voice_scorpion_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scorpion_select_teutons": {
+      "sources": [
+        "sounds_6435"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scorpion selection sound[490]"
+    },
+    "voice_scorpion_move_teutons": {
+      "sources": [
+        "sounds_6196"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original scorpion command sound[476]"
+    },
+    "voice_scorpion_attack_teutons": {
+      "alias": "voice_scorpion_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_scorpion_stop_teutons": {
+      "alias": "voice_scorpion_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trebuchet_select_chinese": {
+      "sources": [
+        "sounds_5366"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trebuchet selection sound[291]"
+    },
+    "voice_trebuchet_move_chinese": {
+      "sources": [
+        "sounds_6424"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trebuchet command sound[484]"
+    },
+    "voice_trebuchet_attack_chinese": {
+      "alias": "voice_trebuchet_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trebuchet_stop_chinese": {
+      "alias": "voice_trebuchet_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trebuchet_select_teutons": {
+      "sources": [
+        "sounds_5366"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trebuchet selection sound[291]"
+    },
+    "voice_trebuchet_move_teutons": {
+      "sources": [
+        "sounds_6424"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trebuchet command sound[484]"
+    },
+    "voice_trebuchet_attack_teutons": {
+      "alias": "voice_trebuchet_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trebuchet_stop_teutons": {
+      "alias": "voice_trebuchet_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trade_cart_select_chinese": {
+      "sources": [
+        "sounds_5363",
+        "sounds_5364"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trade_cart selection sound[305]"
+    },
+    "voice_trade_cart_move_chinese": {
+      "sources": [
+        "sounds_5365"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trade_cart command sound[306]"
+    },
+    "voice_trade_cart_attack_chinese": {
+      "alias": "voice_trade_cart_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trade_cart_stop_chinese": {
+      "alias": "voice_trade_cart_move_chinese",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trade_cart_select_teutons": {
+      "sources": [
+        "sounds_5363",
+        "sounds_5364"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trade_cart selection sound[305]"
+    },
+    "voice_trade_cart_move_teutons": {
+      "sources": [
+        "sounds_5365"
+      ],
+      "category": "voice",
+      "volume_db": -5,
+      "cooldown": 0.28,
+      "note": "Original trade_cart command sound[306]"
+    },
+    "voice_trade_cart_attack_teutons": {
+      "alias": "voice_trade_cart_move_teutons",
+      "note": "Reuse the original unit command sound."
+    },
+    "voice_trade_cart_stop_teutons": {
+      "alias": "voice_trade_cart_move_teutons",
+      "note": "Reuse the original unit command sound."
+    }
+  },
+  "voice_profiles": {
+    "scout_cavalry": "scout",
+    "trade_cart": "trade_cart",
+    "camel": "camel",
+    "cavalry_archer": "cavalry_archer",
+    "knight": "cavalry",
+    "mangonel": "mangonel",
+    "monk": "monk",
+    "scorpion": "scorpion",
+    "light_cavalry": "cavalry",
+    "trebuchet": "trebuchet",
+    "heavy_camel": "camel",
+    "heavy_cavalry_archer": "cavalry_archer",
+    "paladin": "cavalry",
+    "heavy_scorpion": "scorpion",
+    "onager": "mangonel",
+    "cavalier": "cavalry",
+    "siege_onager": "mangonel"
+  }
+}

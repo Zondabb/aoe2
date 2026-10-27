@@ -84,6 +84,10 @@ func _finish_setup() -> void:
 		vision_holder.rebuild_from_scene()
 	_setup_debug_overlay()
 	FogHolder.install(get_parent(), match_state, GROUND_MIN, GROUND_MAX, -1)
+	var audio := load("res://scripts/audio/match_audio.gd").new() as Node
+	audio.name = "MatchAudio"
+	get_parent().add_child(audio)
+	audio.setup(get_parent(), match_state)
 
 
 ## 按 G/N/B/P… 切换的 NavDebugOverlay；与 PathfindingDebugPanel 绑定。

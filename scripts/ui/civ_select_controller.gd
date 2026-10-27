@@ -140,6 +140,7 @@ func _build_ui() -> void:
 	_button(panel, "Quit", "退出游戏", Rect2(223, 406, 169, 42), func(): get_tree().quit())
 	_button(_main, "CombatArena", "战斗测试场", Rect2(100, 634, 150, 40), func(): get_tree().change_scene_to_file("res://scenes/combat_arena.tscn"))
 	_button(_main, "PathArena", "寻路测试场", Rect2(268, 634, 150, 40), func(): get_tree().change_scene_to_file("res://scenes/pathfinding_arena.tscn"))
+	_rect(load("res://scripts/ui/audio_controls.gd").new(), _main, "AudioControls", Rect2(900, 32, 250, 36))
 	_setup = _rect(Control.new(), _design, "SinglePlayerPage", Rect2(0, 0, 1280, 720))
 	_label(_setup, "Title", "单机游戏", Rect2(215, 40, 525, 58), 34)
 	_label(_setup, "MapTitle", "地图", Rect2(215, 108, 400, 28), 19)
