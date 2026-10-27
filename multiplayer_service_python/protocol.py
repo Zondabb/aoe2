@@ -25,6 +25,9 @@ FIELDS = {
     "finish_match": {"type", "winner"},
     "leave": {"type"},
     "ping": {"type"},
+    "list_matches": {"type"},
+    "watch_match": {"type", "match_id"},
+    "watch_ready": {"type"},
 }
 
 
@@ -84,6 +87,10 @@ def parse_message(raw: str, settings: Settings) -> dict:
         data["name"] = name.strip()
         if data["civ"] not in ("chinese", "teutons"):
             raise ProtocolError("invalid_civ", "Supported civilizations: chinese, teutons")
+    elif kind == "watch_match":
+        match_id = data["match_id"]
+        if not isinstance(match_id, str) or len(match_id) != 32 or any(char not in "0123456789abcdef" for char in match_id):
+            raise ProtocolError("invalid_payload", "match_id must be a valid match identifier")
     elif kind in ("command", "snapshot"):
         if type(data["seq"]) is not int or not 0 < data["seq"] <= 9_007_199_254_740_991:
             raise ProtocolError("invalid_sequence", "seq must be a positive safe integer")

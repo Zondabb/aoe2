@@ -14,6 +14,10 @@ var _route_message := ""
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if get_node("/root/GameSession").get("online_spectator") == true:
+		hide()
+		set_process(false)
+		return
 	_panel = PanelContainer.new()
 	_panel.name = "Panel"
 	_panel.mouse_filter = Control.MOUSE_FILTER_PASS

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 import json
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -16,11 +17,16 @@ from .matchmaking import Close, Matchmaker, Player
 from .protocol import ProtocolError, parse_message
 from .settings import Settings
 
+logger = logging.getLogger(__name__)
+
 
 async def _receive(websocket: WebSocket, player: Player, matchmaker: Matchmaker) -> None:
     while True:
         packet = await websocket.receive()
         if packet["type"] == "websocket.disconnect":
+            if packet.get("code") not in (None, 1000, 1001):
+                logger.warning("multiplayer_transport_closed player=%s room=%s websocket_code=%s",
+                               player.id, player.room_id, packet.get("code"))
             return
         raw = packet.get("text")
         if raw is None:
@@ -102,6 +108,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def healthz() -> dict:
         return await matchmaker.status()
 
+    @app.get("/api/matches")
+    async def active_matches(response: Response) -> dict:
+        response.headers["Cache-Control"] = "no-store"
+        return await matchmaker.list_matches()
+
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.accept()
@@ -114,17 +125,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return
         tasks = [asyncio.create_task(_receive(websocket, player, matchmaker)),
                  asyncio.create_task(_send(websocket, player, settings))]
+        disconnect_reason = "connection_closed"
         try:
             completed, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in completed:
                 task.result()
-        except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError, OSError, asyncio.CancelledError):
+        except asyncio.TimeoutError:
+            disconnect_reason = "send_timeout"
+        except (WebSocketDisconnect, RuntimeError, OSError, asyncio.CancelledError):
             pass
         finally:
             # ASGI cancellation must not interrupt forfeit settlement or leave
             # relay tasks alive after their socket has closed.
             with anyio.CancelScope(shield=True):
-                await matchmaker.disconnect(player)
+                await matchmaker.disconnect(player, error=disconnect_reason)
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)

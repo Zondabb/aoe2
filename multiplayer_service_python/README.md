@@ -18,6 +18,26 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 健康检查：`GET http://127.0.0.1:8001/healthz`。
 
+## 实时观战
+
+联机大厅可查看正在对战的局并点击观战。只有双方已开局且主机已提交首份状态快照的对局出现在列表中。观众加入后立即收到最新完整快照，随后与客端一起接收主机的实时快照；不需要等待本局重新开场。
+
+观众使用独立的服务端身份，没有队伍控制权。观众发送玩家指令、AI 托管开关、准备、快照、胜负结算或排队请求都会被服务拒绝。观众离开、掉线、空闲超时或接收过慢只会清理该观众，不会结束双方对局或产生排行榜战绩；双方结束对局时所有观众一起收到结束通知。
+
+观战局是公开的完整状态流。游戏可以切换双方视角或解除迷雾；视角切换仅改变本机显示。游戏主机仍然负责模拟，本服务不运行战斗或额外维护一套观众模拟。
+
+WebSocket 扩展（沿用 `/ws`，兼容现有玩家消息）：
+
+- `{"type":"list_matches"}` → `{"type":"matches","matches":[...]}`，每项包含 `match_id`、`players`（队伍/昵称/文明）、`elapsed_seconds`、`spectator_count`。
+- `{"type":"watch_match","match_id":"32位对局ID"}` → `spectate_started`（`role="spectator"`、`host_team=0`、对局 ID 和双方名单），随后立即发送最近一份 `snapshot`。
+- 场景加载完成后发送 `{"type":"watch_ready"}`，服务立即重放最新快照并开始持续转发。加载期间仅保留房间的最新快照，不向该观众堆积后续帧，避免晚加入时堵塞连接；重复发送会重放最新快照，不改变身份或对局。
+- 后续仅接收 `snapshot` 与 `match_ended`；观众可以发送 `ping`、`list_matches`、`watch_ready` 或 `leave`。离开观战后可以重新排队，普通玩家不能发送 `watch_ready`。
+- 对局已结束/尚不可用返回 `match_unavailable`，观众满员返回 `spectators_full`，均可恢复并刷新列表重试。
+
+另有只读 HTTP 列表 `GET /api/matches`，返回 `{"matches":[...]}`，设置 `Cache-Control: no-store`。不包含队伍指令、地图内容或状态快照。
+
+默认每局最多 16 位观众、列表最多返回 64 局，分别可通过 `AOE2_MP_MAX_SPECTATORS_PER_MATCH`、`AOE2_MP_MAX_LISTED_MATCHES` 配置。所有连接仍共享连接总数和收发速率限制；每局只缓存最新快照，慢观众不会拖住主机。
+
 ## Web 排行榜
 
 打开 `http://127.0.0.1:8001/` 或 `/leaderboard`，即可查看每位玩家的胜率、胜场和总场次。网页与游戏联机服务共用端口，支持昵称搜索、分页，以及按胜率、胜场、场次排序，每 20 秒自动更新。

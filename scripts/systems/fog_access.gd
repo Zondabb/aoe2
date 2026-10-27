@@ -65,6 +65,8 @@ static func view_can_see(node: Node) -> bool:
 static func local_read_only(node: Node) -> bool:
 	var parent: Node = node
 	while parent != null:
+		if parent.get_meta("spectator", false):
+			return true
 		if parent.has_meta("fog_holder"):
 			return parent.get_meta("fog_holder").debug_mode
 		parent = parent.get_parent()

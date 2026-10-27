@@ -39,6 +39,8 @@ func _ready() -> void:
 	if GameSession.online_active:
 		match_state.frozen = true
 		get_parent().set_meta("online_match", true)
+	if GameSession.online_active and GameSession.online_spectator:
+		get_parent().set_meta("spectator", true)
 	get_parent().set_meta("local_team", GameSession.local_team())
 	player_civ = _civ_for_id(GameSession.player_civ_id)
 	ai_civ = _civ_for_id(GameSession.ai_civ_id)
@@ -111,15 +113,21 @@ func _finish_setup() -> void:
 			get_tree().call_deferred("change_scene_to_file", "res://scenes/civ_select.tscn")
 			return
 	setup_ready = true
-	var player_ai := PlayerAiControlScript.new()
-	player_ai.name = "PlayerAiControl"
-	get_parent().add_child(player_ai)
-	player_ai.setup(self)
+	if not GameSession.online_spectator:
+		var player_ai := PlayerAiControlScript.new()
+		player_ai.name = "PlayerAiControl"
+		get_parent().add_child(player_ai)
+		player_ai.setup(self)
 	if GameSession.online_active:
 		var network := load("res://scripts/network/network_match.gd").new() as Node
 		network.name = "NetworkMatch"
 		get_parent().add_child(network)
 		network.setup(self)
+	if GameSession.online_spectator:
+		var controls: Node = load("res://scripts/ui/spectator_controls.gd").new()
+		controls.name = "SpectatorControls"
+		get_parent().get_node("UILayer").add_child(controls)
+		controls.setup(self)
 	var audio := load("res://scripts/audio/match_audio.gd").new() as Node
 	audio.name = "MatchAudio"
 	get_parent().add_child(audio)
@@ -199,6 +207,12 @@ func _setup_building_controls() -> void:
 	):
 		return
 	var local_civ := player_civ if GameSession.local_team() == Enums.Team.PLAYER else ai_civ
+	if GameSession.online_active and GameSession.online_spectator:
+		selection.set("read_only", true)
+		selection.set("select_all_teams", true)
+		build_system.process_mode = Node.PROCESS_MODE_DISABLED
+		hud.call("setup", match_state, player_civ, null, selection, true)
+		return
 	build_system.call(
 		"setup", camera, entities, selection, match_state, local_civ
 	)

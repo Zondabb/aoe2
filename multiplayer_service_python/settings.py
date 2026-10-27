@@ -10,6 +10,8 @@ class Settings:
     leaderboard_db: str = str(Path(__file__).resolve().parent / "data" / "leaderboard.sqlite3")
     max_connections: int = 128
     max_queue: int = 128
+    max_spectators_per_match: int = 16
+    max_listed_matches: int = 64
     max_message_bytes: int = 524_288
     max_command_bytes: int = 16_384
     outgoing_queue_size: int = 8
@@ -33,6 +35,8 @@ class Settings:
                 if not isinstance(value, str) or not value.strip():
                     raise ValueError("leaderboard_db must be a nonempty path")
                 continue
+            if field.name in ("max_spectators_per_match", "max_listed_matches") and type(value) is not int:
+                raise ValueError(f"{field.name} must be a positive integer")
             if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{field.name} must be a positive finite number")
 

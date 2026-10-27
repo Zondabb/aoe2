@@ -436,7 +436,7 @@ func _bind_terrain_fog() -> void:
 		if is_instance_valid(proxy): Terrain.bind_fog(proxy, self)
 
 func set_view(team: int) -> void:
-	if get_parent().get_meta("online_match", false) and team != base_view:
+	if get_parent().get_meta("online_match", false) and not get_parent().get_meta("spectator", false) and team != base_view:
 		return
 	if team != ALL and team not in Enums.Team.values():
 		return
@@ -450,6 +450,13 @@ func set_view(team: int) -> void:
 	if overlay != null:
 		overlay.set("view_team", team)
 	_choices.select(team + 1)
+
+## Spectator perspective is presentation only. The command identity stays -1.
+func set_spectator_view(team: int) -> bool:
+	if not get_parent().get_meta("spectator", false) or team not in [-1, 0, 1]:
+		return false
+	set_view(team)
+	return view_team == team
 
 func set_debug_mode(enabled: bool) -> void:
 	if enabled and get_parent().get_meta("online_match", false):

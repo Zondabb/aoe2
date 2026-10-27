@@ -49,6 +49,10 @@ Python 使用 FastAPI/asyncio 提供 FIFO 队列、房间生命周期和消息�
 
 ## 回归入口
 
+联机大厅还提供「观看对战」，支持双方视角、全图与只读观战；使用方法与观众协议见 [联机观战](spectator.md)。
+
+卡顿、倍速与连接断开原因及持续对局测试见 [联机同步性能排查](multiplayer_performance.md)。
+
 - Python：`python -m pytest multiplayer_service_python/tests -q`。
 - 实际双进程：`python tools/test_multiplayer_e2e.py --godot <Godot可执行文件>`。
 - Godot：`run_online_lobby.gd` 检查大厅、文明与队列交互；`run_network_runtime.gd` 检查 JSON 快照、实体 ID、权限、旧帧和复制实体隔离；`run_network_recovery.gd` 检查场景切换间断线、结束界面及重新匹配入口。

@@ -272,6 +272,7 @@ func _reset_online_session() -> void:
 		network.leave()
 	GameSession.online_active = false
 	GameSession.online_team = 0
+	GameSession.online_spectator = false
 
 func _update_civ_description() -> void:
 	_civ_info.text = "诸葛弩 · 经济发展\n村民训练更快；默认地图额外一名村民。" if _player_choice.selected == 0 else "条顿武士 · 坚实防御\n建筑生命值提高，近战单位护甲增加。"

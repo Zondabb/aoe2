@@ -976,11 +976,12 @@ func _refresh_command_grid_states() -> void:
 func _refresh() -> void:
 	if match_state == null or match_state.resources.is_empty():
 		return
-	var food := match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.FOOD)
-	var wood := match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.WOOD)
-	var gold := match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.GOLD)
-	var pop_used := int(match_state.population[PlayerCommands.local_team(self)])
-	var pop_cap := int(match_state.population_cap[PlayerCommands.local_team(self)])
+	var display_team := _display_team()
+	var food := match_state.get_resource(display_team, Enums.ResourceType.FOOD)
+	var wood := match_state.get_resource(display_team, Enums.ResourceType.WOOD)
+	var gold := match_state.get_resource(display_team, Enums.ResourceType.GOLD)
+	var pop_used := int(match_state.population[display_team])
+	var pop_cap := int(match_state.population_cap[display_team])
 	if _wood_digits != null and wood != _shown_wood:
 		_shown_wood = wood
 		_wood_digits.set_number(wood)
@@ -991,9 +992,9 @@ func _refresh() -> void:
 		_shown_gold = gold
 		_gold_digits.set_number(gold)
 	if _stone_digits != null:
-		_stone_digits.set_number(match_state.get_resource(PlayerCommands.local_team(self), Enums.ResourceType.STONE))
+		_stone_digits.set_number(match_state.get_resource(display_team, Enums.ResourceType.STONE))
 	if _age_label != null:
-		_age_label.text = Catalog.AGE_NAMES[match_state.age_of(PlayerCommands.local_team(self))]
+		_age_label.text = Catalog.AGE_NAMES[match_state.age_of(display_team)] + (" · 队伍 %d" % (display_team + 1) if PlayerCommands.is_spectator(self) else "")
 		_age_label.position.x = 405 * UiCatalogScript.panel_scale_for_width(size.x)
 	if _pop_digits != null and (pop_used != _shown_pop_used or pop_cap != _shown_pop_cap):
 		_shown_pop_used = pop_used
@@ -1004,6 +1005,14 @@ func _refresh() -> void:
 		_resources_label.text = resources_text
 	_refresh_info_panel()
 	_refresh_command_grid_states()
+
+func _display_team() -> int:
+	if PlayerCommands.is_spectator(self):
+		var root := _match_root()
+		var holder: Node = root.get_meta("fog_holder") if root != null and root.has_meta("fog_holder") else null
+		var view := int(holder.get("view_team")) if is_instance_valid(holder) else 0
+		return view if view in [0, 1] else 0
+	return PlayerCommands.local_team(self)
 
 func _can_build(building_def: BuildingDef) -> bool:
 	if not _commands_enabled() or selection == null or (building_def == STABLE and not _civ_allows_stable()):
@@ -1026,7 +1035,7 @@ func _on_winner_decided(winning_team: Enums.Team) -> void:
 	if _result_panel != null:
 		_result_panel.visible = true
 	if _result_label != null:
-		_result_label.text = "胜利" if winning_team == PlayerCommands.local_team(self) else "失败"
+		_result_label.text = "队伍 %d 获胜" % (winning_team + 1) if PlayerCommands.is_spectator(self) else ("胜利" if winning_team == PlayerCommands.local_team(self) else "失败")
 	if selection != null:
 		selection.set_process_unhandled_input(false)
 	if build_system != null:

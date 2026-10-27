@@ -2,6 +2,16 @@ extends RefCounted
 
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
 
+static func is_spectator(node: Node) -> bool:
+	var parent := node
+	while parent != null:
+		if parent.get_meta("spectator", false): return true
+		parent = parent.get_parent()
+	if is_instance_valid(node) and node.is_inside_tree():
+		var session := node.get_node_or_null("/root/GameSession")
+		return session != null and session.get("online_active") == true and session.get("online_spectator") == true
+	return false
+
 ## Match-local routing keeps offline scenes and test arenas independent of a lobby.
 static func local_team(node: Node) -> Enums.Team:
 	var parent := node
@@ -33,10 +43,12 @@ static func entity_id(node: Node, entity: Node2D) -> int:
 	return int(network.entity_id(entity)) if network != null else -1
 
 static func submit(node: Node, command: Dictionary) -> bool:
+	if is_spectator(node): return false
 	var network := runtime(node)
 	return bool(network.submit_command(command)) if network != null else false
 
 static func unit_order(source: Node, unit: Node2D, op: String, target: Variant = null, formation_speed := 0.0) -> void:
+	if is_spectator(source): return
 	if not is_instance_valid(unit) or unit.is_queued_for_deletion():
 		return
 	if is_online(source):
@@ -104,6 +116,7 @@ static func play_ui(source: Node, event: StringName) -> void:
 
 
 static func research_age(source: Node, building: Node2D, cancel: bool = false) -> bool:
+	if is_spectator(source): return false
 	if not is_instance_valid(building):
 		return false
 	if is_online(source):
@@ -115,6 +128,7 @@ static func research_age(source: Node, building: Node2D, cancel: bool = false) -
 
 
 static func research_technology(source: Node, building: Node2D, technology_id: String, cancel: bool = false) -> bool:
+	if is_spectator(source): return false
 	if not is_instance_valid(building):
 		return false
 	if is_online(source):

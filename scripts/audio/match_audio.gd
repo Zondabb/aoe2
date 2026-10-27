@@ -242,6 +242,8 @@ func _on_age_changed(team: int, _age: int) -> void:
 
 
 func _on_winner(team: int) -> void:
+	# An observer has no winning/losing side of their own.
+	if _local_team() not in [0, 1]: return
 	if _active and is_instance_valid(_root) and _root.is_inside_tree() and not _root.is_queued_for_deletion():
 		_notify(&"victory" if team == _local_team() else &"defeat")
 

@@ -18,6 +18,7 @@ const TerrainScript := preload("res://scripts/entities/path_blocker.gd")
 const SNAPSHOT_INTERVAL := 0.1
 const SNAPSHOT_TIMEOUT := 10.0
 const MAX_ENTITIES := 2000
+const MAX_FOG_CELLS := 65536
 
 var match_state: MatchState
 var entities: Node2D
@@ -25,6 +26,7 @@ var session: Node
 var map_bounds := Rect2(-60, -60, 120, 120)
 var local_team := 0
 var is_host := false
+var spectator := false
 var _civs: Dictionary = {}
 var _net_entities: Dictionary = {}
 var _next_id := 1
@@ -37,6 +39,15 @@ var _last_command_sequence := -1
 var _command_window := 0.0
 var _command_count := 0
 var _status_label: Label
+var _fog_base64 := RegEx.create_from_string("^[A-Za-z0-9+/]*={0,2}$")
+var _last_process_usec := -1
+var _last_snapshot_received_usec := 0
+## Validated static records are immutable snapshots, never references to an
+## incoming packet that a caller might subsequently modify.
+var _static_replica_records: Dictionary = {}
+var _fog_cache_cells := 0
+var _fog_cache_text := ["", ""]
+var _fog_cache_masks: Array[PackedByteArray] = [PackedByteArray(), PackedByteArray()]
 
 
 func setup(bootstrap: Node) -> void:
@@ -47,8 +58,9 @@ func setup(bootstrap: Node) -> void:
 	session = get_node_or_null("/root/NetworkSession")
 	if session == null or match_state == null or entities == null:
 		return
-	local_team = int(session.get("team"))
-	is_host = local_team == 0
+	spectator = session.get("spectator") == true
+	local_team = -1 if spectator else int(session.get("team"))
+	is_host = not spectator and local_team == 0
 	add_to_group("network_match")
 	match_state.frozen = true
 	_create_status_label()
@@ -60,14 +72,23 @@ func setup(bootstrap: Node) -> void:
 	if is_host:
 		_index_host_entities()
 	else:
+		if match_state.age_progression != null:
+			match_state.age_progression.network_replica = true
+		if match_state.technology_progression != null:
+			match_state.technology_progression.replica = true
 		for entity in entities.get_children():
 			if _entity_kind(entity) != "":
 				entity.set_meta("network_replica", true)
 				entity.set_physics_process(false)
-	_set_status("等待双方载入地图…")
-	if session.get("state") == "playing":
+	_set_status("正在载入观战快照…" if spectator else "等待双方载入地图…")
+	if spectator and session.get("state") == "watching":
 		_on_started()
-	elif session.get("state") == "matched":
+		var cached: Variant = session.get("latest_snapshot")
+		if cached is Dictionary and cached.get("state") is Dictionary:
+			if apply_snapshot(cached.state, int(cached.get("seq", -1))): _send_watch_ready()
+	elif session.get("state") == "playing" and not spectator:
+		_on_started()
+	elif session.get("state") == "matched" and not spectator:
 		session.call("send_ready")
 	else:
 		var result: Dictionary = session.get("last_result")
@@ -85,7 +106,7 @@ func entity_id(entity: Node) -> int:
 
 
 func submit_command(command: Dictionary) -> bool:
-	if not _playing or _terminal or match_state == null or match_state.frozen:
+	if spectator or local_team not in [0, 1] or not _playing or _terminal or match_state == null or match_state.frozen:
 		return false
 	if is_host:
 		return execute_team_command(command, local_team)
@@ -96,7 +117,7 @@ func submit_command(command: Dictionary) -> bool:
 
 ## Validate wire types before calling the shared gameplay validator/executor.
 func execute_team_command(command: Dictionary, sender_team: int) -> bool:
-	if not is_host or not _playing or _terminal or match_state == null or match_state.frozen:
+	if spectator or not is_host or not _playing or _terminal or match_state == null or match_state.frozen:
 		return false
 	if sender_team not in [0, 1] or command.size() > 10:
 		return false
@@ -217,20 +238,25 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 	return bool(result.get("ok", false))
 
 
-func _process(delta: float) -> void:
-	_command_window += delta
+func _process(_delta: float) -> void:
+	# Network frequency and deadlines are wall time. Engine.time_scale speeds
+	# up only simulation, never full-world traffic or connection timeouts.
+	var now := Time.get_ticks_usec()
+	var wall_delta := 0.0 if _last_process_usec < 0 else maxf(0.0, float(now - _last_process_usec) / 1000000.0)
+	_last_process_usec = now
+	_command_window += wall_delta
 	if _command_window >= 1.0:
 		_command_window = 0.0
 		_command_count = 0
 	if not _playing or _terminal or session == null:
 		return
-	if is_host:
-		_snapshot_elapsed += delta
+	if is_host and not spectator:
+		_snapshot_elapsed += wall_delta
 		if _snapshot_elapsed >= SNAPSHOT_INTERVAL:
 			_snapshot_elapsed = 0.0
 			session.call("send_snapshot", capture_snapshot())
 	else:
-		_snapshot_wait += delta
+		_snapshot_wait = float(now - _last_snapshot_received_usec) / 1000000.0
 		if _snapshot_wait > SNAPSHOT_TIMEOUT:
 			_on_ended({"winner": -1, "message": "主机状态同步超时，对局结束"})
 			session.call("leave")
@@ -242,15 +268,17 @@ func _on_started() -> void:
 	_playing = true
 	match_state.frozen = false
 	_snapshot_wait = 0.0
-	_set_status("联机对战 · %s" % ("主机" if is_host else "玩家"))
-	if is_host:
+	_last_process_usec = Time.get_ticks_usec()
+	_last_snapshot_received_usec = _last_process_usec
+	_set_status("正在观战 · 只读" if spectator else "联机对战 · %s" % ("主机" if is_host else "玩家"))
+	if is_host and not spectator:
 		session.call("send_snapshot", capture_snapshot())
 
 
 func _on_message(message: Dictionary) -> void:
 	if _terminal:
 		return
-	if message.get("type") == "command" and is_host:
+	if message.get("type") == "command" and is_host and not spectator:
 		var seq := int(message.get("seq", -1))
 		if seq <= _last_command_sequence or int(message.get("team", -1)) != 1:
 			return
@@ -259,7 +287,14 @@ func _on_message(message: Dictionary) -> void:
 			execute_team_command(message.command, 1)
 	elif message.get("type") == "snapshot" and not is_host:
 		if message.get("state") is Dictionary:
-			apply_snapshot(message.state, int(message.get("seq", -1)))
+			if apply_snapshot(message.state, int(message.get("seq", -1))): _send_watch_ready()
+
+
+func _send_watch_ready() -> void:
+	# Instantiating the initial army can block several rendered frames. The
+	# relay starts continuous fanout only after this first full apply finishes.
+	if spectator and _last_snapshot_sequence >= 0 and session != null and session.has_method("send_watch_ready"):
+		session.call("send_watch_ready")
 
 
 func capture_snapshot() -> Dictionary:
@@ -317,6 +352,10 @@ func capture_snapshot() -> Dictionary:
 	var snapshot := {"entities": records, "economies": economies, "winner": match_state.winner,
 		"progression": {"enabled": match_state.progression_enabled, "ages": [match_state.age_of(0), match_state.age_of(1)],
 		"research": research, "technologies": technologies, "technology_research": technology_research}}
+	if match_state.fog != null:
+		var masks: Array = []
+		for side in [0, 1]: masks.append(Marshalls.raw_to_base64(match_state.fog.explored[side]))
+		snapshot["fog_explored"] = masks
 	var controller := _ai_controller()
 	if controller != null and controller.has_method("capture_states"):
 		snapshot["ai_control"] = controller.call("capture_states")
@@ -336,6 +375,8 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 	if snapshot.has("progression") and not _valid_progression(snapshot.progression):
 		return false
 	if snapshot.has("ai_control") and not _valid_ai_control(snapshot.ai_control):
+		return false
+	if snapshot.has("fog_explored") and not _valid_fog_explored(snapshot.fog_explored):
 		return false
 	var seen: Dictionary = {}
 	for record in snapshot.entities:
@@ -364,11 +405,15 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 			if entity == null:
 				return false
 			_net_entities[id] = entity
-		_apply_record(entity, record)
+		if not _unchanged_static_record(record):
+			_apply_record(entity, record)
+			if record.kind in ["resource", "terrain"]:
+				_static_replica_records[id] = {"instance": entity.get_instance_id(), "record": record.duplicate(true)}
 	for id in _net_entities.keys():
 		if not seen.has(id):
 			var stale := _resolve(int(id))
 			_net_entities.erase(id)
+			_static_replica_records.erase(id)
 			if stale != null:
 				stale.free()
 	for side in [0, 1]:
@@ -395,11 +440,44 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 			controller.call("apply_remote_states", snapshot.ai_control)
 	_last_snapshot_sequence = sequence
 	_snapshot_wait = 0.0
+	_last_snapshot_received_usec = Time.get_ticks_usec()
 	if match_state.fog != null:
+		if snapshot.has("fog_explored"):
+			for side in [0, 1]: match_state.fog.explored[side] = _fog_cache_masks[side].duplicate()
+			match_state.fog.revision += 1
 		match_state.fog.dirty = true
 	var winner := int(snapshot.get("winner", -1))
 	if winner in [0, 1]:
 		match_state.set_winner(winner as Enums.Team)
+	return true
+
+
+func _unchanged_static_record(record: Dictionary) -> bool:
+	if record.get("kind") not in ["resource", "terrain"] or not _valid_id(record.get("id")): return false
+	var cached: Dictionary = _static_replica_records.get(int(record.id), {})
+	var entity := _resolve(int(record.id))
+	return entity != null and cached.get("instance") == entity.get_instance_id() and cached.get("record") == record
+
+
+func _valid_fog_explored(value: Variant) -> bool:
+	if match_state.fog == null or value is not Array or value.size() != 2: return false
+	var cells: int = match_state.fog.grid_size.x * match_state.fog.grid_size.y
+	if cells < 1 or cells > MAX_FOG_CELLS: return false
+	if cells != _fog_cache_cells:
+		_fog_cache_cells = cells
+		_fog_cache_text = ["", ""]
+	var encoded_length := int(ceil(float(cells) / 3.0)) * 4
+	for side in [0, 1]:
+		var text: Variant = value[side]
+		if text is not String or text.length() != encoded_length: return false
+		if text == _fog_cache_text[side]: continue
+		if _fog_base64.search(text) == null: return false
+		var mask := Marshalls.base64_to_raw(text)
+		if mask.size() != cells or Marshalls.raw_to_base64(mask) != text: return false
+		for cell in mask:
+			if cell != 0 and cell != 255: return false
+		_fog_cache_text[side] = text
+		_fog_cache_masks[side] = mask
 	return true
 
 
@@ -451,17 +529,31 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 
 func _apply_record(entity: Node2D, record: Dictionary) -> void:
 	var position_changed: bool = entity.get("sim_pos") != _vec(record.pos)
+	var definition_changed: bool = (entity is UnitAgent or entity is BuildingAgent) and String(entity.get("def").id) != record.get("def")
+	var building_visual_changed := false
+	if entity is BuildingAgent:
+		building_visual_changed = definition_changed or entity.wall_orientation != int(record.get("wall_orientation", 0)) or entity.gate_state != String(record.get("gate_state", "auto")) or entity.gate_open != bool(record.get("gate_open", false)) or entity.is_complete != bool(record.complete)
 	if entity is UnitAgent and String(entity.def.id) != record.def:
 		entity.apply_definition_upgrade(Catalog.get_unit(record.def))
 	elif entity is BuildingAgent and String(entity.def.id) != record.def:
 		entity.apply_definition_upgrade(Catalog.get_building(record.def))
 	entity.set("sim_pos", _vec(record.pos))
 	if record.kind == "resource":
+		var type_changed: bool = int(entity.resource_type) != int(record.resource_type)
+		var block_size := _vec(record.block_size) if record.has("block_size") else Vector2.ZERO
+		var geometry_changed: bool = type_changed or entity.block_size_override != block_size
+		entity.set("resource_type", int(record.resource_type))
 		entity.set("amount", float(record.amount))
 		entity.set("gather_rate", float(record.gather_rate))
-		entity.set("block_size_override", _vec(record.block_size) if record.has("block_size") else Vector2.ZERO)
-		entity.block_half = entity.pathfinding_size() * 0.5
-		entity.visible = float(record.amount) > 0.0
+		entity.set("block_size_override", block_size)
+		if geometry_changed: entity.block_half = entity.pathfinding_size() * 0.5
+		if type_changed: entity.call("_setup_presentation")
+		# Fog owns positive resources' visibility. Re-showing hidden trees on each
+		# packet invalidates their visual caches and makes them flicker under fog.
+		if float(record.amount) <= 0.0:
+			entity.hide()
+		elif not match_state.fog_enabled or match_state.fog == null:
+			entity.show()
 	elif record.kind == "terrain":
 		var new_size := _vec(record.block_size)
 		var new_kind := StringName(record.terrain_id)
@@ -502,8 +594,9 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 			for id in record.get("train_queue_ids", []):
 				queue_ids.append(int(id))
 			entity.set("train_queue_ids", queue_ids)
-			entity.call("_sync_block_half")
-			if preload("res://scripts/systems/wall_system.gd").is_fortification(entity.def.id): entity.call("_configure_visuals")
+			if building_visual_changed:
+				entity.call("_sync_block_half")
+				if preload("res://scripts/systems/wall_system.gd").is_fortification(entity.def.id): entity.call("_configure_visuals")
 	Iso.sync_node(entity, _vec(record.pos))
 
 
@@ -634,7 +727,7 @@ static func _vec(value: Array) -> Vector2:
 
 func _on_winner(winner: int) -> void:
 	_stop_ai_control()
-	if is_host and not _terminal and session != null:
+	if is_host and not spectator and not _terminal and session != null:
 		session.call("send_snapshot", capture_snapshot())
 		session.call("finish_match", winner)
 
@@ -667,7 +760,7 @@ func _create_status_label() -> void:
 	layer.add_child(_status_label)
 	var leave_button := Button.new()
 	leave_button.name = "LeaveMatch"
-	leave_button.text = "离开对局"
+	leave_button.text = "退出观战" if spectator else "离开对局"
 	leave_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	leave_button.offset_left = -148
 	leave_button.offset_right = -16
@@ -680,6 +773,7 @@ func _create_status_label() -> void:
 func _return_to_lobby() -> void:
 	var game := get_node("/root/GameSession")
 	game.online_active = false
+	game.online_spectator = false
 	game.online_return_to_lobby = true
 	if session != null:
 		session.leave()

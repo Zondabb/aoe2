@@ -13,6 +13,8 @@ var menu_notice := ""
 var pending_save_data: Dictionary = {}
 ## Online matches keep world teams stable; this client's team can be either side.
 var online_active := false
+## Spectators have no team identity; camera/fog view is separate from authority.
+var online_spectator := false
 var online_team := 0
 var online_server_url := "ws://127.0.0.1:8001/ws"
 var online_player_name := "玩家"
@@ -53,4 +55,5 @@ func _ready() -> void:
 	GameSettingsScript.apply_from_config()
 
 func local_team() -> int:
+	if online_active and online_spectator: return -1
 	return online_team if online_active else Enums.Team.PLAYER
