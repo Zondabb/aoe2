@@ -1,4 +1,4 @@
-# 交接说明：AI 战略智能层（更新于 2026-10-26，家里电脑）
+# 交接说明：AI 战略智能层（更新于 2026-10-28，家里电脑）
 
 设计、行为与全部实验结果：[../ai_strategic_intelligence.md](../ai_strategic_intelligence.md)。进展报告（Claude Doc）：https://claude.ai/artifact/7XenQZGBV9unR5SFNYeY1m ，其离线副本 [2026-10-23-ai-strategic-intelligence-progress.md](2026-10-23-ai-strategic-intelligence-progress.md) 停留在 10-23 晚的版本。
 
@@ -27,10 +27,11 @@
 | 公平测试器 + 追击修复 + 远处侦察兵（12 局镜像、12 局对 `a5726c9`） | 镜像 0 号 / 1 号 5 / 5（2 平）；主代码 2 胜 8 负 2 平，损失村民 149 / 28 |
 | 变体对主代码（各 12 局） | 关闭村民反射 11–1–0；升级存资源等村民增长 7–3–2 |
 | 合并后（各 12 局） | 对只关反射的副本 7–4–1；对 `a5726c9` 4–8–0（0 号位置 10 / 2） |
+| 测试器交替同一步处理顺序 | 主代码对 `a5726c9` 4–6–1，0 号 / 1 号 4 / 6；回防对照：必败仍迎战 3–6–3（更差），不召回 5–5–2（持平） |
 | `plan_review`（qwen3:8b 版本对打） | 合法建议采纳 35/35，计划改动 33 → 54；胜负 2–2，四局都是 0 号队伍获胜 |
 | 对战工具 | `tools/ai_duel_ab.py` 新增 `--llm-config`、`--parallel`、`--calls-per-minute`、`--service-dir`、`--indices` |
 | 分析脚本 | `tools/duel_analysis/analyze_llm.py`、`compare_openings.py` |
-| 原始报告 | `docs/progress/duel-results/`：`batch3-deterministic`、`llm-qwen3`、`opening-main`、`opening-fix1`、`opening-fix2`、`raid-main`、`raid-fix3`、`raid-analysis.txt`、`versus-raid`、`versus-raid-conservative`、`versus-review-llm`、`versus-main-seeds`、`mirror-order`、`versus-harass`、`versus-symfix`、`fair-mirror`、`fair-versus`、`fair-analysis.txt`、`variant-noreflex`、`variant-econfix`、`variant-analysis.txt`、`merged-vs-a5726c9`、`merged-vs-noreflex`、`merged-analysis.txt` |
+| 原始报告 | `docs/progress/duel-results/`：`batch3-deterministic`、`llm-qwen3`、`opening-main`、`opening-fix1`、`opening-fix2`、`raid-main`、`raid-fix3`、`raid-analysis.txt`、`versus-raid`、`versus-raid-conservative`、`versus-review-llm`、`versus-main-seeds`、`mirror-order`、`versus-harass`、`versus-symfix`、`fair-mirror`、`fair-versus`、`fair-analysis.txt`、`variant-noreflex`、`variant-econfix`、`variant-analysis.txt`、`merged-vs-a5726c9`、`merged-vs-noreflex`、`merged-analysis.txt`、`alt-main-vs-a5726c9`、`alt-nohold`、`alt-noguard`、`alt-analysis.txt` |
 
 注意：LLM 批次第 2、3 局和三组开局对比在上述并行 GDScript 改动之后启动，确定性批次和 LLM 第 0、1 局在之前。
 
@@ -52,7 +53,7 @@ ai_service_python\.venv\Scripts\python.exe tools\duel_analysis\compare_openings.
 
 ## 下一步
 
-1. 合并后的验证已完成：对 `.godot/noreflex` 7 胜 4 负 1 平（经济修复有效），对 `a5726c9` 4 胜 8 负（合并前 2–8–2），这组里 0 号位置赢 10 局。下一步：在测试器里每步交替单位处理顺序，检查同一步先结算攻击的 0 号偏向；再逐项关闭主代码与 `a5726c9` 的其余差别（就近调兵、避开被骚扰资源、远处侦察兵、经济修复、克制推荐修复）对打，找出拖累主代码的一项。每批同时最多 4 局（同时 12 局时总吞吐量约慢 2.7 倍）。之前在旧测试器上的防骚扰与选址结果需要按新测试器重新看待。
+1. 主代码对 `a5726c9` 在交替处理顺序的测试器下 4–6–1，主要输在执中国（6 局 1 胜）。回防的两个规则已排除。下一步：比较双方执中国时的开局与兵种（克制推荐修复会改变生产组成），再逐项关闭避开被骚扰资源、远处侦察兵、经济修复对打。每批同时最多 4 局。
 2. 持续骚扰：骚扰期间只把空闲村民派往 TC 附近或远离敌人的资源（`.godot/harass` 副本，未合并），12 局对打中村民损失 128 → 81，但击杀价值少 21%，胜负被出生位置主导；待决定是否合并，或改为集中兵力清场。
 3. 在克制推荐修复后重新测量 `plan_review`，并用更多地图与种子判断它对胜率的影响。
 4. 统计显著性：每批 4 局只代表 4 种配置，可以用 `--seed` 增加地图。

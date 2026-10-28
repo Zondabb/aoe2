@@ -221,7 +221,12 @@ func _run() -> void:
 		while nav_service.nav != null and nav_service.nav.pending_count() > 0 and flushes < 256:
 			nav_service._process(DT)
 			flushes += 1
-		for entity in entities.get_children():
+		# Alternate which entities act first within a step. Starting units are
+		# ordered team 0 first, and when two units trade blows in the same step
+		# the first one processed lands its hit first.
+		var acting := entities.get_children()
+		if step % 2 == 1: acting.reverse()
+		for entity in acting:
 			if entity.is_queued_for_deletion(): continue
 			if entity is BuildingAgent: entity._process(DT)
 			if entity is UnitAgent or entity is BuildingAgent or entity is ProjectileAgent: entity._physics_process(DT)
