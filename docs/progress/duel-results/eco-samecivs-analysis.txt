@@ -1,0 +1,53 @@
+Fair harness with alternating entity processing order, 2400 game s, configs 0-3, default map and seeds 1, 2; one batch at a time, four matches at once.
+Note: with the same civ on both sides, configs 0/2 and 1/3 are the same setup, so each batch holds two distinct matches played twice (replays are mostly, not always, identical).
+
+## ecoscale (on: worker target +8 per age, 16/24/32/40) vs main (off)
+default  seed=None m0 on=chinese/team0 winner=off at=1684 villagers on/off=14/20 army on/off=790/2080
+default  seed=None m1 on=teutons/team1 winner=draw at=2400 villagers on/off=26/20 army on/off=565/1130
+default  seed=None m2 on=teutons/team0 winner=on at=2338 villagers on/off=26/4 army on/off=2015/70
+default  seed=None m3 on=chinese/team1 winner=on at=2048 villagers on/off=32/18 army on/off=2790/355
+seed1    seed=1 m0 on=chinese/team0 winner=off at=2081 villagers on/off=1/20 army on/off=0/805
+seed1    seed=1 m1 on=teutons/team1 winner=draw at=2400 villagers on/off=32/20 army on/off=665/1295
+seed1    seed=1 m2 on=teutons/team0 winner=draw at=2400 villagers on/off=32/19 army on/off=1305/365
+seed1    seed=1 m3 on=chinese/team1 winner=draw at=2400 villagers on/off=32/20 army on/off=610/825
+seed2    seed=2 m0 on=chinese/team0 winner=off at=1937 villagers on/off=14/20 army on/off=150/2705
+seed2    seed=2 m1 on=teutons/team1 winner=on at=1854 villagers on/off=32/0 army on/off=2990/220
+seed2    seed=2 m2 on=teutons/team0 winner=on at=1876 villagers on/off=31/2 army on/off=2740/70
+seed2    seed=2 m3 on=chinese/team1 winner=off at=1722 villagers on/off=17/20 army on/off=130/1795
+by arm: on 4 - off 4 - draw 4
+by team: team0 3 - team1 5 - draw 4
+military value killed on/off: 62040/62930; final army on/off: 14750/11715
+
+## Chinese mirror: main (on) vs a5726c9 (off)
+default  seed=None m0 on=chinese/team0 winner=off at=1586 villagers on/off=18/20 army on/off=740/1300
+default  seed=None m1 on=chinese/team1 winner=off at=1546 villagers on/off=1/20 army on/off=0/2625
+default  seed=None m2 on=chinese/team0 winner=off at=1772 villagers on/off=15/20 army on/off=80/1585
+default  seed=None m3 on=chinese/team1 winner=off at=1502 villagers on/off=4/20 army on/off=340/1435
+seed1    seed=1 m0 on=chinese/team0 winner=off at=1698 villagers on/off=11/20 army on/off=70/2640
+seed1    seed=1 m1 on=chinese/team1 winner=off at=2099 villagers on/off=0/20 army on/off=80/2760
+seed1    seed=1 m2 on=chinese/team0 winner=off at=1658 villagers on/off=1/20 army on/off=80/1450
+seed1    seed=1 m3 on=chinese/team1 winner=off at=1733 villagers on/off=1/20 army on/off=0/2690
+seed2    seed=2 m0 on=chinese/team0 winner=off at=2107 villagers on/off=16/19 army on/off=140/805
+seed2    seed=2 m1 on=chinese/team1 winner=off at=1572 villagers on/off=7/20 army on/off=270/1010
+seed2    seed=2 m2 on=chinese/team0 winner=off at=2010 villagers on/off=1/20 army on/off=0/1785
+seed2    seed=2 m3 on=chinese/team1 winner=off at=1574 villagers on/off=1/20 army on/off=70/2475
+by arm: on 0 - off 12 - draw 0
+by team: team0 6 - team1 6 - draw 0
+military value killed on/off: 36475/46445; final army on/off: 1870/22560
+
+## Teutons mirror: main (on) vs a5726c9 (off)
+default  seed=None m0 on=teutons/team0 winner=draw at=2400 villagers on/off=15/18 army on/off=700/1190
+default  seed=None m1 on=teutons/team1 winner=on at=1698 villagers on/off=2/16 army on/off=610/1410
+default  seed=None m2 on=teutons/team0 winner=draw at=2400 villagers on/off=16/16 army on/off=280/630
+default  seed=None m3 on=teutons/team1 winner=on at=1627 villagers on/off=20/0 army on/off=1970/280
+seed1    seed=1 m0 on=teutons/team0 winner=off at=1744 villagers on/off=13/20 army on/off=410/1430
+seed1    seed=1 m1 on=teutons/team1 winner=draw at=2400 villagers on/off=20/19 army on/off=1045/1470
+seed1    seed=1 m2 on=teutons/team0 winner=off at=2006 villagers on/off=13/20 army on/off=210/1340
+seed1    seed=1 m3 on=teutons/team1 winner=draw at=2400 villagers on/off=20/20 army on/off=760/455
+seed2    seed=2 m0 on=teutons/team0 winner=off at=1920 villagers on/off=1/20 army on/off=80/2725
+seed2    seed=2 m1 on=teutons/team1 winner=on at=1758 villagers on/off=20/13 army on/off=1900/110
+seed2    seed=2 m2 on=teutons/team0 winner=off at=1599 villagers on/off=1/20 army on/off=80/2125
+seed2    seed=2 m3 on=teutons/team1 winner=on at=1619 villagers on/off=20/0 army on/off=2475/130
+by arm: on 4 - off 4 - draw 4
+by team: team0 0 - team1 8 - draw 4
+military value killed on/off: 47970/49935; final army on/off: 10520/13295

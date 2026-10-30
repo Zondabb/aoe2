@@ -1,4 +1,4 @@
-# 交接说明：AI 战略智能层（更新于 2026-10-28，家里电脑）
+# 交接说明：AI 战略智能层（更新于 2026-10-30，家里电脑）
 
 设计、行为与全部实验结果：[../ai_strategic_intelligence.md](../ai_strategic_intelligence.md)。进展报告（Claude Doc）：https://claude.ai/artifact/7XenQZGBV9unR5SFNYeY1m ，其离线副本 [2026-10-23-ai-strategic-intelligence-progress.md](2026-10-23-ai-strategic-intelligence-progress.md) 停留在 10-23 晚的版本。
 
@@ -28,10 +28,12 @@
 | 变体对主代码（各 12 局） | 关闭村民反射 11–1–0；升级存资源等村民增长 7–3–2 |
 | 合并后（各 12 局） | 对只关反射的副本 7–4–1；对 `a5726c9` 4–8–0（0 号位置 10 / 2） |
 | 测试器交替同一步处理顺序 | 主代码对 `a5726c9` 4–6–1，0 号 / 1 号 4 / 6；回防对照：必败仍迎战 3–6–3（更差），不召回 5–5–2（持平） |
+| 同文明对打与村民目标（各 12 局） | 中国镜像主代码对 `a5726c9` 0–12；条顿镜像 4–4–4；村民目标按时代增长对主代码 4–4–4（未合并） |
+| 中国镜像逐项对照与智能层前后（各 12 局） | 恢复第 8 个村民起存资源 7–2–3；240 秒上限 4–8；关闭避开骚扰资源 4–7–1；远处侦察兵也召回 4–8；主代码对 `998c22d` 12–0 |
 | `plan_review`（qwen3:8b 版本对打） | 合法建议采纳 35/35，计划改动 33 → 54；胜负 2–2，四局都是 0 号队伍获胜 |
 | 对战工具 | `tools/ai_duel_ab.py` 新增 `--llm-config`、`--parallel`、`--calls-per-minute`、`--service-dir`、`--indices` |
 | 分析脚本 | `tools/duel_analysis/analyze_llm.py`、`compare_openings.py` |
-| 原始报告 | `docs/progress/duel-results/`：`batch3-deterministic`、`llm-qwen3`、`opening-main`、`opening-fix1`、`opening-fix2`、`raid-main`、`raid-fix3`、`raid-analysis.txt`、`versus-raid`、`versus-raid-conservative`、`versus-review-llm`、`versus-main-seeds`、`mirror-order`、`versus-harass`、`versus-symfix`、`fair-mirror`、`fair-versus`、`fair-analysis.txt`、`variant-noreflex`、`variant-econfix`、`variant-analysis.txt`、`merged-vs-a5726c9`、`merged-vs-noreflex`、`merged-analysis.txt`、`alt-main-vs-a5726c9`、`alt-nohold`、`alt-noguard`、`alt-analysis.txt` |
+| 原始报告 | `docs/progress/duel-results/`：`batch3-deterministic`、`llm-qwen3`、`opening-main`、`opening-fix1`、`opening-fix2`、`raid-main`、`raid-fix3`、`raid-analysis.txt`、`versus-raid`、`versus-raid-conservative`、`versus-review-llm`、`versus-main-seeds`、`mirror-order`、`versus-harass`、`versus-symfix`、`fair-mirror`、`fair-versus`、`fair-analysis.txt`、`variant-noreflex`、`variant-econfix`、`variant-analysis.txt`、`merged-vs-a5726c9`、`merged-vs-noreflex`、`merged-analysis.txt`、`alt-main-vs-a5726c9`、`alt-nohold`、`alt-noguard`、`alt-analysis.txt`、`ecoscale-vs-main`、`samecn-main-vs-a5726c9`、`samete-main-vs-a5726c9`、`eco-samecivs-analysis.txt`、`cn-noeconfix-vs-main`、`cn-econdeadline-vs-main`、`cn-noavoid-vs-main`、`cn-nofarscout-vs-main`、`main-vs-998c22d`、`mix-noeconfix-vs-main`、`next-analysis.txt` |
 
 注意：LLM 批次第 2、3 局和三组开局对比在上述并行 GDScript 改动之后启动，确定性批次和 LLM 第 0、1 局在之前。
 
@@ -53,7 +55,7 @@ ai_service_python\.venv\Scripts\python.exe tools\duel_analysis\compare_openings.
 
 ## 下一步
 
-1. 主代码对 `a5726c9` 在交替处理顺序的测试器下 4–6–1，主要输在执中国（6 局 1 胜）。回防的两个规则已排除。下一步：比较双方执中国时的开局与兵种（克制推荐修复会改变生产组成），再逐项关闭避开被骚扰资源、远处侦察兵、经济修复对打。每批同时最多 4 局。
+1. 智能层前后：主代码对 `998c22d` 12–0。中国镜像下“升级存资源等村民增长”有害（恢复第 8 个村民起 7–2–3，加 240 秒上限反而 4–8），避开被骚扰资源与远处侦察兵不召回都有益。中国对条顿配置下“恢复第 8 个村民起”对当前主代码 3–6–3，两种配置合计 10–8–6，暂不回退；可试按固定比例分享收入的升级储备，或研究中国一方（混合文明下两套规则执中国 12 局只赢 2 局）。同文明对打的位置差别（中国镜像偏 0 号、条顿镜像偏 1 号）仍未查明；同文明对打时配置 0/2、1/3 是同一局面，以后可只跑配置 0、1 并多用种子。
 2. 持续骚扰：骚扰期间只把空闲村民派往 TC 附近或远离敌人的资源（`.godot/harass` 副本，未合并），12 局对打中村民损失 128 → 81，但击杀价值少 21%，胜负被出生位置主导；待决定是否合并，或改为集中兵力清场。
 3. 在克制推荐修复后重新测量 `plan_review`，并用更多地图与种子判断它对胜率的影响。
 4. 统计显著性：每批 4 局只代表 4 种配置，可以用 `--seed` 增加地图。

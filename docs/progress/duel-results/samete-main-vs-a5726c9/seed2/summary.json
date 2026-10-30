@@ -1,0 +1,285 @@
+{
+ "mode": "deterministic",
+ "comparison": "code_version",
+ "map_seed": 2,
+ "service_dir": "E:\\workspace\\aoe2\\ai_service_python",
+ "arm_dirs": {
+  "on": "E:\\workspace\\aoe2\\ai_service_python",
+  "off": "E:\\workspace\\aoe2\\.godot\\baseline-a5726c9\\ai_service_python"
+ },
+ "duration": 2400.0,
+ "civs": [
+  "teutons",
+  "teutons"
+ ],
+ "totals": {
+  "on": {
+   "matches": 4,
+   "wins": 2,
+   "losses": 2,
+   "enemy_tc_hp_left": 6000.0,
+   "lost_military_value": 10245,
+   "killed_military_value": 12250,
+   "final_military_value": 4535,
+   "rejects": 0
+  },
+  "off": {
+   "matches": 4,
+   "wins": 2,
+   "losses": 2,
+   "enemy_tc_hp_left": 6000.0,
+   "lost_military_value": 12250,
+   "killed_military_value": 10245,
+   "final_military_value": 5090,
+   "rejects": 0
+  }
+ },
+ "matches": [
+  {
+   "match": 0,
+   "winner_arm": "off",
+   "finished_at": 1919.5,
+   "sides": {
+    "on": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 3000.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 3820,
+     "killed_military_value": 2980,
+     "final_military_value": 80,
+     "villagers": 1,
+     "age": 1,
+     "rejects": 0,
+     "team": 0,
+     "civ": "teutons",
+     "produced": {
+      "archer": 28,
+      "man_at_arms": 2,
+      "militia": 4,
+      "spearman": 23
+     },
+     "milestones": {
+      "age_1": 546.75,
+      "barracks": 266.75,
+      "first_soldier": 460.75
+     }
+    },
+    "off": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 3000.0,
+     "lost_military_value": 2980,
+     "killed_military_value": 3820,
+     "final_military_value": 2725,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "teutons",
+     "produced": {
+      "archer": 23,
+      "battering_ram": 3,
+      "cavalry_archer": 1,
+      "elite_skirmisher": 5,
+      "man_at_arms": 25,
+      "militia": 7,
+      "spearman": 7
+     },
+     "milestones": {
+      "age_1": 590.75,
+      "age_2": 1567.75,
+      "barracks": 305.25,
+      "first_soldier": 349.75
+     }
+    }
+   }
+  },
+  {
+   "match": 1,
+   "winner_arm": "on",
+   "finished_at": 1758.5,
+   "sides": {
+    "off": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 3000.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 4360,
+     "killed_military_value": 2915,
+     "final_military_value": 110,
+     "villagers": 13,
+     "age": 2,
+     "rejects": 0,
+     "team": 0,
+     "civ": "teutons",
+     "produced": {
+      "archer": 28,
+      "cavalry_archer": 1,
+      "man_at_arms": 18,
+      "militia": 3,
+      "spearman": 12
+     },
+     "milestones": {
+      "age_1": 593.75,
+      "age_2": 1703.75,
+      "barracks": 299.5,
+      "first_soldier": 380.75
+     }
+    },
+    "on": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 3000.0,
+     "lost_military_value": 2915,
+     "killed_military_value": 4360,
+     "final_military_value": 1900,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "teutons",
+     "produced": {
+      "archer": 13,
+      "battering_ram": 2,
+      "cavalry_archer": 3,
+      "crossbowman": 5,
+      "knight": 5,
+      "long_swordsman": 3,
+      "militia": 16,
+      "spearman": 8
+     },
+     "milestones": {
+      "age_1": 622.75,
+      "age_2": 1100.75,
+      "barracks": 299.5,
+      "first_soldier": 328.75
+     }
+    }
+   }
+  },
+  {
+   "match": 2,
+   "winner_arm": "off",
+   "finished_at": 1599.0,
+   "sides": {
+    "on": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 3000.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 1350,
+     "killed_military_value": 1630,
+     "final_military_value": 80,
+     "villagers": 1,
+     "age": 1,
+     "rejects": 0,
+     "team": 0,
+     "civ": "teutons",
+     "produced": {
+      "archer": 7,
+      "militia": 4,
+      "spearman": 9
+     },
+     "milestones": {
+      "age_1": 546.75,
+      "barracks": 266.75,
+      "first_soldier": 460.75
+     }
+    },
+    "off": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 3000.0,
+     "lost_military_value": 1630,
+     "killed_military_value": 1350,
+     "final_military_value": 2125,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "teutons",
+     "produced": {
+      "archer": 13,
+      "battering_ram": 1,
+      "cavalry_archer": 3,
+      "elite_skirmisher": 6,
+      "man_at_arms": 10,
+      "militia": 5,
+      "spearman": 12
+     },
+     "milestones": {
+      "age_1": 590.75,
+      "age_2": 1233.75,
+      "barracks": 305.25,
+      "first_soldier": 349.75
+     }
+    }
+   }
+  },
+  {
+   "match": 3,
+   "winner_arm": "on",
+   "finished_at": 1619.0,
+   "sides": {
+    "off": {
+     "won": false,
+     "lost": true,
+     "enemy_tc_hp_left": 3000.0,
+     "own_tc_hp": 0.0,
+     "lost_military_value": 3280,
+     "killed_military_value": 2160,
+     "final_military_value": 130,
+     "villagers": 0,
+     "age": 1,
+     "rejects": 0,
+     "team": 0,
+     "civ": "teutons",
+     "produced": {
+      "archer": 25,
+      "militia": 2,
+      "skirmisher": 1,
+      "spearman": 24
+     },
+     "milestones": {
+      "age_1": 593.75,
+      "barracks": 299.5,
+      "first_soldier": 380.75
+     }
+    },
+    "on": {
+     "won": true,
+     "lost": false,
+     "enemy_tc_hp_left": 0.0,
+     "own_tc_hp": 3000.0,
+     "lost_military_value": 2160,
+     "killed_military_value": 3280,
+     "final_military_value": 2475,
+     "villagers": 20,
+     "age": 2,
+     "rejects": 0,
+     "team": 1,
+     "civ": "teutons",
+     "produced": {
+      "archer": 12,
+      "battering_ram": 1,
+      "cavalry_archer": 1,
+      "elite_skirmisher": 4,
+      "knight": 6,
+      "militia": 20,
+      "spearman": 12
+     },
+     "milestones": {
+      "age_1": 622.75,
+      "age_2": 1134.75,
+      "barracks": 299.5,
+      "first_soldier": 328.75
+     }
+    }
+   }
+  }
+ ]
+}
