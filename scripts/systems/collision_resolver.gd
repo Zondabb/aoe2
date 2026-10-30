@@ -4,6 +4,7 @@ extends RefCounted
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 const DEFAULT_RADIUS := 0.42
 const UNIT_SEPARATION_EXTRA := 0.0
@@ -76,17 +77,27 @@ static func is_step_safe(unit: Object, from: Vector2, to: Vector2, units: Array,
 		if health != null and float(health) <= 0:
 			continue
 		var center: Vector2 = other.get("sim_pos")
-		var separation := radius + unit_radius(other)
-		var old_distance := from.distance_squared_to(center)
-		if old_distance < separation * separation - 0.0001:
-			if (to - from).dot(from - center) < -0.00001:
+		var separation := Fixed.coord(radius) + Fixed.coord(unit_radius(other))
+		var origin := Fixed.vector(from)
+		var destination := Fixed.vector(to)
+		var offset := origin - Fixed.vector(center)
+		var motion := destination - origin
+		var limit := separation * separation
+		if Fixed.length_sq(offset) < limit:
+			if _dot(motion, offset) < 0:
 				return false
 			continue
-		var nearest := Geometry2D.get_closest_point_to_segment(center, from, to)
-		if nearest.distance_squared_to(center) < separation * separation - 0.0001:
+		var nearest := origin
+		var length_squared := Fixed.length_sq(motion)
+		if length_squared > 0:
+			var projection := clampi(-_dot(offset, motion), 0, length_squared)
+			nearest += Vector2i(Fixed.mul_div(motion.x, projection, length_squared), Fixed.mul_div(motion.y, projection, length_squared))
+		if Fixed.length_sq(nearest - Fixed.vector(center)) < limit:
 			return false
 	return true
 
+static func _dot(a: Vector2i, b: Vector2i) -> int:
+	return int(a.x) * int(b.x) + int(a.y) * int(b.y)
 
 static func static_step_safe(from: Vector2, to: Vector2, radius: float, solids: Array) -> bool:
 	for solid in solids:
@@ -116,31 +127,46 @@ static func static_geometry_step_safe(from: Vector2, to: Vector2, geometry: Arra
 
 
 static func segment_hits_box(from: Vector2, to: Vector2, half: Vector2) -> bool:
-	# A tiny inset permits tangential travel exactly along a boundary.
-	half -= Vector2.ONE * 0.0001
-	var motion := to - from
-	if absf(from.x) < half.x and absf(from.y) < half.y:
-		var depth := half - from.abs()
+	# Geometry predicates use the shared 1/1024-unit lattice. A one-quantum
+	# inset permits travel along the boundary; rational slab intervals avoid
+	# divisions and architecture-dependent rounding at a corner.
+	var origin := Fixed.vector(from)
+	var extent := Fixed.vector(half) - Vector2i.ONE
+	if extent.x <= 0 or extent.y <= 0: return false
+	var motion := Fixed.vector(to) - origin
+	if absi(origin.x) < extent.x and absi(origin.y) < extent.y:
+		var depth := extent - origin.abs()
 		# Already embedded: permit sliding or moving out via the nearest face.
-		if depth.x <= depth.y + 0.0001 and motion.x * signf(from.x) >= -0.00001:
+		if depth.x <= depth.y and motion.x * signi(origin.x) >= 0:
 			return false
-		if depth.y <= depth.x + 0.0001 and motion.y * signf(from.y) >= -0.00001:
+		if depth.y <= depth.x and motion.y * signi(origin.y) >= 0:
 			return false
 		return true
-	var near := 0.0
-	var far := 1.0
+	var near_num := 0
+	var near_den := 1
+	var far_num := 1
+	var far_den := 1
 	for axis in 2:
-		if absf(motion[axis]) < 0.0000001:
-			if absf(from[axis]) >= half[axis]:
+		if motion[axis] == 0:
+			if absi(origin[axis]) >= extent[axis]:
 				return false
 			continue
-		var first := (-half[axis] - from[axis]) / motion[axis]
-		var second := (half[axis] - from[axis]) / motion[axis]
-		near = maxf(near, minf(first, second))
-		far = minf(far, maxf(first, second))
-		if near > far:
+		var denominator := absi(motion[axis])
+		var first := -int(extent[axis]) - int(origin[axis])
+		var second := int(extent[axis]) - int(origin[axis])
+		if motion[axis] < 0:
+			var swap := first
+			first = -second
+			second = -swap
+		if first * near_den > near_num * denominator:
+			near_num = first
+			near_den = denominator
+		if second * far_den < far_num * denominator:
+			far_num = second
+			far_den = denominator
+		if near_num * far_den > far_num * near_den:
 			return false
-	return near <= far and far >= 0 and near <= 1
+	return true
 
 static func _blocker_half(blocker: Object, radius: float) -> Vector2:
 	if blocker == null:
@@ -183,8 +209,9 @@ static func _hits_building(pos: Vector2, radius: float, building: Object) -> boo
 	if half.x <= 0.0 or half.y <= 0.0:
 		return false
 	var center: Vector2 = building.get("sim_pos")
-	var delta := pos - center
-	return absf(delta.x) < half.x and absf(delta.y) < half.y
+	var delta := Fixed.vector(pos) - Fixed.vector(center)
+	var extent := Fixed.vector(half)
+	return absi(delta.x) < extent.x and absi(delta.y) < extent.y
 
 static func _hits_any_building(pos: Vector2, radius: float, buildings: Array) -> bool:
 	for value in buildings:

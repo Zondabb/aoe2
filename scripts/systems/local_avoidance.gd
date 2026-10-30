@@ -1,5 +1,6 @@
 class_name LocalAvoidance
 extends RefCounted
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 ## Bounded velocity sampling with prediction and a consistent passing side.
 ## It changes this frame's velocity, never the static A* route.
@@ -106,10 +107,15 @@ static func step_scheduled(unit: Object, preferred: Vector2, previous: Vector2, 
 		cache.clear()
 		return step(unit, preferred, previous, delta, neighbors, solids, goal)
 	var initialized := cache.has("velocity")
-	var remaining := float(cache.get("remaining", 0.0)) - delta
-	cache.remaining = remaining
+	var remaining: int = int(cache.get("remaining_time", Fixed.time_from_seconds(float(cache.get("remaining", 0.0)))))
+	# Keep the old seconds field as a UI/test adapter, not the simulation clock.
+	if cache.has("remaining") and float(cache.remaining) != Fixed.time_to_seconds(remaining):
+		remaining = Fixed.time_from_seconds(float(cache.remaining))
+	remaining -= Fixed.delta_time(delta, unit.has_meta("lockstep_entity"))
+	cache.remaining_time = remaining
+	cache.remaining = Fixed.time_to_seconds(remaining)
 	var prepared_bodies: Variant = null
-	if initialized and remaining > 0.000001 and cache.goal == goal and from.distance_squared_to(cache.position) <= 0.0001:
+	if initialized and remaining > 0 and cache.goal == goal and from.distance_squared_to(cache.position) <= 0.0001:
 		var old_preferred: Vector2 = cache.preferred
 		var old_speed := old_preferred.length()
 		# Small length differences come from float position subtraction. Scale
@@ -152,7 +158,9 @@ static func step_scheduled(unit: Object, preferred: Vector2, previous: Vector2, 
 	cache.position = result
 	# Spread the first refresh over six phases, then each unit keeps its own
 	# simulation-time clock. Pauses and game-speed changes follow delta.
-	cache.remaining = STEERING_INTERVAL if initialized else STEERING_INTERVAL * float(unit.get_instance_id() % 6 + 1) / 6.0
+	var interval := Fixed.time_from_seconds(STEERING_INTERVAL)
+	cache.remaining_time = interval if initialized else Fixed.mul_div(interval, int(unit.get_meta("net_id", unit.get_instance_id())) % 6 + 1, 6)
+	cache.remaining = Fixed.time_to_seconds(int(cache.remaining_time))
 	cache.solved = int(cache.get("solved", 0)) + 1
 	return result
 

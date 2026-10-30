@@ -2,6 +2,7 @@ class_name VisionService
 extends RefCounted
 
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 ## Vision queries over SpatialHash. Units/buildings register; observers use vision_radius.
 
@@ -147,7 +148,7 @@ func nearest_hostile(
 	radius: float = -1.0
 ) -> Object:
 	var nearest: Object = null
-	var nearest_distance := INF
+	var nearest_distance: int = 9223372036854775807
 	if observer == null or not is_instance_valid(observer):
 		return null
 	var pos_variant: Variant = observer.get("sim_pos")
@@ -159,7 +160,7 @@ func nearest_hostile(
 		if not _is_valid_hostile(observer, entity, enemy_team):
 			continue
 		var other_pos: Vector2 = entity.get("sim_pos")
-		var distance := from_pos.distance_squared_to(other_pos)
+		var distance := Fixed.distance_squared(from_pos, other_pos)
 		if distance < nearest_distance:
 			nearest = entity
 			nearest_distance = distance

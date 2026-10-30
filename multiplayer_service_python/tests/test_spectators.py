@@ -11,7 +11,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 1, "name": "Host", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 3, "name": "Host", "civ": "chinese"}
 
 
 def drain(player):
@@ -21,10 +21,16 @@ def drain(player):
     return messages
 
 
+def frame(tick):
+    return {"type": "frame", "tick": tick, "commands": [], "checksum": "a" * 64}
+
+
 async def pair(mm, *, start=True, snapshot=True):
-    host, guest = await mm.register(), await mm.register()
-    await mm.handle(host, JOIN)
-    await mm.handle(guest, dict(JOIN, name="Guest", civ="teutons"))
+    players = [await mm.register(), await mm.register()]
+    await mm.handle(players[0], JOIN)
+    await mm.handle(players[1], dict(JOIN, name="Guest", civ="teutons"))
+    room = mm.rooms[players[0].room_id]
+    host, guest = players[room.host_team], players[1 - room.host_team]
     drain(host)
     drain(guest)
     if start:
@@ -33,7 +39,7 @@ async def pair(mm, *, start=True, snapshot=True):
         drain(host)
         drain(guest)
     if snapshot:
-        await mm.handle(host, {"type": "snapshot", "seq": 1, "state": {"entities": [], "winner": -1}})
+        await mm.handle(host, frame(3))
         drain(guest)
     return host, guest
 
@@ -41,36 +47,43 @@ async def pair(mm, *, start=True, snapshot=True):
 async def watch(mm, host, *, ready=True):
     viewer = await mm.register()
     await mm.handle(viewer, {"type": "watch_match", "match_id": host.room_id})
-    joined, snapshot = drain(viewer)
+    joined, = drain(viewer)
     assert joined["type"] == "spectate_started" and joined["role"] == "spectator"
-    assert joined["host_team"] == 0 and joined["match_id"] == host.room_id
+    assert joined["host_team"] == host.team and joined["match_id"] == host.room_id
+    assert joined["protocol_version"] == 3 and joined["tick_rate"] == 30 and joined["frame_ticks"] == 3
     assert "team" not in joined and "state" not in joined
-    assert snapshot["type"] == "snapshot"
     if ready:
         await mm.handle(viewer, {"type": "watch_ready"})
-        assert drain(viewer) == [snapshot]
+        assert drain(viewer) == []
     return viewer
 
 
-def test_loading_spectator_does_not_accumulate_snapshots_and_ready_replays_latest():
+def test_loading_spectator_does_not_accumulate_frames_and_gets_fresh_keyframe_after_ready():
     async def scenario():
         mm = Matchmaker(Settings(outgoing_queue_size=3))
         host, guest = await pair(mm)
         viewer = await watch(mm, host, ready=False)
         assert viewer.spectating and not viewer.spectator_ready
-        for seq in range(2, 21):
-            latest = {"type": "snapshot", "seq": seq, "state": {"tick": seq}}
-            await mm.handle(host, latest)
+        with pytest.raises(ProtocolError, match="finish loading"):
+            await mm.handle(viewer, {"type": "request_keyframe"})
+        for tick in range(6, 61, 3):
+            await mm.handle(host, frame(tick))
             drain(guest)
             assert drain(viewer) == []
         assert viewer.id in mm.players
-        await mm.handle(viewer, {"type": "watch_ready"})
-        assert viewer.spectator_ready and drain(viewer) == [latest]
-        await mm.handle(viewer, {"type": "watch_ready"})
-        assert viewer.spectator_ready and drain(viewer) == [latest]
-        next_snapshot = {"type": "snapshot", "seq": 21, "state": {"tick": 21}}
-        await mm.handle(host, next_snapshot)
-        assert drain(viewer) == drain(guest) == [next_snapshot]
+        for _ in range(2):
+            await mm.handle(viewer, {"type": "watch_ready"})
+            assert viewer.spectator_ready and drain(viewer) == []
+        await mm.handle(viewer, {"type": "request_keyframe"})
+        request, = drain(host)
+        assert request["type"] == "keyframe_request"
+        keyframe = {"type": "keyframe", "request_id": request["request_id"], "tick": 60, "state": {"tick": 60}, "checksum": "a" * 64}
+        await mm.handle(host, keyframe)
+        assert drain(viewer) == [keyframe] and drain(guest) == []
+        await mm.handle(host, frame(63))
+        assert drain(viewer) == drain(guest) == [frame(63)]
+        await mm.handle(viewer, {"type": "ack", "tick": 63, "checksum": "a" * 64})
+        assert drain(host) == []  # viewers cannot stall or acknowledge for players
         await mm.handle(viewer, {"type": "leave"})
         assert not viewer.spectating and not viewer.spectator_ready
         await mm.shutdown()
@@ -91,7 +104,7 @@ def test_players_and_idle_clients_cannot_send_watch_ready():
     asyncio.run(scenario())
 
 
-def test_list_only_started_matches_with_snapshot_and_replay_latest_then_fanout():
+def test_list_started_matches_without_full_state_and_fanout_incremental_frames():
     async def scenario():
         now = [100.0]
         mm = Matchmaker(Settings(), clock=lambda: now[0])
@@ -103,10 +116,6 @@ def test_list_only_started_matches_with_snapshot_and_replay_latest_then_fanout()
             await mm.handle(participant, {"type": "ready"})
         drain(host)
         drain(guest)
-        assert await mm.list_matches() == {"matches": []}
-        await mm.handle(host, {"type": "snapshot", "seq": 1, "state": {"tick": 1}})
-        await mm.handle(host, {"type": "snapshot", "seq": 2, "state": {"tick": 2}})
-        drain(guest)
         now[0] += 12
         room = mm.rooms[host.room_id]
         listing = (await mm.list_matches())["matches"]
@@ -115,15 +124,12 @@ def test_list_only_started_matches_with_snapshot_and_replay_latest_then_fanout()
             {"team": 1, "name": "Guest", "civ": "teutons"}],
             "elapsed_seconds": 12, "spectator_count": 0}]
         viewer = await watch(mm, host)
-        assert room.latest_snapshot["seq"] == 2
         assert (await mm.list_matches())["matches"][0]["spectator_count"] == 1
-        packet = {"type": "snapshot", "seq": 3, "state": {"tick": 3}}
-        await mm.handle(host, packet)
-        assert drain(guest) == drain(viewer) == [packet]
+        await mm.handle(host, frame(3))
+        assert drain(guest) == drain(viewer) == [frame(3)]
         assert drain(host) == []
         await mm.handle(guest, {"type": "command", "seq": 1, "command": {"op": "stop"}})
-        assert drain(host)[0]["team"] == 1 and drain(viewer) == []
-        assert room.latest_snapshot == packet
+        assert drain(host)[0]["team"] == guest.team and drain(viewer) == []
         await mm.shutdown()
     asyncio.run(scenario())
 
@@ -132,7 +138,7 @@ def test_list_only_started_matches_with_snapshot_and_replay_latest_then_fanout()
     {"type": "ready"}, {"type": "cancel_queue"}, JOIN,
     {"type": "command", "seq": 1, "command": {"op": "move", "unit_id": 1, "pos": [1, 2]}},
     {"type": "command", "seq": 1, "command": {"op": "set_ai_control", "enabled": True}},
-    {"type": "snapshot", "seq": 999, "state": {"winner": 0}},
+    {"type": "frame", "tick": 999, "commands": [], "checksum": "a" * 64},
     {"type": "finish_match", "winner": 1},
     {"type": "watch_match", "match_id": "0" * 32},
 ])
@@ -174,8 +180,8 @@ def test_spectator_departure_never_ends_match_or_records_a_result(ending):
             await mm.sweep()
             assert viewer.id not in mm.players
         else:
-            for seq in range(2, 6):
-                await mm.handle(host, {"type": "snapshot", "seq": seq, "state": {"tick": seq}})
+            for tick in range(6, 18, 3):
+                await mm.handle(host, frame(tick))
                 drain(guest)
             assert viewer.id not in mm.players
             assert isinstance(drain(viewer)[0], Close)
@@ -258,12 +264,13 @@ def test_http_and_websocket_spectator_lifecycle():
         guest.receive_json()
         found = host.receive_json()
         guest.receive_json()
+        if found["host_team"] == 1:
+            host, guest = guest, host
         host.send_json({"type": "ready"})
         guest.send_json({"type": "ready"})
         host.receive_json()
         guest.receive_json()
-        snapshot = {"type": "snapshot", "seq": 1, "state": {"entities": [], "winner": -1}}
-        host.send_json(snapshot)
+        host.send_json(frame(3))
         guest.receive_json()
         listing = client.get("/api/matches")
         assert listing.headers["cache-control"] == "no-store"
@@ -272,7 +279,12 @@ def test_http_and_websocket_spectator_lifecycle():
         assert viewer.receive_json()["matches"] == listing.json()["matches"]
         viewer.send_json({"type": "watch_match", "match_id": found["match_id"]})
         assert viewer.receive_json()["type"] == "spectate_started"
-        assert viewer.receive_json() == snapshot
+        viewer.send_json({"type": "watch_ready"})
+        viewer.send_json({"type": "request_keyframe"})
+        request = host.receive_json()
+        keyframe = {"type": "keyframe", "request_id": request["request_id"], "tick": 3, "state": {"x": 1}, "checksum": "a" * 64}
+        host.send_json(keyframe)
+        assert viewer.receive_json() == keyframe
         viewer.send_json({"type": "finish_match", "winner": 0})
         assert viewer.receive_json()["code"] == "forbidden"
         host.send_json({"type": "finish_match", "winner": 1})

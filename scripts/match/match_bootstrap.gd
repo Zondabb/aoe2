@@ -50,7 +50,11 @@ func _ready() -> void:
 	map_data = GameSession.match_map_data.duplicate(true)
 	generated_default_map = map_data.is_empty()
 	if generated_default_map:
-		map_data = DefaultMap.generate(DefaultMap.DEFAULT_SEED, player_civ.id, ai_civ.id)
+		var map_seed := DefaultMap.DEFAULT_SEED
+		if GameSession.online_active:
+			var net_session := get_node_or_null("/root/NetworkSession")
+			if net_session != null: map_seed = int(net_session.match_info.get("seed", map_seed))
+		map_data = DefaultMap.generate(map_seed, player_civ.id, ai_civ.id)
 	var errors := MapDataScript.validate(map_data)
 	if not errors.is_empty():
 		GameSession.menu_notice = "地图无法启动：" + "；".join(errors)
@@ -176,8 +180,10 @@ func _setup_ground() -> void:
 func _spawn_entities() -> void:
 	if not _saved_data.is_empty():
 		return
-	if GameSession.online_active and GameSession.local_team() != Enums.Team.PLAYER:
-		return
+	if GameSession.online_active:
+		var net_session := get_node_or_null("/root/NetworkSession")
+		if GameSession.online_spectator or net_session == null or GameSession.local_team() != int(net_session.host_team):
+			return
 	var entities := get_node_or_null("../Entities") as Node2D
 	if entities == null or entities.get_child_count() > 0:
 		return

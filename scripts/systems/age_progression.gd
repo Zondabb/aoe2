@@ -8,6 +8,7 @@ signal research_cancelled(team: int)
 signal research_completed(team: int, age: int)
 
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const AGE_NAMES := ["黑暗时代", "封建时代", "城堡时代", "帝王时代"]
 const REQUIREMENTS := {
 	Enums.Age.FEUDAL: {"food": 500, "gold": 0, "duration": 130.0,
@@ -57,14 +58,15 @@ func progress_for(team: int) -> Dictionary:
 	if not _jobs.has(team):
 		return {}
 	var job: Dictionary = _jobs[team]
+	_sync_job_clock(job)
 	var building := _job_building(team)
 	var building_id := -1
 	if is_instance_valid(building):
 		building_id = int(building.get_meta("net_id", Registry.id_of(building)))
 	return {
 		"from_age": int(job.target_age) - 1, "target_age": int(job.target_age),
-		"elapsed": float(job.elapsed), "duration": float(job.duration),
-		"progress": clampf(float(job.elapsed) / float(job.duration), 0.0, 1.0),
+		"elapsed": Fixed.time_to_seconds(job.elapsed_time), "duration": Fixed.time_to_seconds(job.duration_time),
+		"progress": clampf(float(job.elapsed_time) / maxi(1, int(job.duration_time)), 0.0, 1.0),
 		"building_id": building_id,
 	}
 
@@ -139,6 +141,7 @@ func start_advance(building: Node) -> bool:
 	_jobs[team] = {
 		"building": weakref(building), "target_age": target_age,
 		"elapsed": 0.0, "duration": float(info.duration),
+		"elapsed_time": 0, "duration_time": Fixed.time_from_seconds(info.duration),
 		"food": int(info.food), "gold": int(info.gold),
 	}
 	building.train_queue_changed.emit()
@@ -164,6 +167,7 @@ func cancel_advance(team: int, refund: bool = true) -> bool:
 
 
 func _process(delta: float) -> void:
+	if match_state != null and match_state.lockstep_enabled and not match_state.lockstep_stepping: return
 	if network_replica or match_state == null:
 		return
 	for team in _jobs.keys():
@@ -174,14 +178,27 @@ func _process(delta: float) -> void:
 		if match_state.frozen or delta <= 0.0:
 			continue
 		var job: Dictionary = _jobs[team]
-		job.elapsed = minf(float(job.elapsed) + delta, float(job.duration))
+		_sync_job_clock(job)
+		job.elapsed_time = mini(int(job.elapsed_time) + Fixed.delta_time(delta, match_state.lockstep_enabled), int(job.duration_time))
+		job.elapsed = Fixed.time_to_seconds(job.elapsed_time)
 		_emit_progress(team)
-		if float(job.elapsed) >= float(job.duration):
+		if int(job.elapsed_time) >= int(job.duration_time):
 			_jobs.erase(team)
 			match_state.set_age(team, int(job.target_age))
 			building.train_queue_changed.emit()
 			research_completed.emit(team, int(job.target_age))
 			_emit_progress(team)
+
+
+## Import compatibility values only at the API boundary. Simulation advances
+## elapsed_time with integer addition; seconds are a presentation mirror.
+static func _sync_job_clock(job: Dictionary) -> void:
+	if not job.has("duration_time") or (job.has("duration") and float(job.duration) != Fixed.time_to_seconds(job.duration_time)):
+		job.duration_time = maxi(1, Fixed.time_from_seconds(float(job.get("duration", 0.0))))
+	if not job.has("elapsed_time") or (job.has("elapsed") and float(job.elapsed) != Fixed.time_to_seconds(job.elapsed_time)):
+		job.elapsed_time = maxi(0, Fixed.time_from_seconds(float(job.get("elapsed", 0.0))))
+	job.duration = Fixed.time_to_seconds(job.duration_time)
+	job.elapsed = Fixed.time_to_seconds(job.elapsed_time)
 
 
 func _emit_progress(team: int) -> void:

@@ -10,6 +10,7 @@ const ARC_SCREEN_SCALE := 22.0
 const CombatSystemScript := preload("res://scripts/systems/combat_system.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 var sim_pos := Vector2.ZERO
 var aim_pos := Vector2.ZERO
@@ -19,8 +20,15 @@ var match_state: MatchState
 var team: Enums.Team = Enums.Team.PLAYER
 var _consumed := false
 var _origin := Vector2.ZERO
-var _total_distance := 0.0
-var _traveled := 0.0
+var _total_distance_fixed: int = 0
+var _traveled_fixed: int = 0
+var _travel_remainder: int = 0
+var _total_distance: float:
+	get: return Fixed.to_float(_total_distance_fixed)
+	set(value): _total_distance_fixed = Fixed.from_float(value)
+var _traveled: float:
+	get: return Fixed.to_float(_traveled_fixed)
+	set(value): _traveled_fixed = Fixed.from_float(value)
 var _clock_hours := SpriteCatalogScript.ARROW_CLOCK_START_HOURS
 var _projectile_meta: Dictionary = {}
 var _projectile_texture: Texture2D
@@ -30,7 +38,10 @@ var _scatter_meta: Dictionary = {}
 var _scatter_texture: Texture2D
 var _shadow_meta: Dictionary = {}
 var _shadow_texture: Texture2D
-var _impact_elapsed := 0.0
+var _impact_elapsed_time: int = 0
+var _impact_elapsed: float:
+	get: return Fixed.time_to_seconds(_impact_elapsed_time)
+	set(value): _impact_elapsed_time = Fixed.time_from_seconds(value)
 var _launch_height := 0.0
 var _stone := false
 var _ground_shadow: Sprite2D
@@ -46,9 +57,9 @@ func setup(
 	attacker_team: Enums.Team,
 	attacker_node: Node = null
 ) -> void:
-	_origin = origin
-	sim_pos = origin
-	aim_pos = impact_aim
+	_origin = Fixed.quantize_vector(origin)
+	sim_pos = _origin
+	aim_pos = Fixed.quantize_vector(impact_aim)
 	attacker_def = attacker_unit_def
 	attacker = attacker_node
 	if attacker != null and is_instance_valid(attacker):
@@ -58,10 +69,11 @@ func setup(
 	_launch_height = attacker_def.projectile_launch_height if attacker_def != null else 0.0
 	if not _stone and _launch_height <= 0.0 and attacker is UnitAgent:
 		_launch_height = -attacker._projectile_spawn_local_y()
-	_total_distance = _origin.distance_to(aim_pos)
-	_traveled = 0.0
+	_total_distance_fixed = Fixed.isqrt(Fixed.distance_squared(_origin, aim_pos))
+	_traveled_fixed = 0
+	_travel_remainder = 0
 	_clock_hours = _compute_clock_hours()
-	if _total_distance <= 0.0001:
+	if _total_distance_fixed == 0:
 		aim_pos = _origin
 	_configure_visual()
 	_sync_visual(0.0)
@@ -69,26 +81,31 @@ func setup(
 	# the launch point, including the initial height, rather than the scene origin.
 	reset_physics_interpolation()
 
+@warning_ignore("integer_division")
 func _physics_process(delta: float) -> void:
+	if match_state != null and match_state.lockstep_enabled and not match_state.lockstep_stepping: return
 	if has_meta("network_replica") or (match_state != null and match_state.frozen):
 		return
+	var elapsed_time := Fixed.delta_time(delta, match_state != null and match_state.lockstep_enabled)
 	if _consumed:
-		_impact_elapsed += delta
+		_impact_elapsed_time += elapsed_time
 		_sync_impact_visual()
-		if _impact_elapsed >= _impact_duration():
+		if _impact_elapsed_time >= Fixed.time_from_seconds(_impact_duration()):
 			queue_free()
 		return
 	var speed := attacker_def.projectile_speed if attacker_def != null else ARROW_SPEED
-	var step := speed * delta
-	if _total_distance <= 0.0001 or _traveled + step >= _total_distance:
-		_traveled = _total_distance
+	var distance_numerator: int = Fixed.from_float(speed) * elapsed_time + _travel_remainder
+	var step_fixed: int = distance_numerator / Fixed.TIME_SCALE
+	_travel_remainder = distance_numerator % Fixed.TIME_SCALE
+	if _total_distance_fixed == 0 or _traveled_fixed + step_fixed >= _total_distance_fixed:
+		_traveled_fixed = _total_distance_fixed
 		sim_pos = aim_pos
 		_sync_visual(1.0)
 		_impact()
 		return
-	_traveled += step
+	_traveled_fixed += step_fixed
 	var t := _flight_progress()
-	sim_pos = _origin.lerp(aim_pos, t)
+	sim_pos = Fixed.interpolate(_origin, aim_pos, _traveled_fixed, _total_distance_fixed)
 	_sync_visual(t)
 
 
@@ -117,11 +134,12 @@ func apply_network_presentation(data: Dictionary) -> void:
 	_impact_elapsed = float(data.get("impact_elapsed", 0.0))
 	var origin: Array = data.get("origin", [0.0, 0.0])
 	var aim: Array = data.get("aim", [0.0, 0.0])
-	_origin = Vector2(float(origin[0]), float(origin[1]))
-	aim_pos = Vector2(float(aim[0]), float(aim[1]))
-	_total_distance = _origin.distance_to(aim_pos)
+	_origin = Fixed.quantize_vector(Vector2(float(origin[0]), float(origin[1])))
+	aim_pos = Fixed.quantize_vector(Vector2(float(aim[0]), float(aim[1])))
+	_total_distance_fixed = Fixed.isqrt(Fixed.distance_squared(_origin, aim_pos))
 	_traveled = float(data.get("traveled", 0.0))
-	sim_pos = _origin.lerp(aim_pos, _flight_progress())
+	_travel_remainder = 0
+	sim_pos = Fixed.interpolate(_origin, aim_pos, _traveled_fixed, _total_distance_fixed)
 	_clock_hours = _compute_clock_hours()
 	if _consumed:
 		_sync_impact_visual()
@@ -193,10 +211,10 @@ func _apply_splash_damage() -> void:
 		return
 	var victims: Array = _collect_splash_victims()
 	for victim in victims:
-		var multiplier := 1.0
+		var multiplier: int = Fixed.SCALE
 		if _stone and attacker_def.projectile_splash_radius > 0.0:
-			multiplier = clampf(1.0 - _distance_to_entity(victim) / _impact_radius(), 0.0, 1.0)
-		CombatSystemScript.apply_hit(attacker_def, victim, {"attacker": attacker, "damage_multiplier": multiplier})
+			multiplier = clampi(Fixed.SCALE - Fixed.div(Fixed.isqrt(_distance_squared_to_entity(victim)), Fixed.from_float(_impact_radius())), 0, Fixed.SCALE)
+		CombatSystemScript.apply_hit(attacker_def, victim, {"attacker": attacker, "damage_multiplier_fixed": multiplier})
 
 func _collect_splash_victims() -> Array:
 	# Prefer sibling scan so headless tests (nodes not yet in SceneTree) still work.
@@ -240,21 +258,27 @@ func _is_hostile_in_splash(node: Object) -> bool:
 		return false
 	if not node.has_method("take_damage"):
 		return false
-	return _distance_to_entity(node) <= _impact_radius()
+	var radius_fixed := Fixed.from_float(_impact_radius())
+	return _distance_squared_to_entity(node) <= radius_fixed * radius_fixed
 
 
 func _impact_radius() -> float:
 	return maxf(0.15, attacker_def.projectile_splash_radius) if attacker_def != null else IMPACT_RADIUS
 
 func _distance_to_entity(node: Object) -> float:
-	var center: Vector2 = node.get("sim_pos")
+	return Fixed.to_float(Fixed.isqrt(_distance_squared_to_entity(node)))
+
+func _distance_squared_to_entity(node: Object) -> int:
+	var center := Fixed.vector(node.get("sim_pos"))
+	var point := Fixed.vector(sim_pos)
 	var building_def := node.get("def") as BuildingDef
 	if building_def != null:
 		var footprint: Vector2 = node.get_placement_footprint() if node.has_method("get_placement_footprint") else building_def.footprint
-		var half := footprint * 0.5
-		if half.x > 0.0 and half.y > 0.0:
-			return _distance_to_aabb(sim_pos, center, half)
-	return sim_pos.distance_to(center)
+		var half := Fixed.vector(footprint * 0.5)
+		if half.x > 0 and half.y > 0:
+			var offset := point - center
+			return Fixed.length_sq(offset - Vector2i(clampi(offset.x, -half.x, half.x), clampi(offset.y, -half.y, half.y)))
+	return Fixed.length_sq(point - center)
 
 static func _distance_to_aabb(point: Vector2, center: Vector2, half: Vector2) -> float:
 	var delta := point - center

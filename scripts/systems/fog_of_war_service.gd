@@ -1,5 +1,6 @@
 class_name FogOfWarService
 extends RefCounted
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 ## Match-local, simulation-space visibility. Rendering never mutates these masks.
 enum State { UNEXPLORED, EXPLORED, VISIBLE }
@@ -26,12 +27,14 @@ func setup(minimum: float, maximum: float, size := 1.0) -> void:
 	setup_rect(Vector2(minimum, minimum), Vector2(maximum, maximum), size)
 
 func setup_rect(minimum: Vector2, maximum: Vector2, size := 1.0) -> void:
-	map_origin = minimum
-	map_end = maximum
-	map_min = minimum.x
-	map_max = maximum.x
-	cell_size = maxf(size, 0.1)
-	grid_size = Vector2i(maxi(1, ceili((maximum.x - minimum.x) / cell_size)), maxi(1, ceili((maximum.y - minimum.y) / cell_size)))
+	map_origin = Fixed.quantize_vector(minimum)
+	map_end = Fixed.quantize_vector(maximum)
+	map_min = map_origin.x
+	map_max = map_end.x
+	var size_q := maxi(Fixed.coord(0.1), Fixed.coord(size))
+	cell_size = Fixed.to_float(size_q)
+	var extent := Fixed.vector(map_end) - Fixed.vector(map_origin)
+	grid_size = Vector2i(maxi(1, Fixed.ceil_div(extent.x, size_q)), maxi(1, Fixed.ceil_div(extent.y, size_q)))
 	side = grid_size.x
 	reset()
 
@@ -52,10 +55,14 @@ func reset() -> void:
 	revision += 1
 
 func cell_at(pos: Vector2) -> Vector2i:
-	if pos.x < map_origin.x or pos.y < map_origin.y or pos.x > map_end.x or pos.y > map_end.y:
+	var point := Fixed.vector(pos)
+	var origin := Fixed.vector(map_origin)
+	var end := Fixed.vector(map_end)
+	if point.x < origin.x or point.y < origin.y or point.x > end.x or point.y > end.y:
 		return Vector2i(-1, -1)
-	return Vector2i(clampi(floori((pos.x-map_origin.x)/cell_size), 0, side-1),
-		clampi(floori((pos.y-map_origin.y)/cell_size), 0, grid_size.y-1))
+	var size := maxi(1, Fixed.coord(cell_size))
+	return Vector2i(clampi(Fixed.floor_div(point.x - origin.x, size), 0, side-1),
+		clampi(Fixed.floor_div(point.y - origin.y, size), 0, grid_size.y-1))
 
 func state_at(team: int, pos: Vector2) -> int:
 	var cell := cell_at(pos)
@@ -72,10 +79,11 @@ func footprint_visible(team: int, pos: Vector2, footprint: Vector2, require_all 
 ## Static entities reuse this cell rectangle instead of converting their world
 ## footprint separately for both teams on every visibility / memory pass.
 func footprint_cells(pos: Vector2, footprint: Vector2) -> Rect2i:
-	var half := footprint * 0.5
-	var lo := cell_at(pos - half)
+	var point := Fixed.vector(pos)
+	var half := Fixed.vector(footprint * 0.5)
+	var lo := cell_at(Fixed.to_vector(point - half))
 	# Right/bottom edges are exclusive except a point-sized query.
-	var hi := cell_at(pos + (half - Vector2.ONE * 0.00001).max(Vector2.ZERO))
+	var hi := cell_at(Fixed.to_vector(point + (half - Vector2i.ONE).max(Vector2i.ZERO)))
 	if lo.x < 0 or hi.x < 0:
 		return Rect2i(-1, -1, 0, 0)
 	return Rect2i(lo, hi - lo + Vector2i.ONE)
@@ -183,16 +191,22 @@ func rebuild(entities: Array) -> void:
 	elapsed_ms = float(Time.get_ticks_usec() - started) / 1000.0
 
 func _stamp(mask: PackedByteArray, pos: Vector2, radius: float, row_min: PackedInt32Array, row_max: PackedInt32Array) -> void:
-	var y0 := maxi(0, floori((pos.y-radius-map_origin.y)/cell_size))
-	var y1 := mini(grid_size.y-1, floori((pos.y+radius-map_origin.y)/cell_size))
+	var origin := Fixed.vector(map_origin)
+	var point := Fixed.vector(pos)
+	var size := maxi(1, Fixed.coord(cell_size))
+	var radius_q := maxi(0, Fixed.coord(radius))
+	var y0 := maxi(0, Fixed.floor_div(point.y - radius_q - origin.y, size))
+	var y1 := mini(grid_size.y-1, Fixed.floor_div(point.y + radius_q - origin.y, size))
+	# Double the lattice to represent cell centers exactly, even for odd sizes.
+	var diameter: int = 2 * radius_q
 	for y in range(y0, y1+1):
-		var dy := map_origin.y + (y+0.5)*cell_size - pos.y
-		var remaining := radius*radius-dy*dy
+		var dy: int = 2 * int(origin.y) + (2*y + 1)*size - 2 * int(point.y)
+		var remaining: int = diameter*diameter-dy*dy
 		if remaining < 0:
 			continue
-		var dx := sqrt(remaining)
-		var x0 := maxi(0, ceili((pos.x-dx-map_origin.x)/cell_size-0.5))
-		var x1 := mini(side-1, floori((pos.x+dx-map_origin.x)/cell_size-0.5))
+		var dx := Fixed.isqrt(remaining)
+		var x0 := maxi(0, Fixed.ceil_div(2 * int(point.x) - dx - 2 * int(origin.x) - size, 2*size))
+		var x1 := mini(side-1, Fixed.floor_div(2 * int(point.x) + dx - 2 * int(origin.x) - size, 2*size))
 		# Track a guaranteed continuous covered run per row. Overlapping circles
 		# only write its exposed ends; disjoint runs never fill gaps accidentally.
 		var lo := row_min[y]

@@ -84,7 +84,7 @@ func _build_service_panel(style: StyleBoxFlat) -> void:
 		row.name = "Team%d" % team
 		contents.add_child(row)
 		var label := Label.new()
-		label.text = "主机 AI" if team == 0 else "客端 AI"
+		label.text = "队伍 %d AI" % (team + 1)
 		label.add_theme_font_size_override("font_size", 13)
 		row.add_child(label)
 		var address := LineEdit.new()
@@ -123,7 +123,8 @@ func _sync_service_settings(state: Dictionary) -> void:
 	var game := get_node_or_null("/root/GameSession")
 	var online := game != null and bool(game.get("online_active"))
 	var local_team := int(game.call("local_team")) if game != null else 0
-	var host := local_team == 0
+	var network := get_node_or_null("/root/NetworkSession")
+	var host := not online or (network != null and network.has_method("is_host") and bool(network.call("is_host")))
 	_service_button.visible = online and _controller.has_method("team_service_url")
 	_service_panel.visible = _service_button.visible and _service_button.button_pressed
 	var states: Dictionary = _controller.call("capture_states") if _controller.has_method("capture_states") else {}

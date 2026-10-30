@@ -36,6 +36,13 @@ static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary
 			ctx.metrics.record_command_reject()
 		return _result(false, validation.reason)
 
+	# Online LLM callbacks are asynchronous. Defer their effects to the host's
+	# ordered command frame so the peer and spectators can execute them too.
+	if ctx.match_state != null and ctx.match_state.lockstep_enabled and ctx.entities != null:
+		var network := ctx.entities.get_parent().get_node_or_null("NetworkMatch")
+		if network != null and not bool(network.get("_frame_running")) and not bool(network.get("_replaying")):
+			return network.call("queue_ai_command", cmd, ctx)
+
 	var op := AiProtocolScript.op_from_string(String(cmd.get("op", "")))
 	var executed := false
 	match op:

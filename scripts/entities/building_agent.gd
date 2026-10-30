@@ -17,6 +17,7 @@ const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const UnitOcclusionScript := preload("res://scripts/presentation/unit_occlusion.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const WallRules := preload("res://scripts/systems/wall_system.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 # Keep the entity origin/footprint unchanged; only its artwork covers walkers.
 const TOWN_CENTER_SOLID_Z := 1
 const TOWN_CENTER_SHADOW_Z := -3
@@ -30,9 +31,16 @@ const TRAIN_SPAWN_RETRY_INTERVAL := 0.25
 @export var civ: CivDef
 @export var accepts_all_resources := false
 @export var accepted_resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
-var amount := 175.0
+var amount_q := 175 * Fixed.SCALE
+var amount: float:
+	get: return Fixed.to_float(amount_q)
+	set(value): amount_q = Fixed.from_float(value)
 var resource_type := Enums.ResourceType.FOOD
-var gather_rate := 4.0
+var gather_rate_q := 4 * Fixed.SCALE
+var _gather_remainder: int = 0
+var gather_rate: float:
+	get: return Fixed.to_float(gather_rate_q)
+	set(value): gather_rate_q = Fixed.from_float(value)
 var farm_has_crops := false:
 	set(value):
 		if farm_has_crops == value:
@@ -45,10 +53,22 @@ var farm_has_crops := false:
 
 var match_state: MatchState
 var sim_pos := Vector2.ZERO
-var hp := 0.0
-var melee_armor := 0.0
-var pierce_armor := 0.0
-var build_progress := 0.0
+var hp_q := 0
+var hp: float:
+	get: return Fixed.to_float(hp_q)
+	set(value): hp_q = Fixed.from_float(value)
+var melee_armor_q := 0
+var melee_armor: float:
+	get: return Fixed.to_float(melee_armor_q)
+	set(value): melee_armor_q = Fixed.from_float(value)
+var pierce_armor_q := 0
+var pierce_armor: float:
+	get: return Fixed.to_float(pierce_armor_q)
+	set(value): pierce_armor_q = Fixed.from_float(value)
+var build_time_elapsed := 0
+var build_progress: float:
+	get: return Fixed.time_to_seconds(build_time_elapsed)
+	set(value): build_time_elapsed = Fixed.time_from_seconds(value)
 var is_complete := true:
 	set(value):
 		if is_complete == value:
@@ -68,7 +88,10 @@ var train_queue: Array[UnitDef] = []
 var train_queue_ids: Array[int] = []
 var _next_train_id := 1
 var _train_payments: Dictionary = {}
-var train_progress := 0.0
+var train_time_elapsed := 0
+var train_progress: float:
+	get: return Fixed.time_to_seconds(train_time_elapsed)
+	set(value): train_time_elapsed = Fixed.time_from_seconds(value)
 var _construction_started := false
 var _population_cap_registered := false
 var _reserved_population := 0
@@ -77,12 +100,18 @@ var _use_billboard := false
 var _sprite_sheet_base := ""
 var block_half := Vector2.ONE
 var _visual_age := 0
-var _spawn_retry_remaining := 0.0
+var spawn_retry_time := 0
+var _spawn_retry_remaining: float:
+	get: return Fixed.time_to_seconds(spawn_retry_time)
+	set(value): spawn_retry_time = Fixed.time_from_seconds(value)
 var _production_exit_blocked := false
 var wall_orientation := 0
 var gate_state := "auto"
 var gate_open := false
-var _gate_timer := 0.0
+var gate_time := 0
+var _gate_timer: float:
+	get: return Fixed.time_to_seconds(gate_time)
+	set(value): gate_time = Fixed.time_from_seconds(value)
 var _last_gate_navigation := Vector2(-1, -1)
 
 func get_placement_footprint() -> Vector2:
@@ -106,10 +135,11 @@ func set_gate_state(value: String) -> bool:
 	return true
 
 func _process(delta: float) -> void:
+	if match_state != null and match_state.lockstep_enabled and not match_state.lockstep_stepping: return
 	if has_meta("network_replica") or is_placement_ghost or match_state == null or match_state.frozen: return
-	_gate_timer -= delta
-	if _gate_timer <= 0.0:
-		_gate_timer = 0.15
+	gate_time -= Fixed.delta_time(delta, match_state.lockstep_enabled)
+	if gate_time <= 0:
+		gate_time = Fixed.time_from_seconds(0.15)
 		_update_gate()
 
 func _update_gate() -> void:
@@ -124,16 +154,16 @@ func _update_gate() -> void:
 		for node in nearby_candidates:
 			if node.get_parent() != get_parent(): continue
 			if node.get("def") is UnitDef and node.get("team") == team and float(node.get("hp")) > 0 and not node.is_queued_for_deletion():
-				if sim_pos.distance_squared_to(node.get("sim_pos")) <= 49.0:
+				if Fixed.distance_squared(sim_pos, node.get("sim_pos")) <= 49 * Fixed.SCALE * Fixed.SCALE:
 					should_open = true
 					break
 	# Do not close a door on a unit already occupying its footprint.
 	if gate_open and not should_open and is_inside_tree():
-		var half := get_placement_footprint() * 0.5 + Vector2.ONE * 0.5
+		var half := Fixed.vector(get_placement_footprint() * 0.5 + Vector2.ONE * 0.5)
 		for node in nearby_candidates:
 			if node.get_parent() != get_parent(): continue
 			if node.get("def") is UnitDef and float(node.get("hp")) > 0:
-				var offset: Vector2 = (node.get("sim_pos") - sim_pos).abs()
+				var offset: Vector2i = (Fixed.vector(node.get("sim_pos")) - Fixed.vector(sim_pos)).abs()
 				if offset.x < half.x and offset.y < half.y:
 					should_open = true
 					break
@@ -182,7 +212,7 @@ func _ready() -> void:
 			pass
 		elif (_construction_started or not is_complete) and def.build_time > 0.0:
 			is_complete = false
-			hp = maxf(1.0, _max_hp() * build_progress / def.build_time)
+			hp_q = maxi(Fixed.SCALE, Fixed.mul_div(_max_hp_fixed(), build_time_elapsed, maxi(1, Fixed.time_from_seconds(def.build_time))))
 		else:
 			build_progress = def.build_time
 			hp = _max_hp()
@@ -195,37 +225,38 @@ func _ready() -> void:
 		EntityRegistryScript.register(self)
 
 func _physics_process(delta: float) -> void:
+	if match_state != null and match_state.lockstep_enabled and not match_state.lockstep_stepping: return
 	if has_meta("network_replica"):
 		return
 	if match_state != null and match_state.frozen:
 		return
 	if not is_complete or hp <= 0.0 or is_queued_for_deletion() or train_queue.is_empty():
 		return
-	_spawn_retry_remaining = maxf(0.0, _spawn_retry_remaining - maxf(delta, 0.0))
-	var remaining := maxf(delta, 0.0)
+	var remaining := Fixed.delta_time(delta, match_state != null and match_state.lockstep_enabled)
+	spawn_retry_time = maxi(0, spawn_retry_time - remaining)
 	while not train_queue.is_empty():
 		if is_training_population_blocked():
 			return
 		var unit_def := train_queue[0]
-		var duration := maxf(_train_time(unit_def), 0.001)
-		var advance := minf(remaining, maxf(duration - train_progress, 0.0))
-		train_progress += advance
+		var duration := maxi(_train_duration(unit_def), 1)
+		var advance := mini(remaining, maxi(duration - train_time_elapsed, 0))
+		train_time_elapsed += advance
 		remaining -= advance
-		if train_progress < duration or _spawn_retry_remaining > 0.0:
+		if train_time_elapsed < duration or spawn_retry_time > 0:
 			return
 		if not _spawn_trained_unit(unit_def):
 			# A shoreline or a crowd can temporarily leave no legal exit. Keep
 			# the completed item/payment/population reservation and retry locally.
-			_spawn_retry_remaining = TRAIN_SPAWN_RETRY_INTERVAL
+			spawn_retry_time = Fixed.time_from_seconds(TRAIN_SPAWN_RETRY_INTERVAL)
 			_production_exit_blocked = true
 			return
 		_production_exit_blocked = false
 		_train_payments.erase(train_queue_ids[0])
 		train_queue.pop_front()
 		train_queue_ids.pop_front()
-		train_progress = 0.0
+		train_time_elapsed = 0
 		train_queue_changed.emit()
-		if remaining <= 0.0:
+		if remaining <= 0:
 			break
 	set_physics_process(not train_queue.is_empty())
 
@@ -246,20 +277,30 @@ func start_construction() -> void:
 	construction_started.emit(self)
 
 func add_build_progress(amount: float) -> void:
-	if is_complete or def == null or amount <= 0.0:
+	add_build_progress_fixed(Fixed.time_from_seconds(amount))
+
+func add_build_progress_fixed(time_units: int) -> void:
+	if is_complete or def == null or time_units <= 0:
 		return
-	build_progress = minf(build_progress + amount, def.build_time)
-	hp = maxf(1.0, _max_hp() * build_progress / maxf(def.build_time, 0.001))
-	if build_progress >= def.build_time:
-		hp = _max_hp()
+	var duration := maxi(1, Fixed.time_from_seconds(def.build_time))
+	build_time_elapsed = mini(build_time_elapsed + time_units, duration)
+	hp_q = maxi(Fixed.SCALE, Fixed.mul_div(_max_hp_fixed(), build_time_elapsed, duration))
+	if build_time_elapsed >= duration:
+		hp_q = _max_hp_fixed()
 		_complete_construction()
 
+func add_build_time(time_units: int) -> void:
+	add_build_progress_fixed(time_units)
+
 func take_damage(amount: float, _source: Node = null) -> void:
-	if is_placement_ghost or amount <= 0.0 or hp <= 0.0:
+	take_damage_fixed(Fixed.from_float(amount), _source)
+
+func take_damage_fixed(damage_q: int, _source: Node = null) -> void:
+	if is_placement_ghost or damage_q <= 0 or hp_q <= 0:
 		return
-	hp = maxf(0.0, hp - amount)
+	hp_q = maxi(0, hp_q - damage_q)
 	damaged.emit(self)
-	if hp > 0.0:
+	if hp_q > 0:
 		return
 	cancel_age_upgrade()
 	cancel_technology()
@@ -272,10 +313,13 @@ func take_damage(amount: float, _source: Node = null) -> void:
 	queue_free()
 
 func _max_hp() -> float:
+	return Fixed.to_float(_max_hp_fixed())
+
+func _max_hp_fixed(age := -1) -> int:
 	if def == null:
-		return 0.0
-	var hp_multiplier := civ.building_hp_mul if civ != null else 1.0
-	return float(_age_attributes().get("hp",def.max_hp)) * hp_multiplier
+		return 0
+	var multiplier := Fixed.time_from_seconds(civ.building_hp_mul) if civ != null else Fixed.TIME_SCALE
+	return Fixed.mul_div(Fixed.from_float(float(_age_attributes(age).get("hp", def.max_hp))), multiplier, Fixed.TIME_SCALE)
 
 func enqueue_train(unit_def: UnitDef) -> bool:
 	# Resolve by catalog ID: old maps may hold a .tres instance of the same unit.
@@ -367,9 +411,9 @@ func trainable_definition(unit_id: StringName) -> UnitDef:
 
 func apply_definition_upgrade(upgraded: BuildingDef) -> void:
 	if upgraded == null or def == null: return
-	var ratio := hp / maxf(_max_hp(), 1.0)
+	var previous_max := maxi(_max_hp_fixed(), Fixed.SCALE)
 	def = upgraded
-	hp = _max_hp() * ratio
+	hp_q = Fixed.mul_div(hp_q, _max_hp_fixed(), previous_max)
 	var attributes := _age_attributes()
 	melee_armor = int(attributes.get("melee_armor", def.melee_armor))
 	pierce_armor = int(attributes.get("pierce_armor", def.pierce_armor))
@@ -516,9 +560,13 @@ func _complete_construction() -> void:
 	construction_completed.emit(self)
 
 func _train_time(unit_def: UnitDef) -> float:
+	return Fixed.time_to_seconds(_train_duration(unit_def))
+
+func _train_duration(unit_def: UnitDef) -> int:
+	var duration := Fixed.time_from_seconds(unit_def.train_time)
 	if unit_def.id == &"villager" and civ != null:
-		return unit_def.train_time * civ.villager_train_time_mul
-	return unit_def.train_time
+		return Fixed.mul_div(duration, Fixed.time_from_seconds(civ.villager_train_time_mul), Fixed.TIME_SCALE)
+	return duration
 
 func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 	var parent := get_parent() as Node2D
@@ -819,8 +867,8 @@ func _vision_unregister() -> void:
 
 func _on_age_changed(changed_team: int, age: int) -> void:
 	if team == changed_team:
-		var old_max := float(_age_attributes(_visual_age).get("hp",def.max_hp)) * (civ.building_hp_mul if civ != null else 1.0)
-		if not has_meta("network_replica"): hp = hp / maxf(old_max,1) * _max_hp()
+		var old_max := maxi(_max_hp_fixed(_visual_age), Fixed.SCALE)
+		if not has_meta("network_replica"): hp_q = Fixed.mul_div(hp_q, _max_hp_fixed(), old_max)
 		_visual_age = age
 		var attributes := _age_attributes()
 		melee_armor = float(attributes.get("melee_armor",def.melee_armor))

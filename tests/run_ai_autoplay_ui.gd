@@ -15,8 +15,8 @@ class MockController extends Node:
 		return routes.get(team, "")
 	func request_team_service_url(team: int, url: String) -> bool:
 		route_requests.append([team, url])
-		var game := get_node("/root/GameSession")
-		if game.local_team() != 0 or not url.begins_with("http://"):
+		var network := get_node("/root/NetworkSession")
+		if not network.is_host() or not url.begins_with("http://"):
 			return false
 		routes[team] = url.trim_suffix("/")
 		state_changed.emit()
@@ -91,8 +91,11 @@ func _run() -> void:
 	_check(not checkbox.disabled and not checkbox.button_pressed and label.text.contains("重试"), "连接失败取消选中并允许重试")
 	_check(label.tooltip_text.contains("127.0.0.1:8765"), "错误详情提供真实服务地址")
 	var game := root.get_node("GameSession")
+	var network := root.get_node("NetworkSession")
 	game.online_active = true
 	game.online_team = 0
+	network.team = 0
+	network.host_team = 0
 	controller.update({"status": "off"})
 	_check(checkbox.tooltip_text.contains("主机") and checkbox.tooltip_text.contains("自己的"), "联机提示说明主机服务与自己的队伍")
 	var settings := control.get_node("Panel/Row/ServiceSettings") as Button
@@ -125,12 +128,23 @@ func _run() -> void:
 		await process_frame
 		_check(service_panel.position.x + service_panel.size.x <= width, "地址面板在 %d 宽度内完整显示" % width)
 	game.online_team = 1
+	network.team = 1
 	controller.update({"status": "off"})
 	_check(not host_row.visible and guest_row.visible and not guest_address.editable and not guest_row.get_node("Apply").visible, "客端只看自己实际地址，不能编辑或应用地址")
 	_check(not checkbox.disabled and not checkbox.button_pressed, "客端仍能开关自己的 AI 托管")
 	controller.routes[1] = "http://host.example:8890"
 	controller.update({"status": "off"})
 	_check(guest_address.text == "http://host.example:8890", "客端显示主机最新同步的服务地址")
+	network.host_team = 1
+	controller.update({"status": "off"})
+	_check(host_row.visible and guest_row.visible and host_address.editable and guest_address.editable, "随机选择队伍 2 为主机时可配置双方服务")
+	host_address.text = "http://127.0.0.1:8891"
+	host_row.get_node("Apply").pressed.emit()
+	_check(controller.routes[0].ends_with(":8891"), "队伍 2 主机可应用队伍 1 的服务地址")
+	network.team = 0
+	game.online_team = 0
+	controller.update({"status": "off"})
+	_check(host_row.visible and not guest_row.visible and not host_address.editable, "队伍 1 客端没有主机配置权限")
 	var screenshot_path := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--screenshot="):
@@ -144,6 +158,7 @@ func _run() -> void:
 	_check(checkbox.disabled and not checkbox.button_pressed and label.text == "对局结束", "对局结束不能重开托管")
 	game.online_active = false
 	game.online_team = 0
+	network.leave()
 	match_root.queue_free()
 	await process_frame
 	print("AI autoplay UI: %d checks, %d failures" % [_checks, _failures])

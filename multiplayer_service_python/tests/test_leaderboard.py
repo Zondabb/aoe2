@@ -116,7 +116,9 @@ def test_game_settlement_and_replays_use_room_identity():
     async def scenario():
         board = Leaderboard(":memory:")
         mm = Matchmaker(Settings(), leaderboard=board)
-        host, guest = await start_pair(mm)
+        players = await start_pair(mm)
+        room = mm.rooms[players[0].room_id]
+        host, guest = players[room.host_team], players[1 - room.host_team]
         with pytest.raises(ProtocolError, match="Only the host"):
             await mm.handle(guest, {"type": "finish_match", "winner": 1})
         assert board.standings()["completed_matches"] == 0
@@ -172,7 +174,7 @@ def test_abandoned_and_unrankable_games_do_not_affect_standings(ending):
                 player.last_seen = now[0]
             await mm.sweep()
         elif ending == "same_name":
-            await mm.handle(players[0], {"type": "finish_match", "winner": 0})
+            await mm.handle(players[mm.rooms[players[0].room_id].host_team], {"type": "finish_match", "winner": 0})
         await mm.shutdown()
         assert board.standings()["completed_matches"] == 0
         assert all(row["games"] == 0 for row in by_name(board).values())

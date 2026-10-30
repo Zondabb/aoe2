@@ -10,7 +10,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 1, "name": "玩家", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 3, "name": "玩家", "civ": "chinese"}
 
 
 def pair(host, guest):
@@ -32,7 +32,9 @@ def start(host, guest):
     assert host.receive_json()["type"] == guest.receive_json()["type"] == "start"
 
 
-def test_match_relay_complete_and_rematch():
+@pytest.mark.parametrize("host_team", [0, 1])
+def test_match_relay_complete_and_rematch(monkeypatch, host_team):
+    monkeypatch.setattr("multiplayer_service_python.matchmaking.secrets.randbelow", lambda n: host_team if n == 2 else 12345)
     with TestClient(create_app()) as client, client.websocket_connect("/ws") as host, client.websocket_connect("/ws") as guest:
         previous = None
         for _ in range(2):
@@ -44,76 +46,70 @@ def test_match_relay_complete_and_rematch():
             assert guest.receive_json()["code"] == "invalid_state"
             start(host, guest)
             guest.send_json({"type": "command", "seq": 1, "command": {"op": "move", "unit_id": 2, "pos": [4, 5]}})
-            message = host.receive_json()
+            authority, replica = (host, guest) if host_team == 0 else (guest, host)
+            message = authority.receive_json()
             assert message["team"] == 1 and message["seq"] == 1 and message["command"]["pos"] == [4, 5]
-            snapshot = {"type": "snapshot", "seq": 1, "state": {"entities": [], "winner": -1}}
-            host.send_json(snapshot)
-            assert guest.receive_json() == snapshot
-            host.send_json({"type": "finish_match", "winner": 1})
+            frame = {"type": "frame", "tick": 3, "commands": [], "checksum": "a" * 64}
+            authority.send_json(frame)
+            assert replica.receive_json() == frame
+            authority.send_json({"type": "finish_match", "winner": 1})
             for peer in [host, guest]:
                 assert peer.receive_json() == {"type": "match_ended", "match_id": match_id, "winner": 1, "reason": "completed"}
             assert client.get("/healthz").json()["matches"] == 0
 
 
-def test_role_spoofing_and_replayed_sequence_are_rejected():
-    with TestClient(create_app()) as client, client.websocket_connect("/ws") as host, client.websocket_connect("/ws") as guest:
-        pair(host, guest)
-        start(host, guest)
-        for peer, message in [
-            (guest, {"type": "snapshot", "seq": 1, "state": {"winner": 1}}),
-            (guest, {"type": "finish_match", "winner": 1}),
-            (host, {"type": "command", "seq": 1, "command": {"op": "stop"}}),
+@pytest.mark.parametrize("host_team", [0, 1])
+def test_role_spoofing_and_replayed_sequence_are_rejected(monkeypatch, host_team):
+    monkeypatch.setattr("multiplayer_service_python.matchmaking.secrets.randbelow", lambda n: host_team if n == 2 else 42)
+    with TestClient(create_app()) as client, client.websocket_connect("/ws") as first, client.websocket_connect("/ws") as second:
+        pair(first, second)
+        start(first, second)
+        host, guest = (first, second) if host_team == 0 else (second, first)
+        for message in [
+            {"type": "frame", "tick": 3, "commands": [], "checksum": "a" * 64},
+            {"type": "finish_match", "winner": 1},
+            {"type": "keyframe", "request_id": "0" * 32, "tick": 0, "state": {"x": 1}, "checksum": "a" * 64},
         ]:
-            peer.send_json(message)
-            assert peer.receive_json()["code"] == "forbidden"
+            guest.send_json(message)
+            assert guest.receive_json()["code"] == "forbidden"
         guest.send_json({"type": "command", "seq": 1, "command": {"op": "stop", "team": 0}})
         assert guest.receive_json()["code"] == "invalid_payload"
         command = {"type": "command", "seq": 1, "command": {"op": "stop", "unit_id": 2}}
-        guest.send_json(command)
-        assert host.receive_json()["team"] == 1
-        guest.send_json(command)
-        assert guest.receive_json()["code"] == "invalid_sequence"
+        for peer, team in ((first, 0), (second, 1)):
+            peer.send_json(command)
+            assert host.receive_json()["team"] == team
+            peer.send_json(command)
+            assert peer.receive_json()["code"] == "invalid_sequence"
         guest.send_json({"type": "ping"})
         assert guest.receive_json() == {"type": "pong"}
 
 
-def test_external_ai_control_relay_is_bound_to_guest_and_synchronized():
+def test_external_ai_control_relay_is_bound_to_sending_team():
     async def scenario():
-        matchmaker = Matchmaker(Settings())
-        host, guest = await matchmaker.register(), await matchmaker.register()
-        for player in (host, guest):
-            await matchmaker.handle(player, JOIN)
-        for player in (host, guest):
+        mm = Matchmaker(Settings())
+        players = [await mm.register(), await mm.register()]
+        for player in players:
+            await mm.handle(player, JOIN)
+        room = mm.rooms[players[0].room_id]
+        authority = players[room.host_team]
+        for player in players:
             while not player.outbox.empty():
                 player.outbox.get_nowait()
         request = {"type": "command", "seq": 1, "command": {"op": "set_ai_control", "enabled": True}}
         with pytest.raises(ProtocolError, match="ready"):
-            await matchmaker.handle(guest, parse_message(json.dumps(request), Settings()))
-        assert guest.seq == 0
-        for player in (host, guest):
-            await matchmaker.handle(player, {"type": "ready"})
-        for player in (host, guest):
+            await mm.handle(players[0], request)
+        assert players[0].seq == 0
+        for player in players:
+            await mm.handle(player, {"type": "ready"})
+        for player in players:
             assert player.outbox.get_nowait()["type"] == "start"
-        with pytest.raises(ProtocolError, match="Only team 1"):
-            await matchmaker.handle(host, request)
-        for sequence, enabled in [(1, True), (2, False)]:
-            command = {"op": "set_ai_control", "enabled": enabled}
-            request = {"type": "command", "seq": sequence, "command": command}
-            await matchmaker.handle(guest, parse_message(json.dumps(request), Settings()))
-            assert host.outbox.get_nowait() == {"type": "command", "seq": sequence, "team": 1, "command": command}
-            snapshot = {"type": "snapshot", "seq": sequence, "state": {"ai_control": {
-                "0": {"enabled": True, "status": "active", "message": "外部 AI 托管"},
-                "1": {"enabled": enabled, "status": "active" if enabled else "off", "message": ""},
-            }}}
-            await matchmaker.handle(host, parse_message(json.dumps(snapshot), Settings()))
-            assert guest.outbox.get_nowait() == snapshot
-        with pytest.raises(ProtocolError, match="increase"):
-            await matchmaker.handle(guest, {"type": "command", "seq": 2, "command": {"op": "set_ai_control", "enabled": True}})
-        assert host.outbox.empty()
-        await matchmaker.handle(host, {"type": "finish_match", "winner": 1})
+        for player in players:
+            await mm.handle(player, parse_message(json.dumps(request), Settings()))
+            assert authority.outbox.get_nowait() == {**request, "team": player.team}
+        await mm.handle(authority, {"type": "finish_match", "winner": 1})
         with pytest.raises(ProtocolError, match="not in a match"):
-            await matchmaker.handle(guest, {"type": "command", "seq": 3, "command": {"op": "set_ai_control", "enabled": True}})
-        await matchmaker.shutdown()
+            await mm.handle(players[0], dict(request, seq=2))
+        await mm.shutdown()
     asyncio.run(scenario())
 
 
@@ -164,10 +160,10 @@ def test_disconnect_awards_opponent_and_removes_room():
     ('{"type":"ping","type":"leave"}', "invalid_json"),
     ('{"type":"unknown"}', "unknown_type"),
     ('{"type":"ping","team":0}', "invalid_payload"),
-    ('{"type":"snapshot","seq":true,"state":{"x":1}}', "invalid_sequence"),
-    ('{"type":"snapshot","seq":1,"state":{"x":NaN}}', "invalid_json"),
-    ('{"type":"snapshot","seq":1,"state":{"x":1e999}}', "invalid_payload"),
-    (json.dumps(dict(JOIN, protocol_version=2)), "protocol_mismatch"),
+    ('{"type":"command","seq":true,"command":{"op":"stop"}}', "invalid_sequence"),
+    ('{"type":"command","seq":1,"command":{"op":"stop","x":NaN}}', "invalid_json"),
+    ('{"type":"command","seq":1,"command":{"op":"stop","x":1e999}}', "invalid_payload"),
+    (json.dumps(dict(JOIN, protocol_version=1)), "protocol_mismatch"),
     (json.dumps(dict(JOIN, name="\n")), "invalid_name"),
     (json.dumps(dict(JOIN, civ="unknown")), "invalid_civ"),
 ])
@@ -183,7 +179,7 @@ def test_payload_size_and_depth_limits():
     with pytest.raises(ProtocolError, match="size limit"):
         parse_message(" " * 600, Settings(max_message_bytes=500))
     with pytest.raises(ProtocolError, match="too complex"):
-        parse_message('{"type":"snapshot","seq":1,"state":{"x":' + '[' * 30 + '0' + ']' * 30 + '}}', Settings())
+        parse_message('{"type":"command","seq":1,"command":{"op":"stop","x":' + '[' * 40 + '0' + ']' * 40 + '}}', Settings())
 
 
 def test_capacity_timeout_and_slow_consumer_cleanup():

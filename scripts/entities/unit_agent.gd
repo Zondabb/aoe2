@@ -5,6 +5,7 @@ extends Node2D
 signal audio_cue(event: StringName)
 signal damaged(entity: Node)
 
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
 const UnitOcclusion := preload("res://scripts/presentation/unit_occlusion.gd")
 
@@ -52,17 +53,35 @@ const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.
 ## >= 0 overrides UnitDef.vision_radius for this instance.
 @export var vision_radius_override: float = -1.0
 
-var hp := 0.0
-var melee_armor := 0.0
-var pierce_armor := 0.0
+var hp_q: int = 0
+var hp: float:
+	get: return Fixed.to_float(hp_q)
+	set(value): hp_q = Fixed.from_float(value)
+var melee_armor_q: int = 0
+var melee_armor: float:
+	get: return Fixed.to_float(melee_armor_q)
+	set(value): melee_armor_q = Fixed.from_float(value)
+var pierce_armor_q: int = 0
+var pierce_armor: float:
+	get: return Fixed.to_float(pierce_armor_q)
+	set(value): pierce_armor_q = Fixed.from_float(value)
 var order: Enums.OrderType = Enums.OrderType.NONE
-var sim_pos := Vector2.ZERO
+var _sim_pos_q := Vector2i.ZERO
+var sim_pos: Vector2:
+	get: return Fixed.to_vector(_sim_pos_q)
+	set(value): _sim_pos_q = Fixed.vector(value)
 ## CanvasItem exposes the physics transform, not the server's interpolated
 ## draw transform. The outline mask needs the same translation as the actor.
 var previous_physics_position := Vector2.ZERO
 var carry_type := -1
-var carry_amount := 0.0
-@export var carry_capacity := 10.0
+var carry_amount_q: int = 0
+var carry_amount: float:
+	get: return Fixed.to_float(carry_amount_q)
+	set(value): carry_amount_q = Fixed.from_float(value)
+var carry_capacity_q: int = 10 * Fixed.SCALE
+@export var carry_capacity: float = 10.0:
+	get: return Fixed.to_float(carry_capacity_q)
+	set(value): carry_capacity_q = maxi(0, Fixed.from_float(value))
 var match_state: MatchState
 var _move_target := Vector2.ZERO
 var _formation_move_speed := 0.0
@@ -73,7 +92,10 @@ var _build_target: Node2D
 var _last_seen_resource_pos := Vector2.ZERO
 var _last_seen_attack_pos := Vector2.ZERO
 var _attack_target: Node2D
-var _attack_cooldown_remaining := 0.0
+var _attack_cooldown_remaining_units: int = 0
+var _attack_cooldown_remaining: float:
+	get: return Fixed.time_to_seconds(_attack_cooldown_remaining_units)
+	set(value): _attack_cooldown_remaining_units = Fixed.time_from_seconds(value)
 var _gather_state := ""
 var _gather_resource_type := -1
 var _gather_source_depleted := false
@@ -99,27 +121,48 @@ var _hotspot_flip := false
 var _hotspot_offset := Vector2.ZERO
 var _no_progress_frames := 0
 var _combat_action := &""
-var _combat_anim_time := 0.0
+var _combat_anim_time_units: int = 0
+var _combat_anim_time: float:
+	get: return Fixed.time_to_seconds(_combat_anim_time_units)
+	set(value): _combat_anim_time_units = Fixed.time_from_seconds(value)
 var _attack_hit_applied := false
 var _projectile_spawned := false
-var _max_hp := 0.0
+var max_hp_q: int = 0
+var _max_hp: float:
+	get: return Fixed.to_float(max_hp_q)
+	set(value): max_hp_q = Fixed.from_float(value)
 var _path: PackedVector2Array = PackedVector2Array()
 var _path_index := 0
 var _path_pending := false
 var _nav_goal := Vector2.ZERO
 var _stuck_repath_attempts := 0
-var _path_retry_cooldown := 0.0
+var _path_retry_cooldown_units: int = 0
+var _path_retry_cooldown: float:
+	get: return Fixed.time_to_seconds(_path_retry_cooldown_units)
+	set(value): _path_retry_cooldown_units = Fixed.time_from_seconds(value)
 var _locomotion_velocity := Vector2.ZERO
 var _avoidance_cache := {}
-var _stuck_seconds := 0.0
-var _repath_cooldown := 0.0
+var _stuck_seconds_units: int = 0
+var _stuck_seconds: float:
+	get: return Fixed.time_to_seconds(_stuck_seconds_units)
+	set(value): _stuck_seconds_units = Fixed.time_from_seconds(value)
+var _repath_cooldown_units: int = 0
+var _repath_cooldown: float:
+	get: return Fixed.time_to_seconds(_repath_cooldown_units)
+	set(value): _repath_cooldown_units = Fixed.time_from_seconds(value)
 var _requested_move_target := Vector2.ZERO
-var _progress_elapsed := 0.0
+var _progress_elapsed_units: int = 0
+var _progress_elapsed: float:
+	get: return Fixed.time_to_seconds(_progress_elapsed_units)
+	set(value): _progress_elapsed_units = Fixed.time_from_seconds(value)
 var _progress_distance := INF
 var _pending_crowd_route := false
 var _path_is_crowd_route := false
 var _has_move_command := false
-var _goal_refresh_remaining := 0.0
+var _goal_refresh_remaining_units: int = 0
+var _goal_refresh_remaining: float:
+	get: return Fixed.time_to_seconds(_goal_refresh_remaining_units)
+	set(value): _goal_refresh_remaining_units = Fixed.time_from_seconds(value)
 var _drop_off_debug_timer := 0.0
 var _debug_steer_velocity := Vector2.ZERO
 var _debug_actual_delta := Vector2.ZERO
@@ -199,7 +242,17 @@ func set_vision_radius(radius: float) -> void:
 		match_state.fog.dirty = true
 	vision_radius_override = maxf(0.0, radius)
 
+func _simulation_time_delta(delta: float) -> int:
+	return Fixed.delta_time(delta, match_state != null and match_state.lockstep_enabled and match_state.lockstep_stepping)
+
+@warning_ignore("integer_division")
+func _movement_step(delta: float) -> int:
+	# Flooring the distance budget keeps grid rounding from accelerating units.
+	return Fixed.from_float(_movement_speed()) * _simulation_time_delta(delta) / Fixed.TIME_SCALE
+
 func _physics_process(delta: float) -> void:
+	if match_state != null and match_state.lockstep_enabled and not match_state.lockstep_stepping:
+		return
 	# Even a frozen or idle tick advances interpolation history to its current
 	# position, so the mask cannot keep replaying the last moving step.
 	previous_physics_position = position
@@ -210,10 +263,11 @@ func _physics_process(delta: float) -> void:
 	if match_state != null and match_state.frozen:
 		return
 	var frame_start := sim_pos
-	_attack_cooldown_remaining = maxf(0.0, _attack_cooldown_remaining - delta)
-	_repath_cooldown = maxf(0, _repath_cooldown - delta)
-	_goal_refresh_remaining = maxf(0, _goal_refresh_remaining - delta)
-	_path_retry_cooldown = maxf(0, _path_retry_cooldown - delta)
+	var time_units := _simulation_time_delta(delta)
+	_attack_cooldown_remaining_units = maxi(0, _attack_cooldown_remaining_units - time_units)
+	_repath_cooldown_units = maxi(0, _repath_cooldown_units - time_units)
+	_goal_refresh_remaining_units = maxi(0, _goal_refresh_remaining_units - time_units)
+	_path_retry_cooldown_units = maxi(0, _path_retry_cooldown_units - time_units)
 	if order == Enums.OrderType.MOVE:
 		_process_move(delta)
 	elif order == Enums.OrderType.GATHER:
@@ -226,10 +280,11 @@ func _physics_process(delta: float) -> void:
 		_process_die(delta)
 	else:
 		_update_idle_animation(delta)
-	_locomotion_velocity = (sim_pos - frame_start) / maxf(delta, 0.00001)
+	var moved_q := _sim_pos_q - Fixed.vector(frame_start)
+	_locomotion_velocity = Fixed.to_vector(Vector2i(Fixed.mul_div(moved_q.x, Fixed.TIME_SCALE, maxi(1, time_units)), Fixed.mul_div(moved_q.y, Fixed.TIME_SCALE, maxi(1, time_units))))
 	if order == Enums.OrderType.MOVE:
-		_progress_elapsed += delta
-		if _progress_elapsed >= 2.0:
+		_progress_elapsed_units += time_units
+		if _progress_elapsed_units >= 2 * Fixed.TIME_SCALE:
 			var distance := sim_pos.distance_to(_move_target)
 			if distance >= _progress_distance - 0.5:
 				_try_recover_from_stuck()
@@ -291,8 +346,9 @@ func _process_move(delta: float) -> void:
 		# A temporary crowd detour may end at a nearby free cell, not our goal.
 		_request_nav_path(_move_target)
 		return
-	var step := minf(_movement_speed() * delta, distance)
-	var velocity := offset.normalized() * step
+	var step_units := mini(_movement_step(delta), Fixed.isqrt(Fixed.length_sq(Fixed.vector(offset))))
+	var step := Fixed.to_float(step_units)
+	var velocity := Fixed.normalize_step(sim_pos, sim_pos + offset, step_units) - sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
 	_sync_visual()
 	_refresh_move_debug(velocity, from_pos)
@@ -513,24 +569,24 @@ func _process_attack_animation(delta: float) -> void:
 		order = Enums.OrderType.NONE
 		return
 	_face_toward(_attack_target.get("sim_pos"), delta, false)
-	var duration := _combat_anim_duration(&"attack")
-	_combat_anim_time += delta
+	var duration := _combat_anim_duration_units(&"attack")
+	_combat_anim_time_units += _simulation_time_delta(delta)
 	_apply_billboard_frame(true, &"attack", false)
 	if def.is_ranged:
 		# Ranged damage is resolved only by the projectile impact splash.
-		var release_time := def.attack_release_delay if def.attack_release_delay >= 0.0 else duration * RANGED_RELEASE_FRACTION
-		if not _projectile_spawned and _combat_anim_time >= release_time:
+		var release_time := Fixed.time_from_seconds(def.attack_release_delay) if def.attack_release_delay >= 0.0 else Fixed.mul_div(duration, 35, 100)
+		if not _projectile_spawned and _combat_anim_time_units >= release_time:
 			if _in_attack_range(_attack_target):
 				_spawn_projectile()
 				audio_cue.emit(&"arrow")
 				_projectile_spawned = true
 	elif not _attack_hit_applied:
-		if _combat_anim_time >= duration * ATTACK_HIT_FRACTION:
+		if _combat_anim_time_units >= Fixed.mul_div(duration, 45, 100):
 			if _attack_target_available():
 				CombatSystemScript.apply_hit(def, _attack_target, {"attacker": self})
 				audio_cue.emit(&"melee")
 			_attack_hit_applied = true
-	if _combat_anim_time >= duration:
+	if _combat_anim_time_units >= duration:
 		_cancel_combat_action()
 		if not _attack_target_available():
 			_attack_target = null
@@ -552,10 +608,10 @@ func _spawn_projectile() -> void:
 	projectile.call("setup", origin, aim, def, team, self)
 
 func _process_die(delta: float) -> void:
-	var duration := _combat_anim_duration(&"die")
-	_combat_anim_time += delta
+	var duration := _combat_anim_duration_units(&"die")
+	_combat_anim_time_units += _simulation_time_delta(delta)
 	_apply_billboard_frame(true, &"die", false)
-	if _combat_anim_time >= duration:
+	if _combat_anim_time_units >= duration:
 		queue_free()
 
 func _begin_die() -> void:
@@ -577,14 +633,17 @@ func _begin_die() -> void:
 		queue_free()
 
 func _combat_anim_duration(action: StringName) -> float:
+	return Fixed.time_to_seconds(_combat_anim_duration_units(action))
+
+func _combat_anim_duration_units(action: StringName) -> int:
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard == null or billboard.sprite_frames == null or def == null:
-		return FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION
+		return Fixed.time_from_seconds(FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION)
 	var anim := _combat_animation_name(action)
 	if not billboard.sprite_frames.has_animation(anim):
-		return FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION
+		return Fixed.time_from_seconds(FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION)
 	var frame_count := billboard.sprite_frames.get_frame_count(anim)
-	return maxf(float(frame_count) / _animation_fps(action), 0.1)
+	return maxi(frame_count * Fixed.time_from_seconds(1.0 / _animation_fps(action)), Fixed.TIME_SCALE / 10)
 
 
 func _animation_fps(action: StringName) -> float:
@@ -602,9 +661,12 @@ func _combat_animation_name(action: StringName) -> StringName:
 	return StringName("%s_dir_%d" % [action, _facing_dir])
 
 func take_damage(amount: float, source: Node = null) -> void:
-	if amount <= 0.0 or hp <= 0.0 or _combat_action == &"die":
+	take_damage_fixed(Fixed.from_float(amount), source)
+
+func take_damage_fixed(amount_q: int, source: Node = null) -> void:
+	if amount_q <= 0 or hp_q <= 0 or _combat_action == &"die":
 		return
-	hp = maxf(0.0, hp - amount)
+	hp_q = maxi(0, hp_q - amount_q)
 	damaged.emit(self)
 	_refresh_world_hp_bar()
 	if hp <= 0.0:
@@ -639,7 +701,10 @@ func _process_build(delta: float) -> void:
 		_move_toward(_build_approach_point(_build_target), delta)
 		return
 	_face_toward(_build_target.get("sim_pos"), delta, true)
-	_build_target.call("add_build_progress", delta)
+	if _build_target.has_method("add_build_progress_fixed"):
+		_build_target.call("add_build_progress_fixed", _simulation_time_delta(delta))
+	else:
+		_build_target.call("add_build_progress", delta)
 	if bool(_build_target.get("is_complete")):
 		_finish_build_order()
 
@@ -694,15 +759,19 @@ func _gather(delta: float) -> void:
 		_gather_state = "to_resource"
 		return
 	_face_toward(_gather_target.get("sim_pos"), delta, true)
-	var remaining_capacity := carry_capacity - carry_amount
+	var remaining_capacity := carry_capacity_q - carry_amount_q
 	if remaining_capacity <= 0.0:
 		_begin_drop_off()
 		return
 	if carry_type == -1:
 		carry_type = int(_gather_target.get("resource_type"))
-	var gather_rate := float(_gather_target.get("gather_rate"))
-	var gather_time := minf(delta, remaining_capacity / gather_rate)
-	carry_amount += float(_gather_target.call("extract", gather_time))
+	if _gather_target.has_method("extract_fixed"):
+		carry_amount_q += int(_gather_target.call("extract_fixed", _simulation_time_delta(delta), remaining_capacity))
+	else:
+		# Compatibility for external resource scripts; built-in resources use integers.
+		var gather_rate := float(_gather_target.get("gather_rate"))
+		var gather_time := minf(delta, Fixed.to_float(remaining_capacity) / gather_rate)
+		carry_amount_q += Fixed.from_float(float(_gather_target.call("extract", gather_time)))
 	if not _resource_available(_gather_target):
 		_finish_or_drop_off()
 	elif carry_amount >= carry_capacity:
@@ -758,7 +827,7 @@ func _process_drop_off(delta: float) -> void:
 		{"edge_dist": edge_dist, "amount": carry_amount, "type": carry_type}
 	)
 	if match_state != null:
-		match_state.add_resource(team, carry_type, int(round(carry_amount)))
+		match_state.add_resource(team, carry_type, Fixed.mul_div(carry_amount_q, 1, Fixed.SCALE))
 	carry_amount = 0.0
 	carry_type = -1
 	_drop_off_target = null
@@ -969,14 +1038,18 @@ func _drop_off_log_throttled(message: String, details: Dictionary = {}) -> void:
 	_drop_off_log(message, details)
 
 func _distance_to(target: Node2D) -> float:
-	var target_pos: Vector2 = target.get("sim_pos")
+	return Fixed.to_float(Fixed.isqrt(_distance_squared_to(target)))
+
+func _distance_squared_to(target: Node2D) -> int:
+	var target_pos := Fixed.vector(target.get("sim_pos"))
 	var building_def := target.get("def") as BuildingDef
 	if building_def != null:
 		var footprint: Vector2 = target.get_placement_footprint() if target.has_method("get_placement_footprint") else building_def.footprint
-		var half := footprint * 0.5
-		if half.x > 0.0 and half.y > 0.0:
-			return _distance_to_aabb(sim_pos, target_pos, half)
-	return sim_pos.distance_to(target_pos)
+		var half := Fixed.vector(footprint * 0.5)
+		if half.x > 0 and half.y > 0:
+			var offset := _sim_pos_q - target_pos
+			return Fixed.length_sq(offset - Vector2i(clampi(offset.x, -half.x, half.x), clampi(offset.y, -half.y, half.y)))
+	return Fixed.length_sq(_sim_pos_q - target_pos)
 
 func _distance_to_aabb(point: Vector2, center: Vector2, half: Vector2) -> float:
 	var delta := point - center
@@ -1019,14 +1092,17 @@ func _preferred_attack_range(target: Node2D) -> float:
 
 
 func _in_attack_range(target: Node2D) -> bool:
-	var distance := _distance_to(target)
-	return distance >= def.minimum_attack_range and distance <= _effective_attack_range(target)
+	var distance_squared := _distance_squared_to(target)
+	var minimum := Fixed.from_float(def.minimum_attack_range)
+	var maximum := Fixed.from_float(_effective_attack_range(target))
+	return distance_squared >= minimum * minimum and distance_squared <= maximum * maximum
 
 
 func _needs_attack_chase(target: Node2D) -> bool:
 	if def.is_ranged or def.minimum_attack_range > 0.0:
 		return not _in_attack_range(target)
-	return _distance_to(target) > _effective_attack_range(target) + ATTACK_CHASE_SLACK
+	var maximum := Fixed.from_float(_effective_attack_range(target)) + Fixed.from_float(ATTACK_CHASE_SLACK)
+	return _distance_squared_to(target) > maximum * maximum
 
 
 func _attack_approach_point(target: Node2D) -> Vector2:
@@ -1056,7 +1132,7 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 		return target_edge + (edge_direction if edge_direction != Vector2.ZERO else approach_dir) * building_standoff
 	# Melee: ring slots so units squeeze around the target instead of one stack point.
 	var ring_r := _effective_attack_range(target) * 0.98
-	var slot := get_instance_id() % MELEE_ATTACK_SLOTS
+	var slot := int(get_meta("net_id", get_instance_id())) % MELEE_ATTACK_SLOTS
 	var slot_dir := Vector2.from_angle(TAU * float(slot) / float(MELEE_ATTACK_SLOTS))
 	var blended := (approach_dir * 1.6 + slot_dir).normalized()
 	return target_pos + blended * ring_r
@@ -1097,8 +1173,23 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_con
 				if resource.amount > 0 and ResourceNode.resource_blocks_pathfinding(resource.resource_type):
 					solids.append(resource)
 	var preferred := (desired_pos - from_pos) / maxf(delta, 0.00001)
-	sim_pos = Avoidance.step_scheduled(self, preferred, _locomotion_velocity, delta, units, solids, _move_target, _avoidance_cache)
+	var resolved := Avoidance.step_scheduled(self, preferred, _locomotion_velocity, delta, units, solids, _move_target, _avoidance_cache)
+	sim_pos = _bounded_integer_step(from_pos, resolved, _movement_step(delta))
 	_vision_sync_position()
+
+## Avoidance still scores float velocities; its authoritative result is a grid
+## position with a strict integer speed limit. Truncate components toward zero
+## using a ceil length so neither normalization nor rounding exceeds the budget.
+@warning_ignore("integer_division")
+func _bounded_integer_step(from: Vector2, to: Vector2, budget: int) -> Vector2:
+	var origin := Fixed.vector(from)
+	var movement := Fixed.vector(to) - origin
+	var length_squared := Fixed.length_sq(movement)
+	if length_squared > budget * budget:
+		var length := Fixed.isqrt(length_squared)
+		if length * length < length_squared: length += 1
+		movement = Vector2i(int(movement.x) * budget / length, int(movement.y) * budget / length)
+	return Fixed.to_vector(origin + movement)
 
 
 ## Reserve separate, walkable destinations even for repeated AI rally commands.
@@ -1202,8 +1293,9 @@ func _move_toward(target: Vector2, delta: float) -> void:
 		else:
 			_apply_billboard_frame(false)
 		return
-	var step := minf(_movement_speed() * delta, distance)
-	var velocity := offset.normalized() * step
+	var step_units := mini(_movement_step(delta), Fixed.isqrt(Fixed.length_sq(Fixed.vector(offset))))
+	var step := Fixed.to_float(step_units)
+	var velocity := Fixed.normalize_step(sim_pos, sim_pos + offset, step_units) - sim_pos
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
 	_sync_visual()
@@ -1220,8 +1312,9 @@ func _direct_step_toward(target: Vector2, delta: float) -> void:
 		else:
 			_apply_billboard_frame(false)
 		return
-	var step := minf(_movement_speed() * delta, distance)
-	var velocity := offset.normalized() * step
+	var step_units := mini(_movement_step(delta), Fixed.isqrt(Fixed.length_sq(Fixed.vector(offset))))
+	var step := Fixed.to_float(step_units)
+	var velocity := Fixed.normalize_step(sim_pos, sim_pos + offset, step_units) - sim_pos
 	var from_pos := sim_pos
 	_apply_resolved_position(from_pos, from_pos + velocity, _move_resolve_context(), delta)
 	_sync_visual()
@@ -1239,9 +1332,9 @@ func _track_move_progress(
 		_stuck_seconds = 0
 	else:
 		# Keep the legacy 60-Hz stalled-frame counters' real-time thresholds.
-		_no_progress_frames += maxi(1, roundi(60.0 / Engine.physics_ticks_per_second))
-		_stuck_seconds += delta
-		if _stuck_seconds >= STUCK_REPATH_SECONDS:
+		_no_progress_frames += maxi(1, Fixed.mul_div(60, _simulation_time_delta(delta), Fixed.TIME_SCALE))
+		_stuck_seconds_units += _simulation_time_delta(delta)
+		if _stuck_seconds_units >= Fixed.time_from_seconds(STUCK_REPATH_SECONDS):
 			_try_recover_from_stuck()
 	# Sideways avoidance is intentional walking; face actual travel, not a blocked goal.
 	_update_move_facing(actual if walking else face_vector, delta, walking)
@@ -1344,7 +1437,7 @@ func _try_recover_from_stuck() -> bool:
 	_stuck_seconds = 0
 	_no_progress_frames = 0
 	_stuck_repath_attempts += 1
-	_repath_cooldown = REPATH_INTERVAL + float(get_instance_id() % 7) * 0.04
+	_repath_cooldown_units = Fixed.time_from_seconds(REPATH_INTERVAL) + (int(get_meta("net_id", get_instance_id())) % 7) * Fixed.time_from_seconds(0.04)
 	_request_nav_path_avoiding_crowd(_move_target)
 	return true
 
@@ -1461,8 +1554,7 @@ func _steer_velocity_toward(delta: float) -> Vector2:
 	var distance := offset.length()
 	if distance <= 0.0001:
 		return Vector2.ZERO
-	var step := minf(_movement_speed() * delta, distance)
-	return offset / distance * step
+	return Fixed.normalize_step(sim_pos, _current_steer_target(), _movement_step(delta)) - sim_pos
 
 
 func _refresh_move_debug(intended_velocity: Vector2, from_pos: Vector2) -> void:
@@ -2020,10 +2112,10 @@ func _vision_sync_position() -> void:
 ## Change a researched unit line without resetting its orders or registering population again.
 func apply_definition_upgrade(value: UnitDef) -> void:
 	if value == null or def == value: return
-	var ratio := hp / maxf(_max_hp,1)
+	var previous_max := maxi(max_hp_q, Fixed.SCALE)
 	def = value
-	_max_hp = float(value.max_hp)
-	hp = _max_hp * ratio
+	max_hp_q = int(value.max_hp) * Fixed.SCALE
+	hp_q = Fixed.mul_div(hp_q, max_hp_q, previous_max)
 	melee_armor = value.melee_armor + (civ.melee_armor_bonus if civ != null and not value.is_ranged else 0)
 	pierce_armor = value.pierce_armor
 	_sprite_metas.clear()

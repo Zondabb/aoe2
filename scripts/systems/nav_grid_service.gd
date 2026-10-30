@@ -5,6 +5,7 @@ const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 ## Grid A* over logical xz (sim_pos). Buildings, ores, and terrain cells are
 ## static blockers; water follows its shared coast. Units are not baked in.
@@ -46,6 +47,7 @@ var _query_radius := DEFAULT_UNIT_RADIUS
 var _grid_solid := PackedByteArray()
 var _grid_solid_indices := PackedInt32Array()
 var _manual_changed := false
+var deterministic := false
 
 
 func setup(
@@ -190,7 +192,8 @@ func is_world_solid(world: Vector2) -> bool:
 
 
 func world_to_cell(world: Vector2) -> Vector2i:
-	return Vector2i(floori(world.x / cell_size), floori(world.y / cell_size))
+	var size := maxi(1, Fixed.coord(cell_size))
+	return Vector2i(Fixed.floor_div(Fixed.coord(world.x), size), Fixed.floor_div(Fixed.coord(world.y), size))
 
 
 func cell_to_world_center(cell: Vector2i) -> Vector2:
@@ -356,7 +359,7 @@ func flush_pending_paths() -> Dictionary:
 		# The count cap alone can put twelve expensive wall detours in one
 		# frame. Yield the remaining FIFO queue once this frame's time is used;
 		# always finish at least one request so a difficult route cannot starve.
-		if Time.get_ticks_usec() - started >= PATH_TIME_BUDGET_USEC:
+		if not deterministic and Time.get_ticks_usec() - started >= PATH_TIME_BUDGET_USEC:
 			break
 	return results
 
@@ -726,18 +729,22 @@ func _simplify_path(points: PackedVector2Array) -> PackedVector2Array:
 
 
 func _line_clear(a: Vector2, b: Vector2) -> bool:
-	var dist := a.distance_to(b)
-	if dist < 0.001:
+	var start := Fixed.vector(a)
+	var offset := Fixed.vector(b) - start
+	var dist := Fixed.isqrt(Fixed.length_sq(offset))
+	if dist == 0:
 		return not is_world_solid(a)
-	var steps := maxi(2, int(ceil(dist / (cell_size * 0.35))))
+	var size := maxi(1, Fixed.coord(cell_size))
+	var spacing := maxi(1, Fixed.mul_div(size, 35, 100))
+	var steps := maxi(2, Fixed.ceil_div(dist, spacing))
 	for s in range(0, steps + 1):
-		var t := float(s) / float(steps)
-		var p := a.lerp(b, t)
+		var px: int = start.x + Fixed.mul_div(offset.x, s, steps)
+		var py: int = start.y + Fixed.mul_div(offset.y, s, steps)
 		# The same samples as is_world_solid(), without its three-call chain and
 		# temporary Vector2i per sample. Long waypoint visibility probes revisit
 		# thousands of these cells per frame in a marching army.
-		var x := floori(p.x / cell_size) - _origin_cell.x
-		var y := floori(p.y / cell_size) - _origin_cell.y
+		var x := Fixed.floor_div(px, size) - _origin_cell.x
+		var y := Fixed.floor_div(py, size) - _origin_cell.y
 		if x < 0 or y < 0 or x >= _width or y >= _height or _solid[y * _width + x] != 0:
 			return false
 	return true

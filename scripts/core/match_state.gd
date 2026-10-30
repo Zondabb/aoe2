@@ -32,6 +32,9 @@ var map_bounds := Rect2()
 var winner := -1
 ## When true, unit/building simulation should early-return (match ended).
 var frozen := false
+## Network frames own simulation time; native engine callbacks must stay idle.
+var lockstep_enabled := false
+var lockstep_stepping := false
 
 func setup_defaults() -> void:
 	if fog != null:

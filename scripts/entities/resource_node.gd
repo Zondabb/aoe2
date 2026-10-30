@@ -1,6 +1,7 @@
 class_name ResourceNode
 extends Node2D
 
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
@@ -8,8 +9,15 @@ const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 
 @export var resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
-@export var amount := 100.0
-@export var gather_rate := 4.0
+var amount_q: int = 100 * Fixed.SCALE
+var gather_rate_q: int = 4 * Fixed.SCALE
+var _gather_remainder: int = 0
+@export var amount: float = 100.0:
+	get: return Fixed.to_float(amount_q)
+	set(value): amount_q = maxi(0, Fixed.from_float(value))
+@export var gather_rate: float = 4.0:
+	get: return Fixed.to_float(gather_rate_q)
+	set(value): gather_rate_q = maxi(0, Fixed.from_float(value))
 ## Generated forests reserve one converted terrain tile per tree. Old maps keep
 ## their existing playable footprints unless a size is explicitly supplied.
 @export var block_size_override := Vector2.ZERO
@@ -103,12 +111,19 @@ func _exit_tree() -> void:
 	EntityRegistryScript.unregister(self, "removed")
 
 func extract(delta: float) -> float:
-	if delta <= 0.0 or amount <= 0.0 or gather_rate <= 0.0:
-		return 0.0
-	var extracted := minf(amount, gather_rate * delta)
-	amount -= extracted
-	if is_zero_approx(amount):
-		amount = 0.0
+	return Fixed.to_float(extract_fixed(Fixed.delta_time(delta)))
+
+## Preserve the sub-unit remainder so 30 fixed steps extract exactly one
+## second's rate. Capacity is expressed in resource sub-units, never time.
+@warning_ignore("integer_division")
+func extract_fixed(time_units: int, capacity_q: int = 2147483647) -> int:
+	if time_units <= 0 or amount_q <= 0 or gather_rate_q <= 0 or capacity_q <= 0:
+		return 0
+	var numerator: int = gather_rate_q * time_units + _gather_remainder
+	var extracted: int = mini(mini(amount_q, capacity_q), numerator / Fixed.TIME_SCALE)
+	_gather_remainder = numerator % Fixed.TIME_SCALE
+	amount_q -= extracted
+	if amount_q == 0:
 		visible = false
 		_emit_resource_depleted()
 		_release_nav_if_depleted()

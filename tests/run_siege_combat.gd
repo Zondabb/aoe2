@@ -153,7 +153,7 @@ func _test_real_launch_and_impact() -> void:
 	check(sprite.visible and sprite.texture != null, "stone has a visible textured sprite")
 	var origin := shot.sim_pos
 	_step_shot(shot, 0.3)
-	check(is_equal_approx(origin.distance_to(shot.sim_pos), 14.0 * 0.3), "stone moves at its definition's projectile speed")
+	check(absf(origin.distance_to(shot.sim_pos) - 14.0 * 0.3) <= 2.0 / 1024.0, "stone follows its definition's speed within two coordinate sub-units")
 	check(shot.position.y < Iso.world_to_screen(shot.sim_pos).y - 2.0, "stone visibly rises above the ground along an arc")
 	check(target.hp == 1000, "target remains unharmed while stone is in flight")
 	_step_shot(shot, 3.0)
