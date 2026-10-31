@@ -9,10 +9,11 @@
 双方都执行游戏逻辑。玩家操作先交给主机，主机校验单位归属、视野、资源、生产条件及参数，将通过校验的操作按顺序放入帧。主机自己的操作也必须排队，不能提前生效。AI 托管只在主机请求 Python/LLM，产生的操作同样经过帧队列。
 
 - 模拟步长固定为 `1/30` 秒，每个网络帧推进 3 步，目标每秒 10 帧。
-- 一帧包含有序操作、结束 `tick` 和 SHA-256 状态校验值；无操作时发送空帧以推进统一时钟。
-- 客端执行相同操作和模拟步，校验一致后返回 `ack`。主机收到确认才推进下一帧，网络延迟较高时游戏会减速。
-- 增量帧不能合并或丢弃。缺帧、操作重放失败或校验不符时，客端请求全量关键帧修复，然后继续处理增量帧。
-- 网络推进使用实际时间，联机模拟不随本机 `Engine.time_scale` 改变。渲染帧率与模拟步数独立。
+- 模拟步在物理帧（30 Hz）中逐步执行，单位移动由物理插值平滑；不再在同一渲染帧里集中执行 3 步和校验。步频 = 实际时间 × 对局速度。对局速度取主机的游戏速度设置（`[game] speed`，默认 `data/game_settings.cfg` 为 2.0，范围 0.25–4），主机每 30 帧在帧内广播一次 `match_speed`，客端和观众据此设置 `Engine.time_scale`，退出对局后恢复本机设置。速度只改变每秒执行多少个固定步，不影响确定性。机器过载时每个渲染帧最多执行 2 × 速度 步，对局整体减速而不是画面长时间卡住。
+- 一帧包含有序操作、结束 `tick` 和 SHA-256 状态摘要；无操作时发送空帧以推进统一时钟。摘要覆盖定点位置、血量、命令与目标、计时器、生产队列、经济、时代/科技、寻路待办、支援计时和双方迷雾，直接写入二进制数组计算，不再每帧序列化完整状态 JSON。关键帧仍是完整状态。
+- 帧是流水线式的：主机不等待上一帧确认，最多领先客端最近确认约 0.6 秒的帧（1 倍速 6 帧，2 倍速 12 帧）；双方同时模拟。只有往返延迟或客端处理落后超过该窗口时，主机才暂停推进、游戏减速。客端校验一致后返回 `ack`，主机按 tick 核对已发布的摘要。
+- 客端按到达顺序缓存帧。断流后先攒 1 帧抖动缓冲再继续；等待中的帧超过 2 个时，在每个物理帧的时间预算内多执行几步追赶。观众积压超过 60 帧时改为请求关键帧。对局结束消息到达时，客端先执行完已收到的帧，保证各方最终 tick 一致。
+- 增量帧不能合并或丢弃。缺帧、操作重放失败或校验不符时，客端请求全量关键帧修复，然后继续处理增量帧。主机在帧边界（当前帧 3 步完成并发出后）回答关键帧请求。
 
 寻路每步处理固定数量请求，实体按稳定网络 ID 推进；影响移动和战斗的错峰、避让顺序不再依赖进程实例 ID。关键帧包含单位目标、路径、冷却、建筑与训练队列、生产付款、时代/科技研究、箭矢、经济、寻路待办、支援计时和双方迷雾。不会加载消息中指定的脚本或资源路径。
 
@@ -55,8 +56,16 @@
 python -m pytest multiplayer_service_python/tests -q
 Godot_console.exe --headless --path . --script res://tests/run_incremental_transport.gd
 Godot_console.exe --headless --path . --script res://tests/run_lockstep_state.gd
+Godot_console.exe --headless --path . --script res://tests/run_lockstep_combat_frames.gd
 python tools/test_incremental_e2e.py --godot "<Godot console executable>"
 python tools/test_incremental_e2e.py --godot "<Godot console executable>" --default-map --host-team 1
+```
+
+性能探针（见[性能说明](multiplayer_performance.md)）：
+
+```powershell
+Godot_console.exe --headless --path . --script res://tests/bench_lockstep_frame.gd -- 60 40
+python tools/bench_lockstep_e2e.py --godot "<Godot console executable>" --army 30 --seconds 20
 ```
 
 集成测试启动临时回环服务、两个真实游戏进程及晚加入的观众，比较最终状态摘要，并故意扰动客端资源验证修复。`--host-team` 只在测试进程中控制随机选择，生产服务没有此选项。旧的周期快照性能测试属于 v1，当前协议使用上述入口。带宽及取舍见 [性能说明](multiplayer_performance.md)。

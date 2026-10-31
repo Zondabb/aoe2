@@ -19,6 +19,33 @@ const Simulation := preload("res://scripts/network/lockstep_simulation.gd")
 const TICK_SECONDS := 1.0 / 30.0
 const FRAME_TICKS := 3
 const FRAME_INTERVAL := TICK_SECONDS * FRAME_TICKS
+## The host may publish this many frames beyond the last acknowledged one.
+## Frames are pipelined: both players simulate concurrently and the relay
+## round trip is hidden unless it exceeds the whole window (then play slows).
+const MAX_LEAD_FRAMES := 6
+## Steps run inside physics ticks (30 Hz, interpolated), normally one each.
+const HOST_MAX_STEPS_PER_TICK := 2
+const REPLICA_MAX_STEPS_PER_TICK := 4
+## When steps cost more than a physics tick the engine runs several ticks per
+## render frame to catch up; cap the simulation work in one render frame so an
+## overloaded machine slows the match down instead of freezing the screen.
+const MAX_STEPS_PER_RENDER_FRAME := 2
+const CATCHUP_BUDGET_USEC := 12000
+## A replica that ran dry waits for one spare frame so network jitter does
+## not turn into a stop-start pattern. It runs extra steps only when more than
+## one further frame is waiting, so normal arrival jitter keeps that spare.
+const JITTER_FRAMES := 1
+const STARVED_RESUME_USEC := 250000
+## Observers have no acknowledgement barrier. Far behind, jump by keyframe.
+const MAX_QUEUED_FRAMES := 60
+## Match pace = the host's game-speed setting (Engine.time_scale from
+## [game] speed). It only changes how many fixed steps run per real second;
+## the host repeats it inside frames so replicas and late observers follow.
+const MIN_MATCH_SPEED := 0.25
+const MAX_MATCH_SPEED := 4.0
+const SPEED_ANNOUNCE_FRAMES := 30
+## Two pseudo-operations (AI states, match speed) share the 64-entry frame.
+const MAX_FRAME_PLAYER_COMMANDS := 62
 const SNAPSHOT_INTERVAL := FRAME_INTERVAL # Legacy profiling constant, no periodic snapshots.
 const SNAPSHOT_TIMEOUT := 20.0
 const MAX_ENTITIES := 2000
@@ -84,6 +111,25 @@ var _frame_running := false
 var _pending_winner := -1
 var _resync_attempts := 0
 var _last_ai_states: Dictionary = {}
+## Steps already executed of the frame in progress (0 = at a frame boundary).
+var _frame_step := 0
+var _frame_tick := 0
+var _frame_commands: Array = []
+var _frame_expected_checksum := ""
+var _frame_queue: Array = []
+var _starved := true
+var _starved_usec := 0
+var _sim_clock_usec := -1
+var _sim_accumulator := 0.0
+## Host: published checksum per tick until the replica acknowledges it.
+var _checksums: Dictionary = {}
+var _keyframe_requests: Array[String] = []
+var _saved_time_scale := 1.0
+var _draining := false
+var _render_frame := -1
+var _render_frame_steps := 0
+var match_speed := 1.0
+var _speed_announced_tick := -1000000
 
 
 func setup(bootstrap: Node) -> void:
@@ -102,12 +148,17 @@ func setup(bootstrap: Node) -> void:
 	_create_status_label()
 	session.connect("started", _on_started)
 	session.connect("message_received", _on_message)
+	session.connect("ending", _on_ending)
 	session.connect("ended", _on_ended)
 	session.connect("status_changed", _set_status)
 	match_state.winner_decided.connect(_on_winner)
 	_index_host_entities()
 	simulation = Simulation.new()
 	simulation.call("setup", self)
+	# Steps run on physics ticks paced by wall time × match speed. Physics
+	# ticks then occur at 30 Hz × speed, one simulation step per tick.
+	_saved_time_scale = Engine.time_scale
+	_apply_match_speed(Engine.time_scale)
 	_set_status("正在载入观战关键帧…" if spectator else "等待双方载入地图…")
 	if spectator and session.get("state") == "watching":
 		_on_started()
@@ -285,13 +336,104 @@ func _process(_delta: float) -> void:
 	if float(now - _last_snapshot_received_usec) / 1000000.0 > SNAPSHOT_TIMEOUT:
 		_abort_sync("同步确认超时，请返回大厅重新匹配")
 		return
-	if is_host:
-		_snapshot_elapsed = minf(_snapshot_elapsed + wall_delta, FRAME_INTERVAL)
-		if _guest_ack_tick == tick and _snapshot_elapsed >= FRAME_INTERVAL:
-			_snapshot_elapsed = 0.0
-			_advance_host_frame()
-	elif _awaiting_keyframe and now - _keyframe_request_usec > 4000000:
+	if not is_host and _awaiting_keyframe and now - _keyframe_request_usec > 4000000:
 		_request_keyframe()
+
+
+## Simulation runs on physics ticks so actors move at 30 Hz with the engine's
+## interpolation, instead of three steps plus a checksum in one render frame.
+## Step cadence follows wall time, not the physics delta.
+func _physics_process(_delta: float) -> void:
+	var now := Time.get_ticks_usec()
+	var wall := 0.0 if _sim_clock_usec < 0 else float(now - _sim_clock_usec) / 1000000.0
+	_sim_clock_usec = now
+	if not _playing or _terminal or session == null or simulation == null:
+		return
+	var frame := Engine.get_process_frames()
+	if frame != _render_frame:
+		_render_frame = frame
+		_render_frame_steps = 0
+	var budget := maxi(MAX_STEPS_PER_RENDER_FRAME, ceili(MAX_STEPS_PER_RENDER_FRAME * match_speed)) - _render_frame_steps
+	var steps := 0
+	if budget > 0:
+		steps = _host_tick(wall, budget) if is_host else _replica_tick(budget)
+	elif is_host:
+		_sim_accumulator = minf(_sim_accumulator + wall * match_speed, TICK_SECONDS * HOST_MAX_STEPS_PER_TICK)
+	_render_frame_steps += steps
+	if steps == 0:
+		simulation.call("hold_interpolation")
+
+
+func _host_tick(wall: float, budget: int) -> int:
+	# A result decided mid-frame still completes and publishes that frame
+	# (its remaining steps are frozen no-ops on every peer).
+	if _pending_winner >= 0 and _frame_step == 0:
+		return 0
+	_sim_accumulator = minf(_sim_accumulator + wall * match_speed, TICK_SECONDS * HOST_MAX_STEPS_PER_TICK)
+	var steps := 0
+	while _sim_accumulator >= TICK_SECONDS and steps < mini(HOST_MAX_STEPS_PER_TICK, budget):
+		if _frame_step == 0:
+			if _pending_winner >= 0:
+				break
+			# Wait for the replica's initial keyframe, then stay within the
+			# acknowledgement window. A stalled host does not bank time.
+			# The window is real time: faster matches allow proportionally more frames.
+			if _guest_ack_tick < 0 or tick - _guest_ack_tick >= ceili(MAX_LEAD_FRAMES * match_speed) * FRAME_TICKS:
+				_sim_accumulator = minf(_sim_accumulator, TICK_SECONDS)
+				break
+			_begin_host_frame()
+		_step_frame()
+		_sim_accumulator -= TICK_SECONDS
+		steps += 1
+		if _frame_step >= FRAME_TICKS:
+			_finish_host_frame()
+			if _terminal or _pending_winner >= 0:
+				break
+	return steps
+
+
+func _replica_tick(budget: int) -> int:
+	if not synchronized or _awaiting_keyframe:
+		return 0
+	var started := Time.get_ticks_usec()
+	var steps := 0
+	while steps < mini(REPLICA_MAX_STEPS_PER_TICK, budget):
+		if _frame_step == 0:
+			if _frame_queue.is_empty():
+				if not _starved:
+					_starved = true
+					_starved_usec = started
+				break
+			if _starved and _frame_queue.size() <= JITTER_FRAMES and started - _starved_usec < STARVED_RESUME_USEC:
+				break
+			_starved = false
+			if not _begin_replica_frame(_frame_queue.pop_front()):
+				return steps
+		_step_frame()
+		steps += 1
+		if _frame_step >= FRAME_TICKS and not _finish_replica_frame():
+			return steps
+		# One step per tick keeps pace with the host. Run ahead only to drain
+		# a backlog beyond the jitter buffer, within a per-tick time budget.
+		var backlog := _frame_queue.size() - JITTER_FRAMES - 1
+		if backlog <= 0 or Time.get_ticks_usec() - started >= CATCHUP_BUDGET_USEC:
+			break
+	return steps
+
+
+## _frame_running marks code executing inside a frame (commands or a step).
+## CommandExecutor queues asynchronous AI callbacks for the next frame unless
+## it is called from inside one, so the flag is never left set between ticks.
+func _step_frame() -> void:
+	_frame_running = is_host
+	simulation.call("step", TICK_SECONDS)
+	_frame_running = false
+	_frame_step += 1
+
+
+func _apply_match_speed(speed: float) -> void:
+	match_speed = clampf(speed, MIN_MATCH_SPEED, MAX_MATCH_SPEED)
+	Engine.time_scale = match_speed
 
 
 func _on_started() -> void:
@@ -301,9 +443,11 @@ func _on_started() -> void:
 	match_state.frozen = false
 	_last_process_usec = Time.get_ticks_usec()
 	_last_snapshot_received_usec = _last_process_usec
+	_sim_clock_usec = -1
 	if is_host:
 		synchronized = true
-		last_checksum = str(simulation.call("checksum"))
+		last_checksum = str(simulation.call("frame_checksum"))
+		_checksums[tick] = last_checksum
 		_set_status("等待对手同步关键帧…")
 	else:
 		if spectator: session.call("send_watch_ready")
@@ -340,10 +484,19 @@ func queue_ai_command(command: Dictionary, context: CommandExecutionContext) -> 
 	return {"ok": true, "reason": "queued_for_frame"}
 
 
+## Run one complete frame synchronously (tests and tools). Live play spreads
+## the same begin/step/finish sequence over physics ticks.
 func _advance_host_frame() -> void:
+	if _frame_step == 0: _begin_host_frame()
+	while _frame_step < FRAME_TICKS: _step_frame()
+	_finish_host_frame()
+
+
+func _begin_host_frame() -> void:
 	_frame_running = true
+	_frame_step = 0
 	var accepted: Array = []
-	var batch := _pending_commands.slice(0, 63)
+	var batch := _pending_commands.slice(0, MAX_FRAME_PLAYER_COMMANDS)
 	_pending_commands = _pending_commands.slice(batch.size())
 	for item in batch:
 		var ok := false
@@ -360,18 +513,40 @@ func _advance_host_frame() -> void:
 		if states != _last_ai_states:
 			_last_ai_states = states.duplicate(true)
 			accepted.append({"team": local_team, "command": {"op": "ai_control_state", "states": states}})
-	for _step in FRAME_TICKS:
-		simulation.call("step", TICK_SECONDS)
-	tick += FRAME_TICKS
-	last_checksum = str(simulation.call("checksum"))
+	if tick - _speed_announced_tick >= SPEED_ANNOUNCE_FRAMES * FRAME_TICKS:
+		_speed_announced_tick = tick
+		accepted.append({"team": local_team, "command": {"op": "match_speed", "speed": match_speed}})
+	_frame_commands = accepted
 	_frame_running = false
+
+
+func _finish_host_frame() -> void:
+	tick += FRAME_TICKS
+	_frame_step = 0
+	last_checksum = str(simulation.call("frame_checksum"))
+	_checksums[tick] = last_checksum
+	var accepted := _frame_commands
+	_frame_commands = []
 	if not session.call("send_frame", tick, accepted, last_checksum):
 		_abort_sync("增量指令发送失败")
 		return
-	# Wait for the other player's checksum before advancing again. Observers
-	# never participate in this barrier and cannot pause the match.
+	# Keyframes must describe the completed frame the relay just accepted.
+	var requests := _keyframe_requests
+	_keyframe_requests = []
+	for request_id in requests:
+		_send_keyframe(request_id)
+	# The replica acknowledges asynchronously; _host_tick limits the lead.
+	# Observers never participate in this barrier and cannot pause the match.
 	if _pending_winner >= 0:
 		session.call("finish_match", _pending_winner)
+
+
+func _send_keyframe(request_id: String) -> void:
+	var full: Dictionary = simulation.call("capture")
+	last_checksum = str(simulation.call("frame_checksum"))
+	_checksums[tick] = last_checksum
+	if session.call("send_keyframe", request_id, tick, full, last_checksum):
+		keyframes_sent += 1
 
 
 func _on_message(message: Dictionary) -> void:
@@ -386,73 +561,119 @@ func _on_message(message: Dictionary) -> void:
 			if message.get("command") is Dictionary: _queue_command(message.command, side)
 		"keyframe_request":
 			if not is_host or message.get("request_id") is not String: return
-			var full: Dictionary = simulation.call("capture")
-			last_checksum = str(simulation.call("checksum"))
-			if session.call("send_keyframe", message.request_id, tick, full, last_checksum):
-				keyframes_sent += 1
+			if _frame_step == 0: _send_keyframe(message.request_id)
+			elif message.request_id not in _keyframe_requests: _keyframe_requests.append(message.request_id)
 		"keyframe":
 			if not is_host: _receive_keyframe(message)
 		"frame":
 			if not is_host: _receive_frame(message)
 		"ack":
 			if not is_host or int(message.get("team", -1)) != 1 - local_team: return
-			if int(message.get("tick", -1)) == tick and message.get("checksum") == last_checksum:
-				_guest_ack_tick = tick
+			var acked := int(message.get("tick", -1))
+			if acked > _guest_ack_tick and _checksums.has(acked) and message.get("checksum") == _checksums[acked]:
+				_guest_ack_tick = acked
+				for old in _checksums.keys():
+					if int(old) < acked: _checksums.erase(old)
 				_last_snapshot_received_usec = Time.get_ticks_usec()
 				_set_status("联机对战 · 主机 · 指令同步")
 		"error":
 			if message.get("code") == "keyframe_timeout" and not is_host: _request_keyframe()
 
 
+## Frames are queued on arrival and executed on physics ticks.
 func _receive_frame(message: Dictionary) -> void:
 	if not synchronized or _awaiting_keyframe: return
 	var incoming := int(message.get("tick", -1))
-	if incoming <= tick: return # Duplicate delivery is harmless; never double-execute.
-	if incoming != tick + FRAME_TICKS or message.get("commands") is not Array or message.commands.size() > 64:
+	var last := tick
+	if not _frame_queue.is_empty(): last = int(_frame_queue.back().tick)
+	elif _frame_step > 0: last = _frame_tick
+	if incoming <= last: return # Duplicate delivery is harmless; never double-execute.
+	if incoming != last + FRAME_TICKS or message.get("commands") is not Array or message.commands.size() > 64:
 		_request_keyframe()
 		return
+	_frame_queue.append(message)
+	if spectator and _frame_queue.size() > MAX_QUEUED_FRAMES:
+		# This observer cannot keep up in real time; resume from current state.
+		_request_keyframe()
+
+
+func _begin_replica_frame(message: Dictionary) -> bool:
 	_replaying = true
 	for item in message.commands:
 		if item is not Dictionary or item.get("command") is not Dictionary or not _valid_enum(item.get("team"), 0, 1):
 			_replaying = false
 			_request_keyframe()
-			return
+			return false
 		var command: Dictionary = item.command
 		if command.get("op") == "ai_control_state":
 			if int(item.team) != int(session.host_team) or not _valid_ai_control(command.get("states")):
 				_replaying = false
 				_request_keyframe()
-				return
+				return false
 			var controller := _ai_controller()
 			if controller != null: controller.call("apply_remote_states", command.states)
+		elif command.get("op") == "match_speed":
+			# Pace only; never simulation state. Ignore anything malformed.
+			var speed: Variant = command.get("speed")
+			if int(item.team) == int(session.host_team) and command.size() == 2 and (speed is int or speed is float) and is_finite(float(speed)):
+				_apply_match_speed(float(speed))
 		elif not execute_team_command(command, int(item.team)):
 			_replaying = false
 			_request_keyframe()
-			return
+			return false
 		_index_host_entities()
 	_replaying = false
-	for _step in FRAME_TICKS:
-		simulation.call("step", TICK_SECONDS)
-	tick = incoming
+	_frame_tick = int(message.tick)
+	_frame_expected_checksum = String(message.checksum)
+	_frame_step = 0
+	return true
+
+
+func _finish_replica_frame() -> bool:
+	tick = _frame_tick
+	_frame_step = 0
 	frames_received += 1
-	last_checksum = str(simulation.call("checksum"))
-	if message.get("checksum") != last_checksum:
+	last_checksum = str(simulation.call("frame_checksum"))
+	if _frame_expected_checksum != last_checksum:
 		desync_count += 1
 		_request_keyframe()
-		return
+		return false
 	_resync_attempts = 0
 	_last_snapshot_received_usec = Time.get_ticks_usec()
 	if not spectator: session.call("send_ack", tick, last_checksum)
+	return true
+
+
+## Execute every frame already received (match end: the result follows the
+## last frame on the same connection, so the final state is complete).
+func _drain_frames() -> void:
+	if is_host or not synchronized or _awaiting_keyframe or _draining: return
+	_draining = true
+	while not _awaiting_keyframe:
+		if _frame_step == 0:
+			if _frame_queue.is_empty(): break
+			if not _begin_replica_frame(_frame_queue.pop_front()): break
+		while _frame_step < FRAME_TICKS: _step_frame()
+		if not _finish_replica_frame(): break
+	_draining = false
 
 
 func _request_keyframe() -> void:
 	if is_host or _terminal: return
+	if _draining:
+		# The match is over; a final mismatch cannot be repaired any more.
+		_frame_queue.clear()
+		_frame_step = 0
+		_awaiting_keyframe = true
+		return
 	_resync_attempts += 1
 	if _resync_attempts > 4:
 		_abort_sync("状态同步校验连续失败，请确认双方使用相同游戏版本")
 		return
 	synchronized = false
 	_awaiting_keyframe = true
+	_frame_queue.clear()
+	_frame_step = 0
 	_keyframe_request_usec = Time.get_ticks_usec()
 	session.call("request_keyframe")
 	_set_status("正在同步观战关键帧…" if spectator else "正在校验并同步对局…")
@@ -467,7 +688,11 @@ func _receive_keyframe(message: Dictionary) -> void:
 		_abort_sync("主机关键帧无效，无法恢复对局")
 		return
 	tick = incoming
-	last_checksum = str(simulation.call("checksum"))
+	_frame_step = 0
+	_frame_queue.clear()
+	_starved = true
+	_starved_usec = Time.get_ticks_usec()
+	last_checksum = str(simulation.call("frame_checksum"))
 	if last_checksum != message.get("checksum"):
 		push_warning("Keyframe checksum mismatch at tick %d: expected %s, got %s" % [tick, message.get("checksum"), last_checksum])
 		_request_keyframe()
@@ -863,6 +1088,10 @@ func _farm_crops_from_record(record: Dictionary) -> bool:
 func _index_host_entities() -> void:
 	if entities == null:
 		return
+	if simulation != null:
+		# Incremental: only entities that entered since the last pass.
+		simulation.call("index_entities")
+		return
 	for entity in entities.get_children():
 		if _entity_kind(entity) != "":
 			entity_id(entity)
@@ -918,7 +1147,13 @@ func _on_winner(winner: int) -> void:
 	_stop_ai_control()
 	if is_host and not spectator and not _terminal and session != null:
 		_pending_winner = winner
-		if not _frame_running: session.call("finish_match", winner)
+		# Mid-frame, the result is published after that frame completes.
+		if not _frame_running and _frame_step == 0: session.call("finish_match", winner)
+
+
+func _on_ending(_info: Dictionary) -> void:
+	if not _terminal and _playing and not is_host:
+		_drain_frames()
 
 
 func _on_ended(info: Dictionary) -> void:
@@ -977,6 +1212,8 @@ func _set_status(message: String) -> void:
 
 
 func _exit_tree() -> void:
+	if simulation != null:
+		Engine.time_scale = _saved_time_scale
 	_stop_ai_control()
 	if session != null and is_instance_valid(session):
 		session.call("leave")

@@ -111,10 +111,21 @@ func query_radius(center: Vector2, radius: float) -> Array:
 				var entity := candidate as Object
 				bucket[write] = entity
 				write += 1
-				var pos_variant: Variant = entity.get("sim_pos")
-				if not (pos_variant is Vector2):
-					continue
-				if Fixed.length_sq(origin - Fixed.vector(pos_variant as Vector2)) <= radius_sq:
+				# Units keep their authoritative grid position; reading it
+				# directly equals Fixed.vector(sim_pos) without the property
+				# getter and two float conversions per neighbour.
+				var point: Vector2i
+				if entity is UnitAgent:
+					var unit: UnitAgent = entity
+					point = unit._sim_pos_q
+				else:
+					var pos_variant: Variant = entity.get("sim_pos")
+					if not (pos_variant is Vector2):
+						continue
+					point = Fixed.vector(pos_variant as Vector2)
+				var dx: int = int(origin.x) - int(point.x)
+				var dy: int = int(origin.y) - int(point.y)
+				if dx * dx + dy * dy <= radius_sq:
 					result.append(entity)
 			if write < bucket.size():
 				bucket.resize(write)
@@ -130,8 +141,25 @@ func query_radius(center: Vector2, radius: float) -> Array:
 	# Restoring a keyframe rebuilds buckets; insertion history must not decide
 	# combat ties or floating-point accumulation order in a network match.
 	if not result.is_empty() and result[0].has_meta("lockstep_entity"):
-		result.sort_custom(func(a: Object, b: Object): return int(a.get_meta("net_id", 0)) < int(b.get_meta("net_id", 0)))
+		_sort_by_net_id(result)
 	return result
+
+
+## net_id is unique per lockstep entity: sort the integer keys natively
+## instead of calling a comparison lambda (two meta lookups) n·log n times.
+static func _sort_by_net_id(result: Array) -> void:
+	var keyed := {}
+	var keys := PackedInt64Array()
+	for entity in result:
+		var key := int(entity.get_meta("net_id", 0))
+		if key == 0 or keyed.has(key):
+			result.sort_custom(func(a: Object, b: Object): return int(a.get_meta("net_id", 0)) < int(b.get_meta("net_id", 0)))
+			return
+		keyed[key] = entity
+		keys.append(key)
+	keys.sort()
+	for i in keys.size():
+		result[i] = keyed[keys[i]]
 
 
 func _bucket_add(cell: Vector2i, entity: Object) -> void:

@@ -54,6 +54,13 @@ var _records_by_id: Dictionary = {}
 var _static_seen_revision := -1
 var _proxy_states: Dictionary = {}
 var _resource_visual_cache: Dictionary = {}
+## Lockstep matches rebuild the visibility grids inside every simulation step;
+## textures, remembered objects and node visibility follow on render frames.
+const LOCKSTEP_PRESENTATION_USEC := 100000
+var _lockstep_presentation := false
+var _presentation_dirty := false
+var _dynamic_dirty := false
+var _presentation_usec := 0
 
 static func install(root: Node, state: MatchState, minimum: float, maximum: float, default_view := 0) -> void:
 	install_rect(root, state, Vector2(minimum, minimum), Vector2(maximum, maximum), default_view)
@@ -116,6 +123,42 @@ func _physics_process(delta: float) -> void:
 		# Moving enemies can cross a visibility cell between fog updates. Static
 		# trees and their memory proxies only need a pass when fog is rebuilt.
 		_apply_visibility(_entities_dirty)
+
+func set_lockstep_presentation(enabled: bool) -> void:
+	_lockstep_presentation = enabled
+	set_process(enabled)
+
+func mark_presentation_dirty() -> void:
+	_entities_dirty = true
+	_presentation_dirty = true
+	_dynamic_dirty = true
+	_presentation_usec = 0
+
+## Simulation half of rebuild_now(): only the deterministic visibility grids.
+func rebuild_simulation() -> void:
+	_elapsed = 0.0
+	_dirty = false
+	_ensure_entity_cache()
+	fog.rebuild(_vision_sources)
+	_presentation_dirty = true
+	_dynamic_dirty = true
+
+## Presentation half for lockstep: the full pass (texture, memories, static
+## visibility) at the single-player 10 Hz cadence; moving actors in between.
+func _process(_delta: float) -> void:
+	if not _lockstep_presentation or not _presentation_dirty: return
+	var now := Time.get_ticks_usec()
+	if now - _presentation_usec >= LOCKSTEP_PRESENTATION_USEC:
+		_presentation_usec = now
+		_presentation_dirty = false
+		_dynamic_dirty = false
+		_sync_texture()
+		_update_memories(_live_entities)
+		_apply_visibility(true, true)
+		_update_stats()
+	elif _dynamic_dirty:
+		_dynamic_dirty = false
+		_apply_visibility(false)
 
 func reset_match() -> void:
 	if debug_mode:

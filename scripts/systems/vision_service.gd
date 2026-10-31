@@ -117,6 +117,12 @@ func units_in_radius(observer: Object, radius: float = -1.0) -> Array:
 	for entity in unit_hash.query_radius(pos_variant as Vector2, query_radius):
 		if entity == observer or not is_instance_valid(entity):
 			continue
+		if entity is UnitAgent:
+			# Typed fields: def is a UnitDef, hp > 0 exactly when hp_q > 0.
+			var unit: UnitAgent = entity
+			if unit.def != null and unit.hp_q > 0:
+				result.append(entity)
+			continue
 		if entity.get("def") is not UnitDef or entity.get("is_placement_ghost") == true:
 			continue
 		if float(entity.get("hp")) > 0.0:

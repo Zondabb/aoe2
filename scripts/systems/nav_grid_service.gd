@@ -728,6 +728,7 @@ func _simplify_path(points: PackedVector2Array) -> PackedVector2Array:
 	return simplified
 
 
+@warning_ignore("integer_division")
 func _line_clear(a: Vector2, b: Vector2) -> bool:
 	var start := Fixed.vector(a)
 	var offset := Fixed.vector(b) - start
@@ -737,14 +738,30 @@ func _line_clear(a: Vector2, b: Vector2) -> bool:
 	var size := maxi(1, Fixed.coord(cell_size))
 	var spacing := maxi(1, Fixed.mul_div(size, 35, 100))
 	var steps := maxi(2, Fixed.ceil_div(dist, spacing))
+	# Fixed.mul_div (round half away from zero, steps > 0) and Fixed.floor_div
+	# are inlined: each moving unit probes its next waypoint every step and
+	# the static calls dominated these long sample loops.
+	var half: int = steps / 2
+	var ox: int = offset.x
+	var oy: int = offset.y
+	var sx: int = start.x
+	var sy: int = start.y
+	var min_x: int = _origin_cell.x
+	var min_y: int = _origin_cell.y
 	for s in range(0, steps + 1):
-		var px: int = start.x + Fixed.mul_div(offset.x, s, steps)
-		var py: int = start.y + Fixed.mul_div(offset.y, s, steps)
 		# The same samples as is_world_solid(), without its three-call chain and
 		# temporary Vector2i per sample. Long waypoint visibility probes revisit
 		# thousands of these cells per frame in a marching army.
-		var x := Fixed.floor_div(px, size) - _origin_cell.x
-		var y := Fixed.floor_div(py, size) - _origin_cell.y
+		var product_x: int = ox * s
+		var product_y: int = oy * s
+		var px: int = sx + ((product_x + half) / steps if product_x >= 0 else -((half - product_x) / steps))
+		var py: int = sy + ((product_y + half) / steps if product_y >= 0 else -((half - product_y) / steps))
+		var x: int = px / size
+		if px < 0 and px % size != 0: x -= 1
+		var y: int = py / size
+		if py < 0 and py % size != 0: y -= 1
+		x -= min_x
+		y -= min_y
 		if x < 0 or y < 0 or x >= _width or y >= _height or _solid[y * _width + x] != 0:
 			return false
 	return true
