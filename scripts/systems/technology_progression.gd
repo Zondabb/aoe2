@@ -14,12 +14,28 @@ func setup(value: MatchState, root: Node) -> void:
 	entities = root
 	state.technology_progression = self
 
+## Catalog ids grouped by their research_at value, in catalog order. Rebuilt
+## whenever the catalog dictionary itself is replaced.
+static var _ids_by_research_at: Dictionary = {}
+static var _ids_source: Dictionary = {}
+
+static func _ids_researched_at(building_id: String) -> Array:
+	var all := Catalog.technologies()
+	if not is_same(all, _ids_source):
+		_ids_by_research_at = {}
+		for id in all:
+			var at: Variant = all[id].get("research_at", "")
+			if not _ids_by_research_at.has(at): _ids_by_research_at[at] = []
+			_ids_by_research_at[at].append(id)
+		_ids_source = all
+	return _ids_by_research_at.get(building_id, [])
+
+## Walls, houses and other buildings that research nothing skip the catalog.
 func available(building: BuildingAgent) -> Array[String]:
 	var result: Array[String] = []
 	if not is_instance_valid(building) or building.def == null: return result
-	for id in Catalog.technologies():
+	for id in _ids_researched_at(String(building.def.id)):
 		var tech: Dictionary = Catalog.technologies()[id]
-		if tech.get("research_at", "") != String(building.def.id): continue
 		if not Catalog.civilization_allows(tech, building.civ.id): continue
 		if state.researched_technologies.get(building.team, {}).has(id): continue
 		# Show the next upgrade in each branch, even while its age is locked.

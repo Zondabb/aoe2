@@ -300,15 +300,41 @@ static func _inspect_json_value(value: Variant, ancestors: Array, info: JsonPayl
 				info.error = "json_payload_cycle"
 				return
 		ancestors.append(value)
+		# Leaves (most values: numbers, flags, text) are visited inline with the
+		# same per-value rules as the tail of this function; only containers
+		# recurse. Once an error is recorded every later visit is a no-op.
+		var child_depth := depth + 1
 		if kind == TYPE_DICTIONARY:
 			for key in value:
-				_inspect_json_value(key, ancestors, info, depth + 1)
-				if (key is String or key is StringName) and key == "entities" and value[key] is Array and value[key].size() >= BACKGROUND_ENTITY_COUNT:
+				var key_kind := typeof(key)
+				if key_kind == TYPE_ARRAY or key_kind == TYPE_DICTIONARY:
+					_inspect_json_value(key, ancestors, info, child_depth)
+				elif info.error.is_empty():
+					info.values += 1
+					if child_depth > MAX_JSON_DEPTH: info.error = "json_payload_too_deep"
+					elif key_kind == TYPE_STRING or key_kind == TYPE_STRING_NAME: info.text_length += String(key).length()
+					elif key_kind == TYPE_OBJECT or key_kind == TYPE_CALLABLE or key_kind == TYPE_SIGNAL or key_kind == TYPE_RID or key_kind >= TYPE_PACKED_BYTE_ARRAY: info.worker_safe = false
+				var item: Variant = value[key]
+				if (key_kind == TYPE_STRING or key_kind == TYPE_STRING_NAME) and key == "entities" and item is Array and item.size() >= BACKGROUND_ENTITY_COUNT:
 					info.large_entities = true
-				_inspect_json_value(value[key], ancestors, info, depth + 1)
+				var item_kind := typeof(item)
+				if item_kind == TYPE_ARRAY or item_kind == TYPE_DICTIONARY:
+					_inspect_json_value(item, ancestors, info, child_depth)
+				elif info.error.is_empty():
+					info.values += 1
+					if child_depth > MAX_JSON_DEPTH: info.error = "json_payload_too_deep"
+					elif item_kind == TYPE_STRING or item_kind == TYPE_STRING_NAME: info.text_length += String(item).length()
+					elif item_kind == TYPE_OBJECT or item_kind == TYPE_CALLABLE or item_kind == TYPE_SIGNAL or item_kind == TYPE_RID or item_kind >= TYPE_PACKED_BYTE_ARRAY: info.worker_safe = false
 		else:
 			for item in value:
-				_inspect_json_value(item, ancestors, info, depth + 1)
+				var item_kind := typeof(item)
+				if item_kind == TYPE_ARRAY or item_kind == TYPE_DICTIONARY:
+					_inspect_json_value(item, ancestors, info, child_depth)
+				elif info.error.is_empty():
+					info.values += 1
+					if child_depth > MAX_JSON_DEPTH: info.error = "json_payload_too_deep"
+					elif item_kind == TYPE_STRING or item_kind == TYPE_STRING_NAME: info.text_length += String(item).length()
+					elif item_kind == TYPE_OBJECT or item_kind == TYPE_CALLABLE or item_kind == TYPE_SIGNAL or item_kind == TYPE_RID or item_kind >= TYPE_PACKED_BYTE_ARRAY: info.worker_safe = false
 		ancestors.pop_back()
 	elif kind == TYPE_STRING or kind == TYPE_STRING_NAME:
 		info.text_length += String(value).length()

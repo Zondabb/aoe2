@@ -76,6 +76,48 @@ func state_at(team: int, pos: Vector2) -> int:
 func footprint_visible(team: int, pos: Vector2, footprint: Vector2, require_all := false) -> bool:
 	return rect_visible(team, footprint_cells(pos, footprint), require_all)
 
+## footprint_visible(team, point, footprint, true) for many points sharing one
+## footprint: 1 where every covered cell is visible now, else 0. Same cell
+## rectangle as footprint_cells (cell_at of both corners on the fixed-point
+## lattice, exclusive right/bottom edges) and the same all-cells test as
+## rect_visible, without the per-point calls; planning grids test thousands of
+## obstacle cells at once.
+@warning_ignore("integer_division")
+func footprints_fully_visible(team: int, points: PackedVector2Array, footprint: Vector2) -> PackedByteArray:
+	var result := PackedByteArray()
+	result.resize(points.size())
+	result.fill(0)
+	if not visible_now.has(team): return result
+	var mask: PackedByteArray = visible_now[team]
+	var origin := Fixed.vector(map_origin)
+	var end := Fixed.vector(map_end)
+	var size := maxi(1, Fixed.coord(cell_size))
+	var half := Fixed.vector(footprint * 0.5)
+	var far := (half - Vector2i.ONE).max(Vector2i.ZERO)
+	var last_x := side - 1
+	var last_y := grid_size.y - 1
+	for index in points.size():
+		var point := Fixed.vector(points[index])
+		var low := point - half
+		var high := point + far
+		if low.x < origin.x or low.y < origin.y or low.x > end.x or low.y > end.y: continue
+		if high.x < origin.x or high.y < origin.y or high.x > end.x or high.y > end.y: continue
+		# Both corners lie inside the map, so the offsets are non-negative and
+		# integer division equals Fixed.floor_div.
+		var x0 := mini((low.x - origin.x) / size, last_x)
+		var y0 := mini((low.y - origin.y) / size, last_y)
+		var x1 := mini((high.x - origin.x) / size, last_x)
+		var y1 := mini((high.y - origin.y) / size, last_y)
+		var visible := true
+		for y in range(y0, y1 + 1):
+			for x in range(x0, x1 + 1):
+				if mask[y * side + x] == 0:
+					visible = false
+					break
+			if not visible: break
+		if visible: result[index] = 1
+	return result
+
 ## Static entities reuse this cell rectangle instead of converting their world
 ## footprint separately for both teams on every visibility / memory pass.
 func footprint_cells(pos: Vector2, footprint: Vector2) -> Rect2i:
