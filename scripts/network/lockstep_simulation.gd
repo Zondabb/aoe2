@@ -160,9 +160,17 @@ func restore(payload: Dictionary, sequence := 0) -> bool:
 	if fog != null and fog.has_method("mark_presentation_dirty"): fog.call("mark_presentation_dirty")
 	return true
 
-## Compact digest exchanged with every frame and acknowledgement.
+## The digest exchanged with every frame, acknowledgement and keyframe. Frames
+## carry the compact digest; frames ending on a whole simulated second (every
+## 10th 3-tick frame) carry the exhaustive one, which also covers the hidden
+## fields the compact digest leaves out. The kind depends on the tick alone,
+## so every peer hashes a given tick the same way.
+const FULL_DIGEST_TICKS := 30
+
 func frame_checksum() -> String:
 	index_entities()
+	var tick: Variant = network.get("tick")
+	if tick is int and tick % FULL_DIGEST_TICKS == 0: return State.full_digest(network)
 	return State.digest(network)
 
 ## Exhaustive hidden-state checksum (keyframe round-trip tests, diagnostics).

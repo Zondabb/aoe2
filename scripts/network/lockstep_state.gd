@@ -20,6 +20,8 @@ static func fields_for(kind: String) -> Array:
 		"terrain": return TERRAIN_FIELDS
 	return []
 
+## The keyframe payload. full_digest() hashes the same state for the periodic
+## exhaustive frame check; a field or section added here must be added there.
 static func capture(network: Node) -> Dictionary:
 	var records: Array = []
 	var nodes: Dictionary = network.get("_net_entities")
@@ -335,8 +337,9 @@ static func _apply_fields(object: Object, fields: Dictionary, nodes: Dictionary)
 ## entities in net_id order and feeds the authoritative gameplay values
 ## (positions, health, orders, targets, timers, production, economy, research,
 ## navigation backlog and fog) through native packed arrays into SHA-256.
-## Divergent hidden state is still caught once it changes any of these, and a
-## mismatch repairs from the exhaustive keyframe.
+## Divergent hidden state is still caught once it changes any of these, and at
+## the next whole simulated second, when frame_checksum() hashes everything
+## with full_digest(); a mismatch repairs from the exhaustive keyframe.
 static func digest(network: Node) -> String:
 	var context := HashingContext.new()
 	context.start(HashingContext.HASH_SHA256)
@@ -533,3 +536,135 @@ static func _mix(value: Variant, ints: PackedInt64Array, floats: PackedFloat64Ar
 			else: ints.append(-14)
 		_:
 			ints.append(-15 - typeof(value))
+
+
+## Exhaustive digest: SHA-256 over the same state as capture(), without
+## building wire records or JSON. capture() stays the keyframe payload; this
+## digest only has to agree between peers and change whenever capture() would
+## (tests/run_lockstep_digest.gd). frame_checksum() uses it at every whole
+## simulated second; digest() below covers the frames in between. Values are hashed in their binary
+## Variant form (var_to_bytes), mapped as encode() maps them: references become
+## net IDs, dictionaries are ordered by key, non-finite floats keep encode()'s
+## two classes, and Vector2 zero signs are dropped as capture()'s decimal JSON
+## drops them. Any change here must keep the two in step.
+static func full_digest(network: Node) -> String:
+	var nodes: Dictionary = network.get("_net_entities")
+	var ids: Array = nodes.keys()
+	ids.sort()
+	var entities: Array = []
+	for id in ids:
+		var node: Variant = nodes[id]
+		if not is_instance_valid(node) or node.is_queued_for_deletion(): continue
+		var kind: String = network.call("_entity_kind", node)
+		var row: Array = [id, kind]
+		if node is UnitAgent or node is BuildingAgent:
+			row.append(String(node.def.id))
+			row.append(int(node.team))
+		elif node is ProjectileAgent: row.append(int(node.team))
+		for field: StringName in _field_names(kind):
+			var value: Variant = node.get(field)
+			var type := typeof(value)
+			# Most fields are plain scalars; keep them off the generic path.
+			if type == TYPE_INT or type == TYPE_BOOL or type == TYPE_NIL or type == TYPE_STRING or type == TYPE_STRING_NAME or type == TYPE_VECTOR2I: row.append(value)
+			elif type == TYPE_VECTOR2: row.append(value + Vector2.ZERO)
+			# Idle queues and caches: the same result as _digestible, no call.
+			elif type == TYPE_ARRAY and value.is_empty(): row.append(_empty_array)
+			elif type == TYPE_DICTIONARY and value.is_empty(): row.append(_empty_dictionary)
+			else: row.append(_digestible(value))
+		entities.append(row)
+	var state: MatchState = network.get("match_state")
+	var root := network.get_parent()
+	var match_fields: Array = []
+	for field in STATE_FIELDS: match_fields.append(_digestible(state.get(field)))
+	var age_jobs: Array = []
+	if is_instance_valid(state.age_progression):
+		for team in [0, 1]:
+			if state.age_progression._jobs.has(team): age_jobs.append([team, _digestible(_job_state(state.age_progression._jobs[team]))])
+	var technology_jobs: Array = []
+	if is_instance_valid(state.technology_progression):
+		for id in ids:
+			var node: Variant = nodes[id]
+			if not is_instance_valid(node): continue
+			if state.technology_progression.jobs.has(node.get_instance_id()):
+				var job: Dictionary = state.technology_progression.jobs[node.get_instance_id()].duplicate()
+				job.erase("building_id")
+				technology_jobs.append([id, _digestible(_job_state(job))])
+	var navigation: Array = []
+	var nav_repath := false
+	var nav := root.get_node_or_null("NavService")
+	if nav != null and nav.nav != null:
+		for request: Dictionary in nav.nav._pending_requests:
+			var unit: Object = instance_from_id(int(request.id))
+			if not is_instance_valid(unit) or unit.get_meta("net_id", 0) == 0: continue
+			var record: Dictionary = request.duplicate()
+			record.id = int(unit.get_meta("net_id"))
+			navigation.append(_digestible(record))
+		nav_repath = bool(nav._lockstep_repath)
+	var support_state: Array = [0, [], []]
+	var support := root.get_node_or_null("LandSupport")
+	if support != null:
+		support.sync_compatibility_state()
+		support_state[0] = int(support.elapsed_time)
+		for id in ids:
+			var node: Variant = nodes[id]
+			if is_instance_valid(node) and support.cooldown_times.has(node.get_instance_id()):
+				support_state[1].append([id, int(support.cooldown_times[node.get_instance_id()])])
+			if is_instance_valid(node) and support.heal_remainders.has(node.get_instance_id()):
+				support_state[2].append([id, int(support.heal_remainders[node.get_instance_id()])])
+	var fog: Array = []
+	if state.fog != null:
+		for team in [0, 1]: fog.append_array([state.fog.visible_now[team], state.fog.explored[team]])
+	var hashing := HashingContext.new()
+	hashing.start(HashingContext.HASH_SHA256)
+	hashing.update(var_to_bytes([VERSION, int(network.get("_next_id")), entities, match_fields, age_jobs, technology_jobs, navigation, nav_repath, support_state, fog]))
+	return hashing.finish().hex_encode()
+
+static var _names_by_kind := {}
+
+static func _field_names(kind: String) -> Array:
+	if not _names_by_kind.has(kind): _names_by_kind[kind] = fields_for(kind).map(func(name: String): return StringName(name))
+	return _names_by_kind[kind]
+
+## encode() for the digest: the same value classes, as hashable Variants.
+## Marker types (packed arrays) never occur as state values, so a reference or
+## a dictionary cannot be confused with a plain value or an array.
+static func _digestible(value: Variant) -> Variant:
+	if value == null: return null
+	match typeof(value):
+		TYPE_INT, TYPE_BOOL, TYPE_STRING, TYPE_STRING_NAME, TYPE_VECTOR2I: return value
+		TYPE_FLOAT: return value if is_finite(value) else (INF if value > 0 else -INF)
+		TYPE_VECTOR2: return value + Vector2.ZERO
+		TYPE_PACKED_VECTOR2_ARRAY:
+			var points := PackedVector2Array(value)
+			for index in points.size(): points[index] += Vector2.ZERO
+			return points
+		TYPE_ARRAY:
+			var items: Array = []
+			for item in value:
+				var type := typeof(item)
+				if type == TYPE_INT or type == TYPE_BOOL or type == TYPE_STRING or type == TYPE_STRING_NAME or type == TYPE_VECTOR2I: items.append(item)
+				elif type == TYPE_VECTOR2: items.append(item + Vector2.ZERO)
+				else: items.append(_digestible(item))
+			return items
+		TYPE_DICTIONARY:
+			var entries: Array = []
+			for key in value:
+				var digest_key: Variant = _digestible(key)
+				var digest_value: Variant = _digestible(value[key])
+				entries.append([var_to_bytes(digest_key).hex_encode() + ":" + var_to_bytes(digest_value).hex_encode(), digest_key, digest_value])
+			entries.sort_custom(func(a: Array, b: Array): return a[0] < b[0])
+			var flat: Array = [_dictionary_marker]
+			for entry in entries: flat.append_array([entry[1], entry[2]])
+			return flat
+	if value is Node:
+		return PackedInt64Array([1, int(value.get_meta("net_id", 0))]) if is_instance_valid(value) and not value.is_queued_for_deletion() else null
+	if value is WeakRef:
+		var node: Variant = value.get_ref()
+		return PackedInt64Array([2, int(node.get_meta("net_id", 0)) if is_instance_valid(node) and not node.is_queued_for_deletion() else 0])
+	if value is UnitDef: return PackedStringArray(["u", String(value.id)])
+	push_error("Unsupported lockstep state type: %s" % type_string(typeof(value)))
+	return null
+
+static var _dictionary_marker := PackedByteArray([100])
+static var _empty_array: Array = []
+static var _empty_dictionary: Array = [_dictionary_marker]
