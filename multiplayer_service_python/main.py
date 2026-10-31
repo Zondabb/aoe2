@@ -82,7 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await matchmaker.shutdown()
             leaderboard.close()
 
-    app = FastAPI(title="AoE2 Multiplayer Service", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="AoE2 Multiplayer Service", version="2.0.0", lifespan=lifespan)
     app.state.matchmaker = matchmaker
     app.state.leaderboard = leaderboard
     static = Path(__file__).resolve().parent / "static"

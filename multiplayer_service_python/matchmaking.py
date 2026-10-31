@@ -7,9 +7,10 @@ import time
 import uuid
 import logging
 import sqlite3
+import secrets
 from typing import Any, Callable
 
-from .protocol import ProtocolError
+from .protocol import FRAME_TICKS, PROTOCOL_VERSION, TICK_RATE, ProtocolError
 from .settings import Settings
 from .leaderboard import Leaderboard
 
@@ -38,6 +39,9 @@ class Player:
     seq: int = 0
     spectating: bool = False
     spectator_ready: bool = False
+    ack_tick: int = -1
+    pending_keyframe: str | None = None
+    last_keyframe_request: float | None = None
 
 
 @dataclass
@@ -48,7 +52,11 @@ class Room:
     ready: set[int] = field(default_factory=set)
     started_at: float | None = None
     spectators: dict[str, Player] = field(default_factory=dict)
-    latest_snapshot: dict | None = None
+    host_team: int = field(default_factory=lambda: secrets.randbelow(2))
+    seed: int = field(default_factory=lambda: secrets.randbelow(2_147_483_647))
+    tick: int = 0
+    keyframe_requests: dict[str, tuple[set[str], float]] = field(default_factory=dict)
+    last_keyframe_dispatch: float | None = None
 
 
 class Matchmaker:
@@ -128,13 +136,16 @@ class Matchmaker:
         # Clear all identities before notifications, which may detect a slow peer.
         members = [*room.players, *room.spectators.values()]
         room.spectators.clear()
-        room.latest_snapshot = None
+        room.keyframe_requests.clear()
         for player in members:
             player.room_id = None
             player.team = None
             player.seq = 0
             player.spectating = False
             player.spectator_ready = False
+            player.ack_tick = -1
+            player.pending_keyframe = None
+            player.last_keyframe_request = None
         message = {"type": "match_ended", "match_id": room.id, "winner": winner, "reason": reason}
         if disconnect_reason:
             message["disconnect_reason"] = disconnect_reason
@@ -181,6 +192,9 @@ class Matchmaker:
                 player.room_id = room.id
                 player.team = team
                 player.seq = 0
+                player.ack_tick = -1
+                player.pending_keyframe = None
+                player.last_keyframe_request = None
             roster = [{"team": team, "name": player.name, "civ": player.civ}
                       for team, player in enumerate(pair)]
             for team, player in enumerate(pair):
@@ -188,7 +202,7 @@ class Matchmaker:
                 if room.id not in self.rooms:
                     break
                 self._emit(player, {"type": "match_found", "match_id": room.id,
-                                    "team": team, "host_team": 0, "players": roster})
+                                    "team": team, "players": roster, **self._simulation_info(room)})
 
     def _room(self, player: Player, *, started: bool = False) -> Room:
         if player.spectating:
@@ -201,6 +215,11 @@ class Matchmaker:
         return room
 
     @staticmethod
+    def _simulation_info(room: Room) -> dict:
+        return {"protocol_version": PROTOCOL_VERSION, "host_team": room.host_team,
+                "seed": room.seed, "tick_rate": TICK_RATE, "frame_ticks": FRAME_TICKS}
+
+    @staticmethod
     def _roster(room: Room) -> list[dict]:
         return [{"team": team, "name": player.name, "civ": player.civ}
                 for team, player in enumerate(room.players)]
@@ -211,7 +230,7 @@ class Matchmaker:
                  "elapsed_seconds": max(0, int(now - room.started_at)),
                  "spectator_count": len(room.spectators)}
                 for room in self.rooms.values()
-                if room.started_at is not None and room.latest_snapshot is not None
+                if room.started_at is not None
                 ][:self.settings.max_listed_matches]
 
     async def list_matches(self) -> dict:
@@ -222,7 +241,7 @@ class Matchmaker:
         if player.room_id is not None or player.queued_at is not None:
             raise ProtocolError("invalid_state", "Leave your current match or queue before spectating")
         room = self.rooms.get(match_id)
-        if room is None or room.started_at is None or room.latest_snapshot is None:
+        if room is None or room.started_at is None:
             raise ProtocolError("match_unavailable", "This match is no longer available for spectating")
         if len(room.spectators) >= self.settings.max_spectators_per_match:
             raise ProtocolError("spectators_full", "This match has reached its spectator limit")
@@ -231,27 +250,76 @@ class Matchmaker:
         player.spectating = True
         player.spectator_ready = False
         player.seq = 0
+        player.ack_tick = -1
+        player.pending_keyframe = None
+        player.last_keyframe_request = None
         room.spectators[player.id] = player
         self._emit(player, {"type": "spectate_started", "match_id": room.id,
-                            "host_team": 0, "role": "spectator", "players": self._roster(room)})
-        self._emit(player, room.latest_snapshot)
+                            "role": "spectator", "players": self._roster(room), **self._simulation_info(room)})
 
     def _leave_spectating(self, player: Player) -> None:
         room = self.rooms.get(player.room_id)
         if room is not None:
             room.spectators.pop(player.id, None)
+            if player.pending_keyframe is not None:
+                request = room.keyframe_requests.get(player.pending_keyframe)
+                if request is not None:
+                    request[0].discard(player.id)
+                    if not request[0]:
+                        room.keyframe_requests.pop(player.pending_keyframe, None)
         player.room_id = None
         player.team = None
         player.spectating = False
         player.spectator_ready = False
         player.seq = 0
+        player.ack_tick = -1
+        player.pending_keyframe = None
+        player.last_keyframe_request = None
+
+    def _sync_room(self, player: Player) -> Room:
+        if not player.spectating:
+            return self._room(player, started=True)
+        room = self.rooms.get(player.room_id)
+        if room is None or player.id not in room.spectators or not player.spectator_ready:
+            raise ProtocolError("invalid_state", "Spectator must finish loading before synchronization")
+        return room
+
+    def _request_keyframe(self, player: Player) -> None:
+        room = self._sync_room(player)
+        if player.team == room.host_team:
+            raise ProtocolError("forbidden", "The host already owns the authoritative state")
+        # At most one pending request per member. Repeated requests never grow
+        # host work or retain full states in relay memory.
+        if player.pending_keyframe is not None:
+            return
+        now = self.clock()
+        if player.last_keyframe_request is not None and now - player.last_keyframe_request < self.settings.keyframe_request_interval:
+            raise ProtocolError("keyframe_rate_limited", "Wait before requesting another keyframe")
+        # One capture serves all concurrent requesters. Otherwise a burst of
+        # spectators could fill the host's bounded outbox or exhaust its byte
+        # budget and forfeit an unrelated player. Recipients remain server-owned.
+        if room.keyframe_requests:
+            request_id = next(iter(room.keyframe_requests))
+            room.keyframe_requests[request_id][0].add(player.id)
+        else:
+            interval = max(self.settings.keyframe_request_interval,
+                           self.settings.max_message_bytes / (self.settings.bytes_per_second * 0.75))
+            if room.last_keyframe_dispatch is not None and now - room.last_keyframe_dispatch < interval:
+                raise ProtocolError("keyframe_rate_limited", "Wait before requesting another room keyframe")
+            request_id = uuid.uuid4().hex
+            room.keyframe_requests[request_id] = ({player.id}, now)
+            room.last_keyframe_dispatch = now
+            self._emit(room.players[room.host_team], {"type": "keyframe_request", "request_id": request_id})
+        player.pending_keyframe = request_id
+        player.last_keyframe_request = now
+        player.ack_tick = -1
 
     async def handle(self, player: Player, message: dict[str, Any]) -> None:
         async with self.lock:
             if player.id not in self.players:
                 return
             kind = message["type"]
-            if player.spectating and kind not in ("ping", "leave", "list_matches", "watch_ready"):
+            if player.spectating and kind not in ("ping", "leave", "list_matches", "watch_ready", "request_keyframe", "ack"):
                 raise ProtocolError("forbidden", "Spectators cannot control a match; leave before playing")
             if kind == "ping":
                 self._emit(player, {"type": "pong"})
@@ -266,10 +334,8 @@ class Matchmaker:
                 if room is None or player.id not in room.spectators:
                     raise ProtocolError("invalid_state", "Spectated match is no longer available")
                 player.spectator_ready = True
-                # Loading a Godot scene can block socket polling. Keep only the
-                # newest room snapshot until the spectator explicitly resumes.
-                if room.latest_snapshot is not None:
-                    self._emit(player, room.latest_snapshot)
+            elif kind == "request_keyframe":
+                self._request_keyframe(player)
             elif kind == "join_queue":
                 if player.room_id is not None or player.queued_at is not None:
                     raise ProtocolError("invalid_state", "Player is already queued or matched")
@@ -305,28 +371,58 @@ class Matchmaker:
                     for member in room.players:
                         if room.id not in self.rooms:
                             break
-                        self._emit(member, {"type": "start", "match_id": room.id})
-            elif kind in ("command", "snapshot"):
+                        self._emit(member, {"type": "start", "match_id": room.id, **self._simulation_info(room)})
+            elif kind == "command":
                 room = self._room(player, started=True)
-                expected_team = 1 if kind == "command" else 0
-                if player.team != expected_team:
-                    raise ProtocolError("forbidden", f"Only team {expected_team} may send {kind}")
                 if message["seq"] <= player.seq:
                     raise ProtocolError("invalid_sequence", "seq must increase during each match")
                 player.seq = message["seq"]
                 outgoing = dict(message)
-                if kind == "command":
-                    outgoing["team"] = player.team
-                else:
-                    room.latest_snapshot = outgoing
-                self._emit(room.players[1 - player.team], outgoing)
-                if kind == "snapshot" and room.id in self.rooms:
+                outgoing["team"] = player.team
+                self._emit(room.players[room.host_team], outgoing)
+            elif kind == "frame":
+                room = self._room(player, started=True)
+                if player.team != room.host_team:
+                    raise ProtocolError("forbidden", "Only the host may send a frame")
+                if message["tick"] != room.tick + FRAME_TICKS:
+                    raise ProtocolError("invalid_sequence", "Frames must advance exactly three ticks without gaps")
+                room.tick = message["tick"]
+                self._emit(room.players[1 - room.host_team], dict(message))
+                if room.id in self.rooms:
                     for spectator in list(room.spectators.values()):
                         if spectator.spectator_ready:
-                            self._emit(spectator, outgoing)
+                            self._emit(spectator, dict(message))
+            elif kind == "ack":
+                room = self._sync_room(player)
+                if player.team == room.host_team:
+                    raise ProtocolError("forbidden", "Only replicas may acknowledge a frame")
+                if message["tick"] > room.tick or message["tick"] < player.ack_tick:
+                    raise ProtocolError("invalid_sequence", "Acknowledgement is outside the replicated timeline")
+                if message["tick"] == player.ack_tick:
+                    return
+                player.ack_tick = message["tick"]
+                if not player.spectating:
+                    self._emit(room.players[room.host_team], {**message, "team": player.team})
+            elif kind == "keyframe":
+                room = self._room(player, started=True)
+                if player.team != room.host_team:
+                    raise ProtocolError("forbidden", "Only the host may send a keyframe")
+                request = room.keyframe_requests.get(message["request_id"])
+                if request is None:
+                    # Cancellation or a timeout can overtake host serialization.
+                    # Never punish the players for an observer leaving midway.
+                    return
+                if message["tick"] != room.tick:
+                    raise ProtocolError("invalid_sequence", "Keyframe must describe the current completed frame")
+                room.keyframe_requests.pop(message["request_id"])
+                for player_id in list(request[0]):
+                    target = self.players.get(player_id)
+                    if target is not None and target.room_id == room.id and target.pending_keyframe == message["request_id"]:
+                        target.pending_keyframe = None
+                        self._emit(target, dict(message))
             elif kind == "finish_match":
                 room = self._room(player, started=True)
-                if player.team != 0:
+                if player.team != room.host_team:
                     raise ProtocolError("forbidden", "Only the host may finish a match")
                 self._end(room, message["winner"], "completed")
 
@@ -340,6 +436,14 @@ class Matchmaker:
                     self._remove_from_queue(player)
                     self._emit(player, {"type": "queue_cancelled", "reason": "queue_timeout"})
             for room in list(self.rooms.values()):
+                for request_id, (player_ids, requested_at) in list(room.keyframe_requests.items()):
+                    if now - requested_at >= self.settings.keyframe_timeout:
+                        room.keyframe_requests.pop(request_id, None)
+                        for player_id in list(player_ids):
+                            target = self.players.get(player_id)
+                            if target is not None and target.pending_keyframe == request_id:
+                                target.pending_keyframe = None
+                                self._emit(target, {"type": "error", "code": "keyframe_timeout", "message": "Host did not answer the keyframe request"})
                 if room.started_at is None and now - room.created_at >= self.settings.ready_timeout:
                     self._end(room, None, "ready_timeout")
                 elif room.started_at is not None and now - room.started_at >= self.settings.match_timeout:
@@ -354,6 +458,6 @@ class Matchmaker:
 
     async def status(self) -> dict:
         async with self.lock:
-            return {"status": "ok", "protocol_version": 1, "connections": len(self.players),
+            return {"status": "ok", "protocol_version": PROTOCOL_VERSION, "connections": len(self.players),
                     "queued": len(self.queue), "matches": len(self.rooms),
                     "spectators": sum(len(room.spectators) for room in self.rooms.values())}

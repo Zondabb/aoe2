@@ -2,6 +2,8 @@ class_name TechnologyProgression
 extends Node
 
 const Catalog := preload("res://scripts/data/game_catalog.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
+const AgeClock := preload("res://scripts/systems/age_progression.gd")
 var state: MatchState
 var entities: Node
 var jobs: Dictionary = {}
@@ -46,6 +48,7 @@ func start_research(building: BuildingAgent, id: String) -> bool:
 	var c: Dictionary = tech.get("cost", {})
 	if not state.spend(building.team, int(c.get("food",0)), int(c.get("wood",0)), int(c.get("gold",0)), int(c.get("stone",0))): return false
 	jobs[building.get_instance_id()] = {"building": weakref(building), "building_id": building.get_instance_id(), "technology_id": id, "team": building.team, "elapsed": 0.0, "progress": 0.0, "duration": maxf(0.1,float(tech.get("time",30))), "cost":c.duplicate()}
+	AgeClock._sync_job_clock(jobs[building.get_instance_id()])
 	building.train_queue_changed.emit()
 	return true
 
@@ -55,7 +58,8 @@ func is_researching(building: BuildingAgent) -> bool:
 func progress_for(building: BuildingAgent) -> Dictionary:
 	if not is_instance_valid(building) or not jobs.has(building.get_instance_id()): return {}
 	var job: Dictionary = jobs[building.get_instance_id()]
-	return {"technology_id":job.technology_id,"elapsed":job.elapsed,"duration":job.duration,"progress":job.progress,"team":job.team,"building_id":job.building_id}
+	AgeClock._sync_job_clock(job)
+	return {"technology_id":job.technology_id,"elapsed":job.elapsed,"duration":job.duration,"progress":clampf(float(job.elapsed_time) / maxi(1, int(job.duration_time)), 0.0, 1.0),"team":job.team,"building_id":job.building_id}
 
 func cancel_research(building: BuildingAgent) -> bool:
 	if replica or not is_researching(building): return false
@@ -71,6 +75,7 @@ func _refund(job: Dictionary) -> void:
 		state.add_resource(job.team, i, int(c.get(["food","wood","gold","stone"][i],0)))
 
 func _process(delta: float) -> void:
+	if state != null and state.lockstep_enabled and not state.lockstep_stepping: return
 	if state == null or replica or state.frozen: return
 	for key in jobs.keys():
 		var job: Dictionary = jobs[key]
@@ -79,9 +84,11 @@ func _process(delta: float) -> void:
 			_refund(job)
 			jobs.erase(key)
 			continue
-		job.elapsed += delta
-		job.progress = minf(job.elapsed / job.duration, 1.0)
-		if job.elapsed < job.duration: continue
+		AgeClock._sync_job_clock(job)
+		job.elapsed_time = mini(int(job.elapsed_time) + Fixed.delta_time(delta, state.lockstep_enabled), int(job.duration_time))
+		job.elapsed = Fixed.time_to_seconds(job.elapsed_time)
+		job.progress = clampf(float(job.elapsed_time) / maxi(1, int(job.duration_time)), 0.0, 1.0)
+		if int(job.elapsed_time) < int(job.duration_time): continue
 		jobs.erase(key)
 		_complete(job.team, job.technology_id)
 		building.train_queue_changed.emit()

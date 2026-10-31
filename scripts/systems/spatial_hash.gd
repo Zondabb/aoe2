@@ -4,6 +4,7 @@ extends RefCounted
 ## Uniform grid buckets over logical xz (sim_pos). Not used for pathfinding.
 
 const DEFAULT_CELL_SIZE := 2.0
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 var cell_size := DEFAULT_CELL_SIZE
 var _buckets: Dictionary = {}
@@ -25,7 +26,8 @@ func clear() -> void:
 
 
 func world_to_cell(world: Vector2) -> Vector2i:
-	return Vector2i(floori(world.x / cell_size), floori(world.y / cell_size))
+	var size := maxi(1, Fixed.coord(cell_size))
+	return Vector2i(Fixed.floor_div(Fixed.coord(world.x), size), Fixed.floor_div(Fixed.coord(world.y), size))
 
 
 func insert(entity: Object, pos: Vector2) -> void:
@@ -82,9 +84,12 @@ func query_radius(center: Vector2, radius: float) -> Array:
 	var result: Array = []
 	if radius < 0.0:
 		return result
-	var radius_sq := radius * radius
-	var min_cell := world_to_cell(center - Vector2(radius, radius))
-	var max_cell := world_to_cell(center + Vector2(radius, radius))
+	var radius_q := Fixed.coord(radius)
+	var radius_sq := radius_q * radius_q
+	var origin := Fixed.vector(center)
+	var size := maxi(1, Fixed.coord(cell_size))
+	var min_cell := Vector2i(Fixed.floor_div(origin.x - radius_q, size), Fixed.floor_div(origin.y - radius_q, size))
+	var max_cell := Vector2i(Fixed.floor_div(origin.x + radius_q, size), Fixed.floor_div(origin.y + radius_q, size))
 	var empty_cells: Array[Vector2i] = []
 	for cy in range(min_cell.y, max_cell.y + 1):
 		if not _row_columns.has(cy): continue
@@ -109,7 +114,7 @@ func query_radius(center: Vector2, radius: float) -> Array:
 				var pos_variant: Variant = entity.get("sim_pos")
 				if not (pos_variant is Vector2):
 					continue
-				if center.distance_squared_to(pos_variant as Vector2) <= radius_sq:
+				if Fixed.length_sq(origin - Fixed.vector(pos_variant as Vector2)) <= radius_sq:
 					result.append(entity)
 			if write < bucket.size():
 				bucket.resize(write)
@@ -122,6 +127,10 @@ func query_radius(center: Vector2, radius: float) -> Array:
 	for cell in empty_cells:
 		_buckets.erase(cell)
 		_remove_row_column(cell)
+	# Restoring a keyframe rebuilds buckets; insertion history must not decide
+	# combat ties or floating-point accumulation order in a network match.
+	if not result.is_empty() and result[0].has_meta("lockstep_entity"):
+		result.sort_custom(func(a: Object, b: Object): return int(a.get_meta("net_id", 0)) < int(b.get_meta("net_id", 0)))
 	return result
 
 

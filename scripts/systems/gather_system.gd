@@ -2,6 +2,7 @@ class_name GatherSystem
 extends RefCounted
 
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 ## Called at resource exhaustion, not every physics tick. Never read hidden
 ## stock, and keep the job around its previous work site after a delivery.
@@ -16,11 +17,11 @@ static func resource_candidates(unit: Node2D, type: int, origin: Vector2) -> Arr
 		if not resource_usable(unit, node, type):
 			continue
 		var point: Vector2 = node.get("sim_pos")
-		ranked.append({"distance": origin.distance_squared_to(point), "id": node.get_instance_id(), "node": weakref(node)})
+		ranked.append({"distance": Fixed.distance_squared(origin, point), "id": int(node.get_meta("net_id", node.get_instance_id())), "node": weakref(node)})
 	# Ties have a stable result; do not send all workers to different resource
 	# kinds merely because their hands became empty at the drop-off point.
 	ranked.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return a.id < b.id if is_equal_approx(a.distance, b.distance) else a.distance < b.distance)
+		return a.id < b.id if a.distance == b.distance else a.distance < b.distance)
 	var result: Array[WeakRef] = []
 	for candidate in ranked:
 		result.append(candidate.node)
@@ -62,23 +63,24 @@ static func work_points(resource: Node2D, from: Vector2, radius: float, nav: Obj
 	var seen := {}
 	for probe in probes:
 		var best_point := Vector2.ZERO
-		var best_distance := INF
+		var best_distance: int = 9223372036854775807
 		var cell: Vector2i = nav.world_to_cell(probe)
 		for y in range(-1, 2):
 			for x in range(-1, 2):
 				var point: Vector2 = nav.cell_to_world_center(cell + Vector2i(x, y))
 				if seen.has(point) or not nav.is_world_walkable_with_radius(point, radius):
 					continue
-				if point.distance_to(work_point(resource, point, radius)) > reach:
+				var reach_q := Fixed.from_float(reach)
+				if Fixed.distance_squared(point, work_point(resource, point, radius)) > reach_q * reach_q:
 					continue
-				var distance := from.distance_squared_to(point)
+				var distance := Fixed.distance_squared(from, point)
 				if distance < best_distance:
 					best_distance = distance
 					best_point = point
-		if best_distance < INF:
+		if best_distance < 9223372036854775807:
 			seen[best_point] = true
 			points.append(best_point)
-	points.sort_custom(func(a: Vector2, b: Vector2) -> bool: return from.distance_squared_to(a) < from.distance_squared_to(b))
+	points.sort_custom(func(a: Vector2, b: Vector2) -> bool: return Fixed.distance_squared(from, a) < Fixed.distance_squared(from, b))
 	return PackedVector2Array(points)
 
 static func nearest_drop_off(
@@ -86,7 +88,7 @@ static func nearest_drop_off(
 	resource_type: Enums.ResourceType
 ) -> Node2D:
 	var nearest: Node2D
-	var nearest_distance := INF
+	var nearest_distance: int = 9223372036854775807
 	var candidates: Array[Node] = []
 	if unit.is_inside_tree():
 		candidates.assign(unit.get_tree().get_nodes_in_group("drop_off_buildings"))
@@ -100,8 +102,8 @@ static func nearest_drop_off(
 			continue
 		if not building.call("accepts_resource", resource_type):
 			continue
-		var distance: float = unit.get("sim_pos").distance_squared_to(building.get("sim_pos"))
-		if distance < nearest_distance:
+		var distance := Fixed.distance_squared(unit.get("sim_pos"), building.get("sim_pos"))
+		if distance < nearest_distance or (distance == nearest_distance and nearest != null and int(building.get_meta("net_id", building.get_instance_id())) < int(nearest.get_meta("net_id", nearest.get_instance_id()))):
 			nearest = building
 			nearest_distance = distance
 	return nearest

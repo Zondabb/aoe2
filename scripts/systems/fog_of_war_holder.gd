@@ -108,6 +108,7 @@ func _entity_changed(node: Node) -> void:
 		node.visible = view_can_see(node)
 
 func _physics_process(delta: float) -> void:
+	if match_state.lockstep_enabled and not match_state.lockstep_stepping: return
 	_elapsed += delta
 	if not match_state.frozen and (_dirty or fog.dirty or _elapsed >= 0.1):
 		rebuild_now()

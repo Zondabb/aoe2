@@ -15,6 +15,9 @@ var _tracked_buildings: Dictionary = {}
 var _static_dirty := true
 var _rebuild_queued := false
 var _last_building_check_frame := -1
+var lockstep_enabled := false
+var _lockstep_tick := 0
+var _lockstep_repath := false
 
 func setup(
 	map_min: int,
@@ -49,6 +52,10 @@ func setup_rect(minimum: Vector2i, maximum: Vector2i) -> void:
 
 func _on_node_added(node: Node) -> void:
 	if node is Node2D and (node.has_signal("construction_started") or node.has_method("extract") or node.get("block_size") is Vector2):
+		if lockstep_enabled:
+			if get_parent().is_ancestor_of(node): _try_connect_building(node)
+			_static_dirty = true
+			return
 		call_deferred("_try_connect_weak", weakref(node))
 		_queue_static_rebuild()
 
@@ -142,10 +149,24 @@ func rebuild_from_scene() -> void:
 	_static_dirty = false
 	if changed:
 		_refresh_debug_overlays()
-		call_deferred("_repath_moving_units")
+		if lockstep_enabled: _lockstep_repath = true
+		else: call_deferred("_repath_moving_units")
 
 
 func _process(_delta: float) -> void:
+	if lockstep_enabled: return
+	_flush_paths()
+
+func lockstep_step() -> void:
+	_lockstep_tick += 1
+	_check_building_changes()
+	if _static_dirty: rebuild_from_scene()
+	if _lockstep_repath:
+		_lockstep_repath = false
+		_repath_moving_units()
+	_flush_paths()
+
+func _flush_paths() -> void:
 	if nav == null:
 		return
 	_check_building_changes()
@@ -193,6 +214,8 @@ func query_static_blockers(from: Vector2, to: Vector2, radius: float) -> Array:
 				var half: Vector2 = record.half
 				if center.x + half.x >= minimum.x and center.x - half.x <= maximum.x and center.y + half.y >= minimum.y and center.y - half.y <= maximum.y:
 					result.append(node)
+	if lockstep_enabled:
+		result.sort_custom(func(a: Node, b: Node): return int(a.get_meta("net_id", 0)) < int(b.get_meta("net_id", 0)))
 	return result
 
 
@@ -241,7 +264,7 @@ func _building_signature(node: Node) -> Array:
 
 
 func _check_building_changes() -> void:
-	var frame := Engine.get_physics_frames()
+	var frame := _lockstep_tick if lockstep_enabled else Engine.get_physics_frames()
 	if frame == _last_building_check_frame: return
 	_last_building_check_frame = frame
 	for id in _tracked_buildings.keys():
@@ -256,6 +279,7 @@ func _check_building_changes() -> void:
 
 func _queue_static_rebuild() -> void:
 	_static_dirty = true
+	if lockstep_enabled: return
 	if not _rebuild_queued and is_inside_tree():
 		_rebuild_queued = true
 		call_deferred("_rebuild_if_dirty")
@@ -263,6 +287,7 @@ func _queue_static_rebuild() -> void:
 
 func _rebuild_if_dirty() -> void:
 	_rebuild_queued = false
+	if lockstep_enabled: return
 	if is_inside_tree() and _static_dirty: rebuild_from_scene()
 
 func _refresh_debug_overlays() -> void:

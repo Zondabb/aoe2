@@ -1,13 +1,18 @@
 extends BuildingAgent
 
 func extract(delta: float) -> float:
-	if is_placement_ghost or not is_complete or hp <= 0 or amount <= 0 or has_meta("network_replica"): return 0.0
-	var value := minf(amount, maxf(0,delta) * gather_rate)
-	if value > 0.0:
+	return Fixed.to_float(extract_fixed(Fixed.delta_time(delta)))
+
+@warning_ignore("integer_division")
+func extract_fixed(time_units: int, capacity_q: int = 2147483647) -> int:
+	if is_placement_ghost or not is_complete or hp_q <= 0 or amount_q <= 0 or time_units <= 0 or gather_rate_q <= 0 or capacity_q <= 0 or has_meta("network_replica"): return 0
+	var numerator: int = gather_rate_q * time_units + _gather_remainder
+	var value: int = mini(mini(amount_q, capacity_q), numerator / Fixed.TIME_SCALE)
+	_gather_remainder = numerator % Fixed.TIME_SCALE
+	if value > 0:
 		farm_has_crops = true
-	amount -= value
-	if amount <= 0.001:
-		amount = 0.0
+	amount_q -= value
+	if amount_q == 0:
 		AiEventBufferScript.push_for_entity({"type": AiProtocolScript.EVENT_RESOURCE_DEPLETED,
 			"entity_id": EntityRegistryScript.id_of(self), "resource_type": "FOOD",
 			"def_id": "farm", "pos": AiProtocolScript.vec2_to_array(sim_pos)}, self)

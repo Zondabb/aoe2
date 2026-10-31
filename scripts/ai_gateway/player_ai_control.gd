@@ -51,7 +51,7 @@ func request_local_enabled(value: bool) -> bool:
 		state_changed.emit()
 		return false
 	var network := Commands.runtime(self)
-	if online and local_team != 0:
+	if online:
 		if network == null or not network.submit_command({"op": "set_ai_control", "enabled": value}):
 			return false
 		_pending = true
@@ -64,12 +64,14 @@ func request_local_enabled(value: bool) -> bool:
 
 func set_team_enabled(team: int, value: bool) -> bool:
 	# Online guests never instantiate a Gateway or execute AI orders locally.
-	if team not in [0, 1] or (online and local_team != 0):
+	if team not in [0, 1] or not has_authority():
 		return false
 	if not online and team != local_team:
 		return false
 	if value and not _available():
 		return false
+	if team == local_team and _pending and _pending_enabled == value:
+		_pending = false
 	if not value:
 		_remove_gateway(team)
 		_set_state(team, false, "ended" if _ended else "off", "对局已结束" if _ended else "手动操作")
@@ -116,14 +118,14 @@ static func external_config(team: int = -1) -> AiConfig:
 func team_service_url(team: int) -> String:
 	if team not in [0, 1]:
 		return ""
-	if online and local_team != 0:
+	if online and not has_authority():
 		return str(_states[str(team)].get("service_url", ""))
 	return external_config(team).service_url
 
 
 func request_team_service_url(team: int, url: String) -> bool:
 	# A guest cannot turn the host into an HTTP proxy, even for its own team.
-	if team not in [0, 1] or _ended or (online and local_team != 0):
+	if team not in [0, 1] or _ended or not has_authority():
 		return false
 	if not online and team != local_team:
 		return false
@@ -152,12 +154,30 @@ func capture_states() -> Dictionary:
 
 
 func apply_remote_states(states: Dictionary) -> void:
-	if not online or local_team == 0 or _ended:
+	if not online or has_authority() or _ended:
 		return
+	for team in ["0", "1"]:
+		var value: Variant = states.get(team)
+		if value is not Dictionary or value.get("enabled") is not bool or value.get("status") not in ["off", "connecting", "active", "error", "ended"] or value.get("message") is not String:
+			return
 	_states = states.duplicate(true)
 	if _pending and bool(_states[str(local_team)].enabled) == _pending_enabled:
 		_pending = false
 	state_changed.emit()
+
+
+## Replayed enable commands affect the guest's UI only. NetworkMatch alone
+## decides when the host creates or stops the actual external AI gateway.
+func apply_remote_team_enabled(team: int, value: bool) -> bool:
+	if not online or has_authority() or team not in [0, 1] or _ended: return false
+	_set_state(team, value, "connecting" if value else "off", "等待主机 AI 服务…" if value else "手动操作")
+	return true
+
+
+func has_authority() -> bool:
+	if not online: return true
+	var network := Commands.runtime(self)
+	return network != null and network.get("is_host") == true
 
 
 func stop_all() -> void:
@@ -222,6 +242,8 @@ func _remove_gateway(team: int) -> void:
 
 func _set_state(team: int, enabled: bool, status: String, message: String) -> void:
 	var value := {"enabled": enabled, "status": status, "message": message}
+	if team == local_team and _pending and enabled == _pending_enabled:
+		_pending = false
 	if _states[str(team)] == value:
 		return
 	_states[str(team)] = value

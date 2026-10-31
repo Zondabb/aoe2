@@ -1,6 +1,6 @@
 extends Node
 
-## Trusted-host MVP: team 0 simulates; team 1 renders snapshots and submits orders.
+## Host-authorized lockstep: every participant runs the same ordered fixed steps.
 ## net_id is independent of process-local EntityRegistry IDs.
 signal status_changed(message: String)
 
@@ -15,10 +15,26 @@ const BUILDING_VIEW := preload("res://scenes/entities/building_view.tscn")
 const PROJECTILE_VIEW := preload("res://scenes/entities/projectile_view.tscn")
 const ResourceScript := preload("res://scripts/entities/resource_node.gd")
 const TerrainScript := preload("res://scripts/entities/path_blocker.gd")
-const SNAPSHOT_INTERVAL := 0.1
-const SNAPSHOT_TIMEOUT := 10.0
+const Simulation := preload("res://scripts/network/lockstep_simulation.gd")
+const TICK_SECONDS := 1.0 / 30.0
+const FRAME_TICKS := 3
+const FRAME_INTERVAL := TICK_SECONDS * FRAME_TICKS
+const SNAPSHOT_INTERVAL := FRAME_INTERVAL # Legacy profiling constant, no periodic snapshots.
+const SNAPSHOT_TIMEOUT := 20.0
 const MAX_ENTITIES := 2000
 const MAX_FOG_CELLS := 65536
+const COMMAND_FIELDS := {
+	"move": ["op", "unit_id", "pos", "formation_speed"],
+	"stop": ["op", "unit_id"], "gather": ["op", "unit_id", "target_id"],
+	"build": ["op", "unit_id", "building_id"], "attack": ["op", "unit_id", "target_id"],
+	"train": ["op", "building_id", "unit_def_id"], "cancel_train": ["op", "building_id", "queue_id"],
+	"place_building": ["op", "builder_id", "building_def_id", "pos", "orientation"],
+	"research_age": ["op", "building_id"], "cancel_research_age": ["op", "building_id"],
+	"research_technology": ["op", "building_id", "technology_id"], "cancel_technology": ["op", "building_id", "technology_id"],
+	"place_wall": ["op", "builder_id", "building_def_id", "start", "end", "include_gate", "append_queue"],
+	"set_gate_state": ["op", "building_id", "gate_state"], "set_ai_control": ["op", "enabled"],
+}
+
 
 var match_state: MatchState
 var entities: Node2D
@@ -50,6 +66,26 @@ var _fog_cache_text := ["", ""]
 var _fog_cache_masks: Array[PackedByteArray] = [PackedByteArray(), PackedByteArray()]
 
 
+var simulation: RefCounted
+var tick := 0
+var synchronized := false
+var keyframes_received := 0
+var keyframes_sent := 0
+var frames_received := 0
+var desync_count := 0
+var last_checksum := ""
+var _pending_commands: Array = []
+var _command_sequences := {0: 0, 1: 0}
+var _guest_ack_tick := -1
+var _awaiting_keyframe := false
+var _keyframe_request_usec := 0
+var _replaying := false
+var _frame_running := false
+var _pending_winner := -1
+var _resync_attempts := 0
+var _last_ai_states: Dictionary = {}
+
+
 func setup(bootstrap: Node) -> void:
 	match_state = bootstrap.get("match_state") as MatchState
 	entities = bootstrap.get_node_or_null("../Entities") as Node2D
@@ -60,7 +96,7 @@ func setup(bootstrap: Node) -> void:
 		return
 	spectator = session.get("spectator") == true
 	local_team = -1 if spectator else int(session.get("team"))
-	is_host = not spectator and local_team == 0
+	is_host = not spectator and local_team == int(session.get("host_team"))
 	add_to_group("network_match")
 	match_state.frozen = true
 	_create_status_label()
@@ -69,23 +105,12 @@ func setup(bootstrap: Node) -> void:
 	session.connect("ended", _on_ended)
 	session.connect("status_changed", _set_status)
 	match_state.winner_decided.connect(_on_winner)
-	if is_host:
-		_index_host_entities()
-	else:
-		if match_state.age_progression != null:
-			match_state.age_progression.network_replica = true
-		if match_state.technology_progression != null:
-			match_state.technology_progression.replica = true
-		for entity in entities.get_children():
-			if _entity_kind(entity) != "":
-				entity.set_meta("network_replica", true)
-				entity.set_physics_process(false)
-	_set_status("正在载入观战快照…" if spectator else "等待双方载入地图…")
+	_index_host_entities()
+	simulation = Simulation.new()
+	simulation.call("setup", self)
+	_set_status("正在载入观战关键帧…" if spectator else "等待双方载入地图…")
 	if spectator and session.get("state") == "watching":
 		_on_started()
-		var cached: Variant = session.get("latest_snapshot")
-		if cached is Dictionary and cached.get("state") is Dictionary:
-			if apply_snapshot(cached.state, int(cached.get("seq", -1))): _send_watch_ready()
 	elif session.get("state") == "playing" and not spectator:
 		_on_started()
 	elif session.get("state") == "matched" and not spectator:
@@ -98,7 +123,7 @@ func setup(bootstrap: Node) -> void:
 func entity_id(entity: Node) -> int:
 	if entity == null or not is_instance_valid(entity) or entity.is_queued_for_deletion():
 		return -1
-	if is_host and not entity.has_meta("net_id") and _entity_kind(entity) != "":
+	if not entity.has_meta("net_id") and _entity_kind(entity) != "":
 		entity.set_meta("net_id", _next_id)
 		_net_entities[_next_id] = entity
 		_next_id += 1
@@ -106,23 +131,23 @@ func entity_id(entity: Node) -> int:
 
 
 func submit_command(command: Dictionary) -> bool:
-	if spectator or local_team not in [0, 1] or not _playing or _terminal or match_state == null or match_state.frozen:
+	if spectator or not synchronized or local_team not in [0, 1] or not _playing or _terminal or match_state == null or match_state.frozen:
 		return false
 	if is_host:
-		return execute_team_command(command, local_team)
+		return _queue_command(command, local_team)
 	if session == null:
 		return false
 	return bool(session.call("send_command", command))
 
 
 ## Validate wire types before calling the shared gameplay validator/executor.
-func execute_team_command(command: Dictionary, sender_team: int) -> bool:
-	if spectator or not is_host or not _playing or _terminal or match_state == null or match_state.frozen:
+func execute_team_command(command: Dictionary, sender_team: int, ai_context: CommandExecutionContext = null, ai_original: Dictionary = {}) -> bool:
+	if (not is_host and not _replaying) or not _playing or _terminal or match_state == null or match_state.frozen:
 		return false
 	if sender_team not in [0, 1] or command.size() > 10:
 		return false
 	_command_count += 1
-	if _command_count > 240:
+	if not _replaying and _command_count > 240:
 		return false
 	if command.get("op") is not String:
 		return false
@@ -132,8 +157,12 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if command.size() != 2 or command.get("enabled") is not bool:
 			return false
 		var controller := _ai_controller()
+		if _replaying and controller == null: return true
 		if controller == null or not controller.has_method("set_team_enabled"):
 			return false
+		if _replaying:
+			controller.call("apply_remote_team_enabled", sender_team, command.enabled)
+			return true
 		var accepted := bool(controller.call("set_team_enabled", sender_team, command.enabled))
 		_snapshot_elapsed = SNAPSHOT_INTERVAL
 		return accepted
@@ -149,6 +178,7 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		return false
 	var translated := {"op": op}
 	for key in required[op]:
+		if (_replaying or ai_context != null) and op == "place_building" and key == "builder_id": continue
 		if not command.has(key):
 			return false
 	for key in ["unit_id", "target_id", "building_id", "builder_id"]:
@@ -223,24 +253,26 @@ func execute_team_command(command: Dictionary, sender_team: int) -> bool:
 		if command.get("technology_id") is not String or String(command.technology_id).length() > 128:
 			return false
 		translated["technology_id"] = command.technology_id
-	var context := Context.new()
+	var context := ai_context if ai_context != null else Context.new()
 	context.match_state = match_state
 	context.entities = entities
 	context.team = sender_team as Enums.Team
 	context.civ = _civs.get(sender_team) as CivDef
+	if ai_context != null:
+		for key in ["command_id", "task_id", "session_epoch", "expires_at_sim_time"]:
+			if ai_original.has(key): translated[key] = ai_original[key]
 	var result := Executor.execute(translated, context)
+	if result.get("reason") == "duplicate_skipped": return false
 	if bool(result.get("ok", false)):
 		if op == "move" and command.has("formation_speed"):
 			var mover := _resolve(int(command.unit_id))
 			if mover.has_method("set_formation_move_speed"):
 				mover.call("set_formation_move_speed", float(command.formation_speed))
-		Registry.report_manual_command(translated, sender_team, result)
+		if ai_context == null: Registry.report_manual_command(translated, sender_team, result)
 	return bool(result.get("ok", false))
 
 
 func _process(_delta: float) -> void:
-	# Network frequency and deadlines are wall time. Engine.time_scale speeds
-	# up only simulation, never full-world traffic or connection timeouts.
 	var now := Time.get_ticks_usec()
 	var wall_delta := 0.0 if _last_process_usec < 0 else maxf(0.0, float(now - _last_process_usec) / 1000000.0)
 	_last_process_usec = now
@@ -248,53 +280,210 @@ func _process(_delta: float) -> void:
 	if _command_window >= 1.0:
 		_command_window = 0.0
 		_command_count = 0
-	if not _playing or _terminal or session == null:
+	if not _playing or _terminal or session == null or _pending_winner >= 0:
 		return
-	if is_host and not spectator:
-		_snapshot_elapsed += wall_delta
-		if _snapshot_elapsed >= SNAPSHOT_INTERVAL:
+	if float(now - _last_snapshot_received_usec) / 1000000.0 > SNAPSHOT_TIMEOUT:
+		_abort_sync("同步确认超时，请返回大厅重新匹配")
+		return
+	if is_host:
+		_snapshot_elapsed = minf(_snapshot_elapsed + wall_delta, FRAME_INTERVAL)
+		if _guest_ack_tick == tick and _snapshot_elapsed >= FRAME_INTERVAL:
 			_snapshot_elapsed = 0.0
-			session.call("send_snapshot", capture_snapshot())
-	else:
-		_snapshot_wait = float(now - _last_snapshot_received_usec) / 1000000.0
-		if _snapshot_wait > SNAPSHOT_TIMEOUT:
-			_on_ended({"winner": -1, "message": "主机状态同步超时，对局结束"})
-			session.call("leave")
+			_advance_host_frame()
+	elif _awaiting_keyframe and now - _keyframe_request_usec > 4000000:
+		_request_keyframe()
 
 
 func _on_started() -> void:
-	if _terminal:
+	if _terminal or _playing:
 		return
 	_playing = true
 	match_state.frozen = false
-	_snapshot_wait = 0.0
 	_last_process_usec = Time.get_ticks_usec()
 	_last_snapshot_received_usec = _last_process_usec
-	_set_status("正在观战 · 只读" if spectator else "联机对战 · %s" % ("主机" if is_host else "玩家"))
-	if is_host and not spectator:
-		session.call("send_snapshot", capture_snapshot())
+	if is_host:
+		synchronized = true
+		last_checksum = str(simulation.call("checksum"))
+		_set_status("等待对手同步关键帧…")
+	else:
+		if spectator: session.call("send_watch_ready")
+		_request_keyframe()
+
+
+func _queue_command(command: Dictionary, side: int) -> bool:
+	if side not in [0, 1] or _pending_commands.size() >= 256 or not COMMAND_FIELDS.has(command.get("op")):
+		return false
+	for key in command:
+		if key not in COMMAND_FIELDS[command.op]: return false
+	# Replay the exact JSON representation on the host as well as other peers.
+	var canonical: Variant = JSON.parse_string(JSON.stringify(command, "", true, true))
+	if canonical is not Dictionary: return false
+	_pending_commands.append({"team": side, "command": canonical})
+	return true
+
+
+## AI decisions use the host's existing validator but wait for the same frame
+## boundary as manual input. Only primitive gameplay fields cross the wire.
+func queue_ai_command(command: Dictionary, context: CommandExecutionContext) -> Dictionary:
+	if not is_host or not synchronized or _terminal or _pending_commands.size() >= 256:
+		return {"ok": false, "reason": "network_not_ready"}
+	if command.get("op") == "noop": return {"ok": true, "reason": ""}
+	var wire := {}
+	for key in ["op", "unit_id", "target_id", "building_id", "builder_id", "pos", "formation_speed", "orientation", "building_def_id", "start", "end", "include_gate", "append_queue", "gate_state", "unit_def_id", "queue_id", "technology_id"]:
+		if not command.has(key): continue
+		if key in ["unit_id", "target_id", "building_id", "builder_id"]:
+			var node := Registry.resolve(int(command[key]))
+			if node == null: return {"ok": false, "reason": "missing_entity"}
+			wire[key] = entity_id(node)
+		else: wire[key] = command[key]
+	_pending_commands.append({"team": int(context.team), "command": JSON.parse_string(JSON.stringify(wire, "", true, true)), "ai_original": command.duplicate(true), "ai_context": context})
+	return {"ok": true, "reason": "queued_for_frame"}
+
+
+func _advance_host_frame() -> void:
+	_frame_running = true
+	var accepted: Array = []
+	var batch := _pending_commands.slice(0, 63)
+	_pending_commands = _pending_commands.slice(batch.size())
+	for item in batch:
+		var ok := false
+		if item.has("ai_context"):
+			ok = execute_team_command(item.command, int(item.team), item.ai_context, item.ai_original)
+		else:
+			ok = execute_team_command(item.command, int(item.team))
+		if ok:
+			_index_host_entities()
+			accepted.append({"team": int(item.team), "command": item.command})
+	var controller := _ai_controller()
+	if controller != null:
+		var states: Dictionary = controller.call("capture_states")
+		if states != _last_ai_states:
+			_last_ai_states = states.duplicate(true)
+			accepted.append({"team": local_team, "command": {"op": "ai_control_state", "states": states}})
+	for _step in FRAME_TICKS:
+		simulation.call("step", TICK_SECONDS)
+	tick += FRAME_TICKS
+	last_checksum = str(simulation.call("checksum"))
+	_frame_running = false
+	if not session.call("send_frame", tick, accepted, last_checksum):
+		_abort_sync("增量指令发送失败")
+		return
+	# Wait for the other player's checksum before advancing again. Observers
+	# never participate in this barrier and cannot pause the match.
+	if _pending_winner >= 0:
+		session.call("finish_match", _pending_winner)
 
 
 func _on_message(message: Dictionary) -> void:
-	if _terminal:
+	if _terminal or not _playing: return
+	match String(message.get("type", "")):
+		"command":
+			if not is_host: return
+			var side := int(message.get("team", -1))
+			var seq := int(message.get("seq", -1))
+			if side not in [0, 1] or seq <= int(_command_sequences[side]): return
+			_command_sequences[side] = seq
+			if message.get("command") is Dictionary: _queue_command(message.command, side)
+		"keyframe_request":
+			if not is_host or message.get("request_id") is not String: return
+			var full: Dictionary = simulation.call("capture")
+			last_checksum = str(simulation.call("checksum"))
+			if session.call("send_keyframe", message.request_id, tick, full, last_checksum):
+				keyframes_sent += 1
+		"keyframe":
+			if not is_host: _receive_keyframe(message)
+		"frame":
+			if not is_host: _receive_frame(message)
+		"ack":
+			if not is_host or int(message.get("team", -1)) != 1 - local_team: return
+			if int(message.get("tick", -1)) == tick and message.get("checksum") == last_checksum:
+				_guest_ack_tick = tick
+				_last_snapshot_received_usec = Time.get_ticks_usec()
+				_set_status("联机对战 · 主机 · 指令同步")
+		"error":
+			if message.get("code") == "keyframe_timeout" and not is_host: _request_keyframe()
+
+
+func _receive_frame(message: Dictionary) -> void:
+	if not synchronized or _awaiting_keyframe: return
+	var incoming := int(message.get("tick", -1))
+	if incoming <= tick: return # Duplicate delivery is harmless; never double-execute.
+	if incoming != tick + FRAME_TICKS or message.get("commands") is not Array or message.commands.size() > 64:
+		_request_keyframe()
 		return
-	if message.get("type") == "command" and is_host and not spectator:
-		var seq := int(message.get("seq", -1))
-		if seq <= _last_command_sequence or int(message.get("team", -1)) != 1:
+	_replaying = true
+	for item in message.commands:
+		if item is not Dictionary or item.get("command") is not Dictionary or not _valid_enum(item.get("team"), 0, 1):
+			_replaying = false
+			_request_keyframe()
 			return
-		_last_command_sequence = seq
-		if message.get("command") is Dictionary:
-			execute_team_command(message.command, 1)
-	elif message.get("type") == "snapshot" and not is_host:
-		if message.get("state") is Dictionary:
-			if apply_snapshot(message.state, int(message.get("seq", -1))): _send_watch_ready()
+		var command: Dictionary = item.command
+		if command.get("op") == "ai_control_state":
+			if int(item.team) != int(session.host_team) or not _valid_ai_control(command.get("states")):
+				_replaying = false
+				_request_keyframe()
+				return
+			var controller := _ai_controller()
+			if controller != null: controller.call("apply_remote_states", command.states)
+		elif not execute_team_command(command, int(item.team)):
+			_replaying = false
+			_request_keyframe()
+			return
+		_index_host_entities()
+	_replaying = false
+	for _step in FRAME_TICKS:
+		simulation.call("step", TICK_SECONDS)
+	tick = incoming
+	frames_received += 1
+	last_checksum = str(simulation.call("checksum"))
+	if message.get("checksum") != last_checksum:
+		desync_count += 1
+		_request_keyframe()
+		return
+	_resync_attempts = 0
+	_last_snapshot_received_usec = Time.get_ticks_usec()
+	if not spectator: session.call("send_ack", tick, last_checksum)
 
 
-func _send_watch_ready() -> void:
-	# Instantiating the initial army can block several rendered frames. The
-	# relay starts continuous fanout only after this first full apply finishes.
-	if spectator and _last_snapshot_sequence >= 0 and session != null and session.has_method("send_watch_ready"):
-		session.call("send_watch_ready")
+func _request_keyframe() -> void:
+	if is_host or _terminal: return
+	_resync_attempts += 1
+	if _resync_attempts > 4:
+		_abort_sync("状态同步校验连续失败，请确认双方使用相同游戏版本")
+		return
+	synchronized = false
+	_awaiting_keyframe = true
+	_keyframe_request_usec = Time.get_ticks_usec()
+	session.call("request_keyframe")
+	_set_status("正在同步观战关键帧…" if spectator else "正在校验并同步对局…")
+
+
+func _receive_keyframe(message: Dictionary) -> void:
+	if not _awaiting_keyframe or message.get("state") is not Dictionary or not _valid_enum(message.get("tick"), 0, 2147483647): return
+	var incoming := int(message.tick)
+	if incoming % FRAME_TICKS != 0: return
+	_last_snapshot_sequence = -1 # A repaired keyframe can be at the same tick.
+	if not simulation.call("restore", message.state, incoming):
+		_abort_sync("主机关键帧无效，无法恢复对局")
+		return
+	tick = incoming
+	last_checksum = str(simulation.call("checksum"))
+	if last_checksum != message.get("checksum"):
+		push_warning("Keyframe checksum mismatch at tick %d: expected %s, got %s" % [tick, message.get("checksum"), last_checksum])
+		_request_keyframe()
+		return
+	keyframes_received += 1
+	synchronized = true
+	_awaiting_keyframe = false
+	_last_snapshot_received_usec = Time.get_ticks_usec()
+	if not spectator: session.call("send_ack", tick, last_checksum)
+	_set_status("正在观战 · 只读 · 指令同步" if spectator else "联机对战 · 玩家 · 指令同步")
+
+
+func _abort_sync(message: String) -> void:
+	push_warning("Lockstep synchronization stopped at tick %d: %s" % [tick, message])
+	_on_ended({"winner": -1, "message": message})
+	if session != null: session.call("leave")
 
 
 func capture_snapshot() -> Dictionary:
@@ -728,8 +917,8 @@ static func _vec(value: Array) -> Vector2:
 func _on_winner(winner: int) -> void:
 	_stop_ai_control()
 	if is_host and not spectator and not _terminal and session != null:
-		session.call("send_snapshot", capture_snapshot())
-		session.call("finish_match", winner)
+		_pending_winner = winner
+		if not _frame_running: session.call("finish_match", winner)
 
 
 func _on_ended(info: Dictionary) -> void:
@@ -782,6 +971,7 @@ func _return_to_lobby() -> void:
 
 func _set_status(message: String) -> void:
 	if _status_label != null:
+		if _status_label.text == message: return
 		_status_label.text = message
 	status_changed.emit(message)
 

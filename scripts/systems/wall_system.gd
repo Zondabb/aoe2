@@ -3,6 +3,7 @@ extends RefCounted
 
 const Catalog := preload("res://scripts/data/game_catalog.gd")
 const Shore := preload("res://scripts/world/shore_geometry.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const MAX_SEGMENTS := 64
 const WALL_IDS := ["palisade_wall", "stone_wall", "fortified_wall"]
 
@@ -33,12 +34,13 @@ static func plan(building_def_id: String, start: Vector2, end: Vector2, include_
 	var result: Array[Dictionary] = []
 	if building_def_id not in WALL_IDS or not start.is_finite() or not end.is_finite(): return result
 	start = start.round()
-	var delta := end.round() - start
-	var axis := posmod(roundi(delta.angle() / (PI / 4.0)), 8)
-	var step := Vector2(roundf(cos(axis * PI / 4.0)), roundf(sin(axis * PI / 4.0)))
-	var count := roundi(maxf(absf(delta.x), absf(delta.y))) + 1
+	var delta := Vector2i(end.round() - start)
+	var count := maxi(absi(delta.x), absi(delta.y)) + 1
 	if count > MAX_SEGMENTS or (include_gate and count < 6): return result
-	var gate_start := floori(float(count - 4) / 2.0) if include_gate else -10
+	var axis := _integer_axis(delta)
+	var step: Vector2 = [Vector2(1, 0), Vector2(1, 1), Vector2(0, 1), Vector2(-1, 1), Vector2(-1, 0), Vector2(-1, -1), Vector2(0, -1), Vector2(1, -1)][axis]
+	@warning_ignore("integer_division")
+	var gate_start := (count - 4) / 2 if include_gate else -10
 	for index in count:
 		if include_gate and index >= gate_start and index < gate_start + 4:
 			if index == gate_start:
@@ -47,10 +49,22 @@ static func plan(building_def_id: String, start: Vector2, end: Vector2, include_
 		result.append({"building_def_id": building_def_id, "pos": start + step * index, "orientation": axis % 4})
 	return result
 
+## The 22.5-degree boundary is ay / ax = sqrt(2) - 1. Squaring
+## (ax + ay) compares it exactly without platform trigonometric routines.
+static func _integer_axis(delta: Vector2i) -> int:
+	var ax := absi(delta.x)
+	var ay := absi(delta.y)
+	if ax == 0 and ay == 0: return 0
+	var sum_squared := (ax + ay) * (ax + ay)
+	if sum_squared < 2 * ax * ax: return 0 if delta.x >= 0 else 4
+	if sum_squared < 2 * ay * ay: return 2 if delta.y >= 0 else 6
+	if delta.x >= 0: return 1 if delta.y >= 0 else 7
+	return 3 if delta.y >= 0 else 5
+
 static func _overlaps(a: Vector2, a_size: Vector2, b: Vector2, b_size: Vector2) -> bool:
-	var delta := (a - b).abs()
-	var half := (a_size + b_size) * 0.5 - Vector2.ONE * 0.001
-	return delta.x < half.x and delta.y < half.y
+	var delta := (Fixed.vector(a) - Fixed.vector(b)).abs()
+	var size := Fixed.vector(a_size) + Fixed.vector(b_size)
+	return 2 * int(delta.x) < int(size.x) - 2 and 2 * int(delta.y) < int(size.y) - 2
 
 ## Scene lookups shared by many wall pieces. Build one with scene_index(ctx)
 ## for a single validation pass and drop it afterwards: it is a snapshot and is
@@ -116,7 +130,7 @@ static func _indexed_segment(item: Dictionary, index: Dictionary) -> Node2D:
 				var node: Node2D = entry.node
 				var same_material: bool = String(entry.def_id) == item.building_def_id
 				var existing_wall := is_wall(entry.def_id) and is_wall(StringName(item.building_def_id))
-				if not (same_material or existing_wall) or node.get("sim_pos").distance_to(item.pos) >= 0.01: continue
+				if not (same_material or existing_wall) or Fixed.distance_squared(node.get("sim_pos"), item.pos) >= 100: continue
 				if entry.def_id == &"gate" and int(node.get("wall_orientation")) != int(item.orientation): continue
 				# Same winner as the full scan: the earliest matching child.
 				if best == null or int(entry.order) < best_order:
@@ -135,7 +149,7 @@ static func existing_segment(item: Dictionary, ctx: CommandExecutionContext, ind
 		# Reuse the existing structure as-is; this never grants an upgrade.
 		var same_material: bool = String(definition.id) == item.building_def_id
 		var existing_wall := is_wall(definition.id) and is_wall(StringName(item.building_def_id))
-		if (same_material or existing_wall) and node.get("sim_pos").distance_to(item.pos) < 0.01:
+		if (same_material or existing_wall) and Fixed.distance_squared(node.get("sim_pos"), item.pos) < 100:
 			if definition.id != &"gate" or int(node.get("wall_orientation")) == int(item.orientation): return node
 	return null
 

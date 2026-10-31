@@ -147,7 +147,7 @@ func _test_unit_range_and_launch() -> void:
 	check(shot.aim_pos.is_equal_approx(target.sim_pos), "ground aim remains the enemy position")
 	var direction := (shot.aim_pos - shot._origin).normalized()
 	shot._physics_process(0.1)
-	check(shot.sim_pos.is_equal_approx(shot._origin + direction * 2.8), "arrow advances at the original converted ground speed")
+	check(shot.sim_pos.distance_to(shot._origin + direction * 2.8) <= 2.0 / 1024.0, "arrow advances at the original ground speed within two coordinate sub-units")
 	var shooter_position := archer.sim_pos
 	archer._physics_process(STEP)
 	check(archer.sim_pos.is_equal_approx(shooter_position), "in-range archer holds position during its attack")

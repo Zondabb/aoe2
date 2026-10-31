@@ -28,9 +28,12 @@ class Reference extends RefCounted:
 	var ready := false
 	var dirty := true
 	func setup_rect(minimum: Vector2, maximum: Vector2, size: float) -> void:
-		map_origin = minimum
-		cell_size = maxf(size, 0.1)
-		grid_size = Vector2i(maxi(1, ceili((maximum.x - minimum.x) / cell_size)), maxi(1, ceili((maximum.y - minimum.y) / cell_size)))
+		# The simulation now defines geometry on a 1/1024 lattice. Keep the
+		# independent floating reference raster, with that same input contract.
+		map_origin = (minimum * 1024.0).round() / 1024.0
+		var end := (maximum * 1024.0).round() / 1024.0
+		cell_size = maxf(roundf(size * 1024.0), roundf(0.1 * 1024.0)) / 1024.0
+		grid_size = Vector2i(maxi(1, ceili((end.x - map_origin.x) / cell_size)), maxi(1, ceili((end.y - map_origin.y) / cell_size)))
 		reset()
 	func reset() -> void:
 		for team in Enums.Team.values():
@@ -53,12 +56,13 @@ class Reference extends RefCounted:
 			for entity in entities:
 				if not is_instance_valid(entity) or entity.team != team: continue
 				if entity.is_placement_ghost or entity.hp <= 0: continue
-				var radius: float = entity.resolved_vision_radius()
-				if radius <= 0: continue
+				var source_radius: float = entity.resolved_vision_radius()
+				if source_radius <= 0: continue
+				var radius := roundf(source_radius * 1024.0) / 1024.0
 				count += 1
 				# Original per-source circle spans, deliberately without shared
 				# row coverage or persistent cached masks.
-				var pos: Vector2 = entity.sim_pos
+				var pos: Vector2 = (entity.sim_pos * 1024.0).round() / 1024.0
 				var y0 := maxi(0, floori((pos.y - radius - map_origin.y) / cell_size))
 				var y1 := mini(grid_size.y - 1, floori((pos.y + radius - map_origin.y) / cell_size))
 				for y in range(y0, y1 + 1):

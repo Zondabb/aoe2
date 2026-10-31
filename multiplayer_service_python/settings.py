@@ -12,7 +12,7 @@ class Settings:
     max_queue: int = 128
     max_spectators_per_match: int = 16
     max_listed_matches: int = 64
-    max_message_bytes: int = 524_288
+    max_message_bytes: int = 4_194_304
     max_command_bytes: int = 16_384
     outgoing_queue_size: int = 8
     messages_per_second: float = 90.0
@@ -25,6 +25,8 @@ class Settings:
     match_timeout: float = 10_800.0
     send_timeout: float = 5.0
     sweep_interval: float = 1.0
+    keyframe_request_interval: float = 1.0
+    keyframe_timeout: float = 10.0
 
     def __post_init__(self) -> None:
         import math

@@ -12,20 +12,27 @@ const CONNECT_TIMEOUT := 12.0
 const RECEIVE_TIMEOUT := 25.0
 const READY_TIMEOUT := 40.0
 const PING_INTERVAL := 8.0
-const MAX_MESSAGE_BYTES := 512 * 1024
-## Bounded headroom while the first full world is being instantiated.
-const INBOUND_BUFFER_BYTES := MAX_MESSAGE_BYTES * 8
+const PROTOCOL_VERSION := 3
+const TICK_RATE := 30
+const FRAME_TICKS := 3
+const MAX_FRAME_COMMANDS := 64
+const MAX_COMMAND_BYTES := 16 * 1024
+const MAX_MESSAGE_BYTES := 4 * 1024 * 1024
+## A complete resumable keyframe is larger than a presentation snapshot.
+const INBOUND_BUFFER_BYTES := MAX_MESSAGE_BYTES * 4
 const MAX_PACKETS_PER_FRAME := 32
 const RECEIVE_BUDGET_USEC := 4000
 
 var state := "idle"
 var team := -1
+var host_team := -1
 var match_info: Dictionary = {}
 var server_url := "ws://127.0.0.1:8001/ws"
 var last_status := ""
 var last_result: Dictionary = {}
 ## A spectator has no team or command authority, regardless of selected view.
 var spectator := false
+## Kept empty for old diagnostic scripts; protocol v3 never caches snapshots.
 var latest_snapshot: Dictionary = {}
 var _peer: WebSocketPeer
 var _join_message: Dictionary = {}
@@ -33,15 +40,12 @@ var _state_elapsed := 0.0
 var _receive_elapsed := 0.0
 var _ping_elapsed := 0.0
 var _command_seq := 0
-var _snapshot_seq := 0
 var _ready_sent := false
 var _watch_ready_sent := false
 var _intent := "queue"
 var _last_poll_usec := -1
 var last_close_code := -1
 var last_close_reason := ""
-var snapshots_coalesced := 0
-var snapshots_skipped_sending := 0
 
 
 func join_queue(url: String, player_name: String, civ: String) -> Error:
@@ -65,7 +69,7 @@ func join_queue(url: String, player_name: String, civ: String) -> Error:
 		_peer = null
 		_set_status("无法连接联机服务器：%s" % error_string(err))
 		return err
-	_join_message = {"type": "join_queue", "protocol_version": 1, "name": name_text, "civ": civ}
+	_join_message = {"type": "join_queue", "protocol_version": PROTOCOL_VERSION, "name": name_text, "civ": civ}
 	_intent = "queue"
 	state = "connecting"
 	_state_elapsed = 0.0
@@ -153,27 +157,50 @@ func send_watch_ready() -> bool:
 
 
 func send_command(command: Dictionary) -> bool:
-	if spectator or _intent != "queue" or state != "playing" or team != 1:
+	if spectator or _intent != "queue" or state != "playing" or team not in [0, 1] or not _valid_command(command):
 		return false
 	_command_seq += 1
 	return _send({"type": "command", "seq": _command_seq, "command": command})
 
 
-func send_snapshot(snapshot: Dictionary) -> void:
-	if spectator or _intent != "queue" or state != "playing" or team != 0:
-		return
-	# Every packet is a complete world: an unsent intermediate state is obsolete.
-	# Do not disconnect healthy players because a brief stall filled the queue.
-	if _peer != null and _peer.get_current_outbound_buffered_amount() > MAX_MESSAGE_BYTES and int(snapshot.get("winner", -1)) < 0:
-		snapshots_skipped_sending += 1
-		return
-	_snapshot_seq += 1
-	if not _send({"type": "snapshot", "seq": _snapshot_seq, "state": snapshot}):
-		_fail("状态同步发送失败，请检查网络连接")
+func is_host() -> bool:
+	return not spectator and team in [0, 1] and team == host_team
+
+
+func send_frame(tick: int, commands: Array, checksum: String) -> bool:
+	if not is_host() or state != "playing" or not _valid_tick(tick, false) or not _valid_commands(commands) or not _valid_checksum(checksum):
+		return false
+	# Delta frames are ordered and indispensable. A failed send is reported to
+	# NetworkMatch; neither buffering pressure nor a newer frame may discard one.
+	return _send({"type": "frame", "tick": tick, "commands": commands, "checksum": checksum})
+
+
+func send_ack(tick: int, checksum: String) -> bool:
+	if state not in ["playing", "watching"] or is_host() or not _valid_tick(tick) or not _valid_checksum(checksum):
+		return false
+	return _send({"type": "ack", "tick": tick, "checksum": checksum})
+
+
+func request_keyframe() -> bool:
+	if state not in ["playing", "watching"] or is_host(): return false
+	if spectator and not _watch_ready_sent: return false
+	return _send({"type": "request_keyframe"})
+
+
+func send_keyframe(request_id: String, tick: int, full_state: Dictionary, checksum: String) -> bool:
+	if not is_host() or state != "playing" or not _valid_request_id(request_id) or not _valid_tick(tick) or full_state.is_empty() or not _valid_checksum(checksum):
+		return false
+	return _send({"type": "keyframe", "request_id": request_id, "tick": tick, "state": full_state, "checksum": checksum})
+
+
+func send_snapshot(_snapshot: Dictionary) -> void:
+	# Protocol v1 diagnostics may still reference this method. It deliberately
+	# cannot publish a legacy snapshot into a deterministic match.
+	pass
 
 
 func finish_match(winner: int) -> void:
-	if not spectator and _intent == "queue" and state == "playing" and team == 0:
+	if is_host() and _intent == "queue" and state == "playing" and winner in [0, 1]:
 		_send({"type": "finish_match", "winner": winner})
 
 
@@ -184,10 +211,10 @@ func leave() -> void:
 		_peer = null
 	state = "idle"
 	team = -1
+	host_team = -1
 	match_info = {}
 	_join_message = {}
 	_command_seq = 0
-	_snapshot_seq = 0
 	_ready_sent = false
 	_watch_ready_sent = false
 	spectator = false
@@ -213,7 +240,6 @@ func _process(_delta: float) -> void:
 			_join_message = {}
 		var receive_started := Time.get_ticks_usec()
 		var processed := 0
-		var newest_snapshot: Dictionary = {}
 		while _peer != null and _peer.get_available_packet_count() > 0 and processed < MAX_PACKETS_PER_FRAME:
 			if processed > 0 and Time.get_ticks_usec() - receive_started >= RECEIVE_BUDGET_USEC: break
 			var packet := _peer.get_packet()
@@ -226,17 +252,7 @@ func _process(_delta: float) -> void:
 				_fail("服务器返回了无效消息")
 				return
 			_receive_elapsed = 0.0
-			if parsed.get("type") == "snapshot" and state in ["playing", "watching"]:
-				if not newest_snapshot.is_empty(): snapshots_coalesced += 1
-				if _newer_snapshot(parsed, newest_snapshot): newest_snapshot = parsed
-			else:
-				# Preserve ordering around result/control messages.
-				if not newest_snapshot.is_empty():
-					_handle_message(newest_snapshot)
-					newest_snapshot = {}
-				_handle_message(parsed)
-		if not newest_snapshot.is_empty() and _peer != null:
-			_handle_message(newest_snapshot)
+			_handle_message(parsed)
 		if _peer == null:
 			return
 		if _ping_elapsed >= PING_INTERVAL:
@@ -256,14 +272,10 @@ func _process(_delta: float) -> void:
 	elif _receive_elapsed > RECEIVE_TIMEOUT:
 		_fail("联机连接超时，对局已暂停")
 
-func _newer_snapshot(candidate: Dictionary, current: Dictionary) -> bool:
-	var sequence: Variant = candidate.get("seq")
-	if sequence is not int and sequence is not float: return false
-	if not is_finite(float(sequence)) or float(sequence) < 1.0 or float(sequence) != floor(float(sequence)): return false
-	return current.is_empty() or float(sequence) > float(current.get("seq", -1))
-
-
 func _handle_message(message: Dictionary) -> void:
+	if message.get("type") is not String:
+		_fail("服务器返回了无效消息")
+		return
 	match String(message.get("type", "")):
 		"matches":
 			if state not in ["connecting", "browsing"] or _intent != "browse": return
@@ -282,6 +294,7 @@ func _handle_message(message: Dictionary) -> void:
 				return
 			spectator = true
 			team = -1
+			host_team = int(message.host_team)
 			match_info = message.duplicate(true)
 			match_info["role"] = "spectator"
 			latest_snapshot = {}
@@ -290,6 +303,7 @@ func _handle_message(message: Dictionary) -> void:
 			_set_status("观战连接成功，正在载入对局…")
 			matched.emit(match_info)
 		"queued":
+			if state != "connecting" or _intent != "queue" or spectator: return
 			state = "queued"
 			_state_elapsed = 0.0
 			_set_status("正在匹配对手…")
@@ -299,10 +313,11 @@ func _handle_message(message: Dictionary) -> void:
 		"match_found":
 			if spectator or _intent != "queue" or state not in ["connecting", "queued"]:
 				return
-			team = int(message.get("team", -1))
-			if team not in [0, 1] or int(message.get("host_team", -1)) != 0:
+			if not _valid_wire_team(message.get("team")) or not _valid_match(message):
 				_fail("服务器返回了无效的对局信息")
 				return
+			team = int(message.team)
+			host_team = int(message.host_team)
 			match_info = message.duplicate(true)
 			state = "matched"
 			_state_elapsed = 0.0
@@ -311,11 +326,19 @@ func _handle_message(message: Dictionary) -> void:
 		"start":
 			if state != "matched":
 				return
+			if message.get("match_id") != match_info.get("match_id") or not _same_match_parameters(message):
+				_fail("开局消息与当前对局不一致")
+				return
 			state = "playing"
 			_state_elapsed = 0.0
 			_set_status("联机对战中")
 			started.emit()
 		"match_ended":
+			if state not in ["matched", "playing", "watching"] or message.get("match_id") != match_info.get("match_id"):
+				return
+			if message.get("winner") != null and not _valid_wire_team(message.winner):
+				_fail("服务器返回了无效的对局结果")
+				return
 			state = "idle"
 			var result := message.duplicate(true)
 			if result.get("winner") == null:
@@ -336,6 +359,10 @@ func _handle_message(message: Dictionary) -> void:
 			# A room can end while its observer finishes loading and sends ready.
 			# That stale reply must not replace an already delivered match result.
 			if state == "idle" and spectator and not last_result.is_empty(): return
+			if state in ["playing", "watching"] and message.get("code") in ["keyframe_timeout", "keyframe_rate_limited"]:
+				_set_status("正在重试关键帧同步…")
+				message_received.emit(message)
+				return
 			if _intent in ["browse", "watch"] and not spectator:
 				_intent = "browse"
 				state = "browsing"
@@ -345,19 +372,31 @@ func _handle_message(message: Dictionary) -> void:
 				var code := String(message.get("code", ""))
 				var text := _connection_reason(code) if code in ["rate_limited", "slow_consumer", "idle_timeout", "send_timeout"] else String(message.get("message", "未知错误"))
 				_fail("联机服务错误：%s" % text)
-		"command", "snapshot":
-			if state == "watching" and spectator and message.get("type") == "snapshot":
-				var sequence: Variant = message.get("seq")
-				if message.get("state") is Dictionary and (sequence is float or sequence is int):
-					if is_finite(float(sequence)) and float(sequence) == floor(float(sequence)) and float(sequence) > float(latest_snapshot.get("seq", -1)):
-						latest_snapshot = message.duplicate(true)
-						message_received.emit(message)
-			elif state == "playing" and not spectator:
-				message_received.emit(message)
+		"command", "frame", "ack", "keyframe_request", "keyframe":
+			if state not in ["playing", "watching"]: return
+			if not _valid_incremental_message(message):
+				_fail("服务器返回了无效的增量同步消息")
+				return
+			message_received.emit(message)
+		"snapshot":
+			if state in ["matched", "playing", "watching"]:
+				_fail("联机协议版本不兼容，请更新游戏客户端和联机服务")
 
 
 func _valid_spectator_match(message: Dictionary) -> bool:
-	if message.get("match_id") is not String or String(message.match_id).is_empty() or not _valid_wire_team(message.get("host_team")) or int(message.host_team) != 0:
+	return message.get("role") == "spectator" and _valid_match(message)
+
+
+func _same_match_parameters(message: Dictionary) -> bool:
+	for key in ["protocol_version", "host_team", "seed", "tick_rate", "frame_ticks"]:
+		if not message.has(key) or message[key] != match_info.get(key): return false
+	return true
+
+
+func _valid_match(message: Dictionary) -> bool:
+	if not _valid_request_id(message.get("match_id")) or not _valid_wire_team(message.get("host_team")):
+		return false
+	if not _wire_integer(message.get("protocol_version"), PROTOCOL_VERSION, PROTOCOL_VERSION) or not _wire_integer(message.get("tick_rate"), TICK_RATE, TICK_RATE) or not _wire_integer(message.get("frame_ticks"), FRAME_TICKS, FRAME_TICKS) or not _wire_integer(message.get("seed")):
 		return false
 	var roster: Variant = message.get("players")
 	if roster is not Array or roster.size() != 2: return false
@@ -366,6 +405,60 @@ func _valid_spectator_match(message: Dictionary) -> bool:
 		if player is not Dictionary or not _valid_wire_team(player.get("team")) or player.get("name") is not String or player.get("civ") not in ["chinese", "teutons"]: return false
 		teams[int(player.team)] = true
 	return teams.size() == 2
+
+
+func _valid_incremental_message(message: Dictionary) -> bool:
+	match message.type:
+		"command":
+			return is_host() and _valid_wire_team(message.get("team")) and _wire_integer(message.get("seq"), 1) and _valid_command(message.get("command"))
+		"frame":
+			return not is_host() and _valid_tick(message.get("tick"), false) and _valid_commands(message.get("commands")) and _valid_checksum(message.get("checksum"))
+		"ack":
+			return is_host() and _valid_wire_team(message.get("team")) and int(message.team) != host_team and _valid_tick(message.get("tick")) and _valid_checksum(message.get("checksum"))
+		"keyframe_request":
+			return is_host() and _valid_request_id(message.get("request_id"))
+		"keyframe":
+			return not is_host() and _valid_request_id(message.get("request_id")) and _valid_tick(message.get("tick")) and message.get("state") is Dictionary and not message.state.is_empty() and _valid_checksum(message.get("checksum"))
+	return false
+
+
+func _wire_integer(value: Variant, minimum := 0, maximum := 9007199254740991) -> bool:
+	return (value is int or value is float) and is_finite(float(value)) and float(value) == floor(float(value)) and float(value) >= minimum and float(value) <= maximum
+
+
+func _valid_tick(value: Variant, allow_zero := true) -> bool:
+	return _wire_integer(value, 0 if allow_zero else FRAME_TICKS) and int(value) % FRAME_TICKS == 0
+
+
+func _valid_checksum(value: Variant) -> bool:
+	return _valid_hex(value, 64)
+
+
+func _valid_request_id(value: Variant) -> bool:
+	return _valid_hex(value, 32)
+
+
+func _valid_hex(value: Variant, length: int) -> bool:
+	if value is not String or value.length() != length: return false
+	for character in value:
+		if character not in "0123456789abcdef": return false
+	return true
+
+
+func _valid_command(value: Variant) -> bool:
+	if value is not Dictionary or value.is_empty() or value.size() > 10 or value.get("op") is not String: return false
+	if value.op.is_empty() or value.op.length() > 64: return false
+	for key in ["team", "player_id", "match_id", "host_team"]:
+		if value.has(key): return false
+	if value.op == "set_ai_control" and (value.size() != 2 or value.get("enabled") is not bool): return false
+	return JSON.stringify(value, "", true, true).to_utf8_buffer().size() <= MAX_COMMAND_BYTES
+
+
+func _valid_commands(value: Variant) -> bool:
+	if value is not Array or value.size() > MAX_FRAME_COMMANDS: return false
+	for entry in value:
+		if entry is not Dictionary or entry.size() != 2 or not _valid_wire_team(entry.get("team")) or not _valid_command(entry.get("command")): return false
+	return true
 
 
 func _valid_wire_team(value: Variant) -> bool:
@@ -382,11 +475,12 @@ func _connection_reason(code: String) -> String:
 
 
 func _send(message: Dictionary) -> bool:
-	if (spectator or _intent == "watch") and message.get("type") in ["command", "snapshot", "ready", "finish_match", "join_queue"]:
+	if message.get("type") == "snapshot": return false
+	if (spectator or _intent == "watch") and message.get("type") in ["command", "frame", "keyframe", "ready", "finish_match", "join_queue"]:
 		return false
 	if _peer == null or _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return false
-	var payload := JSON.stringify(message)
+	var payload := JSON.stringify(message, "", true, true)
 	if payload.to_utf8_buffer().size() > MAX_MESSAGE_BYTES:
 		return false
 	return _peer.send_text(payload) == OK
