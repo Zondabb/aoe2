@@ -140,7 +140,13 @@ var _path_retry_cooldown_units: int = 0
 var _path_retry_cooldown: float:
 	get: return Fixed.time_to_seconds(_path_retry_cooldown_units)
 	set(value): _path_retry_cooldown_units = Fixed.time_from_seconds(value)
-var _locomotion_velocity := Vector2.ZERO
+## Fixed units per second, measured from this unit's last movement update.
+## The float view keeps keyframes, saves and animation code unchanged.
+var _locomotion_velocity_q := Vector2i.ZERO
+var _locomotion_velocity: Vector2:
+	get: return Fixed.to_vector(_locomotion_velocity_q)
+	set(value): _locomotion_velocity_q = Fixed.vector(value)
+## Scheduled steering state of LocalAvoidance (integers only).
 var _avoidance_cache := {}
 var _stuck_seconds_units: int = 0
 var _stuck_seconds: float:
@@ -281,7 +287,9 @@ func _physics_process(delta: float) -> void:
 	else:
 		_update_idle_animation(delta)
 	var moved_q := _sim_pos_q - Fixed.vector(frame_start)
-	_locomotion_velocity = Fixed.to_vector(Vector2i(Fixed.mul_div(moved_q.x, Fixed.TIME_SCALE, maxi(1, time_units)), Fixed.mul_div(moved_q.y, Fixed.TIME_SCALE, maxi(1, time_units))))
+	_locomotion_velocity_q = Vector2i(Fixed.mul_div(moved_q.x, Fixed.TIME_SCALE, maxi(1, time_units)), Fixed.mul_div(moved_q.y, Fixed.TIME_SCALE, maxi(1, time_units)))
+	# Neighbours steer around this unit's settled position and velocity.
+	_vision_sync_motion()
 	if order == Enums.OrderType.MOVE:
 		_progress_elapsed_units += time_units
 		if _progress_elapsed_units >= 2 * Fixed.TIME_SCALE:
@@ -670,6 +678,7 @@ func take_damage_fixed(amount_q: int, source: Node = null) -> void:
 	damaged.emit(self)
 	_refresh_world_hp_bar()
 	if hp <= 0.0:
+		_vision_sync_motion()
 		_begin_die()
 		return
 	_try_retaliate(source)
@@ -1144,42 +1153,55 @@ func _move_resolve_context() -> Dictionary:
 
 
 func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_context: Dictionary = {}, delta := 1.0 / 60.0) -> void:
-	var units: Array = []
-	var solids: Array = []
-	var query_radius := maxf(Avoidance.NEIGHBOR_RANGE, 2.0 * (_pathfinding_radius() + def.move_speed * (Avoidance.HORIZON + delta)))
+	var step_time := maxi(1, _simulation_time_delta(delta))
+	var from_q := Fixed.vector(from_pos)
+	var displacement := Fixed.vector(desired_pos) - from_q
+	var preferred := Vector2i(Fixed.mul_div(displacement.x, Fixed.TIME_SCALE, step_time), Fixed.mul_div(displacement.y, Fixed.TIME_SCALE, step_time))
+	var radius := _pathfinding_radius()
+	var radius_q := Fixed.coord(radius)
+	var field: RefCounted = null
+	var boxes := PackedInt64Array()
+	var water: Array = []
 	if is_inside_tree():
 		var vision := _get_vision_service()
-		if vision != null and vision.has_method("units_in_radius"):
-			units = vision.units_in_radius(self, query_radius)
-		elif vision != null and vision.has_method("others_in_radius"):
-			for other in vision.others_in_radius(self, query_radius):
-				if other.get("def") is UnitDef:
-					units.append(other)
-		else:
-			for other in get_tree().get_nodes_in_group("units"):
-				if other != self and sim_pos.distance_squared_to(other.sim_pos) < query_radius * query_radius:
-					units.append(other)
+		if vision != null: field = vision.get("unit_field")
 		var nav_holder := get_tree().get_first_node_in_group("nav_service")
-		if nav_holder != null and nav_holder.has_method("query_static_blockers"):
-			# Include the complete prediction circle: avoidance may turn in any
-			# direction, and large footprints are indexed by all occupied buckets.
-			var reach := _pathfinding_radius() + def.move_speed * maxf(Avoidance.HORIZON, delta)
-			solids = nav_holder.query_static_blockers(from_pos, from_pos, reach)
+		# Include the complete prediction circle: avoidance may turn in any
+		# direction, and large footprints are indexed by all occupied buckets.
+		var reach := radius + def.move_speed * maxf(Avoidance.HORIZON_TIME / float(Fixed.TIME_SCALE), delta) + 1.0
+		if nav_holder != null and nav_holder.has_method("query_static_boxes"):
+			var found: Array = nav_holder.query_static_boxes(from_pos, reach, radius_q)
+			boxes = found[0]
+			water = found[1]
 		else:
 			# Small standalone arenas may not install the navigation holder.
+			var solids: Array = []
 			solids.append_array(get_tree().get_nodes_in_group("buildings"))
 			solids.append_array(get_tree().get_nodes_in_group("path_blockers"))
 			for resource in get_tree().get_nodes_in_group("resource_nodes"):
 				if resource.amount > 0 and ResourceNode.resource_blocks_pathfinding(resource.resource_type):
 					solids.append(resource)
-	var preferred := (desired_pos - from_pos) / maxf(delta, 0.00001)
-	var resolved := Avoidance.step_scheduled(self, preferred, _locomotion_velocity, delta, units, solids, _move_target, _avoidance_cache)
-	sim_pos = _bounded_integer_step(from_pos, resolved, _movement_step(delta))
+			var found := CollisionResolverScript.static_boxes(solids, radius_q)
+			boxes = found[0]
+			water = found[1]
+	if field == null: field = _standalone_field()
+	var motion := Avoidance.motion_record(from_q, radius_q, preferred, _locomotion_velocity_q, step_time, Fixed.vector(_move_target), true, int(get_meta("net_id", get_instance_id())))
+	var resolved := Avoidance.steer(field, get_instance_id(), motion, boxes, water, CollisionResolverScript.bounds_record(), _avoidance_cache)
+	sim_pos = _bounded_integer_step(from_pos, Fixed.to_vector(resolved), _movement_step(delta))
 	_vision_sync_position()
 
-## Avoidance still scores float velocities; its authoritative result is a grid
-## position with a strict integer speed limit. Truncate components toward zero
-## using a ceil length so neither normalization nor rounding exceeds the budget.
+## Units outside a match scene (tests, tools) steer around the "units" group.
+func _standalone_field() -> RefCounted:
+	var field := UnitFieldScript.new()
+	if is_inside_tree():
+		for other in get_tree().get_nodes_in_group("units"):
+			if other is UnitAgent and other.def != null:
+				field.set_unit(other.get_instance_id(), other._sim_pos_q, Fixed.coord(CollisionResolverScript.unit_radius(other)), other._locomotion_velocity_q, other.hp_q > 0)
+	return field
+
+## Avoidance returns a grid position; enforce the strict integer speed limit.
+## Truncate components toward zero using a ceil length so neither
+## normalization nor rounding exceeds the budget.
 @warning_ignore("integer_division")
 func _bounded_integer_step(from: Vector2, to: Vector2, budget: int) -> Vector2:
 	var origin := Fixed.vector(from)
@@ -2108,6 +2130,12 @@ func _vision_sync_position() -> void:
 	var vision := _get_vision_service()
 	if vision != null and vision.has_method("sync_position"):
 		vision.call("sync_position", self)
+
+
+func _vision_sync_motion() -> void:
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("sync_motion"):
+		vision.call("sync_motion", self)
 
 ## Change a researched unit line without resetting its orders or registering population again.
 func apply_definition_upgrade(value: UnitDef) -> void:

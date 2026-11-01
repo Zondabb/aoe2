@@ -2,14 +2,23 @@ extends SceneTree
 ## Run unchanged before/after; measures the actual generated map's static work.
 const Grid := preload("res://scripts/systems/nav_grid_service.gd")
 const Avoidance := preload("res://scripts/systems/local_avoidance.gd")
+const Field := preload("res://scripts/systems/unit_field.gd")
+const Collision := preload("res://scripts/systems/collision_resolver.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const Catalog := preload("res://scripts/data/game_catalog.gd")
 class Probe extends RefCounted:
 	var sim_pos := Vector2(-120, -120)
 	var def: UnitDef
-	var hp := 30.0
 	var velocity := Vector2.ZERO
-	func locomotion_velocity() -> Vector2:
-		return velocity
+
+## One full (unscheduled) steering solve, script or native.
+func _solve(field: RefCounted, key: int, body: Probe, preferred: Vector2, boxes: PackedInt64Array, use_native: bool) -> Vector2i:
+	var radius := Fixed.coord(body.def.resolved_footprint_radius())
+	var time := Fixed.time_from_seconds(1.0 / 60.0)
+	var motion := Avoidance.motion_record(Fixed.vector(body.sim_pos), radius, Fixed.vector(preferred), Fixed.vector(body.velocity), time, Fixed.vector(body.sim_pos + preferred * 10.0), true, key)
+	var bounds := PackedInt64Array([0, 0, 0, 0, 0])
+	if use_native: return field.steer(key, motion, boxes, bounds, {})
+	return Avoidance.steer_with_field(field, key, motion, boxes, [], bounds, {})
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -47,7 +56,10 @@ func _run() -> void:
 	var cached_path_ms := _time(func(): nav.find_path(Vector2(-120, -120), Vector2(120, 120), 0.35), 20)
 	var unit := Probe.new()
 	unit.def = Catalog.get_unit("villager")
-	var avoid_ms := _time(func(): Avoidance.step(unit, Vector2(3.2, 0), Vector2.ZERO, 1.0 / 60.0, [], blockers), 100)
+	var empty := Field.new()
+	var radius_q := Fixed.coord(unit.def.resolved_footprint_radius())
+	var all_boxes: PackedInt64Array = Collision.static_boxes(blockers, radius_q)[0]
+	var avoid_ms := _time(func(): _solve(empty, 1, unit, Vector2(3.2, 0), all_boxes, false), 100)
 	var holder := world.get_node("NavService")
 	var query_ms := -1.0
 	var local_count := -1
@@ -56,7 +68,8 @@ func _run() -> void:
 		query_ms = _time(func(): holder.query_static_blockers(unit.sim_pos, unit.sim_pos, 5.0), 100)
 		var local: Array = holder.query_static_blockers(unit.sim_pos, unit.sim_pos, 5.0)
 		local_count = local.size()
-		local_avoid_ms = _time(func(): Avoidance.step(unit, Vector2(3.2, 0), Vector2.ZERO, 1.0 / 60.0, [], local), 100)
+		var local_boxes: PackedInt64Array = holder.query_static_boxes(unit.sim_pos, 5.0, radius_q)[0]
+		local_avoid_ms = _time(func(): _solve(empty, 1, unit, Vector2(3.2, 0), local_boxes, false), 100)
 	var result := {"entities": world.get_node("Entities").get_child_count(), "blockers": blockers.size(),
 		"map_size": [bounds.size.x,bounds.size.y], "setup_ms": setup_ms, "rebuild_ms": rebuild_ms,
 		"unchanged_rebuild_ms": unchanged_rebuild_ms,
@@ -64,28 +77,25 @@ func _run() -> void:
 		"avoid_all_blockers_ms": avoid_ms, "spatial_query_ms": query_ms, "spatial_local_count": local_count,
 		"avoid_local_ms": local_avoid_ms}
 	var crowd: Array[Probe] = []
-	var neighbors: Array[Array] = []
 	for index in 48:
 		var body := Probe.new()
 		body.def = Catalog.get_unit("militia")
 		body.sim_pos = Vector2(index % 8, index / 8) * 2.0
 		body.velocity = Vector2(3.6, 0)
 		crowd.append(body)
-	for body in crowd:
-		var nearby: Array = []
-		for other in crowd:
-			if other != body and body.sim_pos.distance_squared_to(other.sim_pos) <= 100:
-				nearby.append(other)
-		neighbors.append(nearby)
-	result["aligned_48_avoidance_ms"] = _time(func():
-		for index in crowd.size():
-			Avoidance.step(crowd[index], Vector2(3.6, 0), Vector2(3.6, 0), 1.0 / 60.0, neighbors[index], [])
-	, 50)
-	for body in crowd: body.velocity = Vector2.ZERO
-	result["stationary_48_avoidance_ms"] = _time(func():
-		for index in crowd.size():
-			Avoidance.step(crowd[index], Vector2(3.6, 0), Vector2.ZERO, 1.0 / 60.0, neighbors[index], [])
-	, 20)
+	var fields := {"script": Field.new()}
+	if Field.native_available(): fields["native"] = ClassDB.instantiate("AoeUnitField")
+	for label in fields:
+		var field: RefCounted = fields[label]
+		for velocity in [Vector2(3.6, 0), Vector2.ZERO]:
+			for index in crowd.size():
+				crowd[index].velocity = velocity
+				field.set_unit(index + 1, Fixed.vector(crowd[index].sim_pos), Fixed.coord(crowd[index].def.resolved_footprint_radius()), Fixed.vector(velocity), true)
+			var name := "%s_48_avoidance_%s_ms" % ["aligned" if velocity != Vector2.ZERO else "stationary", label]
+			result[name] = _time(func():
+				for index in crowd.size():
+					_solve(field, index + 1, crowd[index], Vector2(3.6, 0), PackedInt64Array(), label == "native")
+			, 50 if velocity != Vector2.ZERO else 20)
 	var suffix := "before" if "--before" in OS.get_cmdline_user_args() else "after"
 	if "--crowd-before" in OS.get_cmdline_user_args(): suffix = "avoidance-before"
 	var file := FileAccess.open("res://.godot/navigation-%s.json" % suffix, FileAccess.WRITE)

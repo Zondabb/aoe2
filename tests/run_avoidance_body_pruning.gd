@@ -1,15 +1,11 @@
 extends SceneTree
-## Compare every velocity candidate against the complete original neighbour set.
+## Neighbour pruning (the field's reach test and the solver's swept prefilter)
+## must not change any candidate's integer risk compared with evaluating the
+## complete neighbour set, including bodies placed exactly on each boundary.
+## Runs the script field, and the native field when the extension is loaded.
 const Avoidance := preload("res://scripts/systems/local_avoidance.gd")
-const Collision := preload("res://scripts/systems/collision_resolver.gd")
-
-class Body extends RefCounted:
-	var sim_pos := Vector2.ZERO
-	var def := UnitDef.new()
-	var hp := 40.0
-	var velocity := Vector2.ZERO
-	func locomotion_velocity() -> Vector2:
-		return velocity
+const Field := preload("res://scripts/systems/unit_field.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 var checks := 0
 var failures := 0
@@ -22,61 +18,93 @@ func check(condition: bool, message: String) -> void:
 		if failures < 8: push_error(message)
 
 func _initialize() -> void:
-	var random := RandomNumberGenerator.new()
-	random.seed = 994513
-	var unit := Body.new()
-	for scenario in 250:
-		unit.sim_pos = Vector2(random.randf_range(-50, 50), random.randf_range(-50, 50))
-		unit.def.footprint_radius = random.randf_range(0.2, 2.0)
-		var radius := Collision.unit_radius(unit)
-		var speed := random.randf_range(0.01, 12)
-		var delta := random.randf_range(0.005, 1.8)
-		var preferred := Vector2.from_angle(random.randf_range(-PI, PI)) * speed
-		var neighbors: Array = [unit]
-		var complete: Array[Dictionary] = []
-		for index in 28:
-			var body := Body.new()
-			body.def.footprint_radius = random.randf_range(0.2, 2)
-			body.velocity = Vector2(random.randf_range(-12, 12), random.randf_range(-12, 12))
-			var combined := radius + Collision.unit_radius(body)
-			var direction := Vector2.from_angle(random.randf_range(-PI, PI))
-			var distance: float
-			match index % 7:
-				0: distance = random.randf_range(0.0, combined) # Current overlaps.
-				1: distance = combined + speed * delta # Swept circle boundary.
-				2: distance = combined + Avoidance.MARGIN + (speed + body.velocity.length()) * maxf(Avoidance.HORIZON, delta)
-				3: distance = (combined + Avoidance.MARGIN + (speed + body.velocity.length()) * maxf(Avoidance.HORIZON, delta)) * 1.00001
-				_: distance = random.randf_range(0, 60)
-			body.sim_pos = unit.sim_pos + direction * distance
-			neighbors.append(body)
-			var relative := body.sim_pos - unit.sim_pos
-			complete.append({"relative": relative, "distance_sq": relative.length_squared(), "velocity": body.velocity, "radius": combined})
-		var pruned := Avoidance._snapshot_bodies(unit, unit.sim_pos, radius, speed, delta, neighbors)
-		discarded += complete.size() - pruned.size()
-		for scale in [1.0, 0.5, 0.0]:
-			for angle in Avoidance.ANGLES:
-				var velocity := preferred.rotated(deg_to_rad(angle)) * float(scale)
-				var expected := _reference_risk(velocity, delta, complete)
-				var actual := Avoidance._snapshot_risk(velocity, delta, pruned)
-				check((is_inf(expected) and is_inf(actual)) or is_equal_approx(expected, actual), "full risk unchanged at scenario %d / %s / %s" % [scenario, scale, angle])
-				var limit := random.randf_range(0.01, 12)
-				var bounded := Avoidance._snapshot_risk(velocity, delta, pruned, limit)
-				check((expected >= limit and bounded >= limit) or (expected < limit and is_equal_approx(expected, bounded)), "bounded candidate eligibility unchanged")
-	check(discarded > 1000, "random cases exercise distant-body pruning")
-	print("AVOIDANCE BODY PRUNING: %d checks, %d failures, %d discarded neighbours" % [checks, failures, discarded])
+	var fields: Array = [Field.new()]
+	if Field.native_available(): fields.append(ClassDB.instantiate("AoeUnitField"))
+	for field in fields:
+		_run(field)
+	print("AVOIDANCE BODY PRUNING: %d checks, %d failures, %d discarded neighbours, fields %d" % [checks, failures, discarded, fields.size()])
 	quit(0 if failures == 0 else 1)
 
-func _reference_risk(velocity: Vector2, delta: float, bodies: Array[Dictionary]) -> float:
-	var score := 0.0
-	var motion := velocity * delta
-	for body in bodies:
-		var relative: Vector2 = body.relative
-		var radius: float = body.radius
-		if relative.length_squared() < radius * radius - 0.0001:
-			if motion.dot(-relative) < -0.00001: return INF
+func _run(field: RefCounted) -> void:
+	var random := RandomNumberGenerator.new()
+	random.seed = 994513
+	for scenario in 250:
+		field.clear()
+		var from := Vector2i(random.randi_range(-50000, 50000), random.randi_range(-50000, 50000))
+		var radius := random.randi_range(200, 2048)
+		var speed := random.randi_range(10, 8000)
+		var step_time := random.randi_range(150, 30720)
+		var horizon := maxi(Avoidance.HORIZON_TIME, step_time)
+		var angle := random.randf_range(-PI, PI)
+		var preferred := Vector2i(roundi(cos(angle) * speed), roundi(sin(angle) * speed))
+		speed = Fixed.isqrt(int(preferred.x) * preferred.x + int(preferred.y) * preferred.y)
+		var complete := PackedInt64Array()
+		for index in 28:
+			var body_radius := random.randi_range(200, 2048)
+			var velocity := Vector2i(random.randi_range(-8000, 8000), random.randi_range(-8000, 8000))
+			var combined := radius + body_radius
+			var other_speed := Fixed.isqrt(int(velocity.x) * velocity.x + int(velocity.y) * velocity.y)
+			var reach: int = combined + Avoidance.MARGIN_Q + Fixed.mul_div(speed + other_speed, horizon, Fixed.TIME_SCALE)
+			var distance: int
+			match index % 7:
+				0: distance = random.randi_range(0, combined) # Current overlaps.
+				1: distance = combined + Fixed.mul_div(speed, step_time, Fixed.TIME_SCALE) # Swept circle boundary.
+				2: distance = reach # Exactly on the pruning boundary.
+				3: distance = reach + 1
+				_: distance = random.randi_range(0, 60000)
+			var direction := random.randf_range(-PI, PI)
+			var offset := Vector2i(roundi(cos(direction) * distance), roundi(sin(direction) * distance))
+			field.set_unit(100 + index, from + offset, body_radius, velocity, true)
+			complete.append_array([offset.x, offset.y, velocity.x, velocity.y, combined])
+		field.set_unit(1, from, radius, Vector2i.ZERO, true)
+		var pruned: PackedInt64Array = field.gather(1, from, radius, speed, horizon)
+		discarded += (complete.size() - pruned.size()) / 5
+		for scale in 3:
+			for entry in Avoidance.ANGLES:
+				var velocity := Vector2i.ZERO
+				if scale < 2:
+					velocity = Avoidance.rotate(preferred, entry[1], entry[2])
+					if scale == 1: velocity = Vector2i(Fixed.mul_div(velocity.x, 1, 2), Fixed.mul_div(velocity.y, 1, 2))
+				var expected := _reference_risk(velocity, step_time, complete)
+				var actual := Avoidance.risk(velocity, step_time, pruned, Avoidance.RISK_INF)
+				check(expected == actual, "full risk unchanged at scenario %d / %d (%d != %d)" % [scenario, scale, expected, actual])
+				var limit := random.randi_range(1, 800000)
+				var bounded := Avoidance.risk(velocity, step_time, pruned, limit)
+				check((expected >= limit and bounded >= limit) or (expected < limit and expected == bounded), "bounded candidate eligibility unchanged")
+	check(discarded > 1000, "random cases exercise distant-body pruning")
+
+## Every body, no swept prefilter: the closest point is always evaluated.
+@warning_ignore("integer_division")
+func _reference_risk(velocity: Vector2i, step_time: int, bodies: PackedInt64Array) -> int:
+	var motion := Avoidance.motion_for(velocity, step_time)
+	var motion_sq := int(motion.x) * motion.x + int(motion.y) * motion.y
+	var total := 0
+	for index in range(0, bodies.size(), 5):
+		var rx: int = bodies[index]
+		var ry: int = bodies[index + 1]
+		var combined: int = bodies[index + 4]
+		var distance_sq := rx * rx + ry * ry
+		if distance_sq < combined * combined:
+			if motion.x * rx + motion.y * ry > 0: return Avoidance.RISK_INF
 		else:
-			var closest := Geometry2D.get_closest_point_to_segment(relative, Vector2.ZERO, motion)
-			if closest.distance_squared_to(relative) < radius * radius - 0.0001: return INF
-		var contact := Avoidance.collision_time(relative, velocity - body.velocity, radius + Avoidance.MARGIN)
-		if contact < Avoidance.HORIZON: score += 4.0 * (1.0 - contact / Avoidance.HORIZON)
-	return score
+			var projection := clampi(rx * motion.x + ry * motion.y, 0, motion_sq)
+			var cx := Fixed.mul_div(motion.x, projection, motion_sq) if motion_sq > 0 else 0
+			var cy := Fixed.mul_div(motion.y, projection, motion_sq) if motion_sq > 0 else 0
+			if (rx - cx) * (rx - cx) + (ry - cy) * (ry - cy) < combined * combined: return Avoidance.RISK_INF
+		var rvx: int = velocity.x - bodies[index + 2]
+		var rvy: int = velocity.y - bodies[index + 3]
+		var closing := rx * rvx + ry * rvy
+		if closing <= 0: continue
+		var padded := combined + Avoidance.MARGIN_Q
+		var gap := distance_sq - padded * padded
+		if gap <= 0:
+			total += Avoidance.CONTACT_WEIGHT
+			continue
+		var relative_sq := rvx * rvx + rvy * rvy
+		if relative_sq == 0: continue
+		var discriminant := closing * closing - relative_sq * gap
+		if discriminant < 0: continue
+		var numerator := closing - Fixed.isqrt(discriminant)
+		if 10 * numerator < 9 * relative_sq:
+			total += Avoidance.CONTACT_WEIGHT - Fixed.mul_div(Avoidance.CONTACT_WEIGHT * 10, numerator, 9 * relative_sq)
+	return total

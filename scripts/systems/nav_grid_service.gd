@@ -28,6 +28,8 @@ var map_min := DEFAULT_MAP_MIN
 var map_max := DEFAULT_MAP_MAX
 var _grid: AStarGrid2D
 var _solid := PackedByteArray()
+## Native waypoint visibility sampler when the aoe_sim GDExtension is loaded.
+static var _kernel: RefCounted = ClassDB.instantiate("AoeSimKernel") if ClassDB.class_exists("AoeSimKernel") else null
 var _width := 0
 var _height := 0
 var _origin_cell := Vector2i.ZERO
@@ -738,6 +740,14 @@ func _line_clear(a: Vector2, b: Vector2) -> bool:
 	var size := maxi(1, Fixed.coord(cell_size))
 	var spacing := maxi(1, Fixed.mul_div(size, 35, 100))
 	var steps := maxi(2, Fixed.ceil_div(dist, spacing))
+	if _kernel != null:
+		return _kernel.line_clear(_solid, _width, _height, _origin_cell, size, start, offset, steps)
+	return _line_clear_samples(start, offset, size, steps)
+
+
+## GDScript sample loop; AoeSimKernel.line_clear (GDExtension) is identical.
+@warning_ignore("integer_division")
+func _line_clear_samples(start: Vector2i, offset: Vector2i, size: int, steps: int) -> bool:
 	# Fixed.mul_div (round half away from zero, steps > 0) and Fixed.floor_div
 	# are inlined: each moving unit probes its next waypoint every step and
 	# the static calls dominated these long sample loops.

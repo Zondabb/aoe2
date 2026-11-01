@@ -3,6 +3,7 @@ const Grid := preload("res://scripts/systems/nav_grid_service.gd")
 const Holder := preload("res://scripts/systems/nav_service_holder.gd")
 const Collision := preload("res://scripts/systems/collision_resolver.gd")
 const Avoidance := preload("res://scripts/systems/local_avoidance.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const Catalog := preload("res://scripts/data/game_catalog.gd")
 const Building := preload("res://scenes/entities/building_view.tscn")
 const Blocker := preload("res://scripts/entities/path_blocker.gd")
@@ -32,39 +33,59 @@ func _run() -> void:
 	quit(0 if failures.is_empty() else 1)
 
 func _test_risk_equivalence() -> void:
-	# Compare optimized pruning against the former complete collision calculation
-	# across varying velocities, overlap escape, radii, and frame durations.
+	# Integer risk with its swept prefilter and early termination against a
+	# complete evaluation of every body, across velocities, overlap escape,
+	# radii and step durations.
 	var random := RandomNumberGenerator.new()
 	random.seed = 673841
 	for scenario in 500:
-		var bodies: Array[Dictionary] = []
+		var bodies := PackedInt64Array()
 		for _body in 8:
-			var relative := Vector2(random.randf_range(-10, 10), random.randf_range(-10, 10))
-			bodies.append({"relative": relative, "distance_sq": relative.length_squared(),
-				"velocity": Vector2(random.randf_range(-6, 6), random.randf_range(-6, 6)), "radius": random.randf_range(0.3, 2.2)})
-		var velocity := Vector2(random.randf_range(-6, 6), random.randf_range(-6, 6))
-		var delta := random.randf_range(0.01, 0.25)
-		var reference := _reference_risk(velocity, delta, bodies)
-		var actual := Avoidance._body_risk(velocity, delta, bodies)
-		check((is_inf(reference) and is_inf(actual)) or is_equal_approx(reference, actual), "optimized body risk agrees with full evaluation for scenario %d" % scenario)
-		var limit := random.randf_range(0.01, 8)
-		var bounded := Avoidance._body_risk(velocity, delta, bodies, limit)
-		check((reference >= limit and bounded >= limit) or (reference < limit and is_equal_approx(reference, bounded)), "early risk termination preserves candidate eligibility for scenario %d" % scenario)
+			bodies.append_array([random.randi_range(-10240, 10240), random.randi_range(-10240, 10240),
+				random.randi_range(-6144, 6144), random.randi_range(-6144, 6144), random.randi_range(307, 2253)])
+		var velocity := Vector2i(random.randi_range(-6144, 6144), random.randi_range(-6144, 6144))
+		var step_time := random.randi_range(307, 7680)
+		var reference := _reference_risk(velocity, step_time, bodies)
+		var actual := Avoidance.risk(velocity, step_time, bodies, Avoidance.RISK_INF)
+		check(reference == actual, "optimized body risk agrees with full evaluation for scenario %d" % scenario)
+		var limit := random.randi_range(1, 500000)
+		var bounded := Avoidance.risk(velocity, step_time, bodies, limit)
+		check((reference >= limit and bounded >= limit) or (reference < limit and reference == bounded), "early risk termination preserves candidate eligibility for scenario %d" % scenario)
 
-func _reference_risk(velocity: Vector2, delta: float, bodies: Array[Dictionary]) -> float:
-	var score := 0.0
-	var motion := velocity * delta
-	for body in bodies:
-		var relative: Vector2 = body.relative
-		var radius: float = body.radius
-		if relative.length_squared() < radius * radius - 0.0001:
-			if motion.dot(-relative) < -0.00001: return INF
+@warning_ignore("integer_division")
+func _reference_risk(velocity: Vector2i, step_time: int, bodies: PackedInt64Array) -> int:
+	var motion := Avoidance.motion_for(velocity, step_time)
+	var motion_sq := int(motion.x) * motion.x + int(motion.y) * motion.y
+	var total := 0
+	for index in range(0, bodies.size(), 5):
+		var rx: int = bodies[index]
+		var ry: int = bodies[index + 1]
+		var combined: int = bodies[index + 4]
+		var distance_sq := rx * rx + ry * ry
+		if distance_sq < combined * combined:
+			if motion.x * rx + motion.y * ry > 0: return Avoidance.RISK_INF
 		else:
-			var closest := Geometry2D.get_closest_point_to_segment(relative, Vector2.ZERO, motion)
-			if closest.distance_squared_to(relative) < radius * radius - 0.0001: return INF
-		var contact := Avoidance.collision_time(relative, velocity - body.velocity, radius + Avoidance.MARGIN)
-		if contact < Avoidance.HORIZON: score += 4.0 * (1.0 - contact / Avoidance.HORIZON)
-	return score
+			var projection := clampi(rx * motion.x + ry * motion.y, 0, motion_sq)
+			var cx := Fixed.mul_div(motion.x, projection, motion_sq) if motion_sq > 0 else 0
+			var cy := Fixed.mul_div(motion.y, projection, motion_sq) if motion_sq > 0 else 0
+			if (rx - cx) * (rx - cx) + (ry - cy) * (ry - cy) < combined * combined: return Avoidance.RISK_INF
+		var rvx: int = velocity.x - bodies[index + 2]
+		var rvy: int = velocity.y - bodies[index + 3]
+		var closing := rx * rvx + ry * rvy
+		if closing <= 0: continue
+		var padded := combined + Avoidance.MARGIN_Q
+		var gap := distance_sq - padded * padded
+		if gap <= 0:
+			total += Avoidance.CONTACT_WEIGHT
+			continue
+		var relative_sq := rvx * rvx + rvy * rvy
+		if relative_sq == 0: continue
+		var discriminant := closing * closing - relative_sq * gap
+		if discriminant < 0: continue
+		var numerator := closing - Fixed.isqrt(discriminant)
+		if 10 * numerator < 9 * relative_sq:
+			total += Avoidance.CONTACT_WEIGHT - Fixed.mul_div(Avoidance.CONTACT_WEIGHT * 10, numerator, 9 * relative_sq)
+	return total
 
 func _test_clearance_layers() -> void:
 	var nav := Grid.new()

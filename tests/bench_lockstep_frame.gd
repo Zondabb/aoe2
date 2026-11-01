@@ -6,6 +6,7 @@ extends SceneTree
 const Runtime := preload("res://scripts/network/network_match.gd")
 const Simulation := preload("res://scripts/network/lockstep_simulation.gd")
 const Loader := preload("res://scripts/world/map_loader.gd")
+const FogAccess := preload("res://scripts/systems/fog_access.gd")
 
 class FrameProbe extends Node:
 	func send_frame(_tick: int, _commands: Array, _checksum: String) -> bool: return true
@@ -77,10 +78,12 @@ func _run() -> void:
 		if entity.def.id == &"villager":
 			var best: Node = null
 			for resource in resources:
+				if not FogAccess.state_can_see(runtime.match_state, side, resource): continue
 				if best == null or resource.sim_pos.distance_squared_to(entity.sim_pos) < best.sim_pos.distance_squared_to(entity.sim_pos): best = resource
-			runtime.submit_command({"op": "gather", "unit_id": runtime.entity_id(entity), "target_id": runtime.entity_id(best)})
+			# Each side commands its own units (submit_command speaks for the host team only).
+			if best != null: runtime._queue_command({"op": "gather", "unit_id": runtime.entity_id(entity), "target_id": runtime.entity_id(best)}, side)
 		else:
-			runtime.submit_command({"op": "move", "unit_id": runtime.entity_id(entity), "pos": [float(side * 2 - 1) * 4.0, float(side * 2 - 1) * 4.0]})
+			runtime._queue_command({"op": "move", "unit_id": runtime.entity_id(entity), "pos": [float(side * 2 - 1) * 4.0, float(side * 2 - 1) * 4.0]}, side)
 	# Warm up: execute queued orders and let the first path batch resolve.
 	for _i in 3:
 		runtime._advance_host_frame()

@@ -1,0 +1,16 @@
+; aoe_sim: native integer simulation kernels (local avoidance, unit
+; neighbour field, waypoint visibility). Sources: native/aoe_sim, build with
+; tools/build_native.py. Platforms without a library here (web, macOS) use
+; the bit-identical GDScript implementations automatically.
+[configuration]
+
+entry_symbol = "aoe_sim_library_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+windows.debug.x86_64 = "res://addons/aoe_sim/bin/libaoe_sim.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://addons/aoe_sim/bin/libaoe_sim.windows.template_release.x86_64.dll"
+linux.debug.x86_64 = "res://addons/aoe_sim/bin/libaoe_sim.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://addons/aoe_sim/bin/libaoe_sim.linux.template_release.x86_64.so"

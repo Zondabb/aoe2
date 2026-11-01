@@ -11,16 +11,47 @@ const UNIT_SEPARATION_EXTRA := 0.0
 static var _map_bounds_enabled := false
 static var _map_min := Vector2.ZERO
 static var _map_max := Vector2.ZERO
+## [enabled, min_x, min_y, max_x, max_y] in fixed units for LocalAvoidance.
+static var _bounds_record := PackedInt64Array([0, 0, 0, 0, 0])
 
 
 static func set_map_bounds(world_min: Vector2, world_max: Vector2) -> void:
 	_map_min = world_min
 	_map_max = world_max
 	_map_bounds_enabled = true
+	var low := Fixed.vector(world_min)
+	var high := Fixed.vector(world_max)
+	_bounds_record = PackedInt64Array([1, low.x, low.y, high.x, high.y])
 
 
 static func clear_map_bounds() -> void:
 	_map_bounds_enabled = false
+	_bounds_record = PackedInt64Array([0, 0, 0, 0, 0])
+
+
+static func bounds_record() -> PackedInt64Array:
+	return _bounds_record
+
+
+## Integer avoidance boxes for blocker nodes: [boxes, water]. Boxes have
+## stride 5 (center_x, center_y, half_x + radius, half_y + radius, water
+## index or -1); water holds shoreline contours referenced by index.
+static func static_boxes(solids: Array, radius_q: int) -> Array:
+	var boxes := PackedInt64Array()
+	var water: Array = []
+	for solid in solids:
+		if not is_instance_valid(solid) or solid.get("is_placement_ghost") == true:
+			continue
+		var half := Fixed.vector(_blocker_half(solid, 0.0))
+		if half.x <= 0 or half.y <= 0:
+			continue
+		var center := Fixed.vector(solid.get("sim_pos"))
+		var water_index := -1
+		if solid.has_method("get_water_contours") and not solid.get_water_contours().is_empty():
+			water_index = water.size()
+			water.append(solid.get_water_contours())
+		boxes.append_array([center.x, center.y, half.x + radius_q, half.y + radius_q, water_index])
+	return [boxes, water]
 
 
 static func clamp_to_map(pos: Vector2, radius: float) -> Vector2:

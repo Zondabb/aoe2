@@ -30,3 +30,7 @@ assets/sprites/**/raw/
 Thumbs.db
 desktop.ini
 *.tmp
+
+# Native extension build tree (sources stay in native/aoe_sim)
+native/godot-cpp/
+native/aoe_sim/build-*/

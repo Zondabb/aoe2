@@ -14,6 +14,8 @@ var hash: SpatialHashScript = SpatialHashScript.new()
 ## Movement neighbours never include buildings. Keep their buckets separate so
 ## a dense wall does not turn each moving unit's query into a wall scan.
 var unit_hash: SpatialHashScript = SpatialHashScript.new()
+## Integer movement snapshot for local avoidance (native when available).
+var unit_field: RefCounted = UnitFieldScript.create()
 
 
 func setup(cell_size: float = DEFAULT_CELL_SIZE) -> void:
@@ -24,6 +26,7 @@ func setup(cell_size: float = DEFAULT_CELL_SIZE) -> void:
 func clear() -> void:
 	hash.clear()
 	unit_hash.clear()
+	unit_field.clear()
 
 
 func register(entity: Object) -> void:
@@ -32,13 +35,27 @@ func register(entity: Object) -> void:
 	hash.insert(entity, entity.get("sim_pos") as Vector2)
 	if entity.get("def") is UnitDef:
 		unit_hash.insert(entity, entity.get("sim_pos") as Vector2)
+		sync_motion(entity)
 	else:
 		unit_hash.remove(entity)
+		unit_field.remove(entity.get_instance_id())
 
 
 func unregister(entity: Object) -> void:
 	hash.remove(entity)
 	unit_hash.remove(entity)
+	if entity != null: unit_field.remove(entity.get_instance_id())
+
+
+## Position, footprint, velocity and liveness used by neighbours' avoidance.
+func sync_motion(entity: Object) -> void:
+	if entity is not UnitAgent or not is_instance_valid(entity):
+		return
+	var unit: UnitAgent = entity
+	if unit.def == null or unit.get("is_placement_ghost") == true:
+		unit_field.remove(unit.get_instance_id())
+		return
+	unit_field.set_unit(unit.get_instance_id(), unit._sim_pos_q, Fixed.coord(unit.def.resolved_footprint_radius()), unit._locomotion_velocity_q, unit.hp_q > 0)
 
 
 func sync_position(entity: Object) -> void:
