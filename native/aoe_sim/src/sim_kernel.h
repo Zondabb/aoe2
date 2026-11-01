@@ -1,7 +1,10 @@
 #pragma once
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/packed_int64_array.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 
 namespace godot {
@@ -18,6 +21,11 @@ public:
 	// NavGridService._line_clear sample loop: true when every sample cell
 	// of the segment start + offset * s / steps (s = 0..steps) is walkable.
 	bool line_clear(const PackedByteArray &solid, int64_t width, int64_t height, const Vector2i &origin_cell, int64_t size, const Vector2i &start, const Vector2i &offset, int64_t steps) const;
+	// FogOfWarService._stamp for every [x, y, radius] triple of `sources`
+	// (fixed point), in order. Returns [mask, row_min, row_max].
+	Array fog_stamp(const PackedByteArray &mask, const PackedInt32Array &row_min, const PackedInt32Array &row_max, const PackedInt64Array &sources, const Vector2i &origin, int64_t size, int64_t width, int64_t height) const;
+	// explored | visible: every nonzero cell of `visible` becomes 255.
+	PackedByteArray fog_explore(const PackedByteArray &explored, const PackedByteArray &visible) const;
 };
 
 } // namespace godot

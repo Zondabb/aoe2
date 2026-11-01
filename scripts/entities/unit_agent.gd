@@ -110,6 +110,17 @@ var _villager_actions := false
 var _facing_dir := 0
 var _facing_flip := false
 var _anim_frame := 0.0
+## Lockstep runs several simulation steps per rendered frame and only the last
+## sprite state is drawn: steps record the latest request, _process draws it.
+var _billboard_pending := false
+var _billboard_animate := false
+var _billboard_action := &""
+var _billboard_moving := true
+## Service holders found once and revalidated on use (group scans were a
+## measurable share of every simulation step).
+var _vision_holder: Node = null
+var _nav_holder: Node = null
+var _static_query_holder: Node = null
 var _sprite_metas: Dictionary = {}
 var _player_color_sheet := ""
 var _player_color_id := -1
@@ -214,6 +225,7 @@ func _ready() -> void:
 		melee_armor += civ.melee_armor_bonus
 	register_population()
 	_setup_presentation()
+	set_process(false)
 	UnitOcclusion.ensure_for(self)
 	set_selected(false)
 	_vision_register()
@@ -1165,7 +1177,10 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_con
 	if is_inside_tree():
 		var vision := _get_vision_service()
 		if vision != null: field = vision.get("unit_field")
-		var nav_holder := get_tree().get_first_node_in_group("nav_service")
+		var nav_holder := _static_query_holder
+		if nav_holder == null or not is_instance_valid(nav_holder) or not nav_holder.is_inside_tree() or not nav_holder.is_in_group("nav_service"):
+			nav_holder = get_tree().get_first_node_in_group("nav_service")
+			_static_query_holder = nav_holder
 		# Include the complete prediction circle: avoidance may turn in any
 		# direction, and large footprints are indexed by all occupied buckets.
 		var reach := radius + def.move_speed * maxf(Avoidance.HORIZON_TIME / float(Fixed.TIME_SCALE), delta) + 1.0
@@ -1370,11 +1385,16 @@ func _update_move_facing(face_vector: Vector2, delta: float, moved: bool) -> voi
 func _get_nav_service() -> Object:
 	if not is_inside_tree():
 		return null
+	var cached := _nav_holder
+	if cached != null and is_instance_valid(cached) and cached.is_inside_tree() and cached.is_in_group("nav_service") and cached.has_meta("nav") and cached.get_parent().is_ancestor_of(self):
+		return cached.get_meta("nav")
+	_nav_holder = null
 	var holders := get_tree().get_nodes_in_group("nav_service")
 	if holders.is_empty():
 		return null
 	for holder in holders:
 		if holder.get_parent().is_ancestor_of(self) and holder.has_meta("nav"):
+			_nav_holder = holder
 			return holder.get_meta("nav")
 	return null
 
@@ -1797,6 +1817,7 @@ func _position_world_hp_bar() -> void:
 
 
 func _sprite_top_local_y() -> float:
+	_flush_billboard_frame()
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if (
 		_use_billboard
@@ -1948,6 +1969,32 @@ func _pick_villager_animation(action: StringName) -> StringName:
 func _apply_billboard_frame(
 	animate: bool, forced_action: StringName = &"", actually_moving: bool = true
 ) -> void:
+	if match_state != null and match_state.lockstep_stepping:
+		if not _billboard_pending:
+			_billboard_pending = true
+			set_process(true)
+		_billboard_animate = animate
+		_billboard_action = forced_action
+		_billboard_moving = actually_moving
+		return
+	_billboard_pending = false
+	_draw_billboard_frame(animate, forced_action, actually_moving)
+
+
+## Draws a sprite frame deferred during lockstep steps; it reads the same
+## unit state the last step left, so the picture matches an immediate draw.
+func _flush_billboard_frame() -> void:
+	if _billboard_pending:
+		_billboard_pending = false
+		_draw_billboard_frame(_billboard_animate, _billboard_action, _billboard_moving)
+
+
+func _process(_delta: float) -> void:
+	set_process(false)
+	_flush_billboard_frame()
+
+
+func _draw_billboard_frame(animate: bool, forced_action: StringName, actually_moving: bool) -> void:
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard == null or billboard.sprite_frames == null:
 		return
@@ -2028,6 +2075,7 @@ func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as CanvasItem
 	if body != null:
 		body.modulate = TeamColorCatalogScript.fallback_color(color_id)
+	_flush_billboard_frame()
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard != null and _use_billboard:
 		billboard.modulate = Color.WHITE
@@ -2075,6 +2123,7 @@ func _exit_tree() -> void:
 
 ## Network playback updates presentation without issuing orders or simulating hits.
 func network_presentation() -> Dictionary:
+	_flush_billboard_frame()
 	var sprite := get_node_or_null("Billboard") as AnimatedSprite2D
 	return {
 		"facing": _facing_dir, "flip": _facing_flip,
@@ -2105,10 +2154,12 @@ func apply_network_presentation(data: Dictionary) -> void:
 func _get_vision_service() -> Object:
 	if not is_inside_tree():
 		return null
-	var holders := get_tree().get_nodes_in_group("vision_service")
-	if holders.is_empty():
-		return null
-	var holder := holders[0]
+	var holder := _vision_holder
+	if holder == null or not is_instance_valid(holder) or not holder.is_inside_tree() or not holder.is_in_group("vision_service"):
+		holder = get_tree().get_first_node_in_group("vision_service")
+		_vision_holder = holder
+		if holder == null:
+			return null
 	if holder.has_meta("vision"):
 		return holder.get_meta("vision")
 	return null

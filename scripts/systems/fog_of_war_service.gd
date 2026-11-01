@@ -22,6 +22,9 @@ var dirty := false
 var _static_sources: Dictionary = {}
 var _static_masks: Dictionary = {}
 var _static_rows: Dictionary = {}
+## Native circle stamping and exploration (aoe_sim GDExtension). Integer
+## results identical to _stamp() and the script loops below.
+static var _kernel: RefCounted = ClassDB.instantiate("AoeSimKernel") if ClassDB.class_exists("AoeSimKernel") and ClassDB.class_has_method("AoeSimKernel", "fog_stamp") else null
 
 func setup(minimum: float, maximum: float, size := 1.0) -> void:
 	setup_rect(Vector2(minimum, minimum), Vector2(maximum, maximum), size)
@@ -187,7 +190,9 @@ func rebuild(entities: Array) -> void:
 	# Use value signatures so moves, upgrades, deaths and team changes invalidate
 	# immediately, including callers that directly mutate simulation fields.
 	var stationary := {0: [], 1: []}
-	var moving := {0: [], 1: []}
+	# Moving sources as fixed-point [x, y, radius] triples, the values _stamp() uses.
+	var moving := {0: PackedInt64Array(), 1: PackedInt64Array()}
+	var moving_counts := {0: 0, 1: 0}
 	for entity in entities:
 		if not is_instance_valid(entity): continue
 		var team: Variant = entity.get("team")
@@ -195,9 +200,12 @@ func rebuild(entities: Array) -> void:
 		if entity.get("is_placement_ghost") == true or entity.get("hp") == null or float(entity.get("hp")) <= 0: continue
 		var radius := radius_of(entity)
 		if radius <= 0: continue
-		var source := [entity.get("sim_pos"), radius]
-		if entity.get("def") is BuildingDef: stationary[team].append(source)
-		else: moving[team].append(source)
+		if entity.get("def") is BuildingDef:
+			stationary[team].append([entity.get("sim_pos"), radius])
+		else:
+			var point := Fixed.vector(entity.get("sim_pos"))
+			moving[team].append_array([point.x, point.y, maxi(0, Fixed.coord(radius))])
+			moving_counts[team] += 1
 	for team in Enums.Team.values():
 		var mask := PackedByteArray()
 		mask.resize(grid_size.x * grid_size.y)
@@ -209,7 +217,14 @@ func rebuild(entities: Array) -> void:
 		row_min.fill(side)
 		row_max.fill(-1)
 		if not _static_sources.has(team) or _static_sources[team] != stationary[team]:
-			for source in stationary[team]: _stamp(mask, source[0], source[1], row_min, row_max)
+			var sources := PackedInt64Array()
+			for source in stationary[team]:
+				var point := Fixed.vector(source[0])
+				sources.append_array([point.x, point.y, maxi(0, Fixed.coord(source[1]))])
+			var stamped := _stamp_all(mask, row_min, row_max, sources)
+			mask = stamped[0]
+			row_min = stamped[1]
+			row_max = stamped[2]
 			_static_sources[team] = stationary[team]
 			_static_masks[team] = mask.duplicate()
 			_static_rows[team] = [row_min.duplicate(), row_max.duplicate()]
@@ -217,26 +232,40 @@ func rebuild(entities: Array) -> void:
 			mask = _static_masks[team].duplicate()
 			row_min = _static_rows[team][0].duplicate()
 			row_max = _static_rows[team][1].duplicate()
-		for source in moving[team]: _stamp(mask, source[0], source[1], row_min, row_max)
+		mask = _stamp_all(mask, row_min, row_max, moving[team])[0]
 		changed = changed or visible_now[team] != mask
 		visible_now[team] = mask
 		var history: PackedByteArray = explored[team]
-		for i in mask.size():
-			if mask[i] != 0:
-				history[i] = 255
+		if _kernel != null:
+			history = _kernel.fog_explore(history, mask)
+		else:
+			for i in mask.size():
+				if mask[i] != 0:
+					history[i] = 255
 		explored[team] = history
-		source_counts[team] = stationary[team].size() + moving[team].size()
+		source_counts[team] = stationary[team].size() + int(moving_counts[team])
 	ready = true
 	dirty = false
 	if changed:
 		revision += 1
 	elapsed_ms = float(Time.get_ticks_usec() - started) / 1000.0
 
+## _stamp_q() for every [x, y, radius] triple in order; [mask, row_min, row_max].
+func _stamp_all(mask: PackedByteArray, row_min: PackedInt32Array, row_max: PackedInt32Array, sources: PackedInt64Array) -> Array:
+	if sources.is_empty(): return [mask, row_min, row_max]
+	if _kernel != null:
+		return _kernel.fog_stamp(mask, row_min, row_max, sources, Fixed.vector(map_origin), maxi(1, Fixed.coord(cell_size)), side, grid_size.y)
+	for index in range(0, sources.size(), 3):
+		_stamp_q(mask, Vector2i(sources[index], sources[index + 1]), sources[index + 2], row_min, row_max)
+	return [mask, row_min, row_max]
+
 func _stamp(mask: PackedByteArray, pos: Vector2, radius: float, row_min: PackedInt32Array, row_max: PackedInt32Array) -> void:
+	_stamp_q(mask, Fixed.vector(pos), maxi(0, Fixed.coord(radius)), row_min, row_max)
+
+## Native twin: AoeSimKernel.fog_stamp (native/aoe_sim/src/sim_kernel.cpp).
+func _stamp_q(mask: PackedByteArray, point: Vector2i, radius_q: int, row_min: PackedInt32Array, row_max: PackedInt32Array) -> void:
 	var origin := Fixed.vector(map_origin)
-	var point := Fixed.vector(pos)
 	var size := maxi(1, Fixed.coord(cell_size))
-	var radius_q := maxi(0, Fixed.coord(radius))
 	var y0 := maxi(0, Fixed.floor_div(point.y - radius_q - origin.y, size))
 	var y1 := mini(grid_size.y-1, Fixed.floor_div(point.y + radius_q - origin.y, size))
 	# Double the lattice to represent cell centers exactly, even for odd sizes.

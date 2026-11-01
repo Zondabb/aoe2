@@ -4,10 +4,22 @@ extends SceneTree
 ## Randomized sequences drive both unit fields with the same updates and
 ## compare every steering destination, every scheduled-cache state and every
 ## neighbour set, including clamped/edge inputs; the native waypoint sampler is
-## compared with the script loop on the default map's navigation layers.
+## compared with the script loop on the default map's navigation layers, and
+## the native fog stamping / exploration with FogOfWarService's script path.
 const Avoidance := preload("res://scripts/systems/local_avoidance.gd")
 const Field := preload("res://scripts/systems/unit_field.gd")
 const Fixed := preload("res://scripts/core/sim_fixed.gd")
+const FogService := preload("res://scripts/systems/fog_of_war_service.gd")
+
+## Minimal vision source for FogOfWarService.rebuild().
+class FogSource extends RefCounted:
+	var team := 0
+	var hp := 10.0
+	var sim_pos := Vector2.ZERO
+	var def: Variant = null
+	var radius := 1.0
+	func resolved_vision_radius() -> float:
+		return radius
 
 var checks := 0
 var failures := 0
@@ -37,7 +49,8 @@ func _run() -> void:
 		solved += counts[1]
 		reused += counts[2]
 	var samples := await _line_samples()
-	print("NATIVE EQUIVALENCE: %d checks, %d failures; %d steering calls (%d solves, %d reuses), %d waypoint probes" % [checks, failures, steers, solved, reused, samples])
+	var fog_counts := _fog_samples()
+	print("NATIVE EQUIVALENCE: %d checks, %d failures; %d steering calls (%d solves, %d reuses), %d waypoint probes, %d fog stamps, %d fog rebuilds" % [checks, failures, steers, solved, reused, samples, fog_counts[0], fog_counts[1]])
 	quit(0 if failures == 0 else 1)
 
 func _pick(values: Array) -> Variant:
@@ -185,3 +198,87 @@ func _line_samples() -> int:
 	scene.queue_free()
 	await process_frame
 	return samples
+
+## Native fog_stamp / fog_explore against FogOfWarService._stamp_q and the
+## script exploration loop: odd cell sizes and origins, sources off the grid,
+## zero and huge radii, on top of a script-stamped static layer; then whole
+## rebuild() sequences with and without the kernel.
+func _fog_samples() -> Array:
+	var kernel: RefCounted = ClassDB.instantiate("AoeSimKernel")
+	var stamps := 0
+	for scenario in 200:
+		var fog := FogService.new()
+		var low := Vector2(rng.randi_range(-300, 20), rng.randi_range(-300, 20)) + Vector2(_pick([0.0, rng.randf()]), _pick([0.0, rng.randf()]))
+		var span := Vector2(rng.randi_range(4, 300), rng.randi_range(4, 300))
+		fog.setup_rect(low, low + span, _pick([1.0, 4.0, 0.5, 3.0, 1.37, 0.1]))
+		var origin := Fixed.vector(fog.map_origin)
+		var cell := maxi(1, Fixed.coord(fog.cell_size))
+		var mask := PackedByteArray()
+		mask.resize(fog.grid_size.x * fog.grid_size.y)
+		mask.fill(0)
+		var row_min := PackedInt32Array()
+		var row_max := PackedInt32Array()
+		row_min.resize(fog.grid_size.y)
+		row_max.resize(fog.grid_size.y)
+		row_min.fill(fog.side)
+		row_max.fill(-1)
+		var layers := [PackedInt64Array(), PackedInt64Array()]
+		for layer in layers:
+			for n in rng.randi_range(0, 50):
+				var point := origin + Vector2i(rng.randi_range(-30000, Fixed.coord(span.x) + 30000), rng.randi_range(-30000, Fixed.coord(span.y) + 30000))
+				layer.append_array([point.x, point.y, _pick([0, 1, 511, 512, rng.randi_range(0, 40000), rng.randi_range(1000, 12000)])])
+		# A static layer stamped by the script, then moving sources both ways.
+		var script_mask := mask.duplicate()
+		var script_min := row_min.duplicate()
+		var script_max := row_max.duplicate()
+		var static_layer: PackedInt64Array = layers[0]
+		for i in range(0, static_layer.size(), 3):
+			fog._stamp_q(script_mask, Vector2i(static_layer[i], static_layer[i + 1]), static_layer[i + 2], script_min, script_max)
+		var native_static: Array = kernel.fog_stamp(mask, row_min, row_max, static_layer, origin, cell, fog.side, fog.grid_size.y)
+		check(native_static[0] == script_mask and native_static[1] == script_min and native_static[2] == script_max, "fog static layer %d" % scenario)
+		var moving: PackedInt64Array = layers[1]
+		var native_moving: Array = kernel.fog_stamp(script_mask, script_min, script_max, moving, origin, cell, fog.side, fog.grid_size.y)
+		for i in range(0, moving.size(), 3):
+			fog._stamp_q(script_mask, Vector2i(moving[i], moving[i + 1]), moving[i + 2], script_min, script_max)
+		check(native_moving[0] == script_mask and native_moving[1] == script_min and native_moving[2] == script_max, "fog moving layer %d" % scenario)
+		stamps += (static_layer.size() + moving.size()) / 3
+		var explored := PackedByteArray()
+		explored.resize(script_mask.size())
+		for i in explored.size(): explored[i] = _pick([0, 0, 255, rng.randi_range(0, 255)])
+		var expected := explored.duplicate()
+		for i in script_mask.size():
+			if script_mask[i] != 0: expected[i] = 255
+		check(kernel.fog_explore(explored, script_mask) == expected, "fog explore %d" % scenario)
+	var rebuilds := 0
+	var kernel_saved: RefCounted = FogService._kernel
+	for scenario in 40:
+		var fogs := [FogService.new(), FogService.new()]
+		var low := Vector2(rng.randi_range(-250, -50), rng.randi_range(-250, -50))
+		var size: float = _pick([1.0, 4.0, 3.0])
+		for fog in fogs: fog.setup_rect(low, -low, size)
+		var sources: Array = []
+		for n in rng.randi_range(1, 40):
+			var source := FogSource.new()
+			source.team = _pick([0, 1, 0, 1, 2])
+			source.radius = _pick([0.0, 0.3, 4.0, 7.5, rng.randf_range(0.0, 20.0)])
+			source.sim_pos = Vector2(rng.randf_range(low.x - 10, -low.x + 10), rng.randf_range(low.y - 10, -low.y + 10))
+			if rng.randi_range(0, 3) == 0: source.def = BuildingDef.new()
+			sources.append(source)
+		for step in 6:
+			for source in sources:
+				if source.def == null or rng.randi_range(0, 9) == 0:
+					source.sim_pos += Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3))
+				if rng.randi_range(0, 15) == 0: source.hp = 0.0 if source.hp > 0.0 else 10.0
+			FogService._kernel = kernel_saved
+			fogs[0].rebuild(sources)
+			FogService._kernel = null
+			fogs[1].rebuild(sources)
+			FogService._kernel = kernel_saved
+			for team in [0, 1]:
+				check(fogs[0].visible_now[team] == fogs[1].visible_now[team], "fog rebuild visible %d/%d team %d" % [scenario, step, team])
+				check(fogs[0].explored[team] == fogs[1].explored[team], "fog rebuild explored %d/%d team %d" % [scenario, step, team])
+				check(fogs[0].source_counts[team] == fogs[1].source_counts[team], "fog rebuild sources %d/%d" % [scenario, step])
+			check(fogs[0].revision == fogs[1].revision, "fog rebuild revision %d/%d" % [scenario, step])
+			rebuilds += 1
+	FogService._kernel = kernel_saved
+	return [stamps, rebuilds]

@@ -105,9 +105,45 @@
 
 两个客户端与中转同在一台 2 核机器上，CPU 仍是瓶颈。数字已包含每模拟秒一次的完整状态摘要。
 
-原生模拟步的剩余开销：实体逻辑约 14.2 ms（其中避让求解约 1.4 ms），迷雾栅格约 5.2 ms，视野索引重建约 1.8 ms，寻路与其余约 1.4 ms。
+原生模拟步的剩余开销：实体逻辑约 14.2 ms（其中避让求解约 1.4 ms），迷雾栅格约 5.2 ms，视野索引重建约 1.8 ms，寻路与其余约 1.4 ms。后续优化见下一节。
 
-## 7. 构建与发布
+## 7. 迷雾栅格与实体逻辑（2026-11-01）
+
+“实体逻辑”指每个模拟步里逐个调用单位和建筑的 `_physics_process`：按命令移动、采集、建造、攻击，跟随路径、跳过可直视的路径点、局部避让、更新空间索引和邻居快照、卡住恢复，以及朝向和精灵动画帧。迷雾栅格指每步重算双方当前视野和探索历史（`FogOfWarService.rebuild`），采集、攻击和命令校验都依赖它，属于模拟状态。
+
+| 改动 | 做法 | 结果是否改变 |
+| --- | --- | --- |
+| 迷雾栅格 | 视野圆的栅格化和探索历史合并改由 `AoeSimKernel.fog_stamp` / `fog_explore` 计算，整数算法与 `_stamp()` 逐行对应；没有原生库时仍走原 GDScript 循环 | 不变（逐位相同） |
+| 精灵帧 | 锁步模拟步内只记录最后一次画面请求，渲染帧 `_process` 再统一设置动画、帧、镜像、玩家色和偏移；朝向 `_facing_dir` 等模拟字段仍每步计算。读取精灵状态的地方（投射物出手高度、血条、旧版网络表现）先补画 | 模拟不变；画面与原来在该帧最后一步绘制相同 |
+| 服务查找 | 单位缓存视野服务和导航服务节点，每次使用前确认仍有效，不再每次扫描场景分组 | 不变 |
+
+验证：`bench_lockstep_frame.gd` 整局完整状态哈希与改动前相同，原生库和 GDScript 回退也一致；`run_native_sim_equivalence.gd` 新增 200 组随机栅格化（奇数格大小、偏移原点、地图外的源、0 和超大半径）、探索合并，以及 240 次带建筑缓存的完整重建对比，把 GDScript 版的一个边界条件故意改错，测试能发现；全量测试结果与改动前相同；一端原生、一端 GDScript 的双进程联机无失步。
+
+单个模拟步（每方 60 个单位，`bench_lockstep_frame.gd -- 60 40`）。云主机计时噪声大，这里把三次运行逐步取最小值后求平均：
+
+| 阶段 | 每步 |
+| --- | --- |
+| 上一节结束时 | 21.8 ms |
+| 迷雾栅格改为原生 | 16.8 ms |
+| 再加精灵延后和服务缓存 | 14.6 ms |
+
+单次运行的中位数：每步 14.4 ms，每网络帧（3 步 + 校验）50 ms；GDScript 回退每步约 47 ms。单位精灵统一绘制一次约 2.3 ms，在模拟步之外。精灵延后只在一个渲染帧里跑多个模拟步时（追赶、帧率低于模拟步频率）减少工作量；渲染帧与模拟步一比一时绘制次数不变，只是移出了模拟步。
+
+迷雾重建单独计时（`tests/benchmark_fog_rebuild.gd`，120 × 120 遮罩，半径 16，所有源每次移动）：
+
+| 视野源 | 原生 | GDScript |
+| --- | --- | --- |
+| 100 | 约 0.4～0.8 ms | 约 3.5～4.8 ms |
+| 300 | 约 1.2 ms | 约 9 ms |
+| 500 | 约 2.0～2.3 ms | 约 15～16 ms |
+
+原生时剩下的主要是逐个读取视野源属性的 GDScript 循环。
+
+双进程对战（每方再加 20 名士兵，目标 2 倍速，同机各测两次）的渲染帧间隔中位数从 59～71 ms 降到 13～28 ms，超过 100 ms 的帧从 10～24 个降到 5～8 个；实际速度仍约 1.4×。headless 主循环不限帧率，两个进程把 2 个核心占满，速度主要受同机争用限制，这个数字不能反映单机玩家的速度。
+
+剩余开销：实体逻辑约 11 ms，分散在路径跟随、空间索引更新、采集等许多小函数里，进一步优化需要把更多单位逻辑移到 C++；迷雾的表现层（记忆、显隐和纹理，每 100 ms 一次，约 12～14 ms）不在模拟步里，但会让客户端每 100 ms 出现一次较长的帧。
+
+## 8. 构建与发布
 
 `addons/aoe_sim/bin` 已包含预编译库：
 
@@ -131,22 +167,23 @@ python tools/build_native.py --platform linux
 
 `native/.gdignore` 阻止 Godot 导入源代码和 godot-cpp 自带的测试工程。首次拉取后用编辑器打开一次项目，Godot 会把扩展登记到 `.godot/extension_list.cfg`；headless 运行前可先执行 `--import`。
 
-## 8. 主要文件
+## 9. 主要文件
 
 | 文件 | 职责 |
 | --- | --- |
 | `native/aoe_sim/src/avoidance.cpp` | 整数避让求解，逐行对应 `local_avoidance.gd` |
 | `native/aoe_sim/src/unit_field.cpp` | `AoeUnitField`：邻居快照、查询和带缓存的求解入口 |
-| `native/aoe_sim/src/sim_kernel.cpp` | `AoeSimKernel.line_clear` 视线检测 |
+| `native/aoe_sim/src/sim_kernel.cpp` | `AoeSimKernel`：`line_clear` 视线检测，`fog_stamp` / `fog_explore` 迷雾栅格 |
 | `native/aoe_sim/src/fixed_math.h` | 与 `SimFixed` 相同的取整除法和整数开方 |
 | `scripts/systems/local_avoidance.gd` | GDScript 参考实现与分派 |
 | `scripts/systems/unit_field.gd` | GDScript 邻居快照；有原生库时 `create()` 返回 `AoeUnitField` |
 | `scripts/systems/vision_service.gd` | 维护单位快照 |
+| `scripts/systems/fog_of_war_service.gd` | 迷雾栅格的分派与 GDScript 实现 |
 | `scripts/systems/nav_service_holder.gd` | 整数静态障碍查询 `query_static_boxes` |
-| `scripts/entities/unit_agent.gd` | 组装运动记录并调用避让 |
+| `scripts/entities/unit_agent.gd` | 组装运动记录并调用避让；锁步内延后精灵绘制 |
 | `tools/build_native.py` | 下载 godot-cpp 并编译 |
 
-## 9. 复查
+## 10. 复查
 
 ```powershell
 Godot_console.exe --headless --path . --import
