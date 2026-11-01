@@ -127,7 +127,8 @@ func _process(_delta: float) -> bool:
 				break
 	if current_tick >= 450:
 		_write_report()
-	if runtime.is_host and FileAccess.file_exists(finish_file):
+	# Frames span physics ticks; end between frames like a real result would.
+	if runtime.is_host and runtime._frame_step == 0 and FileAccess.file_exists(finish_file):
 		runtime.match_state.set_winner(Enums.Team.AI)
 	return false
 

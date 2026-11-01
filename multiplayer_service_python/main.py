@@ -43,6 +43,9 @@ async def _receive(websocket: WebSocket, player: Player, matchmaker: Matchmaker)
             await matchmaker.error(player, error)
             if error.close_code is not None:
                 await asyncio.Future()
+        # Buffered messages are otherwise handled back to back without
+        # suspending; let receivers' writers drain relayed commands between them.
+        await asyncio.sleep(0)
 
 
 async def _send(websocket: WebSocket, player: Player, settings: Settings) -> None:

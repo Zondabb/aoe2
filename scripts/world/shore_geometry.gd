@@ -247,6 +247,27 @@ static func segment_hits(from: Vector2, to: Vector2, radius: float, contours: Ar
 			if distance < limit: return true
 	return false
 
+## Bounding box of every contour point (empty contours: an empty Rect2).
+static func contours_bounds(contours: Array) -> Rect2:
+	var bounds := Rect2()
+	var first := true
+	for polygon: PackedVector2Array in contours:
+		for point in polygon:
+			if first:
+				bounds = Rect2(point, Vector2.ZERO)
+				first = false
+			else:
+				bounds = bounds.expand(point)
+	return bounds
+
+## Same result as intersects_rect. Every test there (corner in polygon, contour
+## point strictly inside the rectangle, edge crossing) needs the rectangle to
+## reach the contours' bounding box, so a rectangle clear of it is rejected
+## without walking the shoreline. The margin only widens the full-test band.
+static func intersects_rect_within(rect: Rect2, contours: Array, bounds: Rect2) -> bool:
+	if not rect.intersects(bounds.grow(0.01), true): return false
+	return intersects_rect(rect, contours)
+
 static func intersects_rect(rect: Rect2, contours: Array) -> bool:
 	var corners := rectangle(rect)
 	for point in corners:

@@ -2,6 +2,7 @@ extends RefCounted
 
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const LocalAvoidanceScript := preload("res://scripts/systems/local_avoidance.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const TOWN_CENTER := preload("res://data/buildings/town_center.tres")
 
 class _TestBody extends RefCounted:
@@ -42,7 +43,11 @@ func _test_town_center_allows_movement(failures: Array[String]) -> void:
 			if not entered.is_equal_approx(Vector2.ZERO):
 				failures.append("town center center should be a valid movement destination")
 		unit.sim_pos = Vector2(-3, 0)
-		var next := LocalAvoidanceScript.step(unit, Vector2(4, 0), Vector2(4, 0), 0.25, [], [town_center])
+		var radius_q := Fixed.coord(radius)
+		var found := CollisionResolverScript.static_boxes([town_center], radius_q)
+		var preferred := Fixed.vector(Vector2(4, 0))
+		var motion := LocalAvoidanceScript.motion_record(Fixed.vector(unit.sim_pos), radius_q, preferred, preferred, Fixed.time_from_seconds(0.25), Fixed.vector(Vector2(20, 0)), true, 1)
+		var next := Fixed.to_vector(LocalAvoidanceScript.steer_with_field(UnitFieldScript.new(), 1, motion, found[0], found[1], PackedInt64Array([0, 0, 0, 0, 0]), {}))
 		if not next.is_equal_approx(Vector2(-2, 0)):
 			failures.append("local avoidance should not steer away from an open town center")
 	if TOWN_CENTER.footprint != Vector2(4, 4):

@@ -81,5 +81,6 @@ godot --headless --path . --script res://tests/run_tests.gd --log-file <绝对�
 - 实际 Compatibility GPU 测试：Intel UHD Graphics 770 / OpenGL 3.3，验证三态内部像素值、两条边界的连续单调过渡、圆形羽化、地图外黑色遮罩以及逻辑视野不被修改。真实对局玩家/AI/全图截图位于 `.godot/fog-game-*.png`，独立圆形遮罩截图位于 `.godot/fog-shader-test.png`。
 - 全量旧测试仍有此前已存在的 4 项断言失败：弓箭手攻击距离、优选攻击距离、箭矢方向数量和每方向帧数。旧 HUD 模拟对象及 observation 测试还存在原有运行报错；迷雾专项场景运行没有这些错误。
 - 120×120 地图、半径全部为 16、双方合计 100/300/500 个源，3 次均值约 **2.2–2.5 / 4.2–4.8 / 6.2–6.9 ms**。这是核心逻辑重建时间，不包括记忆采样、纹理上传或 GPU 帧耗时；100 源的 2 ms 优化目标尚未达到。实际普通开局约 0.5 ms。当前以 10 Hz 刷新，重叠圆按已覆盖行区间跳过重复写入。
+- 2026-11-01：圆形栅格化和探索历史合并改由 `aoe_sim` 原生扩展计算（`AoeSimKernel.fog_stamp` / `fog_explore`），整数结果与 `_stamp()` 逐位相同；没有原生库的平台（Web）仍用 GDScript。`tests/benchmark_fog_rebuild.gd` 在同一规格下测得 100/300/500 个源：原生约 0.4～0.8 / 1.2 / 2.0～2.3 ms，GDScript 约 3.5～4.8 / 9 / 15～16 ms（2 核云主机）。详见[原生模拟内核](native_simulation.md)。
 
 运行环境可能输出系统根证书/Shader 缓存写入权限错误，应与脚本解析错误和断言失败区分。专项测试与 GPU 测试都必须检查日志，不能仅凭进程退出码判断成功。

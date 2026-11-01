@@ -110,6 +110,19 @@ var _villager_actions := false
 var _facing_dir := 0
 var _facing_flip := false
 var _anim_frame := 0.0
+## Lockstep runs several simulation steps per rendered frame and only the last
+## sprite state is drawn: steps record the latest request, _process draws it.
+var _billboard_pending := false
+var _billboard_animate := false
+var _billboard_action := &""
+var _billboard_moving := true
+var _billboard_drawn_frame := -1
+var _billboard_drawn_tick := -1
+## Service holders found once and revalidated on use (group scans were a
+## measurable share of every simulation step).
+var _vision_holder: Node = null
+var _nav_holder: Node = null
+var _static_query_holder: Node = null
 var _sprite_metas: Dictionary = {}
 var _player_color_sheet := ""
 var _player_color_id := -1
@@ -140,7 +153,13 @@ var _path_retry_cooldown_units: int = 0
 var _path_retry_cooldown: float:
 	get: return Fixed.time_to_seconds(_path_retry_cooldown_units)
 	set(value): _path_retry_cooldown_units = Fixed.time_from_seconds(value)
-var _locomotion_velocity := Vector2.ZERO
+## Fixed units per second, measured from this unit's last movement update.
+## The float view keeps keyframes, saves and animation code unchanged.
+var _locomotion_velocity_q := Vector2i.ZERO
+var _locomotion_velocity: Vector2:
+	get: return Fixed.to_vector(_locomotion_velocity_q)
+	set(value): _locomotion_velocity_q = Fixed.vector(value)
+## Scheduled steering state of LocalAvoidance (integers only).
 var _avoidance_cache := {}
 var _stuck_seconds_units: int = 0
 var _stuck_seconds: float:
@@ -208,6 +227,7 @@ func _ready() -> void:
 		melee_armor += civ.melee_armor_bonus
 	register_population()
 	_setup_presentation()
+	set_process(false)
 	UnitOcclusion.ensure_for(self)
 	set_selected(false)
 	_vision_register()
@@ -281,7 +301,9 @@ func _physics_process(delta: float) -> void:
 	else:
 		_update_idle_animation(delta)
 	var moved_q := _sim_pos_q - Fixed.vector(frame_start)
-	_locomotion_velocity = Fixed.to_vector(Vector2i(Fixed.mul_div(moved_q.x, Fixed.TIME_SCALE, maxi(1, time_units)), Fixed.mul_div(moved_q.y, Fixed.TIME_SCALE, maxi(1, time_units))))
+	_locomotion_velocity_q = Vector2i(Fixed.mul_div(moved_q.x, Fixed.TIME_SCALE, maxi(1, time_units)), Fixed.mul_div(moved_q.y, Fixed.TIME_SCALE, maxi(1, time_units)))
+	# Neighbours steer around this unit's settled position and velocity.
+	_vision_sync_motion()
 	if order == Enums.OrderType.MOVE:
 		_progress_elapsed_units += time_units
 		if _progress_elapsed_units >= 2 * Fixed.TIME_SCALE:
@@ -658,7 +680,7 @@ func _animation_fps(action: StringName) -> float:
 func _combat_animation_name(action: StringName) -> StringName:
 	if _villager_actions:
 		return _pick_villager_animation(action)
-	return StringName("%s_dir_%d" % [action, _facing_dir])
+	return _dir_anim(action, _facing_dir) if not String(action).is_empty() else StringName("_dir_%d" % _facing_dir)
 
 func take_damage(amount: float, source: Node = null) -> void:
 	take_damage_fixed(Fixed.from_float(amount), source)
@@ -670,6 +692,7 @@ func take_damage_fixed(amount_q: int, source: Node = null) -> void:
 	damaged.emit(self)
 	_refresh_world_hp_bar()
 	if hp <= 0.0:
+		_vision_sync_motion()
 		_begin_die()
 		return
 	_try_retaliate(source)
@@ -1144,42 +1167,58 @@ func _move_resolve_context() -> Dictionary:
 
 
 func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_context: Dictionary = {}, delta := 1.0 / 60.0) -> void:
-	var units: Array = []
-	var solids: Array = []
-	var query_radius := maxf(Avoidance.NEIGHBOR_RANGE, 2.0 * (_pathfinding_radius() + def.move_speed * (Avoidance.HORIZON + delta)))
+	var step_time := maxi(1, _simulation_time_delta(delta))
+	var from_q := Fixed.vector(from_pos)
+	var displacement := Fixed.vector(desired_pos) - from_q
+	var preferred := Vector2i(Fixed.mul_div(displacement.x, Fixed.TIME_SCALE, step_time), Fixed.mul_div(displacement.y, Fixed.TIME_SCALE, step_time))
+	var radius := _pathfinding_radius()
+	var radius_q := Fixed.coord(radius)
+	var field: RefCounted = null
+	var boxes := PackedInt64Array()
+	var water: Array = []
 	if is_inside_tree():
 		var vision := _get_vision_service()
-		if vision != null and vision.has_method("units_in_radius"):
-			units = vision.units_in_radius(self, query_radius)
-		elif vision != null and vision.has_method("others_in_radius"):
-			for other in vision.others_in_radius(self, query_radius):
-				if other.get("def") is UnitDef:
-					units.append(other)
-		else:
-			for other in get_tree().get_nodes_in_group("units"):
-				if other != self and sim_pos.distance_squared_to(other.sim_pos) < query_radius * query_radius:
-					units.append(other)
-		var nav_holder := get_tree().get_first_node_in_group("nav_service")
-		if nav_holder != null and nav_holder.has_method("query_static_blockers"):
-			# Include the complete prediction circle: avoidance may turn in any
-			# direction, and large footprints are indexed by all occupied buckets.
-			var reach := _pathfinding_radius() + def.move_speed * maxf(Avoidance.HORIZON, delta)
-			solids = nav_holder.query_static_blockers(from_pos, from_pos, reach)
+		if vision != null: field = vision.get("unit_field")
+		var nav_holder := _static_query_holder
+		if nav_holder == null or not is_instance_valid(nav_holder) or not nav_holder.is_inside_tree() or not nav_holder.is_in_group("nav_service"):
+			nav_holder = get_tree().get_first_node_in_group("nav_service")
+			_static_query_holder = nav_holder
+		# Include the complete prediction circle: avoidance may turn in any
+		# direction, and large footprints are indexed by all occupied buckets.
+		var reach := radius + def.move_speed * maxf(Avoidance.HORIZON_TIME / float(Fixed.TIME_SCALE), delta) + 1.0
+		if nav_holder != null and nav_holder.has_method("query_static_boxes"):
+			var found: Array = nav_holder.query_static_boxes(from_pos, reach, radius_q)
+			boxes = found[0]
+			water = found[1]
 		else:
 			# Small standalone arenas may not install the navigation holder.
+			var solids: Array = []
 			solids.append_array(get_tree().get_nodes_in_group("buildings"))
 			solids.append_array(get_tree().get_nodes_in_group("path_blockers"))
 			for resource in get_tree().get_nodes_in_group("resource_nodes"):
 				if resource.amount > 0 and ResourceNode.resource_blocks_pathfinding(resource.resource_type):
 					solids.append(resource)
-	var preferred := (desired_pos - from_pos) / maxf(delta, 0.00001)
-	var resolved := Avoidance.step_scheduled(self, preferred, _locomotion_velocity, delta, units, solids, _move_target, _avoidance_cache)
-	sim_pos = _bounded_integer_step(from_pos, resolved, _movement_step(delta))
+			var found := CollisionResolverScript.static_boxes(solids, radius_q)
+			boxes = found[0]
+			water = found[1]
+	if field == null: field = _standalone_field()
+	var motion := Avoidance.motion_record(from_q, radius_q, preferred, _locomotion_velocity_q, step_time, Fixed.vector(_move_target), true, int(get_meta("net_id", get_instance_id())))
+	var resolved := Avoidance.steer(field, get_instance_id(), motion, boxes, water, CollisionResolverScript.bounds_record(), _avoidance_cache)
+	sim_pos = _bounded_integer_step(from_pos, Fixed.to_vector(resolved), _movement_step(delta))
 	_vision_sync_position()
 
-## Avoidance still scores float velocities; its authoritative result is a grid
-## position with a strict integer speed limit. Truncate components toward zero
-## using a ceil length so neither normalization nor rounding exceeds the budget.
+## Units outside a match scene (tests, tools) steer around the "units" group.
+func _standalone_field() -> RefCounted:
+	var field := UnitFieldScript.new()
+	if is_inside_tree():
+		for other in get_tree().get_nodes_in_group("units"):
+			if other is UnitAgent and other.def != null:
+				field.set_unit(other.get_instance_id(), other._sim_pos_q, Fixed.coord(CollisionResolverScript.unit_radius(other)), other._locomotion_velocity_q, other.hp_q > 0)
+	return field
+
+## Avoidance returns a grid position; enforce the strict integer speed limit.
+## Truncate components toward zero using a ceil length so neither
+## normalization nor rounding exceeds the budget.
 @warning_ignore("integer_division")
 func _bounded_integer_step(from: Vector2, to: Vector2, budget: int) -> Vector2:
 	var origin := Fixed.vector(from)
@@ -1348,11 +1387,16 @@ func _update_move_facing(face_vector: Vector2, delta: float, moved: bool) -> voi
 func _get_nav_service() -> Object:
 	if not is_inside_tree():
 		return null
+	var cached := _nav_holder
+	if cached != null and is_instance_valid(cached) and cached.is_inside_tree() and cached.is_in_group("nav_service") and cached.has_meta("nav") and cached.get_parent().is_ancestor_of(self):
+		return cached.get_meta("nav")
+	_nav_holder = null
 	var holders := get_tree().get_nodes_in_group("nav_service")
 	if holders.is_empty():
 		return null
 	for holder in holders:
 		if holder.get_parent().is_ancestor_of(self) and holder.has_meta("nav"):
+			_nav_holder = holder
 			return holder.get_meta("nav")
 	return null
 
@@ -1775,6 +1819,7 @@ func _position_world_hp_bar() -> void:
 
 
 func _sprite_top_local_y() -> float:
+	_flush_billboard_frame()
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if (
 		_use_billboard
@@ -1785,7 +1830,7 @@ func _sprite_top_local_y() -> float:
 		var anim := billboard.animation
 		if billboard.sprite_frames.has_animation(anim):
 			var frame_idx := billboard.frame
-			var parsed: Dictionary = SpriteCatalogScript.parse_directional_animation(anim)
+			var parsed: Dictionary = _parsed_anim(anim)
 			var action: StringName = parsed["action"]
 			var direction: int = int(parsed["direction"])
 			var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}))
@@ -1900,22 +1945,52 @@ func _is_in_build_range() -> bool:
 	return _distance_to(_build_target) <= build_range
 
 
+## "<action>_dir_<n>" (or "dir_<n>" for an empty action) without formatting
+## a string on every sprite update.
+static var _dir_anim_names := {}
+static func _dir_anim(action: StringName, direction: int) -> StringName:
+	var row: Variant = _dir_anim_names.get(action)
+	if row == null:
+		row = []
+		_dir_anim_names[action] = row
+	while row.size() <= direction:
+		row.append(StringName(("%s_dir_%d" % [action, row.size()]) if not String(action).is_empty() else ("dir_%d" % row.size())))
+	return row[direction]
+
+## SpriteCatalog.parse_directional_animation, shared per animation name
+## (read-only results).
+static var _parsed_anims := {}
+static func _parsed_anim(anim: StringName) -> Dictionary:
+	var parsed: Variant = _parsed_anims.get(anim)
+	if parsed == null:
+		parsed = SpriteCatalogScript.parse_directional_animation(anim)
+		_parsed_anims[anim] = parsed
+	return parsed
+
+var _billboard_sprite: AnimatedSprite2D = null
+func _billboard_node() -> AnimatedSprite2D:
+	if _billboard_sprite != null and is_instance_valid(_billboard_sprite) and _billboard_sprite.get_parent() == self and _billboard_sprite.name == &"Billboard":
+		return _billboard_sprite
+	_billboard_sprite = get_node_or_null("Billboard") as AnimatedSprite2D
+	return _billboard_sprite
+
+
 func _pick_villager_animation(action: StringName) -> StringName:
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
+	var billboard := _billboard_node()
 	if billboard == null or billboard.sprite_frames == null:
 		return &"walk_dir_0"
 	var resolved := action
 	if action == &"attack" and not billboard.sprite_frames.has_animation(&"attack_dir_0"):
 		resolved = &"chop"
-	var anim := StringName("%s_dir_%d" % [resolved, _facing_dir])
+	var anim := _dir_anim(resolved, _facing_dir) if not String(resolved).is_empty() else StringName("_dir_%d" % _facing_dir)
 	if billboard.sprite_frames.has_animation(anim):
 		return anim
-	var action_dir0 := StringName("%s_dir_0" % resolved)
+	var action_dir0 := _dir_anim(resolved, 0)
 	if not String(resolved).is_empty() and billboard.sprite_frames.has_animation(action_dir0):
 		return action_dir0
 	if action == &"idle":
 		for direction in 5:
-			var idle_anim := StringName("idle_dir_%d" % direction)
+			var idle_anim := _dir_anim(&"idle", direction)
 			if billboard.sprite_frames.has_animation(idle_anim):
 				return idle_anim
 	if billboard.sprite_frames.has_animation(&"walk_dir_0"):
@@ -1926,7 +2001,44 @@ func _pick_villager_animation(action: StringName) -> StringName:
 func _apply_billboard_frame(
 	animate: bool, forced_action: StringName = &"", actually_moving: bool = true
 ) -> void:
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
+	var defer := match_state != null and match_state.lockstep_stepping
+	if not defer and Engine.is_in_physics_frame():
+		# Physics catching up runs several ticks in one rendered frame; the
+		# first tick draws at once, later ticks only keep the latest request.
+		# Repeated calls within one tick (scripts, tests) still draw at once.
+		var frame := Engine.get_process_frames()
+		var tick := Engine.get_physics_frames()
+		defer = _billboard_drawn_frame == frame and _billboard_drawn_tick != tick
+		if not defer:
+			_billboard_drawn_frame = frame
+			_billboard_drawn_tick = tick
+	if defer:
+		if not _billboard_pending:
+			_billboard_pending = true
+			set_process(true)
+		_billboard_animate = animate
+		_billboard_action = forced_action
+		_billboard_moving = actually_moving
+		return
+	_billboard_pending = false
+	_draw_billboard_frame(animate, forced_action, actually_moving)
+
+
+## Draws a sprite frame deferred during lockstep steps; it reads the same
+## unit state the last step left, so the picture matches an immediate draw.
+func _flush_billboard_frame() -> void:
+	if _billboard_pending:
+		_billboard_pending = false
+		_draw_billboard_frame(_billboard_animate, _billboard_action, _billboard_moving)
+
+
+func _process(_delta: float) -> void:
+	set_process(false)
+	_flush_billboard_frame()
+
+
+func _draw_billboard_frame(animate: bool, forced_action: StringName, actually_moving: bool) -> void:
+	var billboard := _billboard_node()
 	if billboard == null or billboard.sprite_frames == null:
 		return
 	var anim: StringName
@@ -1941,19 +2053,19 @@ func _apply_billboard_frame(
 		anim = _pick_villager_animation(action)
 	else:
 		if action.is_empty():
-			var idle_anim := StringName("idle_dir_%d" % _facing_dir)
+			var idle_anim := _dir_anim(&"idle", _facing_dir)
 			if not actually_moving and billboard.sprite_frames.has_animation(idle_anim):
 				action = &"idle"
 				anim = idle_anim
 			else:
-				anim = StringName("dir_%d" % _facing_dir)
+				anim = _dir_anim(&"", _facing_dir)
 		else:
-			anim = StringName("%s_dir_%d" % [action, _facing_dir])
+			anim = _dir_anim(action, _facing_dir)
 			if not billboard.sprite_frames.has_animation(anim):
 				if action == &"attack":
-					anim = StringName("walk_dir_%d" % _facing_dir)
+					anim = _dir_anim(&"walk", _facing_dir)
 				if not billboard.sprite_frames.has_animation(anim):
-					anim = StringName("dir_%d" % _facing_dir)
+					anim = _dir_anim(&"", _facing_dir)
 		if not billboard.sprite_frames.has_animation(anim):
 			return
 	billboard.flip_h = _facing_flip
@@ -1984,7 +2096,7 @@ func _apply_billboard_hotspot(
 		if not billboard.offset.is_equal_approx(_hotspot_offset):
 			billboard.offset = _hotspot_offset
 		return
-	var parsed: Dictionary = SpriteCatalogScript.parse_directional_animation(anim)
+	var parsed: Dictionary = _parsed_anim(anim)
 	var action: StringName = parsed["action"]
 	var direction: int = int(parsed["direction"])
 	var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}))
@@ -2006,6 +2118,7 @@ func _apply_team_color() -> void:
 	var body := get_node_or_null("Body") as CanvasItem
 	if body != null:
 		body.modulate = TeamColorCatalogScript.fallback_color(color_id)
+	_flush_billboard_frame()
 	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
 	if billboard != null and _use_billboard:
 		billboard.modulate = Color.WHITE
@@ -2053,6 +2166,7 @@ func _exit_tree() -> void:
 
 ## Network playback updates presentation without issuing orders or simulating hits.
 func network_presentation() -> Dictionary:
+	_flush_billboard_frame()
 	var sprite := get_node_or_null("Billboard") as AnimatedSprite2D
 	return {
 		"facing": _facing_dir, "flip": _facing_flip,
@@ -2083,10 +2197,12 @@ func apply_network_presentation(data: Dictionary) -> void:
 func _get_vision_service() -> Object:
 	if not is_inside_tree():
 		return null
-	var holders := get_tree().get_nodes_in_group("vision_service")
-	if holders.is_empty():
-		return null
-	var holder := holders[0]
+	var holder := _vision_holder
+	if holder == null or not is_instance_valid(holder) or not holder.is_inside_tree() or not holder.is_in_group("vision_service"):
+		holder = get_tree().get_first_node_in_group("vision_service")
+		_vision_holder = holder
+		if holder == null:
+			return null
 	if holder.has_meta("vision"):
 		return holder.get_meta("vision")
 	return null
@@ -2108,6 +2224,12 @@ func _vision_sync_position() -> void:
 	var vision := _get_vision_service()
 	if vision != null and vision.has_method("sync_position"):
 		vision.call("sync_position", self)
+
+
+func _vision_sync_motion() -> void:
+	var vision := _get_vision_service()
+	if vision != null and vision.has_method("sync_motion"):
+		vision.call("sync_motion", self)
 
 ## Change a researched unit line without resetting its orders or registering population again.
 func apply_definition_upgrade(value: UnitDef) -> void:

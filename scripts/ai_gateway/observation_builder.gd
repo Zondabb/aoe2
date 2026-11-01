@@ -8,6 +8,7 @@ const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.
 const VisionServiceScript := preload("res://scripts/systems/vision_service.gd")
 const DecisionContext := preload("res://scripts/ai_gateway/decision_context_builder.gd")
 const Catalog := preload("res://scripts/data/game_catalog.gd")
+const Walls := preload("res://scripts/systems/wall_system.gd")
 
 const DEFAULT_DEFEND_RADIUS := 20.0
 
@@ -300,6 +301,9 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D, cache: Dictiona
 			"melee_armor": entity.get("melee_armor"), "pierce_armor": entity.get("pierce_armor")}
 	snapshot["is_complete"] = bool(entity.get("is_complete"))
 	snapshot["build_progress"] = float(entity.get("build_progress"))
+	if Walls.is_fortification(entity.get("def").id):
+		_fill_fortification(snapshot, entity)
+		return
 	snapshot["build_time"] = float(entity.get("def").build_time)
 	snapshot["footprint"] = AiProtocolScript.vec2_to_array(entity.get_placement_footprint())
 	snapshot["orientation"] = entity.wall_orientation
@@ -345,6 +349,20 @@ static func _fill_building(snapshot: Dictionary, entity: Node2D, cache: Dictiona
 				snapshot["research"] = state.technology_progression.progress_for(entity)
 				snapshot.research["building_id"] = EntityRegistryScript.id_of(entity)
 
+
+## Walls and gates are hundreds of pieces late in a match. They never train,
+## research or take deliveries, and their per-type constants (build time,
+## planning footprint) are in decision_context.catalog.buildings. A piece
+## carries only what can differ between pieces: health, construction,
+## placement, passability and, for gates, the door. Production, research and
+## drop-off keys are absent rather than empty; only gates have door keys.
+static func _fill_fortification(snapshot: Dictionary, entity: Node2D) -> void:
+	snapshot["footprint"] = AiProtocolScript.vec2_to_array(entity.get_placement_footprint())
+	snapshot["orientation"] = entity.wall_orientation
+	snapshot["blocks_movement"] = entity.get_movement_half() != Vector2.ZERO
+	if entity.get("def").id == &"gate":
+		snapshot["gate_state"] = entity.gate_state
+		snapshot["gate_open"] = entity.gate_open
 
 static func _fill_unit(snapshot: Dictionary, entity: Node2D) -> void:
 	snapshot["def_id"] = AiProtocolScript.def_id_string(entity)

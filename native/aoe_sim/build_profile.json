@@ -1,0 +1,3 @@
+{
+	"enabled_classes": ["RefCounted", "Object", "Engine", "OS", "FileAccess", "Image", "SceneTree", "WorkerThreadPool", "XMLParser", "ClassDBSingleton"]
+}

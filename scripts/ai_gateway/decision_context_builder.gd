@@ -75,12 +75,17 @@ class ObservationNav extends NavGridService:
 		# Seeing one end of a large blocker cannot disclose its hidden extent.
 		# Keep only obstacles whose cell and inflation neighborhood are visible;
 		# public map edges remain known. Unknown land is an optimistic route.
-		for index in _solid_indices_by_radius.get(key, PackedInt32Array()):
-			var point := cell_to_world_center(_cell_from_index(index))
-			if not bounds.encloses(Rect2(point - clearance * 0.5, clearance)) or fog.footprint_visible(team, point, clearance, true):
-				kept.append(index)
+		var solid: PackedInt32Array = _solid_indices_by_radius.get(key, PackedInt32Array())
+		var points := PackedVector2Array()
+		points.resize(solid.size())
+		for at in solid.size(): points[at] = cell_to_world_center(_cell_from_index(solid[at]))
+		var seen: PackedByteArray = fog.footprints_fully_visible(team, points, clearance)
+		for at in solid.size():
+			var point := points[at]
+			if not bounds.encloses(Rect2(point - clearance * 0.5, clearance)) or seen[at] != 0:
+				kept.append(solid[at])
 			else:
-				layer[index] = 0
+				layer[solid[at]] = 0
 		_solid_by_radius[key] = layer
 		_solid_indices_by_radius[key] = kept
 		_visible_layers[key] = true
@@ -152,11 +157,32 @@ static func _build_impl(state: MatchState, entities: Node2D, team: int, snapshot
 	if budget != null and not await budget.checkpoint(): return {}
 	var army := {} if defense_only else _army(own, snapshots, derived, team, defend_radius, bounds, nav)
 	if budget != null and not await budget.checkpoint(): return {}
-	var defense := _defense_planning(state, entities, team, civ, builders, derived, bounds, nav)
+	# Wall batches and catalog buildings are independent steps: a budgeted
+	# preparation may yield between them (each step itself is one slice).
+	var defense: Dictionary
+	var defense_work := _defense_setup(state, entities, team, civ, builders, derived, bounds)
+	if defense_work.has("finished"):
+		defense = defense_work.finished
+	else:
+		for batch: Dictionary in defense_work.batches:
+			if budget != null and budget.expired():
+				if not await budget.checkpoint(): return {}
+				_prune_live(defense_work.available)
+			_defense_batch(defense_work, batch, state, team, nav)
+		defense = _defense_finish(defense_work)
 	if budget != null and not await budget.checkpoint(): return {}
 	if defense_only:
 		return {"defense_options": defense.options, "defense_plan": defense.plan, "defense_scout_options": defense.scouts}
-	var construction := _construction_options(state, team, builders, catalog.buildings, placement_blockers, bounds, nav, derived, snapshots)
+	var construction: Array = []
+	var construction_work := _construction_setup(state, team, builders, placement_blockers, bounds, derived)
+	if not construction_work.is_empty():
+		for record: Dictionary in catalog.buildings:
+			if budget != null and budget.expired():
+				if not await budget.checkpoint(): return {}
+				_prune_live(construction_work.free_builders)
+				# Every free villager died meanwhile: no further reachable plot.
+				if construction_work.free_builders.is_empty(): break
+			construction.append_array(_construction_for_record(construction_work, record, state, team, bounds, nav, derived, snapshots))
 	# This boundary is also immediately before scouting. No partial stage
 	# dictionary escapes if cancellation/scene teardown happens while yielding.
 	if budget != null and not await budget.checkpoint(): return {}
@@ -232,10 +258,29 @@ static func planning_footprint(definition: BuildingDef) -> Vector2:
 	return definition.footprint * PLANNING_SCALE
 
 
+## Drops actors freed or queued for deletion across a frame boundary.
+static func _prune_live(nodes: Array) -> void:
+	for index in range(nodes.size() - 1, -1, -1):
+		var node: Variant = nodes[index]
+		if not is_instance_valid(node) or node.is_queued_for_deletion():
+			nodes.remove_at(index)
+
+
 static func _construction_options(state: MatchState, team: int, builders: Array[Node2D], records: Array, blockers: Array, bounds: Rect2, nav: RefCounted, derived: Dictionary, snapshots: Array = []) -> Array:
 	var result: Array = []
+	var work := _construction_setup(state, team, builders, blockers, bounds, derived)
+	if work.is_empty(): return result
+	for record: Dictionary in records:
+		result.append_array(_construction_for_record(work, record, state, team, bounds, nav, derived, snapshots))
+	return result
+
+
+## Shared inputs of every building's site search. Empty when no villager is
+## free to build. Budgeted planning yields between buildings and prunes
+## free_builders after each boundary.
+static func _construction_setup(state: MatchState, team: int, builders: Array[Node2D], blockers: Array, bounds: Rect2, derived: Dictionary) -> Dictionary:
 	var free_builders := builders.filter(func(unit): return unit.get("order") in [Enums.OrderType.NONE, Enums.OrderType.GATHER] and float(unit.get("carry_amount")) <= 0.001 and String(unit.get("_gather_state")) != "to_drop_off")
-	if free_builders.is_empty(): return result
+	if free_builders.is_empty(): return {}
 	var base := Protocol.array_to_vec2(derived.get("own_tc_pos", [0, 0])) as Vector2
 	if int(derived.get("own_tc_id", -1)) < 0: base = free_builders[0].get("sim_pos")
 	var stored_plans: Dictionary = state.get_meta(Perimeter.META_KEY, {})
@@ -247,76 +292,85 @@ static func _construction_options(state: MatchState, team: int, builders: Array[
 	# so a world-fixed start gave the two bases of a rotationally symmetric map
 	# different choices (e.g. one team's opening mill on the far side of its
 	# berries). Relative angles keep both teams' options symmetric.
-	var start_angle := direction.angle()
 	# Hundreds of candidate points share one pass over the observed blockers.
-	var sites := _site_index(blockers)
-	var wall_strips := Perimeter.wall_strips(wall_plan)
-	for record: Dictionary in records:
-		if Walls.is_fortification(StringName(record.id)): continue
-		# Resource shortages do not invalidate geometry: the planner can save up.
-		if not record.available and record.blocked_reason != "资源不足": continue
-		var definition := Catalog.get_building(record.id)
-		var zone := "military" if record.id in MILITARY_BUILDINGS else "farm" if record.id == "farm" else "residential"
-		var anchors: Array = [{"pos": base, "resource_id": null}]
-		# Growing bases exhaust the inner rings before castle-age infrastructure
-		# unlocks. Include bounded outer alternatives, still requiring own sight,
-		# clear delivery lanes and a reachable builder; nearer plots score first.
-		var radii: Array = [26.0, 30.0, 34.0, 44.0, 50.0, 56.0, 68.0]
-		if zone == "farm":
-			radii = [18.0, 22.0, 28.0, 36.0, 44.0]
-			anchors = _farm_anchors(snapshots, team, base, int(derived.get("own_tc_id", -1)))
-		if record.id in ["lumber_camp", "mining_camp", "mill"]:
-			zone = "resource_drop_off"
-			anchors = _resource_anchors(record.id, snapshots, base)
-			radii = [10.0, 14.0, 18.0]
-			if record.id == "mill":
-				# A reserved wall band can cover both old 26/34 fallback rings.
-				# Keep inner and outer alternatives even after berries disappear,
-				# so a missing mill cannot permanently block farms and enclosure.
-				anchors.append({"pos": base, "resource_id": null, "radii": [18.0, 22.0, 26.0, 34.0, 44.0, 50.0], "score_bonus": -10.0})
-		var candidates: Array = []
-		var seen := {}
-		for anchor: Dictionary in anchors:
-			for radius in anchor.get("radii", radii):
-				# At larger radii the original 16 spokes leave wide gaps, missing
-				# legal plots along the irregular edge of the team's current sight.
-				var sectors := 32 if float(radius) > 44.0 else 16
-				for sector in sectors:
-					var point: Vector2 = (anchor.pos + Vector2.from_angle(start_angle + TAU * (sector + 0.5) / float(sectors)) * float(radius)).round()
-					if seen.has(point): continue
-					seen[point] = true
-					if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue
-					if not _planning_clear(definition, point, base, sites, bounds): continue
-					# Reserve the actual wall line, including production exit clearance,
-					# before the first foundation is paid for.
-					if not Perimeter.strips_clear(wall_strips, point, definition.footprint + Vector2.ONE * 4): continue
-					if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): continue
-					if not _can_place(definition.footprint, point, sites) or not _footprint_walkable(point, definition.footprint, nav): continue
-					var facing := (point - base).normalized().dot(direction)
-					var score: float = 100.0 - point.distance_to(anchor.pos) - point.distance_to(base) * 0.1 + float(anchor.get("score_bonus", 0))
-					if zone == "military": score += facing * 10.0
-					elif zone == "residential": score -= facing * 8.0
-					candidates.append({"point": point, "score": score, "resource_id": anchor.resource_id, "drop_off_id": anchor.get("drop_off_id")})
-		candidates.sort_custom(func(a, b): return a.score > b.score)
-		var found := 0
-		var checked := 0
-		for candidate: Dictionary in candidates:
-			if found >= POSITIONS_PER_BUILDING or checked >= MAX_ROUTE_CHECKS_PER_BUILDING: break
-			var point: Vector2 = candidate.point
-			var builder: Node2D = free_builders[0]
-			for unit in free_builders:
-				if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
-			checked += 1
-			var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, builder.get("def").resolved_footprint_radius())
-			if route.is_empty() or route[-1].distance_to(point) > 2: continue
-			var exit_pos := point + Vector2.RIGHT * (definition.footprint.x * 0.5 + 2.0)
-			if definition.id in MILITARY_BUILDINGS and not nav.is_world_walkable_with_radius(exit_pos, 0.6): continue
-			result.append({"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point),
-				"zone": zone, "planning_footprint": Protocol.vec2_to_array(planning_footprint(definition)),
-				"score": snappedf(candidate.score, 0.1), "resource_target_id": candidate.resource_id,
-				"drop_off_id": candidate.drop_off_id,
-				"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "farm_and_lane_reserve"]})
-			found += 1
+	return {"free_builders": free_builders, "base": base, "direction": direction, "start_angle": direction.angle(),
+		"sites": _site_index(blockers), "wall_strips": Perimeter.wall_strips(wall_plan)}
+
+
+## Up to POSITIONS_PER_BUILDING options for one catalog building.
+static func _construction_for_record(work: Dictionary, record: Dictionary, state: MatchState, team: int, bounds: Rect2, nav: RefCounted, derived: Dictionary, snapshots: Array) -> Array:
+	var result: Array = []
+	var free_builders: Array = work.free_builders
+	var base: Vector2 = work.base
+	var direction: Vector2 = work.direction
+	var start_angle: float = work.start_angle
+	var sites: Dictionary = work.sites
+	var wall_strips: Array[Rect2] = work.wall_strips
+	if Walls.is_fortification(StringName(record.id)): return result
+	# Resource shortages do not invalidate geometry: the planner can save up.
+	if not record.available and record.blocked_reason != "资源不足": return result
+	var definition := Catalog.get_building(record.id)
+	var zone := "military" if record.id in MILITARY_BUILDINGS else "farm" if record.id == "farm" else "residential"
+	var anchors: Array = [{"pos": base, "resource_id": null}]
+	# Growing bases exhaust the inner rings before castle-age infrastructure
+	# unlocks. Include bounded outer alternatives, still requiring own sight,
+	# clear delivery lanes and a reachable builder; nearer plots score first.
+	var radii: Array = [26.0, 30.0, 34.0, 44.0, 50.0, 56.0, 68.0]
+	if zone == "farm":
+		radii = [18.0, 22.0, 28.0, 36.0, 44.0]
+		anchors = _farm_anchors(snapshots, team, base, int(derived.get("own_tc_id", -1)))
+	if record.id in ["lumber_camp", "mining_camp", "mill"]:
+		zone = "resource_drop_off"
+		anchors = _resource_anchors(record.id, snapshots, base)
+		radii = [10.0, 14.0, 18.0]
+		if record.id == "mill":
+			# A reserved wall band can cover both old 26/34 fallback rings.
+			# Keep inner and outer alternatives even after berries disappear,
+			# so a missing mill cannot permanently block farms and enclosure.
+			anchors.append({"pos": base, "resource_id": null, "radii": [18.0, 22.0, 26.0, 34.0, 44.0, 50.0], "score_bonus": -10.0})
+	var candidates: Array = []
+	var seen := {}
+	for anchor: Dictionary in anchors:
+		for radius in anchor.get("radii", radii):
+			# At larger radii the original 16 spokes leave wide gaps, missing
+			# legal plots along the irregular edge of the team's current sight.
+			var sectors := 32 if float(radius) > 44.0 else 16
+			for sector in sectors:
+				var point: Vector2 = (anchor.pos + Vector2.from_angle(start_angle + TAU * (sector + 0.5) / float(sectors)) * float(radius)).round()
+				if seen.has(point): continue
+				seen[point] = true
+				if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue
+				if not _planning_clear(definition, point, base, sites, bounds): continue
+				# Reserve the actual wall line, including production exit clearance,
+				# before the first foundation is paid for.
+				if not Perimeter.strips_clear(wall_strips, point, definition.footprint + Vector2.ONE * 4): continue
+				if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): continue
+				if not _can_place(definition.footprint, point, sites) or not _footprint_walkable(point, definition.footprint, nav): continue
+				var facing := (point - base).normalized().dot(direction)
+				var score: float = 100.0 - point.distance_to(anchor.pos) - point.distance_to(base) * 0.1 + float(anchor.get("score_bonus", 0))
+				if zone == "military": score += facing * 10.0
+				elif zone == "residential": score -= facing * 8.0
+				candidates.append({"point": point, "score": score, "resource_id": anchor.resource_id, "drop_off_id": anchor.get("drop_off_id")})
+	candidates.sort_custom(func(a, b): return a.score > b.score)
+	var found := 0
+	var checked := 0
+	for candidate: Dictionary in candidates:
+		if found >= POSITIONS_PER_BUILDING or checked >= MAX_ROUTE_CHECKS_PER_BUILDING: break
+		var point: Vector2 = candidate.point
+		var builder: Node2D = free_builders[0]
+		for unit in free_builders:
+			if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
+		checked += 1
+		var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, builder.get("def").resolved_footprint_radius())
+		if route.is_empty() or route[-1].distance_to(point) > 2: continue
+		var exit_pos := point + Vector2.RIGHT * (definition.footprint.x * 0.5 + 2.0)
+		if definition.id in MILITARY_BUILDINGS and not nav.is_world_walkable_with_radius(exit_pos, 0.6): continue
+		result.append({"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point),
+			"zone": zone, "planning_footprint": Protocol.vec2_to_array(planning_footprint(definition)),
+			"score": snappedf(candidate.score, 0.1), "resource_target_id": candidate.resource_id,
+			"drop_off_id": candidate.drop_off_id,
+			"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "farm_and_lane_reserve"]})
+		found += 1
 	return result
 
 
@@ -325,10 +379,22 @@ static func _defense_options(state: MatchState, entities: Node2D, team: int, civ
 
 
 static func _defense_planning(state: MatchState, entities: Node2D, team: int, civ: CivDef, builders: Array[Node2D], derived: Dictionary, bounds: Rect2, nav: RefCounted) -> Dictionary:
+	var work := _defense_setup(state, entities, team, civ, builders, derived, bounds)
+	if work.has("finished"): return work.finished
+	for batch: Dictionary in work.batches:
+		_defense_batch(work, batch, state, team, nav)
+	return _defense_finish(work)
+
+
+## Perimeter, scene index and counters shared by every wall batch. A plan that
+## needs no batch work is returned under "finished". Budgeted planning yields
+## between batches; the scene index tolerates nodes freed meanwhile, and
+## available builders are pruned after each boundary.
+static func _defense_setup(state: MatchState, entities: Node2D, team: int, civ: CivDef, builders: Array[Node2D], derived: Dictionary, bounds: Rect2) -> Dictionary:
 	var options: Array = []
 	var scouts: Array = []
 	var result := {"options": options, "scouts": scouts, "plan": {}}
-	if int(derived.get("own_tc_id", -1)) < 0: return result
+	if int(derived.get("own_tc_id", -1)) < 0: return {"finished": result}
 	var available := builders.filter(func(unit): return unit.get("order") in [Enums.OrderType.NONE, Enums.OrderType.GATHER] and unit.get_build_queue_ids().is_empty() and float(unit.get("carry_amount")) <= 0.001 and String(unit.get("_gather_state")) != "to_drop_off")
 	var ctx := Context.new()
 	ctx.match_state = state
@@ -339,83 +405,105 @@ static func _defense_planning(state: MatchState, entities: Node2D, team: int, ci
 	var perimeter := Perimeter.get_plan(state, entities, team, base, int(derived.own_tc_id), bounds, "palisade_wall")
 	if perimeter.rect.size.x < 12 or perimeter.rect.size.y < 12:
 		result.plan = {"id": perimeter.id, "closed": false, "phase": "blocked", "blocked_reason": "map_too_small_for_access_gates", "total_segments": 0, "missing_segments": 0, "blocked_segments": 0, "complete_segments": 0}
-		return result
+		return {"finished": result}
 	# Hundreds of wall pieces share one scene pass (nothing is placed here).
 	var scene := Walls.scene_index(ctx)
 	var gate_reason := Catalog.building_reason(state, team, civ, Catalog.get_building(&"gate"), entities)
 	var gate_unlocked := gate_reason.is_empty() or gate_reason == "资源不足"
-	var seen: Dictionary = perimeter.seen_complete
-	var unique := {}
-	var complete := 0
-	var blocked_keys := {}
-	var unseen_keys := {}
-	var pending := 0
-	for batch: Dictionary in Perimeter.batches(perimeter):
-		var missing := 0
-		var missing_keys: Array[String] = []
-		var repair := false
-		var connected := false
-		var visible := true
-		for piece: Dictionary in batch.pieces:
-			var key := "%s:%s" % [piece.building_def_id, piece.pos]
-			var existing := Walls.existing_segment(piece, ctx, scene)
-			if existing != null: connected = true
-			if existing == null:
-				missing += 1
-				missing_keys.append(key)
-				if seen.has(key): repair = true
-			# Completed/pending owned pieces need no new placement or survey. Their
-			# visibility matters only when this batch also contains a missing piece.
-			# Defer the footprint checks until missing is known below.
-			if unique.has(key): continue
-			unique[key] = true
-			if existing != null:
-				if bool(existing.get("is_complete")):
-					complete += 1
-					seen[key] = true
-				else: pending += 1
-		if missing == 0: continue
-		for piece: Dictionary in batch.pieces:
-			var footprint := Walls.footprint_for(Catalog.get_building(piece.building_def_id), int(piece.orientation))
-			if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, piece.pos, footprint + Vector2.ONE * 2, true)):
-				visible = false
-				break
-		if not visible:
-			for key in missing_keys: unseen_keys[key] = true
-			if not available.is_empty():
-				var point: Vector2 = (batch.start + batch.end) * 0.5 - batch.normal * 4
-				var builder: Node2D = available[0]
-				for unit in available:
-					if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
-				# A survey is a short move within a leased builder task, rather than
-				# sending a villager across an entire unseen side in one order.
-				point = builder.get("sim_pos").move_toward(point, 14.0)
-				if not scouts.any(func(option): return option.side == batch.side):
-					scouts.append({"unit_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point), "side": batch.side, "reason": "reveal_perimeter"})
-			continue
-		if batch.include_gate and not gate_unlocked:
-			for key in missing_keys: blocked_keys[key] = true
-			continue
-		# Only consult authoritative geometry after the entire footprint and its
-		# inflation neighborhood are visible; hidden terrain cannot leak via hints.
-		if not Walls.validate_plan(batch.pieces, ctx, false, scene).is_empty():
-			for key in missing_keys: blocked_keys[key] = true
-			continue
-		if available.is_empty(): continue
-		var approach: Vector2 = (batch.start + batch.end) * 0.5 - batch.normal * 3.0
-		var builder: Node2D = available[0]
-		for unit in available:
-			if unit.get("sim_pos").distance_squared_to(approach) < builder.get("sim_pos").distance_squared_to(approach): builder = unit
-		var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), approach, builder.get("def").resolved_footprint_radius())
-		if route.is_empty() or route[-1].distance_to(approach) > 2:
-			for key in missing_keys: blocked_keys[key] = true
-			continue
-		var price := Walls.cost(batch.pieces, ctx, scene)
-		options.append({"building_def_id": perimeter.material, "builder_id": Registry.id_of(builder),
-			"start": Protocol.vec2_to_array(batch.start), "end": Protocol.vec2_to_array(batch.end), "include_gate": batch.include_gate,
-			"cost": price, "segment_count": missing, "orientation": batch.pieces[0].orientation,
-			"zone": "defensive_perimeter", "preserves_access": true, "perimeter_id": perimeter.id, "side": batch.side,
-			"repair": repair, "connected": connected, "priority": 1000 if repair else 100 if connected else 0})
+	return {"result": result, "options": options, "scouts": scouts, "available": available, "ctx": ctx, "perimeter": perimeter,
+		"scene": scene, "gate_unlocked": gate_unlocked, "seen": perimeter.seen_complete, "unique": {}, "complete": 0,
+		"blocked_keys": {}, "unseen_keys": {}, "pending": 0, "batches": Perimeter.batches(perimeter)}
+
+
+## One perimeter batch: counts existing pieces, then offers, surveys or blocks.
+static func _defense_batch(work: Dictionary, batch: Dictionary, state: MatchState, team: int, nav: RefCounted) -> void:
+	var options: Array = work.options
+	var scouts: Array = work.scouts
+	var available: Array = work.available
+	var ctx: CommandExecutionContext = work.ctx
+	var perimeter: Dictionary = work.perimeter
+	var scene: Dictionary = work.scene
+	var gate_unlocked: bool = work.gate_unlocked
+	var seen: Dictionary = work.seen
+	var unique: Dictionary = work.unique
+	var blocked_keys: Dictionary = work.blocked_keys
+	var unseen_keys: Dictionary = work.unseen_keys
+	var missing := 0
+	var missing_keys: Array[String] = []
+	var repair := false
+	var connected := false
+	var visible := true
+	for piece: Dictionary in batch.pieces:
+		var key := "%s:%s" % [piece.building_def_id, piece.pos]
+		var existing := Walls.existing_segment(piece, ctx, scene)
+		if existing != null: connected = true
+		if existing == null:
+			missing += 1
+			missing_keys.append(key)
+			if seen.has(key): repair = true
+		# Completed/pending owned pieces need no new placement or survey. Their
+		# visibility matters only when this batch also contains a missing piece.
+		# Defer the footprint checks until missing is known below.
+		if unique.has(key): continue
+		unique[key] = true
+		if existing != null:
+			if bool(existing.get("is_complete")):
+				work.complete += 1
+				seen[key] = true
+			else: work.pending += 1
+	if missing == 0: return
+	for piece: Dictionary in batch.pieces:
+		var footprint := Walls.footprint_for(Catalog.get_building(piece.building_def_id), int(piece.orientation))
+		if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, piece.pos, footprint + Vector2.ONE * 2, true)):
+			visible = false
+			break
+	if not visible:
+		for key in missing_keys: unseen_keys[key] = true
+		if not available.is_empty():
+			var point: Vector2 = (batch.start + batch.end) * 0.5 - batch.normal * 4
+			var builder: Node2D = available[0]
+			for unit in available:
+				if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
+			# A survey is a short move within a leased builder task, rather than
+			# sending a villager across an entire unseen side in one order.
+			point = builder.get("sim_pos").move_toward(point, 14.0)
+			if not scouts.any(func(option): return option.side == batch.side):
+				scouts.append({"unit_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point), "side": batch.side, "reason": "reveal_perimeter"})
+		return
+	if batch.include_gate and not gate_unlocked:
+		for key in missing_keys: blocked_keys[key] = true
+		return
+	# Only consult authoritative geometry after the entire footprint and its
+	# inflation neighborhood are visible; hidden terrain cannot leak via hints.
+	if not Walls.validate_plan(batch.pieces, ctx, false, scene).is_empty():
+		for key in missing_keys: blocked_keys[key] = true
+		return
+	if available.is_empty(): return
+	var approach: Vector2 = (batch.start + batch.end) * 0.5 - batch.normal * 3.0
+	var builder: Node2D = available[0]
+	for unit in available:
+		if unit.get("sim_pos").distance_squared_to(approach) < builder.get("sim_pos").distance_squared_to(approach): builder = unit
+	var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), approach, builder.get("def").resolved_footprint_radius())
+	if route.is_empty() or route[-1].distance_to(approach) > 2:
+		for key in missing_keys: blocked_keys[key] = true
+		return
+	var price := Walls.cost(batch.pieces, ctx, scene)
+	options.append({"building_def_id": perimeter.material, "builder_id": Registry.id_of(builder),
+		"start": Protocol.vec2_to_array(batch.start), "end": Protocol.vec2_to_array(batch.end), "include_gate": batch.include_gate,
+		"cost": price, "segment_count": missing, "orientation": batch.pieces[0].orientation,
+		"zone": "defensive_perimeter", "preserves_access": true, "perimeter_id": perimeter.id, "side": batch.side,
+		"repair": repair, "connected": connected, "priority": 1000 if repair else 100 if connected else 0})
+
+
+static func _defense_finish(work: Dictionary) -> Dictionary:
+	var result: Dictionary = work.result
+	var options: Array = work.options
+	var perimeter: Dictionary = work.perimeter
+	var unique: Dictionary = work.unique
+	var complete: int = work.complete
+	var pending: int = work.pending
+	var blocked_keys: Dictionary = work.blocked_keys
+	var unseen_keys: Dictionary = work.unseen_keys
 	var rectangle: Rect2 = perimeter.rect
 	var unseen := unseen_keys.size()
 	var closed := unique.size() > 0 and complete == unique.size()
@@ -483,7 +571,7 @@ static func _site_index(blockers: Array) -> Dictionary:
 			_bucket_insert(planning, covered, [rect, exit])
 		if blocker.is_queued_for_deletion() or blocker.get("is_placement_ghost") == true: continue
 		if blocker.has_method("get_water_contours") and not blocker.get_water_contours().is_empty():
-			water.append(blocker.get_water_contours())
+			water.append([blocker.get_water_contours(), Shore.contours_bounds(blocker.get_water_contours())])
 			continue
 		var footprint: Vector2 = other.footprint if other != null else (blocker.get("block_size") if blocker.get("block_size") is Vector2 else Vector2.ONE)
 		if blocker.has_method("get_placement_footprint"):
@@ -530,8 +618,8 @@ static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2
 static func _can_place(footprint: Vector2, center: Vector2, sites: Dictionary) -> bool:
 	var candidate_half := footprint * 0.5
 	var rect := Rect2(center - candidate_half, footprint)
-	for contours in sites.water:
-		if Shore.intersects_rect(rect, contours): return false
+	for shore: Array in sites.water:
+		if Shore.intersects_rect_within(rect, shore[0], shore[1]): return false
 	var placement: Dictionary = sites.placement
 	var cells := _bucket_cells(rect)
 	for y in range(cells.position.y, cells.end.y):

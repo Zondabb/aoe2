@@ -53,7 +53,7 @@ jobs:
           New-Item -ItemType Directory -Force dist/windows | Out-Null
           & $env:GODOT --headless --path . --export-release "Windows Desktop" dist/windows/aoe2.exe
           if ($LASTEXITCODE -ne 0) { throw "Godot export failed: $LASTEXITCODE" }
-          foreach ($file in @('aoe2.exe', 'aoe2.pck')) {
+          foreach ($file in @('aoe2.exe', 'aoe2.pck', 'libaoe_sim.windows.template_release.x86_64.dll')) {
             if (!(Test-Path "dist/windows/$file") -or (Get-Item "dist/windows/$file").Length -eq 0) {
               throw "Missing or empty export: $file"
             }

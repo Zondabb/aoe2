@@ -6,6 +6,9 @@ signal matched(info: Dictionary)
 signal started()
 signal message_received(message: Dictionary)
 signal ended(info: Dictionary)
+## Emitted just before ended for a delivered match result. Replicas execute the
+## frames still queued ahead of it so every peer reports the final tick.
+signal ending(info: Dictionary)
 signal matches_received(matches: Array)
 
 const CONNECT_TIMEOUT := 12.0
@@ -354,6 +357,7 @@ func _handle_message(message: Dictionary) -> void:
 			result["message"] = notice
 			last_result = result.duplicate(true)
 			_set_status(notice)
+			ending.emit(result)
 			ended.emit(result)
 		"error":
 			# A room can end while its observer finishes loading and sends ready.

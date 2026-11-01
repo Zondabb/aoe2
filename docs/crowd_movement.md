@@ -69,6 +69,8 @@ flowchart TD
 
 取最早的非负接触时间。正在远离、相对速度为零或没有交点的情况不产生未来碰撞惩罚。预测余量为 `0.12` 格；最终几何检查仍使用真实半径。
 
+2026-10-31 起，上述评分、邻居查询和路径点视线检测改为整数定点运算，并由 C++ 扩展计算；没有原生库的平台使用结果逐位相同的 GDScript 实现。求解得到的方向最多沿用 0.25 秒，每步仍检查风险、静态障碍和地图边界。详见[原生模拟内核](native_simulation.md)。
+
 ### 几何约束
 
 预测评分决定“往哪走”，几何检查决定“这一步是否允许”。
@@ -156,12 +158,13 @@ godot --headless --path . -s res://tests/run_map_editor.gd
 
 | 文件 | 职责 |
 | --- | --- |
-| `scripts/systems/local_avoidance.gd` | 接触时间预测、速度采样、邻居快照和直行快速路径 |
+| `scripts/systems/local_avoidance.gd` | 接触时间预测、速度采样和直行快速路径（整数 GDScript 参考实现） |
+| `scripts/systems/unit_field.gd`、`native/aoe_sim/` | 邻居快照与 C++ 原生实现，见[原生模拟内核](native_simulation.md) |
 | `scripts/systems/collision_resolver.gd` | 连续圆 / 包围盒检查、重叠脱离、地图边界 |
 | `scripts/systems/nav_grid_service.gd` | 静态 A*、半径缓存、临时单位障碍、预算队列 |
 | `scripts/entities/unit_agent.gd` | 路径跟随、速度应用、恢复计时、终点预留与集结到达 |
 
-常用参数：预测窗口 `HORIZON = 0.9`，预测余量 `MARGIN = 0.12`，邻居查询范围至少 `10` 格，恢复停滞阈值 `0.65` 秒，恢复间隔 `0.8` 秒。邻居查询范围还会随自身半径、速度和步长扩大。修改单位半径或速度后，应重新运行上述场景测试。
+常用参数：预测窗口 `HORIZON_TIME`（0.9 秒），预测余量 `MARGIN_Q`（0.12 格），方向沿用间隔 `STEERING_INTERVAL_TIME`（0.25 秒），恢复停滞阈值 `0.65` 秒，恢复间隔 `0.8` 秒。邻居查询范围由双方半径、预测余量和双方速度决定，范围外的邻居在预测窗口内不可能接触。修改单位半径或速度后，应重新运行上述场景测试。
 
 ## 7. 适用范围
 

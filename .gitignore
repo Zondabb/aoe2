@@ -30,3 +30,9 @@ assets/sprites/**/raw/
 Thumbs.db
 desktop.ini
 *.tmp
+
+# Native extension build tree (sources stay in native/aoe_sim)
+native/godot-cpp/
+native/aoe_sim/build-*/
+# Temporary copies Godot makes of the extension library on Windows.
+addons/aoe_sim/bin/~*

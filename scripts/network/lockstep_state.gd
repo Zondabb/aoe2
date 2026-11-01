@@ -20,6 +20,8 @@ static func fields_for(kind: String) -> Array:
 		"terrain": return TERRAIN_FIELDS
 	return []
 
+## The keyframe payload. full_digest() hashes the same state for the periodic
+## exhaustive frame check; a field or section added here must be added there.
 static func capture(network: Node) -> Dictionary:
 	var records: Array = []
 	var nodes: Dictionary = network.get("_net_entities")
@@ -254,7 +256,13 @@ static func restore(network: Node, data: Dictionary) -> bool:
 		var node: Node = nodes.get(int(record.id))
 		if node == null: return false
 		_apply_fields(node, record.fields, nodes)
-		if node.has_meta("network_replica"): node.remove_meta("network_replica")
+		if node.has_meta("network_replica"):
+			node.remove_meta("network_replica")
+			# Snapshot replicas disabled interpolation because they jumped to
+			# each snapshot. Restored actors now move on simulation ticks.
+			if node is UnitAgent or node is ProjectileAgent:
+				node.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
+				node.reset_physics_interpolation()
 		node.set_meta("lockstep_entity", true)
 		node.set_physics_process(false)
 		if node is BuildingAgent:
@@ -320,3 +328,343 @@ static func _apply_fields(object: Object, fields: Dictionary, nodes: Dictionary)
 		var current: Variant = object.get(field)
 		if current is Array and value is Array: current.assign(value)
 		else: object.set(field, value)
+
+
+## Per-frame consistency digest. capture() above is the exhaustive keyframe
+## format (and the deep test checksum); building that Variant tree, sorting
+## every dictionary and serializing ~0.5 MB of JSON on every 100 ms frame cost
+## more than the three simulation steps it verified. This digest walks the same
+## entities in net_id order and feeds the authoritative gameplay values
+## (positions, health, orders, targets, timers, production, economy, research,
+## navigation backlog and fog) through native packed arrays into SHA-256.
+## Divergent hidden state is still caught once it changes any of these, and at
+## the next whole simulated second, when frame_checksum() hashes everything
+## with full_digest(); a mismatch repairs from the exhaustive keyframe.
+static func digest(network: Node) -> String:
+	var context := HashingContext.new()
+	context.start(HashingContext.HASH_SHA256)
+	var ints := PackedInt64Array()
+	var floats := PackedFloat64Array()
+	var nodes: Dictionary = network.get("_net_entities")
+	var ids: Array = nodes.keys()
+	ids.sort()
+	ints.append(VERSION)
+	ints.append(int(network.get("_next_id")))
+	for id in ids:
+		var node: Variant = nodes[id]
+		if not is_instance_valid(node) or node.is_queued_for_deletion(): continue
+		ints.append(id)
+		if node is UnitAgent:
+			_digest_unit(node, ints, floats, context)
+		elif node is BuildingAgent:
+			_digest_building(node, ints, floats)
+		elif node is ProjectileAgent:
+			var projectile: ProjectileAgent = node
+			ints.append(-4)
+			ints.append(projectile.team)
+			floats.append(projectile.sim_pos.x)
+			floats.append(projectile.sim_pos.y)
+			floats.append(projectile.aim_pos.x)
+			floats.append(projectile.aim_pos.y)
+			ints.append(projectile._traveled_fixed)
+			ints.append(projectile._total_distance_fixed)
+			ints.append(projectile._impact_elapsed_time)
+			ints.append(projectile._travel_remainder)
+			ints.append(int(projectile._consumed))
+			ints.append(int(projectile._stone))
+			ints.append(_ref(projectile.attacker))
+		elif node is ResourceNode:
+			var resource: ResourceNode = node
+			ints.append(-3)
+			ints.append(resource.amount_q)
+			ints.append(resource._gather_remainder)
+		else:
+			ints.append(-5) # Terrain blockers never change after map load.
+	var state: MatchState = network.get("match_state")
+	ints.append(-6)
+	for field in ["resources", "population", "population_cap", "population_reserved", "team_ages", "researched_technologies", "winner", "frozen", "progression_enabled"]:
+		_mix(state.get(field), ints, floats)
+	if is_instance_valid(state.age_progression):
+		for team in [0, 1]:
+			if state.age_progression._jobs.has(team):
+				ints.append(team)
+				_mix(_job_state(state.age_progression._jobs[team]), ints, floats)
+	if is_instance_valid(state.technology_progression):
+		ints.append(-7)
+		for id in ids:
+			var node: Variant = nodes[id]
+			if is_instance_valid(node) and state.technology_progression.jobs.has(node.get_instance_id()):
+				var job: Dictionary = state.technology_progression.jobs[node.get_instance_id()].duplicate()
+				job.erase("building_id")
+				ints.append(id)
+				_mix(_job_state(job), ints, floats)
+	var root := network.get_parent()
+	var nav := root.get_node_or_null("NavService") if root != null else null
+	if nav != null and nav.nav != null:
+		ints.append(-8)
+		ints.append(int(nav._lockstep_repath))
+		for request: Dictionary in nav.nav._pending_requests:
+			var unit: Object = instance_from_id(int(request.id))
+			ints.append(int(unit.get_meta("net_id", 0)) if is_instance_valid(unit) else 0)
+	var support := root.get_node_or_null("LandSupport") if root != null else null
+	if support != null:
+		ints.append(-9)
+		ints.append(int(support.elapsed_time))
+		for id in ids:
+			var node: Variant = nodes[id]
+			if not is_instance_valid(node): continue
+			var key: int = node.get_instance_id()
+			if support.cooldown_times.has(key) or support.heal_remainders.has(key):
+				ints.append(id)
+				ints.append(int(support.cooldown_times.get(key, -1)))
+				ints.append(int(support.heal_remainders.get(key, -1)))
+	context.update(ints.to_byte_array())
+	context.update(floats.to_byte_array())
+	if state.fog != null:
+		for team in [0, 1]:
+			context.update(state.fog.visible_now[team])
+			context.update(state.fog.explored[team])
+	return context.finish().hex_encode()
+
+static func _digest_unit(unit: UnitAgent, ints: PackedInt64Array, floats: PackedFloat64Array, context: HashingContext) -> void:
+	ints.append(-1)
+	ints.append(String(unit.def.id).hash() if unit.def != null else 0)
+	ints.append(unit.team)
+	ints.append(unit._sim_pos_q.x)
+	ints.append(unit._sim_pos_q.y)
+	ints.append(unit.hp_q)
+	ints.append(unit.max_hp_q)
+	ints.append(unit.melee_armor_q)
+	ints.append(unit.pierce_armor_q)
+	ints.append(unit.order)
+	ints.append(unit.carry_type)
+	ints.append(unit.carry_amount_q)
+	ints.append(unit.carry_capacity_q)
+	ints.append(unit._attack_cooldown_remaining_units)
+	ints.append(unit._combat_anim_time_units)
+	ints.append(unit._stuck_seconds_units)
+	ints.append(unit._repath_cooldown_units)
+	ints.append(unit._goal_refresh_remaining_units)
+	ints.append(unit._path_retry_cooldown_units)
+	ints.append(unit._progress_elapsed_units)
+	ints.append(unit._no_progress_frames)
+	ints.append(unit._stuck_repath_attempts)
+	ints.append(unit._path_index)
+	ints.append(unit._path.size())
+	ints.append(unit._gather_resource_type)
+	ints.append(unit._gather_work_points.size())
+	ints.append(unit._build_queue.size())
+	ints.append(unit._facing_dir)
+	ints.append(int(unit._path_pending) | int(unit._attack_hit_applied) << 1 | int(unit._projectile_spawned) << 2 | int(unit._has_move_command) << 3 | int(unit._gather_source_depleted) << 4 | int(unit._path_is_crowd_route) << 5 | int(unit._pending_crowd_route) << 6)
+	ints.append(unit._gather_state.hash())
+	ints.append(String(unit._combat_action).hash())
+	ints.append(_ref(unit._attack_target))
+	ints.append(_ref(unit._gather_target))
+	ints.append(_ref(unit._build_target))
+	ints.append(_ref(unit._drop_off_target))
+	ints.append(_ref(unit._last_resource))
+	floats.append(unit._move_target.x)
+	floats.append(unit._move_target.y)
+	floats.append(unit._locomotion_velocity.x)
+	floats.append(unit._locomotion_velocity.y)
+	floats.append(unit._formation_move_speed)
+	floats.append(unit._progress_distance)
+	if not unit._path.is_empty():
+		context.update(unit._path.to_byte_array())
+
+static func _digest_building(building: BuildingAgent, ints: PackedInt64Array, floats: PackedFloat64Array) -> void:
+	ints.append(-2)
+	ints.append(String(building.def.id).hash() if building.def != null else 0)
+	ints.append(building.team)
+	floats.append(building.sim_pos.x)
+	floats.append(building.sim_pos.y)
+	ints.append(building.hp_q)
+	ints.append(building.build_time_elapsed)
+	ints.append(building.amount_q)
+	ints.append(building.train_time_elapsed)
+	ints.append(building._next_train_id)
+	ints.append(building.gate_time)
+	ints.append(building.spawn_retry_time)
+	ints.append(building._reserved_population)
+	ints.append(building._gather_remainder)
+	ints.append(building.wall_orientation)
+	ints.append(building.gate_state.hash())
+	ints.append(int(building.is_complete) | int(building.gate_open) << 1 | int(building.farm_has_crops) << 2 | int(building._construction_started) << 3 | int(building._population_cap_registered) << 4 | int(building._production_exit_blocked) << 5)
+	ints.append(building.train_queue.size())
+	for definition in building.train_queue:
+		ints.append(String(definition.id).hash() if definition != null else 0)
+	for queue_id in building.train_queue_ids:
+		ints.append(queue_id)
+	ints.append(building._train_payments.size())
+
+## Targets may already be freed; validity first ('is' on a freed instance errors).
+static func _ref(value: Variant) -> int:
+	if is_instance_valid(value) and value is Node and not value.is_queued_for_deletion():
+		return int(value.get_meta("net_id", 0))
+	return 0
+
+## Small match-level containers only (economy, ages, research, job clocks).
+static func _mix(value: Variant, ints: PackedInt64Array, floats: PackedFloat64Array) -> void:
+	match typeof(value):
+		TYPE_NIL: ints.append(-11)
+		TYPE_BOOL: ints.append(1 if value else 0)
+		TYPE_INT: ints.append(value)
+		TYPE_FLOAT: floats.append(value)
+		TYPE_STRING, TYPE_STRING_NAME: ints.append(String(value).hash())
+		TYPE_VECTOR2I:
+			ints.append(value.x)
+			ints.append(value.y)
+		TYPE_VECTOR2:
+			floats.append(value.x)
+			floats.append(value.y)
+		TYPE_ARRAY:
+			ints.append(-12)
+			ints.append(value.size())
+			for item in value: _mix(item, ints, floats)
+		TYPE_DICTIONARY:
+			ints.append(-13)
+			ints.append(value.size())
+			var keys: Array = value.keys()
+			keys.sort_custom(func(a: Variant, b: Variant): return var_to_str(a) < var_to_str(b))
+			for key in keys:
+				_mix(key, ints, floats)
+				_mix(value[key], ints, floats)
+		TYPE_OBJECT:
+			if not is_instance_valid(value): ints.append(0)
+			elif value is Node: ints.append(_ref(value))
+			elif value.get("id") != null: ints.append(String(value.get("id")).hash())
+			else: ints.append(-14)
+		_:
+			ints.append(-15 - typeof(value))
+
+
+## Exhaustive digest: SHA-256 over the same state as capture(), without
+## building wire records or JSON. capture() stays the keyframe payload; this
+## digest only has to agree between peers and change whenever capture() would
+## (tests/run_lockstep_digest.gd). frame_checksum() uses it at every whole
+## simulated second; digest() below covers the frames in between. Values are hashed in their binary
+## Variant form (var_to_bytes), mapped as encode() maps them: references become
+## net IDs, dictionaries are ordered by key, non-finite floats keep encode()'s
+## two classes, and Vector2 zero signs are dropped as capture()'s decimal JSON
+## drops them. Any change here must keep the two in step.
+static func full_digest(network: Node) -> String:
+	var nodes: Dictionary = network.get("_net_entities")
+	var ids: Array = nodes.keys()
+	ids.sort()
+	var entities: Array = []
+	for id in ids:
+		var node: Variant = nodes[id]
+		if not is_instance_valid(node) or node.is_queued_for_deletion(): continue
+		var kind: String = network.call("_entity_kind", node)
+		var row: Array = [id, kind]
+		if node is UnitAgent or node is BuildingAgent:
+			row.append(String(node.def.id))
+			row.append(int(node.team))
+		elif node is ProjectileAgent: row.append(int(node.team))
+		for field: StringName in _field_names(kind):
+			var value: Variant = node.get(field)
+			var type := typeof(value)
+			# Most fields are plain scalars; keep them off the generic path.
+			if type == TYPE_INT or type == TYPE_BOOL or type == TYPE_NIL or type == TYPE_STRING or type == TYPE_STRING_NAME or type == TYPE_VECTOR2I: row.append(value)
+			elif type == TYPE_VECTOR2: row.append(value + Vector2.ZERO)
+			# Idle queues and caches: the same result as _digestible, no call.
+			elif type == TYPE_ARRAY and value.is_empty(): row.append(_empty_array)
+			elif type == TYPE_DICTIONARY and value.is_empty(): row.append(_empty_dictionary)
+			else: row.append(_digestible(value))
+		entities.append(row)
+	var state: MatchState = network.get("match_state")
+	var root := network.get_parent()
+	var match_fields: Array = []
+	for field in STATE_FIELDS: match_fields.append(_digestible(state.get(field)))
+	var age_jobs: Array = []
+	if is_instance_valid(state.age_progression):
+		for team in [0, 1]:
+			if state.age_progression._jobs.has(team): age_jobs.append([team, _digestible(_job_state(state.age_progression._jobs[team]))])
+	var technology_jobs: Array = []
+	if is_instance_valid(state.technology_progression):
+		for id in ids:
+			var node: Variant = nodes[id]
+			if not is_instance_valid(node): continue
+			if state.technology_progression.jobs.has(node.get_instance_id()):
+				var job: Dictionary = state.technology_progression.jobs[node.get_instance_id()].duplicate()
+				job.erase("building_id")
+				technology_jobs.append([id, _digestible(_job_state(job))])
+	var navigation: Array = []
+	var nav_repath := false
+	var nav := root.get_node_or_null("NavService")
+	if nav != null and nav.nav != null:
+		for request: Dictionary in nav.nav._pending_requests:
+			var unit: Object = instance_from_id(int(request.id))
+			if not is_instance_valid(unit) or unit.get_meta("net_id", 0) == 0: continue
+			var record: Dictionary = request.duplicate()
+			record.id = int(unit.get_meta("net_id"))
+			navigation.append(_digestible(record))
+		nav_repath = bool(nav._lockstep_repath)
+	var support_state: Array = [0, [], []]
+	var support := root.get_node_or_null("LandSupport")
+	if support != null:
+		support.sync_compatibility_state()
+		support_state[0] = int(support.elapsed_time)
+		for id in ids:
+			var node: Variant = nodes[id]
+			if is_instance_valid(node) and support.cooldown_times.has(node.get_instance_id()):
+				support_state[1].append([id, int(support.cooldown_times[node.get_instance_id()])])
+			if is_instance_valid(node) and support.heal_remainders.has(node.get_instance_id()):
+				support_state[2].append([id, int(support.heal_remainders[node.get_instance_id()])])
+	var fog: Array = []
+	if state.fog != null:
+		for team in [0, 1]: fog.append_array([state.fog.visible_now[team], state.fog.explored[team]])
+	var hashing := HashingContext.new()
+	hashing.start(HashingContext.HASH_SHA256)
+	hashing.update(var_to_bytes([VERSION, int(network.get("_next_id")), entities, match_fields, age_jobs, technology_jobs, navigation, nav_repath, support_state, fog]))
+	return hashing.finish().hex_encode()
+
+static var _names_by_kind := {}
+
+static func _field_names(kind: String) -> Array:
+	if not _names_by_kind.has(kind): _names_by_kind[kind] = fields_for(kind).map(func(name: String): return StringName(name))
+	return _names_by_kind[kind]
+
+## encode() for the digest: the same value classes, as hashable Variants.
+## Marker types (packed arrays) never occur as state values, so a reference or
+## a dictionary cannot be confused with a plain value or an array.
+static func _digestible(value: Variant) -> Variant:
+	if value == null: return null
+	match typeof(value):
+		TYPE_INT, TYPE_BOOL, TYPE_STRING, TYPE_STRING_NAME, TYPE_VECTOR2I: return value
+		TYPE_FLOAT: return value if is_finite(value) else (INF if value > 0 else -INF)
+		TYPE_VECTOR2: return value + Vector2.ZERO
+		TYPE_PACKED_VECTOR2_ARRAY:
+			var points := PackedVector2Array(value)
+			for index in points.size(): points[index] += Vector2.ZERO
+			return points
+		TYPE_ARRAY:
+			var items: Array = []
+			for item in value:
+				var type := typeof(item)
+				if type == TYPE_INT or type == TYPE_BOOL or type == TYPE_STRING or type == TYPE_STRING_NAME or type == TYPE_VECTOR2I: items.append(item)
+				elif type == TYPE_VECTOR2: items.append(item + Vector2.ZERO)
+				else: items.append(_digestible(item))
+			return items
+		TYPE_DICTIONARY:
+			var entries: Array = []
+			for key in value:
+				var digest_key: Variant = _digestible(key)
+				var digest_value: Variant = _digestible(value[key])
+				entries.append([var_to_bytes(digest_key).hex_encode() + ":" + var_to_bytes(digest_value).hex_encode(), digest_key, digest_value])
+			entries.sort_custom(func(a: Array, b: Array): return a[0] < b[0])
+			var flat: Array = [_dictionary_marker]
+			for entry in entries: flat.append_array([entry[1], entry[2]])
+			return flat
+	if value is Node:
+		return PackedInt64Array([1, int(value.get_meta("net_id", 0))]) if is_instance_valid(value) and not value.is_queued_for_deletion() else null
+	if value is WeakRef:
+		var node: Variant = value.get_ref()
+		return PackedInt64Array([2, int(node.get_meta("net_id", 0)) if is_instance_valid(node) and not node.is_queued_for_deletion() else 0])
+	if value is UnitDef: return PackedStringArray(["u", String(value.id)])
+	push_error("Unsupported lockstep state type: %s" % type_string(typeof(value)))
+	return null
+
+static var _dictionary_marker := PackedByteArray([100])
+static var _empty_array: Array = []
+static var _empty_dictionary: Array = [_dictionary_marker]

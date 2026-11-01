@@ -5,6 +5,7 @@ extends Node
 
 const NavGridServiceScript := preload("res://scripts/systems/nav_grid_service.gd")
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const DEFAULT_FRAME_BUDGET := 12
 const STATIC_BUCKET_SIZE := 8.0
 
@@ -15,6 +16,7 @@ var _tracked_buildings: Dictionary = {}
 var _static_dirty := true
 var _rebuild_queued := false
 var _last_building_check_frame := -1
+var _last_building_check_process_frame := -1
 var lockstep_enabled := false
 var _lockstep_tick := 0
 var _lockstep_repath := false
@@ -121,7 +123,7 @@ func update_static_entity(node: Node) -> void:
 		var half := CollisionResolverScript._blocker_half(node, 0.0)
 		if half.x > 0.0 and half.y > 0.0:
 			var center: Vector2 = node.get("sim_pos")
-			_static_records[id] = {"node": weakref(node), "center": center, "half": half}
+			_static_records[id] = _static_record(node, center, half)
 			for cell in _bucket_cells(center, half):
 				if not _static_buckets.has(cell): _static_buckets[cell] = []
 				_static_buckets[cell].append(id)
@@ -144,8 +146,11 @@ func rebuild_from_scene() -> void:
 		if is_instance_valid(node) and node.is_inside_tree() and not node.is_queued_for_deletion() and get_parent().is_ancestor_of(node):
 			blockers.append(node)
 	var changed := nav.rebuild_from_blockers(blockers)
-	if changed or not _same_static_objects(blockers):
+	var static_state := _remove_vanished_static_records(blockers)
+	if static_state < 0:
 		_update_static_index(blockers)
+	elif changed or static_state > 0:
+		_refresh_tracked_signatures()
 	_static_dirty = false
 	if changed:
 		_refresh_debug_overlays()
@@ -219,12 +224,58 @@ func query_static_blockers(from: Vector2, to: Vector2, radius: float) -> Array:
 	return result
 
 
+## Fixed-point geometry is cached with the bucket record so avoidance does
+## not re-derive each blocker's footprint for every moving unit and step.
+func _static_record(node: Node, center: Vector2, half: Vector2) -> Dictionary:
+	var contours: Variant = null
+	if node.has_method("get_water_contours") and not node.get_water_contours().is_empty():
+		contours = node.get_water_contours()
+	return {"node": weakref(node), "center": center, "half": half, "center_q": Fixed.vector(center), "half_q": Fixed.vector(half), "contours": contours}
+
+
+## Integer avoidance boxes near `from`: [boxes, water] as in
+## CollisionResolver.static_boxes, with each half widened by `radius_q`.
+## Same candidate set and liveness rules as query_static_blockers.
+func query_static_boxes(from: Vector2, reach: float, radius_q: int) -> Array:
+	_check_building_changes()
+	if _static_dirty: rebuild_from_scene()
+	var margin := Vector2.ONE * maxf(0.0, reach)
+	var minimum := from - margin
+	var maximum := from + margin
+	var first := Vector2i((minimum / STATIC_BUCKET_SIZE).floor())
+	var last := Vector2i((maximum / STATIC_BUCKET_SIZE).floor())
+	var seen := {}
+	var boxes := PackedInt64Array()
+	var water: Array = []
+	for y in range(first.y, last.y + 1):
+		for x in range(first.x, last.x + 1):
+			for id in _static_buckets.get(Vector2i(x, y), []):
+				if seen.has(id): continue
+				seen[id] = true
+				var record: Dictionary = _static_records[id]
+				var node: Node = record.node.get_ref()
+				if node == null or not node.is_inside_tree() or node.is_queued_for_deletion(): continue
+				if node.get("def") is not BuildingDef and node.get("resource_type") != null and float(node.get("amount")) <= 0: continue
+				var center: Vector2 = record.center
+				var half: Vector2 = record.half
+				if center.x + half.x < minimum.x or center.x - half.x > maximum.x or center.y + half.y < minimum.y or center.y - half.y > maximum.y: continue
+				var center_q: Vector2i = record.center_q
+				var half_q: Vector2i = record.half_q
+				var water_index := -1
+				if record.contours != null:
+					water_index = water.size()
+					water.append(record.contours)
+				boxes.append_array([center_q.x, center_q.y, half_q.x + radius_q, half_q.y + radius_q, water_index])
+	return [boxes, water]
+
+
 func _reset_static_index() -> void:
 	_static_buckets.clear()
 	_static_records.clear()
 	_tracked_buildings.clear()
 	_static_dirty = true
 	_last_building_check_frame = -1
+	_last_building_check_process_frame = -1
 
 
 func _update_static_index(blockers: Array) -> void:
@@ -235,7 +286,7 @@ func _update_static_index(blockers: Array) -> void:
 		if half.x <= 0.0 or half.y <= 0.0: continue
 		var center: Vector2 = node.get("sim_pos")
 		var id: int = node.get_instance_id()
-		_static_records[id] = {"node": weakref(node), "center": center, "half": half}
+		_static_records[id] = _static_record(node, center, half)
 		var minimum := Vector2i(((center - half) / STATIC_BUCKET_SIZE).floor())
 		var maximum := Vector2i(((center + half) / STATIC_BUCKET_SIZE).floor())
 		for y in range(minimum.y, maximum.y + 1):
@@ -243,18 +294,45 @@ func _update_static_index(blockers: Array) -> void:
 				var cell := Vector2i(x, y)
 				if not _static_buckets.has(cell): _static_buckets[cell] = []
 				_static_buckets[cell].append(id)
+	_refresh_tracked_signatures()
+
+
+func _refresh_tracked_signatures() -> void:
 	for record: Dictionary in _tracked_buildings.values():
 		var node: Node = record.node.get_ref()
 		if node != null: record.signature = _building_signature(node)
 
 
-func _same_static_objects(blockers: Array) -> bool:
-	if blockers.size() != _static_records.size(): return false
+## _update_static_index without rebuilding every record when blockers only
+## disappeared (a tree cut down, a building destroyed): 0 when the index
+## already matches, 1 after removing the vanished records (the remaining
+## records and bucket order are what a full rebuild produces), -1 when
+## anything else changed and the full rebuild is needed.
+func _remove_vanished_static_records(blockers: Array) -> int:
+	var keep := {}
 	for node in blockers:
-		var record: Dictionary = _static_records.get(node.get_instance_id(), {})
-		if record.is_empty() or record.center != node.get("sim_pos") or record.half != CollisionResolverScript._blocker_half(node, 0.0):
-			return false
-	return true
+		var half := CollisionResolverScript._blocker_half(node, 0.0)
+		if half.x <= 0.0 or half.y <= 0.0: continue
+		var id: int = node.get_instance_id()
+		var record: Dictionary = _static_records.get(id, {})
+		if record.is_empty() or record.center != node.get("sim_pos") or record.half != half: return -1
+		keep[id] = true
+	if keep.size() == _static_records.size(): return 0
+	for id in _static_records.keys():
+		if keep.has(id): continue
+		var record: Dictionary = _static_records[id]
+		var center: Vector2 = record.center
+		var half: Vector2 = record.half
+		var minimum := Vector2i(((center - half) / STATIC_BUCKET_SIZE).floor())
+		var maximum := Vector2i(((center + half) / STATIC_BUCKET_SIZE).floor())
+		for y in range(minimum.y, maximum.y + 1):
+			for x in range(minimum.x, maximum.x + 1):
+				var cell := Vector2i(x, y)
+				var bucket: Array = _static_buckets.get(cell, [])
+				bucket.erase(id)
+				if bucket.is_empty(): _static_buckets.erase(cell)
+		_static_records.erase(id)
+	return 1
 
 
 func _building_signature(node: Node) -> Array:
@@ -266,6 +344,13 @@ func _building_signature(node: Node) -> Array:
 func _check_building_changes() -> void:
 	var frame := _lockstep_tick if lockstep_enabled else Engine.get_physics_frames()
 	if frame == _last_building_check_frame: return
+	# Single player: once per rendered frame as well. Physics catching up runs
+	# several ticks per frame; paths are flushed on the frame, and the changes
+	# this poll backs up (signals cover construction and gates) wait one frame.
+	if not lockstep_enabled:
+		var process_frame := Engine.get_process_frames()
+		if process_frame == _last_building_check_process_frame and Engine.is_in_physics_frame(): return
+		_last_building_check_process_frame = process_frame
 	_last_building_check_frame = frame
 	for id in _tracked_buildings.keys():
 		var record: Dictionary = _tracked_buildings[id]
@@ -273,8 +358,19 @@ func _check_building_changes() -> void:
 		if node == null:
 			_tracked_buildings.erase(id)
 			_queue_static_rebuild()
-		elif record.signature != _building_signature(node):
+		elif _signature_changed(record.signature, node):
 			_queue_static_rebuild()
+
+
+## record.signature != _building_signature(node) without building the array:
+## this poll covers every building on every tick.
+func _signature_changed(signature: Array, node: Node) -> bool:
+	if node is not BuildingAgent: return signature != _building_signature(node)
+	var building: BuildingAgent = node
+	if building.is_queued_for_deletion() or building.is_placement_ghost: return not signature.is_empty()
+	var half := building.get_movement_half()
+	if half.x <= 0.0 or half.y <= 0.0: return not signature.is_empty()
+	return signature.size() != 2 or signature[0] != building.sim_pos or signature[1] != half
 
 
 func _queue_static_rebuild() -> void:

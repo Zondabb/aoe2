@@ -76,12 +76,14 @@ static func scene_index(ctx: CommandExecutionContext) -> Dictionary:
 	var owned := {}
 	var buckets := {}
 	var water: Array = []
+	var water_bounds: Array[Rect2] = []
 	var order := 0
 	for node in ctx.entities.get_children():
 		order += 1
 		if not node is Node2D or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
 		if node.has_method("get_water_contours") and not node.get_water_contours().is_empty():
 			water.append(node)
+			water_bounds.append(Shore.contours_bounds(node.get_water_contours()))
 			continue
 		# Classify first, as the full scans do: only buildings, terrain blocks
 		# and live resources are read. Other children (fog memory views, other
@@ -112,7 +114,7 @@ static func scene_index(ctx: CommandExecutionContext) -> Dictionary:
 				var bucket := Vector2i(bx, by)
 				if not buckets.has(bucket): buckets[bucket] = []
 				buckets[bucket].append(entry)
-	return {"owned": owned, "buckets": buckets, "water": water, "reasons": {}}
+	return {"owned": owned, "buckets": buckets, "water": water, "water_bounds": water_bounds, "reasons": {}}
 
 static func _pos_key(pos: Vector2) -> Vector2i:
 	return Vector2i(roundi(pos.x * 100.0), roundi(pos.y * 100.0))
@@ -127,7 +129,9 @@ static func _indexed_segment(item: Dictionary, index: Dictionary) -> Node2D:
 	for dy in [-1, 0, 1]:
 		for dx in [-1, 0, 1]:
 			for entry: Dictionary in index.owned.get(key + Vector2i(dx, dy), []):
-				var node: Node2D = entry.node
+				# Budgeted AI planning may consult the index a few frames later.
+				var node: Variant = entry.node
+				if not is_instance_valid(node) or node.is_queued_for_deletion(): continue
 				var same_material: bool = String(entry.def_id) == item.building_def_id
 				var existing_wall := is_wall(entry.def_id) and is_wall(StringName(item.building_def_id))
 				if not (same_material or existing_wall) or Fixed.distance_squared(node.get("sim_pos"), item.pos) >= 100: continue
@@ -190,8 +194,10 @@ static func validate_plan(plan_items: Array, ctx: CommandExecutionContext, check
 			if _overlaps(item.pos, footprint, other.pos, other.footprint): return "overlapping_segments"
 		checked.append({"pos": item.pos, "footprint": footprint})
 		var reused := existing_segment(item, ctx, index)
-		for node in index.water:
-			if node != reused and Shore.intersects_rect(rect, node.get_water_contours()): return "invalid_placement"
+		for water_index in index.water.size():
+			var node: Variant = index.water[water_index]
+			if not is_instance_valid(node) or node == reused: continue
+			if Shore.intersects_rect_within(rect, node.get_water_contours(), index.water_bounds[water_index]): return "invalid_placement"
 		# Buildings, terrain blocks and live resources, bucketed by position.
 		var lo := _bucket_of(rect.position)
 		var hi := _bucket_of(rect.end)

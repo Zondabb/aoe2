@@ -28,6 +28,10 @@ var map_min := DEFAULT_MAP_MIN
 var map_max := DEFAULT_MAP_MAX
 var _grid: AStarGrid2D
 var _solid := PackedByteArray()
+## Native waypoint visibility sampler when the aoe_sim GDExtension is loaded.
+static var _kernel: RefCounted = ClassDB.instantiate("AoeSimKernel") if ClassDB.class_exists("AoeSimKernel") else null
+## Native clearance-layer filling (newer aoe_sim builds).
+static var _layer_kernel: RefCounted = _kernel if _kernel != null and ClassDB.class_has_method("AoeSimKernel", "nav_mark_rects") else null
 var _width := 0
 var _height := 0
 var _origin_cell := Vector2i.ZERO
@@ -39,6 +43,8 @@ var _solid_cells_cache: Array[Vector2i] = []
 var _solid_cells_dirty := true
 var _blocker_marks: Array[Dictionary] = []
 var _solid_by_radius: Dictionary = {}
+## [center, half, radius] -> [contours, layer indices] (_contour_cells).
+var _contour_cache: Dictionary = {}
 var _solid_indices_by_radius: Dictionary = {}
 var _solid_radius_order: Array[String] = []
 var _active_radius_key := ""
@@ -69,6 +75,7 @@ func setup_rect(minimum: Vector2i, maximum: Vector2i, p_cell_size: float = CELL_
 	_pending_requests.clear()
 	_blocker_marks.clear()
 	_solid_by_radius.clear()
+	_contour_cache.clear()
 	_solid_indices_by_radius.clear()
 	_solid_radius_order.clear()
 	_active_radius_key = ""
@@ -469,8 +476,6 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 	if _solid_by_radius.has(key):
 		return _solid_by_radius[key] as PackedByteArray
 	var inflated := PackedByteArray()
-	inflated.resize(_width * _height)
-	inflated.fill(0)
 	var pad := Vector2(radius, radius)
 	var indices := PackedInt32Array()
 	# Only the thin border can fail clearance against map edges. Stamp it
@@ -479,6 +484,33 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 	var top := clampi(ceili(radius / cell_size - 0.5), 0, _height)
 	var right := clampi(ceili(_width - radius / cell_size - 0.5), 0, _width)
 	var bottom := clampi(ceili(_height - radius / cell_size - 0.5), 0, _height)
+	if _layer_kernel != null:
+		# Same cells and index order as the loops below: the script computes
+		# each blocker's cell rectangle, the kernel fills the layer.
+		var built: Array = _layer_kernel.nav_layer_border(_width, _height, left, top, right, bottom)
+		inflated = built[0]
+		indices = built[1]
+		var rects := PackedInt32Array()
+		for mark: Dictionary in _blocker_marks:
+			var center := mark["center"] as Vector2
+			var half := (mark["half"] as Vector2) + pad
+			if mark.has("contours"):
+				# Shoreline cells in their marking order, as one-cell rectangles.
+				for idx in _contour_cells(center, half, radius, mark.contours):
+					var cell := _cell_from_index(idx)
+					rects.append_array([cell.x, cell.y, cell.x, cell.y])
+			else:
+				var min_cell := world_to_cell(center - half)
+				var max_cell := world_to_cell(center + half - Vector2(0.001, 0.001))
+				rects.append_array([min_cell.x, min_cell.y, max_cell.x, max_cell.y])
+		if not rects.is_empty():
+			built = _layer_kernel.nav_mark_rects(inflated, indices, rects, _width, _height, _origin_cell)
+			inflated = built[0]
+			indices = built[1]
+		_store_solid_layer(key, inflated, indices)
+		return inflated
+	inflated.resize(_width * _height)
+	inflated.fill(0)
 	for y in _height:
 		if y < top or y >= bottom:
 			for x in _width:
@@ -492,16 +524,40 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 		var center := mark["center"] as Vector2
 		var half := (mark["half"] as Vector2) + pad
 		if mark.has("contours"):
-			var margin := radius + cell_size * 0.707107
-			var first := world_to_cell(center - half)
-			var last := world_to_cell(center + half)
-			for y in range(first.y, last.y + 1):
-				for x in range(first.x, last.x + 1):
-					var cell := Vector2i(x, y)
-					if _index_of(cell) >= 0 and ShoreGeometry.circle_hits(cell_to_world_center(cell), margin, mark.contours):
-						_mark_index_on_layer(inflated, _index_of(cell), indices)
+			_mark_contour_on_layer(inflated, center, half, radius, mark.contours, indices)
 		else:
 			_mark_aabb_on_layer(inflated, center, half, indices)
+	_store_solid_layer(key, inflated, indices)
+	return inflated
+
+
+func _mark_contour_on_layer(inflated: PackedByteArray, center: Vector2, half: Vector2, radius: float, contours: Variant, indices: PackedInt32Array) -> void:
+	for idx in _contour_cells(center, half, radius, contours):
+		_mark_index_on_layer(inflated, idx, indices)
+
+
+## Layer indices a shoreline blocks for this clearance radius, row by row.
+## Water never moves, but every tree cut down rebuilds the layers, and the
+## shoreline test per cell was most of that cost: results are kept per
+## shoreline and radius (checked against the stored contours).
+func _contour_cells(center: Vector2, half: Vector2, radius: float, contours: Variant) -> PackedInt32Array:
+	var key := [center, half, radius]
+	var cached: Variant = _contour_cache.get(key)
+	if cached != null and cached[0] == contours: return cached[1]
+	var cells := PackedInt32Array()
+	var margin := radius + cell_size * 0.707107
+	var first := world_to_cell(center - half)
+	var last := world_to_cell(center + half)
+	for y in range(first.y, last.y + 1):
+		for x in range(first.x, last.x + 1):
+			var cell := Vector2i(x, y)
+			if _index_of(cell) >= 0 and ShoreGeometry.circle_hits(cell_to_world_center(cell), margin, contours):
+				cells.append(_index_of(cell))
+	_contour_cache[key] = [contours.duplicate(true) if contours is Array else contours, cells]
+	return cells
+
+
+func _store_solid_layer(key: String, inflated: PackedByteArray, indices: PackedInt32Array) -> void:
 	_solid_by_radius[key] = inflated
 	_solid_indices_by_radius[key] = indices
 	_solid_radius_order.append(key)
@@ -509,7 +565,6 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 		var oldest: String = _solid_radius_order.pop_front()
 		_solid_by_radius.erase(oldest)
 		_solid_indices_by_radius.erase(oldest)
-	return inflated
 
 
 func _mark_aabb_on_layer(layer: PackedByteArray, center: Vector2, half: Vector2, indices: PackedInt32Array) -> void:
@@ -728,6 +783,7 @@ func _simplify_path(points: PackedVector2Array) -> PackedVector2Array:
 	return simplified
 
 
+@warning_ignore("integer_division")
 func _line_clear(a: Vector2, b: Vector2) -> bool:
 	var start := Fixed.vector(a)
 	var offset := Fixed.vector(b) - start
@@ -737,14 +793,38 @@ func _line_clear(a: Vector2, b: Vector2) -> bool:
 	var size := maxi(1, Fixed.coord(cell_size))
 	var spacing := maxi(1, Fixed.mul_div(size, 35, 100))
 	var steps := maxi(2, Fixed.ceil_div(dist, spacing))
+	if _kernel != null:
+		return _kernel.line_clear(_solid, _width, _height, _origin_cell, size, start, offset, steps)
+	return _line_clear_samples(start, offset, size, steps)
+
+
+## GDScript sample loop; AoeSimKernel.line_clear (GDExtension) is identical.
+@warning_ignore("integer_division")
+func _line_clear_samples(start: Vector2i, offset: Vector2i, size: int, steps: int) -> bool:
+	# Fixed.mul_div (round half away from zero, steps > 0) and Fixed.floor_div
+	# are inlined: each moving unit probes its next waypoint every step and
+	# the static calls dominated these long sample loops.
+	var half: int = steps / 2
+	var ox: int = offset.x
+	var oy: int = offset.y
+	var sx: int = start.x
+	var sy: int = start.y
+	var min_x: int = _origin_cell.x
+	var min_y: int = _origin_cell.y
 	for s in range(0, steps + 1):
-		var px: int = start.x + Fixed.mul_div(offset.x, s, steps)
-		var py: int = start.y + Fixed.mul_div(offset.y, s, steps)
 		# The same samples as is_world_solid(), without its three-call chain and
 		# temporary Vector2i per sample. Long waypoint visibility probes revisit
 		# thousands of these cells per frame in a marching army.
-		var x := Fixed.floor_div(px, size) - _origin_cell.x
-		var y := Fixed.floor_div(py, size) - _origin_cell.y
+		var product_x: int = ox * s
+		var product_y: int = oy * s
+		var px: int = sx + ((product_x + half) / steps if product_x >= 0 else -((half - product_x) / steps))
+		var py: int = sy + ((product_y + half) / steps if product_y >= 0 else -((half - product_y) / steps))
+		var x: int = px / size
+		if px < 0 and px % size != 0: x -= 1
+		var y: int = py / size
+		if py < 0 and py % size != 0: y -= 1
+		x -= min_x
+		y -= min_y
 		if x < 0 or y < 0 or x >= _width or y >= _height or _solid[y * _width + x] != 0:
 			return false
 	return true

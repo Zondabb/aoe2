@@ -14,7 +14,9 @@ class Settings:
     max_listed_matches: int = 64
     max_message_bytes: int = 4_194_304
     max_command_bytes: int = 16_384
-    outgoing_queue_size: int = 8
+    # Players order units one command each; a 60-unit group order is one
+    # burst relayed to the host. Keep room for it before slow_consumer.
+    outgoing_queue_size: int = 64
     messages_per_second: float = 90.0
     message_burst: float = 180.0
     bytes_per_second: float = 4_194_304.0
