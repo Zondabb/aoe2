@@ -65,14 +65,14 @@ func _outline() -> Node:
 
 func _configure(scenario: String) -> void:
 	match scenario:
-		"no_ai": world.get_node("AiController").set_process(false)
+		"no_ai": _set_ai_processing(false)
 		"no_fog": world.get_node("FogOfWar").set_physics_process(false)
 		"no_minimap": world.get_node("UILayer/HUD/Minimap").set_process(false)
 		"no_outline":
 			var outline := _outline()
 			if outline != null: outline.enabled = false
 		"render_only":
-			world.get_node("AiController").set_process(false)
+			_set_ai_processing(false)
 			world.get_node("NavService").set_process(false)
 			world.get_node("LandSupport").set_process(false)
 			for entity in world.get_node("Entities").get_children(): entity.set_physics_process(false)
@@ -121,7 +121,8 @@ func _profile_components() -> Dictionary:
 		_time(samples.buildings, func():
 			for building in get_nodes_in_group("buildings"): building._physics_process(1.0 / 60.0))
 		_time(samples.support, func(): world.get_node("LandSupport")._process(1.0 / 60.0))
-		_time(samples.ai, func(): world.get_node("AiController")._process(1.0 / 60.0))
+		_time(samples.ai, func():
+			for ai in _ai_nodes(): ai._process(1.0 / 60.0))
 		_time(samples.navigation, func(): world.get_node("NavService")._process(1.0 / 60.0))
 		_time(samples.minimap, func(): world.get_node("UILayer/HUD/Minimap")._process(1.0 / 60.0))
 		_time(samples.hud, func(): world.get_node("UILayer/HUD")._process(1.0 / 60.0))
@@ -161,8 +162,12 @@ func _profile_details() -> Dictionary:
 			mini._sync_terrain(),
 		"minimap_markers": func(): mini.refresh_markers(),
 		"minimap_mesh": func(): mini._rebuild_marker_mesh(),
-		"ai_evaluate_capture": func(): world.get_node("AiController").evaluate_capture(100),
 	}
+	# Saves using the built-in AI have an AiController; gateway saves talk to
+	# the external service instead.
+	var controller := world.get_node_or_null("AiController")
+	if controller != null and controller.has_method("evaluate_capture"):
+		tasks["ai_evaluate_capture"] = func(): controller.evaluate_capture(100)
 	var report := {}
 	for name in tasks:
 		var times: Array = []
@@ -179,6 +184,17 @@ func _profile_details() -> Dictionary:
 	print("SAVED MATCH DETAILS ", JSON.stringify(report))
 	return report
 
+## The match's AI drivers: the built-in AiController and/or gateway nodes.
+func _ai_nodes() -> Array:
+	var nodes: Array = []
+	for child in world.get_children():
+		if child.name == &"AiController" or (child.get_script() != null and String(child.get_script().resource_path).contains("ai_gateway")):
+			nodes.append(child)
+	return nodes
+
+func _set_ai_processing(enabled: bool) -> void:
+	for ai in _ai_nodes(): ai.set_process(enabled)
+
 func _time(samples: Array, action: Callable) -> void:
 	var started := Time.get_ticks_usec()
 	action.call()
@@ -194,7 +210,7 @@ func _unload() -> void:
 	world.free()
 	var outline := _outline()
 	if outline != null: outline.free()
-	root.remove_meta("unit_occlusion_renderer")
+	if root.has_meta("unit_occlusion_renderer"): root.remove_meta("unit_occlusion_renderer")
 	for frame in 3: await process_frame
 
 func _stats(values: Array) -> Dictionary:

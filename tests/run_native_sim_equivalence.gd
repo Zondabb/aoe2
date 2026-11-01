@@ -10,6 +10,7 @@ const Avoidance := preload("res://scripts/systems/local_avoidance.gd")
 const Field := preload("res://scripts/systems/unit_field.gd")
 const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const FogService := preload("res://scripts/systems/fog_of_war_service.gd")
+const NavGrid := preload("res://scripts/systems/nav_grid_service.gd")
 
 ## Minimal vision source for FogOfWarService.rebuild().
 class FogSource extends RefCounted:
@@ -50,7 +51,9 @@ func _run() -> void:
 		reused += counts[2]
 	var samples := await _line_samples()
 	var fog_counts := _fog_samples()
-	print("NATIVE EQUIVALENCE: %d checks, %d failures; %d steering calls (%d solves, %d reuses), %d waypoint probes, %d fog stamps, %d fog rebuilds" % [checks, failures, steers, solved, reused, samples, fog_counts[0], fog_counts[1]])
+	var seen_rects := _fog_rect_samples()
+	var layers := _nav_layer_samples()
+	print("NATIVE EQUIVALENCE: %d checks, %d failures; %d steering calls (%d solves, %d reuses), %d waypoint probes, %d fog stamps, %d fog rebuilds, %d fog rectangles, %d clearance layers" % [checks, failures, steers, solved, reused, samples, fog_counts[0], fog_counts[1], seen_rects, layers])
 	quit(0 if failures == 0 else 1)
 
 func _pick(values: Array) -> Variant:
@@ -282,3 +285,75 @@ func _fog_samples() -> Array:
 			rebuilds += 1
 	FogService._kernel = kernel_saved
 	return [stamps, rebuilds]
+
+## AoeSimKernel.fog_rects_seen against FogOfWarService.rect_visible.
+func _fog_rect_samples() -> int:
+	var kernel: RefCounted = ClassDB.instantiate("AoeSimKernel")
+	var count := 0
+	for scenario in 60:
+		var fog := FogService.new()
+		fog.setup_rect(Vector2(-rng.randi_range(10, 200), -rng.randi_range(10, 200)), Vector2(rng.randi_range(10, 200), rng.randi_range(10, 200)), _pick([1.0, 4.0, 3.0]))
+		for team in [0, 1]:
+			var mask: PackedByteArray = fog.visible_now[team]
+			var density: float = _pick([0.0, 0.05, 0.4, 1.0])
+			for i in mask.size(): mask[i] = 255 if rng.randf() < density else 0
+			fog.visible_now[team] = mask
+		var rects := PackedInt32Array()
+		var cells: Array[Rect2i] = []
+		for n in 200:
+			var rect := Rect2i(rng.randi_range(0, fog.side - 1), rng.randi_range(0, fog.grid_size.y - 1), rng.randi_range(0, 4), rng.randi_range(0, 4))
+			if rng.randi_range(0, 20) == 0: rect = Rect2i(-1, -1, 0, 0)
+			rect.size.x = mini(rect.size.x, fog.side - rect.position.x)
+			rect.size.y = mini(rect.size.y, fog.grid_size.y - rect.position.y)
+			cells.append(rect)
+			rects.append_array([rect.position.x, rect.position.y, rect.size.x, rect.size.y])
+		var bits: PackedByteArray = kernel.fog_rects_seen(rects, fog.visible_now[0], fog.visible_now[1], fog.side, fog.grid_size.y)
+		var expected := PackedByteArray()
+		for rect in cells: expected.append(int(fog.rect_visible(0, rect)) | int(fog.rect_visible(1, rect)) << 1)
+		check(bits == expected, "fog rectangles %d" % scenario)
+		count += cells.size()
+	return count
+
+## Clearance layers built with the kernel (and the shoreline cache) against
+## the script loops, cell bytes and marking order, with water outlines,
+## blockers off the map and every radius step.
+func _nav_layer_samples() -> int:
+	var saved: RefCounted = NavGrid._layer_kernel
+	var built := 0
+	for scenario in 12:
+		var marks: Array[Dictionary] = []
+		var low := Vector2i(-rng.randi_range(20, 90), -rng.randi_range(20, 90))
+		var high := Vector2i(rng.randi_range(20, 90), rng.randi_range(20, 90))
+		for n in rng.randi_range(5, 160):
+			var mark := {"center": Vector2(rng.randf_range(low.x - 5, high.x + 5), rng.randf_range(low.y - 5, high.y + 5)), "half": Vector2(_pick([0.5, 1.0, rng.randf_range(0.2, 6.0)]), _pick([0.5, 1.0, rng.randf_range(0.2, 6.0)]))}
+			if rng.randi_range(0, 25) == 0:
+				var center: Vector2 = mark.center
+				var outline := PackedVector2Array()
+				for k in 9:
+					outline.append(center + Vector2.from_angle(TAU * k / 9.0) * rng.randf_range(3.0, 9.0))
+				mark["half"] = Vector2(9.5, 9.5)
+				mark["contours"] = [outline]
+			marks.append(mark)
+		var grids := [NavGrid.new(), NavGrid.new()]
+		for grid in grids:
+			grid.setup_rect(low, high, 1.0)
+			grid._blocker_marks = marks
+		for radius in [0.2, 0.35, 0.5, 0.75, 1.3]:
+			NavGrid._layer_kernel = saved
+			var native_layer: PackedByteArray = grids[0]._get_or_build_solid_for_radius(radius)
+			var native_indices: PackedInt32Array = grids[0]._solid_indices_by_radius[grids[0]._radius_key(radius)]
+			NavGrid._layer_kernel = null
+			grids[1]._contour_cache.clear()
+			var script_layer: PackedByteArray = grids[1]._get_or_build_solid_for_radius(radius)
+			var script_indices: PackedInt32Array = grids[1]._solid_indices_by_radius[grids[1]._radius_key(radius)]
+			check(native_layer == script_layer and native_indices == script_indices, "clearance layer %d radius %.2f" % [scenario, radius])
+			# A rebuild after a blocker change reuses the cached shoreline cells.
+			NavGrid._layer_kernel = saved
+			grids[0]._solid_by_radius.clear()
+			grids[0]._solid_indices_by_radius.clear()
+			grids[0]._solid_radius_order.clear()
+			var again: PackedByteArray = grids[0]._get_or_build_solid_for_radius(radius)
+			check(again == script_layer and grids[0]._solid_indices_by_radius[grids[0]._radius_key(radius)] == script_indices, "cached shoreline layer %d radius %.2f" % [scenario, radius])
+			built += 1
+	NavGrid._layer_kernel = saved
+	return built

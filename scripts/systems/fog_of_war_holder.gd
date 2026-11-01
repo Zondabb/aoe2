@@ -23,6 +23,7 @@ class StaticRecord:
 	var seen_mask := 0
 	var observed_mask := 0
 	var seen_geometry := Rect2()
+	var terrain := false
 
 var fog := Fog.new()
 var match_state: MatchState
@@ -54,10 +55,25 @@ var _records_by_id: Dictionary = {}
 var _static_seen_revision := -1
 var _proxy_states: Dictionary = {}
 var _resource_visual_cache: Dictionary = {}
+## Cell rectangles of _static_records ([x, y, w, h] each) for the native
+## per-revision visibility pass; rebuilt when a record's cells change.
+var _static_rects := PackedInt32Array()
+var _static_rects_dirty := true
+static var _kernel: RefCounted = ClassDB.instantiate("AoeSimKernel") if ClassDB.class_exists("AoeSimKernel") and ClassDB.class_has_method("AoeSimKernel", "fog_rects_seen") else null
 ## Lockstep matches rebuild the visibility grids inside every simulation step;
 ## textures, remembered objects and node visibility follow on render frames.
 const LOCKSTEP_PRESENTATION_USEC := 100000
 var _lockstep_presentation := false
+## Single player: the grids follow every 0.1 s of game time, but textures,
+## memories and static visibility are drawn at most every 0.09 s of real time
+## (game speed above 1x, or physics catching up after a long frame, would
+## otherwise redraw them several times per shown frame); _process draws the
+## latest state once the interval has passed.
+const PRESENTATION_INTERVAL_USEC := 90000
+var _presented_frame := -1
+var _presented_tick := -1
+var _deferred_presentation := false
+const TEAMS := [Enums.Team.PLAYER, Enums.Team.AI]
 var _presentation_dirty := false
 var _dynamic_dirty := false
 var _presentation_usec := 0
@@ -92,18 +108,48 @@ static func install_rect(root: Node, state: MatchState, minimum: Vector2, maximu
 func _ready() -> void:
 	# Before units/AI physics; each match owns its holder and all visual caches.
 	process_physics_priority = -100
+	# Deferred presentation runs before the minimap and HUD read its caches.
+	process_priority = -100
+	fog.static_cache = self
 	add_to_group("fog_of_war")
 	_create_overlay()
 	_create_debug_panel()
 	match_state.team_color_changed.connect(func(_team: int):
 		_refresh_choice_labels()
 		for key in _resource_visual_cache: _resource_visual_dirty(key))
-	entities.child_entered_tree.connect(_entity_changed)
-	entities.child_exiting_tree.connect(_entity_changed)
+	entities.child_entered_tree.connect(_entity_entered)
+	entities.child_exiting_tree.connect(_entity_exiting)
 	rebuild_now()
 	_sync_debug_ui()
 	get_viewport().size_changed.connect(_layout_debug_ui)
 	_layout_debug_ui()
+
+## Projectiles enter and leave many times a second in combat. They are neither
+## vision sources nor static records, so the cached lists are kept in step
+## (the same order a rescan gives) instead of rescanning every entity and
+## rebuilding the masks for each arrow.
+func _entity_entered(node: Node) -> void:
+	if node.has_meta("fog_memory"):
+		return
+	if node is ProjectileAgent and not _entities_dirty and node.get_index() == entities.get_child_count() - 1:
+		_live_entities.append(node)
+		_dynamic_entities.append(node)
+	else:
+		_dirty = true
+		_entities_dirty = true
+	# Prevent newly spawned enemies being rendered before the next visibility tick.
+	if node is CanvasItem and node.get("sim_pos") != null:
+		node.visible = view_can_see(node)
+
+func _entity_exiting(node: Node) -> void:
+	if node.has_meta("fog_memory"):
+		return
+	if node is ProjectileAgent and not _entities_dirty:
+		_live_entities.erase(node)
+		_dynamic_entities.erase(node)
+		_shown.erase(node.get_instance_id())
+		return
+	_entity_changed(node)
 
 func _entity_changed(node: Node) -> void:
 	if node.has_meta("fog_memory"):
@@ -118,7 +164,16 @@ func _physics_process(delta: float) -> void:
 	if match_state.lockstep_enabled and not match_state.lockstep_stepping: return
 	_elapsed += delta
 	if not match_state.frozen and (_dirty or fog.dirty or _elapsed >= 0.1):
-		rebuild_now()
+		# Only engine physics ticks after the presented one defer; repeated
+		# calls within one tick (scripts, tests) still draw at once.
+		if Engine.is_in_physics_frame() and not _lockstep_presentation and Engine.get_physics_frames() != _presented_tick \
+				and (Time.get_ticks_usec() - _presentation_usec < PRESENTATION_INTERVAL_USEC or Engine.get_process_frames() == _presented_frame):
+			rebuild_simulation()
+			if not _deferred_presentation:
+				_deferred_presentation = true
+				set_process(true)
+		else:
+			rebuild_now()
 	else:
 		# Moving enemies can cross a visibility cell between fog updates. Static
 		# trees and their memory proxies only need a pass when fog is rebuilt.
@@ -146,6 +201,15 @@ func rebuild_simulation() -> void:
 ## Presentation half for lockstep: the full pass (texture, memories, static
 ## visibility) at the single-player 10 Hz cadence; moving actors in between.
 func _process(_delta: float) -> void:
+	if _deferred_presentation and not _lockstep_presentation:
+		if not _presentation_dirty or Time.get_ticks_usec() - _presentation_usec >= PRESENTATION_INTERVAL_USEC:
+			_deferred_presentation = false
+			set_process(false)
+			if _presentation_dirty: _present()
+		elif _dynamic_dirty:
+			_dynamic_dirty = false
+			_apply_visibility(false)
+		return
 	if not _lockstep_presentation or not _presentation_dirty: return
 	var now := Time.get_ticks_usec()
 	if now - _presentation_usec >= LOCKSTEP_PRESENTATION_USEC:
@@ -176,6 +240,14 @@ func rebuild_now() -> void:
 	_dirty = false
 	_ensure_entity_cache()
 	fog.rebuild(_vision_sources)
+	_present()
+
+func _present() -> void:
+	_presentation_dirty = false
+	_dynamic_dirty = false
+	_presented_frame = Engine.get_process_frames()
+	_presented_tick = Engine.get_physics_frames()
+	_presentation_usec = Time.get_ticks_usec()
 	_sync_texture()
 	_update_memories(_live_entities)
 	_apply_visibility(true, true)
@@ -193,6 +265,7 @@ func _ensure_entity_cache() -> void:
 	var existing_records := _records_by_id
 	_records_by_id = {}
 	_static_seen_revision = -1
+	_static_rects_dirty = true
 	var alive_ids := {}
 	for node in entities.get_children():
 		if node is not Node2D or node.has_meta("fog_memory") or node.get("sim_pos") == null or node.is_queued_for_deletion(): continue
@@ -212,6 +285,7 @@ func _ensure_entity_cache() -> void:
 			record.id = id
 			record.kind = static_kind
 			record.resource = resource
+			record.terrain = node.is_in_group("terrain_regions")
 			record.team = node.get("team")
 			record.definition = definition
 			record.position = node.get("sim_pos")
@@ -300,25 +374,91 @@ func _refresh_static_record(record: StaticRecord) -> bool:
 		record.position = position
 		record.footprint = footprint
 		record.cells = fog.footprint_cells(position, footprint)
+		# Cells and the geometry seen_geometry records both follow the record.
+		_static_rects_dirty = true
+		_static_seen_revision = -1
 	return true
+
+## seen_mask (bit per team: any covered cell visible now) of every static
+## record from its current cells, and the geometry those cells belong to.
+## Records whose `valid` byte is 0 are left unseen, as _update_memories did.
+func _compute_seen_masks(valid := PackedByteArray()) -> void:
+	var count := _static_records.size()
+	var bits := PackedByteArray()
+	# seen_geometry only changes with a record's geometry, which marks the
+	# rectangles dirty (as does every entity-cache rebuild).
+	var geometry_changed := _static_rects_dirty or _static_rects.size() != count * 4
+	if fog.ready and _kernel != null:
+		if _static_rects_dirty or _static_rects.size() != count * 4:
+			_static_rects.resize(count * 4)
+			var at := 0
+			for record in _static_records:
+				var cells := record.cells
+				_static_rects[at] = cells.position.x
+				_static_rects[at + 1] = cells.position.y
+				_static_rects[at + 2] = cells.size.x
+				_static_rects[at + 3] = cells.size.y
+				at += 4
+			_static_rects_dirty = false
+		bits = _kernel.fog_rects_seen(_static_rects, fog.visible_now.get(Enums.Team.PLAYER, PackedByteArray()), fog.visible_now.get(Enums.Team.AI, PackedByteArray()), fog.side, fog.grid_size.y)
+	var check_valid := not valid.is_empty()
+	for index in count:
+		var record := _static_records[index]
+		if check_valid and valid[index] == 0:
+			record.seen_mask = 0
+			continue
+		var mask := 0
+		if fog.ready:
+			if _kernel != null:
+				mask = bits[index]
+			else:
+				for team in TEAMS:
+					if fog.rect_visible(team, record.cells): mask |= 1 << team
+		record.seen_mask = mask
+		if geometry_changed: record.seen_geometry = Rect2(record.position, record.footprint)
+	if _kernel == null: _static_rects_dirty = false
+	_static_seen_revision = fog.revision
+
+## FogOfWarService.can_see for a static entity from the per-revision record
+## cache: 1 or 0, or -1 when its record, geometry or the cache is unavailable.
+## Never rebuilds the entity lists, which callers may be iterating.
+func cached_static_seen(team: int, node: Object) -> int:
+	if _entities_dirty or not fog.ready or not fog.visible_now.has(team): return -1
+	var record: StaticRecord = _records_by_id.get(node.get_instance_id())
+	if record == null: return -1
+	var footprint: Vector2
+	if node is ResourceNode: footprint = (node as ResourceNode).block_size
+	elif node is BuildingAgent and (node as BuildingAgent).def != null: footprint = (node as BuildingAgent).def.footprint
+	else: return -1
+	if _static_seen_revision != fog.revision: _compute_seen_masks()
+	if record.seen_geometry != Rect2(node.sim_pos, footprint): return -1
+	return (record.seen_mask >> team) & 1
 
 func _update_memories(_nodes: Array) -> void:
 	_ensure_entity_cache()
 	var seen_at := Time.get_ticks_msec()
-	for record in _static_records:
-		record.seen_mask = 0
+	# Refresh every record's geometry, then test all cell rectangles in one
+	# pass (native when available), then take memory snapshots.
+	var valid := PackedByteArray()
+	valid.resize(_static_records.size())
+	for index in _static_records.size():
+		var record := _static_records[index]
 		record.observed_mask = 0
-		if not _refresh_static_record(record): continue
+		valid[index] = 1 if _refresh_static_record(record) else 0
+	_compute_seen_masks(valid)
+	for index in _static_records.size():
+		if valid[index] == 0: continue
+		var record := _static_records[index]
 		var node: Node2D = record.entity
-		if node.is_in_group("terrain_regions"): Terrain.bind_fog(node, self)
+		if record.terrain: Terrain.bind_fog(node, self)
+		# Unseen by both teams: no memory changes (most of the forest).
+		if record.seen_mask == 0: continue
 		var key: int = record.id
-		record.seen_geometry = Rect2(record.position, record.footprint)
 		var appearance := 0
 		var appearance_ready := false
 		var captured: Array = []
-		for team in Enums.Team.values():
-			var seen: bool = fog.ready and fog.rect_visible(team, record.cells)
-			if seen: record.seen_mask |= 1 << team
+		for team in TEAMS:
+			var seen: bool = (record.seen_mask & (1 << team)) != 0
 			if not seen or record.team == team or node.get("is_placement_ghost") == true: continue
 			if (record.resource and node.get("amount") <= 0) or (record.kind == "building" and node.get("hp") != null and node.get("hp") <= 0): continue
 			record.observed_mask |= 1 << team
@@ -334,6 +474,14 @@ func _update_memories(_nodes: Array) -> void:
 			var parts: Array
 			if not previous.is_empty() and previous.get("appearance") == appearance:
 				parts = previous.parts
+				# An unchanged sighting only refreshes its time; most visible trees
+				# and walls are seen again on every pass.
+				if previous.size() == 12 and previous.has("last_seen_msec") and previous.sim_pos == record.position and previous.position == node.position \
+						and previous.footprint == record.footprint and previous.cells == record.cells and previous.minimap_kind == record.kind \
+						and previous.team == record.team and previous.resource_type == node.get("resource_type") and previous.kind == node.get("kind") \
+						and previous.terrain_region == node.is_in_group("terrain_regions"):
+					previous.last_seen_msec = seen_at
+					continue
 			else:
 				if captured.is_empty(): captured = Memory.capture(node)
 				parts = captured
@@ -341,7 +489,7 @@ func _update_memories(_nodes: Array) -> void:
 				"cells":record.cells, "parts":parts, "appearance":appearance, "minimap_kind":record.kind,
 				"team":record.team, "resource_type":node.get("resource_type"), "kind":node.get("kind"),
 				"terrain_region":node.is_in_group("terrain_regions"), "last_seen_msec":seen_at}
-	for team in Enums.Team.values():
+	for team in TEAMS:
 		var known: Dictionary = fog.memories[team]
 		for key in known.keys():
 			var snapshot: Dictionary = known[key]
@@ -364,6 +512,7 @@ func entity_visible_for(team: int, node: Variant, position: Vector2, footprint: 
 	if node.get("team") == team and node.get("hp") != null and float(node.get("hp")) > 0: return true
 	var id: int = node.get_instance_id()
 	var record: StaticRecord = _records_by_id.get(id)
+	if fog.ready and _static_seen_revision != fog.revision and record != null and not _entities_dirty: _compute_seen_masks()
 	if fog.ready and _static_seen_revision == fog.revision and record != null and fog.visible_now.has(team):
 		if record.seen_geometry == Rect2(position, footprint):
 			return (record.seen_mask & (1 << team)) != 0

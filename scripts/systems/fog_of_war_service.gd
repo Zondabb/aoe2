@@ -22,6 +22,8 @@ var dirty := false
 var _static_sources: Dictionary = {}
 var _static_masks: Dictionary = {}
 var _static_rows: Dictionary = {}
+## The FogOfWarHolder showing this fog, if any (cached_static_seen()).
+var static_cache: Object = null
 ## Native circle stamping and exploration (aoe_sim GDExtension). Integer
 ## results identical to _stamp() and the script loops below.
 static var _kernel: RefCounted = ClassDB.instantiate("AoeSimKernel") if ClassDB.class_exists("AoeSimKernel") and ClassDB.class_has_method("AoeSimKernel", "fog_stamp") else null
@@ -172,7 +174,13 @@ func can_see(team: int, entity: Object) -> bool:
 		return entity.get("team") == team
 	if entity.get("team") == team and entity.get("hp") != null and float(entity.get("hp")) > 0:
 		return true
-	return ready and footprint_visible(team, entity.get("sim_pos"), footprint_of(entity))
+	if not ready: return false
+	# Trees, mines and buildings: the holder's per-revision record answers
+	# with the same cells; anything changed or uncached takes the live test.
+	if static_cache != null and is_instance_valid(static_cache):
+		var cached: int = static_cache.cached_static_seen(team, entity)
+		if cached >= 0: return cached == 1
+	return footprint_visible(team, entity.get("sim_pos"), footprint_of(entity))
 
 static func radius_of(entity: Object) -> float:
 	if entity.has_method("resolved_vision_radius"):
@@ -195,6 +203,16 @@ func rebuild(entities: Array) -> void:
 	var moving_counts := {0: 0, 1: 0}
 	for entity in entities:
 		if not is_instance_valid(entity): continue
+		if entity is UnitAgent:
+			# Typed reads of the same values as the generic path below.
+			var unit: UnitAgent = entity
+			if unit.team != Enums.Team.PLAYER and unit.team != Enums.Team.AI: continue
+			if unit.hp_q <= 0: continue
+			var unit_radius := unit.resolved_vision_radius()
+			if unit_radius <= 0: continue
+			moving[unit.team].append_array([unit._sim_pos_q.x, unit._sim_pos_q.y, maxi(0, Fixed.coord(unit_radius))])
+			moving_counts[unit.team] += 1
+			continue
 		var team: Variant = entity.get("team")
 		if not stationary.has(team): continue
 		if entity.get("is_placement_ghost") == true or entity.get("hp") == null or float(entity.get("hp")) <= 0: continue

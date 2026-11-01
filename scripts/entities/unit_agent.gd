@@ -116,6 +116,8 @@ var _billboard_pending := false
 var _billboard_animate := false
 var _billboard_action := &""
 var _billboard_moving := true
+var _billboard_drawn_frame := -1
+var _billboard_drawn_tick := -1
 ## Service holders found once and revalidated on use (group scans were a
 ## measurable share of every simulation step).
 var _vision_holder: Node = null
@@ -678,7 +680,7 @@ func _animation_fps(action: StringName) -> float:
 func _combat_animation_name(action: StringName) -> StringName:
 	if _villager_actions:
 		return _pick_villager_animation(action)
-	return StringName("%s_dir_%d" % [action, _facing_dir])
+	return _dir_anim(action, _facing_dir) if not String(action).is_empty() else StringName("_dir_%d" % _facing_dir)
 
 func take_damage(amount: float, source: Node = null) -> void:
 	take_damage_fixed(Fixed.from_float(amount), source)
@@ -1828,7 +1830,7 @@ func _sprite_top_local_y() -> float:
 		var anim := billboard.animation
 		if billboard.sprite_frames.has_animation(anim):
 			var frame_idx := billboard.frame
-			var parsed: Dictionary = SpriteCatalogScript.parse_directional_animation(anim)
+			var parsed: Dictionary = _parsed_anim(anim)
 			var action: StringName = parsed["action"]
 			var direction: int = int(parsed["direction"])
 			var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}))
@@ -1943,22 +1945,52 @@ func _is_in_build_range() -> bool:
 	return _distance_to(_build_target) <= build_range
 
 
+## "<action>_dir_<n>" (or "dir_<n>" for an empty action) without formatting
+## a string on every sprite update.
+static var _dir_anim_names := {}
+static func _dir_anim(action: StringName, direction: int) -> StringName:
+	var row: Variant = _dir_anim_names.get(action)
+	if row == null:
+		row = []
+		_dir_anim_names[action] = row
+	while row.size() <= direction:
+		row.append(StringName(("%s_dir_%d" % [action, row.size()]) if not String(action).is_empty() else ("dir_%d" % row.size())))
+	return row[direction]
+
+## SpriteCatalog.parse_directional_animation, shared per animation name
+## (read-only results).
+static var _parsed_anims := {}
+static func _parsed_anim(anim: StringName) -> Dictionary:
+	var parsed: Variant = _parsed_anims.get(anim)
+	if parsed == null:
+		parsed = SpriteCatalogScript.parse_directional_animation(anim)
+		_parsed_anims[anim] = parsed
+	return parsed
+
+var _billboard_sprite: AnimatedSprite2D = null
+func _billboard_node() -> AnimatedSprite2D:
+	if _billboard_sprite != null and is_instance_valid(_billboard_sprite) and _billboard_sprite.get_parent() == self and _billboard_sprite.name == &"Billboard":
+		return _billboard_sprite
+	_billboard_sprite = get_node_or_null("Billboard") as AnimatedSprite2D
+	return _billboard_sprite
+
+
 func _pick_villager_animation(action: StringName) -> StringName:
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
+	var billboard := _billboard_node()
 	if billboard == null or billboard.sprite_frames == null:
 		return &"walk_dir_0"
 	var resolved := action
 	if action == &"attack" and not billboard.sprite_frames.has_animation(&"attack_dir_0"):
 		resolved = &"chop"
-	var anim := StringName("%s_dir_%d" % [resolved, _facing_dir])
+	var anim := _dir_anim(resolved, _facing_dir) if not String(resolved).is_empty() else StringName("_dir_%d" % _facing_dir)
 	if billboard.sprite_frames.has_animation(anim):
 		return anim
-	var action_dir0 := StringName("%s_dir_0" % resolved)
+	var action_dir0 := _dir_anim(resolved, 0)
 	if not String(resolved).is_empty() and billboard.sprite_frames.has_animation(action_dir0):
 		return action_dir0
 	if action == &"idle":
 		for direction in 5:
-			var idle_anim := StringName("idle_dir_%d" % direction)
+			var idle_anim := _dir_anim(&"idle", direction)
 			if billboard.sprite_frames.has_animation(idle_anim):
 				return idle_anim
 	if billboard.sprite_frames.has_animation(&"walk_dir_0"):
@@ -1969,7 +2001,18 @@ func _pick_villager_animation(action: StringName) -> StringName:
 func _apply_billboard_frame(
 	animate: bool, forced_action: StringName = &"", actually_moving: bool = true
 ) -> void:
-	if match_state != null and match_state.lockstep_stepping:
+	var defer := match_state != null and match_state.lockstep_stepping
+	if not defer and Engine.is_in_physics_frame():
+		# Physics catching up runs several ticks in one rendered frame; the
+		# first tick draws at once, later ticks only keep the latest request.
+		# Repeated calls within one tick (scripts, tests) still draw at once.
+		var frame := Engine.get_process_frames()
+		var tick := Engine.get_physics_frames()
+		defer = _billboard_drawn_frame == frame and _billboard_drawn_tick != tick
+		if not defer:
+			_billboard_drawn_frame = frame
+			_billboard_drawn_tick = tick
+	if defer:
 		if not _billboard_pending:
 			_billboard_pending = true
 			set_process(true)
@@ -1995,7 +2038,7 @@ func _process(_delta: float) -> void:
 
 
 func _draw_billboard_frame(animate: bool, forced_action: StringName, actually_moving: bool) -> void:
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
+	var billboard := _billboard_node()
 	if billboard == null or billboard.sprite_frames == null:
 		return
 	var anim: StringName
@@ -2010,19 +2053,19 @@ func _draw_billboard_frame(animate: bool, forced_action: StringName, actually_mo
 		anim = _pick_villager_animation(action)
 	else:
 		if action.is_empty():
-			var idle_anim := StringName("idle_dir_%d" % _facing_dir)
+			var idle_anim := _dir_anim(&"idle", _facing_dir)
 			if not actually_moving and billboard.sprite_frames.has_animation(idle_anim):
 				action = &"idle"
 				anim = idle_anim
 			else:
-				anim = StringName("dir_%d" % _facing_dir)
+				anim = _dir_anim(&"", _facing_dir)
 		else:
-			anim = StringName("%s_dir_%d" % [action, _facing_dir])
+			anim = _dir_anim(action, _facing_dir)
 			if not billboard.sprite_frames.has_animation(anim):
 				if action == &"attack":
-					anim = StringName("walk_dir_%d" % _facing_dir)
+					anim = _dir_anim(&"walk", _facing_dir)
 				if not billboard.sprite_frames.has_animation(anim):
-					anim = StringName("dir_%d" % _facing_dir)
+					anim = _dir_anim(&"", _facing_dir)
 		if not billboard.sprite_frames.has_animation(anim):
 			return
 	billboard.flip_h = _facing_flip
@@ -2053,7 +2096,7 @@ func _apply_billboard_hotspot(
 		if not billboard.offset.is_equal_approx(_hotspot_offset):
 			billboard.offset = _hotspot_offset
 		return
-	var parsed: Dictionary = SpriteCatalogScript.parse_directional_animation(anim)
+	var parsed: Dictionary = _parsed_anim(anim)
 	var action: StringName = parsed["action"]
 	var direction: int = int(parsed["direction"])
 	var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}))

@@ -4,6 +4,9 @@
 
 #include "fixed_math.h"
 
+#include <cstring>
+#include <vector>
+
 using namespace godot;
 
 void AoeSimKernel::_bind_methods() {
@@ -11,10 +14,13 @@ void AoeSimKernel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("line_clear", "solid", "width", "height", "origin_cell", "size", "start", "offset", "steps"), &AoeSimKernel::line_clear);
 	ClassDB::bind_method(D_METHOD("fog_stamp", "mask", "row_min", "row_max", "sources", "origin", "size", "width", "height"), &AoeSimKernel::fog_stamp);
 	ClassDB::bind_method(D_METHOD("fog_explore", "explored", "visible"), &AoeSimKernel::fog_explore);
+	ClassDB::bind_method(D_METHOD("fog_rects_seen", "rects", "visible0", "visible1", "width", "height"), &AoeSimKernel::fog_rects_seen);
+	ClassDB::bind_method(D_METHOD("nav_layer_border", "width", "height", "left", "top", "right", "bottom"), &AoeSimKernel::nav_layer_border);
+	ClassDB::bind_method(D_METHOD("nav_mark_rects", "layer", "indices", "rects", "width", "height", "origin_cell"), &AoeSimKernel::nav_mark_rects);
 }
 
 int64_t AoeSimKernel::version() {
-	return 2;
+	return 4;
 }
 
 bool AoeSimKernel::line_clear(const PackedByteArray &solid, int64_t width, int64_t height, const Vector2i &origin_cell, int64_t size, const Vector2i &start, const Vector2i &offset, int64_t steps) const {
@@ -117,4 +123,132 @@ PackedByteArray AoeSimKernel::fog_explore(const PackedByteArray &explored, const
 		}
 	}
 	return out;
+}
+
+PackedByteArray AoeSimKernel::fog_rects_seen(const PackedInt32Array &rects, const PackedByteArray &visible0, const PackedByteArray &visible1, int64_t width, int64_t height) const {
+	const int64_t count = rects.size() / 4;
+	PackedByteArray result;
+	result.resize(count);
+	uint8_t *out = result.ptrw();
+	const int32_t *values = rects.ptr();
+	const uint8_t *masks[2] = { visible0.ptr(), visible1.ptr() };
+	const int64_t sizes[2] = { visible0.size(), visible1.size() };
+	const int64_t cells = width * height;
+	for (int64_t i = 0; i < count; i++) {
+		const int64_t x0 = values[i * 4];
+		const int64_t y0 = values[i * 4 + 1];
+		const int64_t w = values[i * 4 + 2];
+		const int64_t h = values[i * 4 + 3];
+		uint8_t bits = 0;
+		if (x0 >= 0 && y0 >= 0 && w > 0 && h > 0 && x0 + w <= width && y0 + h <= height) {
+			for (int team = 0; team < 2; team++) {
+				if (sizes[team] < cells) {
+					continue;
+				}
+				const uint8_t *mask = masks[team];
+				bool seen = false;
+				for (int64_t y = y0; y < y0 + h && !seen; y++) {
+					const uint8_t *row = mask + y * width;
+					for (int64_t x = x0; x < x0 + w; x++) {
+						if (row[x] != 0) {
+							seen = true;
+							break;
+						}
+					}
+				}
+				if (seen) {
+					bits |= uint8_t(1 << team);
+				}
+			}
+		}
+		out[i] = bits;
+	}
+	return result;
+}
+
+Array AoeSimKernel::nav_layer_border(int64_t width, int64_t height, int64_t left, int64_t top, int64_t right, int64_t bottom) const {
+	PackedByteArray layer;
+	PackedInt32Array indices;
+	Array result;
+	if (width <= 0 || height <= 0) {
+		result.append(layer);
+		result.append(indices);
+		return result;
+	}
+	layer.resize(width * height);
+	layer.fill(0);
+	uint8_t *cells = layer.ptrw();
+	std::vector<int32_t> marked;
+	auto mark = [&](int64_t index) {
+		if (cells[index] == 0) {
+			cells[index] = 1;
+			marked.push_back(int32_t(index));
+		}
+	};
+	for (int64_t y = 0; y < height; y++) {
+		if (y < top || y >= bottom) {
+			for (int64_t x = 0; x < width; x++) {
+				mark(y * width + x);
+			}
+		} else {
+			for (int64_t x = 0; x < left; x++) {
+				mark(y * width + x);
+			}
+			for (int64_t x = right; x < width; x++) {
+				mark(y * width + x);
+			}
+		}
+	}
+	indices.resize(int64_t(marked.size()));
+	if (!marked.empty()) {
+		std::memcpy(indices.ptrw(), marked.data(), marked.size() * sizeof(int32_t));
+	}
+	result.append(layer);
+	result.append(indices);
+	return result;
+}
+
+Array AoeSimKernel::nav_mark_rects(const PackedByteArray &layer, const PackedInt32Array &indices, const PackedInt32Array &rects, int64_t width, int64_t height, const Vector2i &origin_cell) const {
+	PackedByteArray out_layer = layer;
+	Array result;
+	if (width <= 0 || height <= 0 || out_layer.size() < width * height) {
+		result.append(out_layer);
+		result.append(indices);
+		return result;
+	}
+	uint8_t *cells = out_layer.ptrw();
+	std::vector<int32_t> marked(indices.ptr(), indices.ptr() + indices.size());
+	const int32_t *values = rects.ptr();
+	const int64_t count = rects.size() / 4;
+	for (int64_t r = 0; r < count; r++) {
+		const int64_t min_x = values[r * 4];
+		const int64_t min_y = values[r * 4 + 1];
+		const int64_t max_x = values[r * 4 + 2];
+		const int64_t max_y = values[r * 4 + 3];
+		for (int64_t cy = min_y; cy <= max_y; cy++) {
+			const int64_t ly = cy - origin_cell.y;
+			if (ly < 0 || ly >= height) {
+				continue;
+			}
+			for (int64_t cx = min_x; cx <= max_x; cx++) {
+				const int64_t lx = cx - origin_cell.x;
+				if (lx < 0 || lx >= width) {
+					continue;
+				}
+				const int64_t index = ly * width + lx;
+				if (cells[index] == 0) {
+					cells[index] = 1;
+					marked.push_back(int32_t(index));
+				}
+			}
+		}
+	}
+	PackedInt32Array out_indices;
+	out_indices.resize(int64_t(marked.size()));
+	if (!marked.empty()) {
+		std::memcpy(out_indices.ptrw(), marked.data(), marked.size() * sizeof(int32_t));
+	}
+	result.append(out_layer);
+	result.append(out_indices);
+	return result;
 }

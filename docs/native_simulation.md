@@ -143,6 +143,8 @@
 
 剩余开销：实体逻辑约 11 ms，分散在路径跟随、空间索引更新、采集等许多小函数里，进一步优化需要把更多单位逻辑移到 C++；迷雾的表现层（记忆、显隐和纹理，每 100 ms 一次，约 12～14 ms）不在模拟步里，但会让客户端每 100 ms 出现一次较长的帧。
 
+后续（2026-11-01）又加入了三个函数：`fog_rects_seen` 一次算出全部静态对象（树、矿、建筑）对双方的可见位，供迷雾、小地图和采集查询共用；`nav_layer_border` 与 `nav_mark_rects` 填充导航清障层，树木耗尽时的重建不再逐格跑 GDScript。三者都只做整数运算，GDScript 回退路径保留，结果逐位相同（等价测试覆盖）。排查经过和数字见[存档性能排查](saved_match_performance.md)。
+
 ## 8. 构建与发布
 
 `addons/aoe_sim/bin` 已包含预编译库：
@@ -173,7 +175,7 @@ python tools/build_native.py --platform linux
 | --- | --- |
 | `native/aoe_sim/src/avoidance.cpp` | 整数避让求解，逐行对应 `local_avoidance.gd` |
 | `native/aoe_sim/src/unit_field.cpp` | `AoeUnitField`：邻居快照、查询和带缓存的求解入口 |
-| `native/aoe_sim/src/sim_kernel.cpp` | `AoeSimKernel`：`line_clear` 视线检测，`fog_stamp` / `fog_explore` 迷雾栅格 |
+| `native/aoe_sim/src/sim_kernel.cpp` | `AoeSimKernel`：`line_clear` 视线检测，`fog_stamp` / `fog_explore` 迷雾栅格，`fog_rects_seen` 静态对象可见位，`nav_layer_border` / `nav_mark_rects` 导航清障层 |
 | `native/aoe_sim/src/fixed_math.h` | 与 `SimFixed` 相同的取整除法和整数开方 |
 | `scripts/systems/local_avoidance.gd` | GDScript 参考实现与分派 |
 | `scripts/systems/unit_field.gd` | GDScript 邻居快照；有原生库时 `create()` 返回 `AoeUnitField` |
