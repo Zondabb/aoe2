@@ -39,21 +39,41 @@ func _run() -> void:
 		worker.sim_pos = farm.sim_pos
 		entities.add_child(worker)
 		worker.set_physics_process(false)
+		var worker_sprite := worker.get_node("Billboard") as AnimatedSprite2D
+		for action in [&"sow", &"hoe"]:
+			for direction in 5:
+				var anim := StringName("%s_dir_%d" % [action, direction])
+				check(worker_sprite.sprite_frames.get_frame_count(anim) == 15, "%s has the complete work cycle" % anim)
 		var bare := SPRITES.foundation_sheet_base(&"farm", civ_id, 0)
 		var crops := SPRITES.building_sheet_base(&"farm", civ_id, 0)
 		check(not farm.farm_has_crops and farm._sprite_sheet_base == bare, "new construction is bare soil")
 		check(float(farm.call("extract", 1.0)) == 0.0 and not farm.farm_has_crops, "construction cannot grow or harvest crops")
 		worker.command_build(farm)
+		worker.sim_pos = farm.sim_pos + Vector2(12, 0)
+		check(worker._resolve_visual_action() == &"walk", "worker walks to the field before sowing")
+		worker.sim_pos = farm.sim_pos
+		worker._process_build(0.1)
+		check(String(worker_sprite.animation).begins_with("sow_dir_"), "worker scatters seed while building the field")
 		worker._process_build(farm.def.build_time)
 		check(farm.is_complete and worker.order == Enums.OrderType.GATHER, "farm builder automatically begins gathering on completion")
 		check(farm._sprite_sheet_base == bare and not farm.farm_has_crops, "completion alone keeps soil bare")
 		check(farm.amount == 175.0 and worker.carry_amount == 0.0, "building completion does not extract food")
 		worker._process_gather(0.1)
 		check(worker._gather_state == "gathering" and not farm.farm_has_crops, "reaching the field does not extract food early")
+		check(String(worker_sprite.animation).begins_with("hoe_dir_"), "worker takes up the hoe when gathering begins")
 		worker._process_gather(0.1)
 		check(farm.farm_has_crops and farm._sprite_sheet_base == crops, "first actual gathering tick displays crops")
 		check(worker.carry_amount > 0.0 and farm.amount < 175.0, "crops appear together with actual food gathering")
 		worker.command_stop()
+		var berries := ResourceNode.new()
+		berries.resource_type = Enums.ResourceType.FOOD
+		berries.sim_pos = worker.sim_pos
+		entities.add_child(berries)
+		worker.command_gather(berries)
+		worker._process_gather(0.1)
+		check(String(worker_sprite.animation).begins_with("gather_food_dir_"), "berries still use the picking animation")
+		worker.command_stop()
+		berries.free()
 		check(farm.farm_has_crops and farm._sprite_sheet_base == crops, "worker departure does not remove existing crops")
 		for age in 4:
 			state.set_age(0, age)
@@ -77,6 +97,8 @@ func _run() -> void:
 		house.start_construction()
 		entities.add_child(house)
 		worker.command_build(house)
+		worker._process_build(0.1)
+		check(String(worker_sprite.animation).begins_with("build_dir_"), "ordinary construction uses the builder animation")
 		worker._process_build(house.def.build_time)
 		check(house.is_complete and worker.order == Enums.OrderType.NONE, "ordinary building completion still leaves the builder idle")
 		house.free()

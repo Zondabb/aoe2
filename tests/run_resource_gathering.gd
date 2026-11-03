@@ -76,6 +76,9 @@ func _test_click_and_collect(type: Enums.ResourceType, direction: Vector2) -> vo
 		worker._physics_process(0.1)
 		if worker.carry_amount > 0: break
 	check(worker.carry_amount > 0 and resource.amount < 100,"worker reaches resource and actually extracts it: "+label)
+	var expected_action := "chop_dir_" if type == Enums.ResourceType.WOOD else "mine_dir_"
+	var worker_sprite := worker.get_node("Billboard") as AnimatedSprite2D
+	check(String(worker_sprite.animation).begins_with(expected_action), "worker uses the matching work animation: "+label)
 	check(ResourceNode.edge_distance(worker.sim_pos,resource.sim_pos,type) >= worker.def.resolved_footprint_radius()-0.06,"worker stands outside resource while collecting: "+label)
 	# Empty texture padding above the footprint must remain a ground click.
 	var transparent := rect.position + Vector2(0.5,0.5)

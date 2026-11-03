@@ -91,6 +91,7 @@ def rebuild_team_masks(resources, out, player):
                           key=item['key'], category=item['category'],
                           directions=item.get('directions', 1),
                           palette_name=item.get('palette', 'interface'),
+                          max_frames=item.get('max_frames'),
                           player=player, note=item.get('note', ''))
         print('OK team', meta['key'], meta['player_color']['mode'])
     export_composited_asian_feudal_tc(resources, out, player, write_debug=False)

@@ -30,6 +30,9 @@ PRIORITY: List[Dict[str, Any]] = [
     {"key": "villager_walk", "category": "units", "id": 1484, "directions": 5, "note": "Male villager moving"},
     {"key": "villager_idle", "category": "units", "id": 1479, "directions": 5, "note": "Male villager standing"},
     {"key": "villager_gather_food", "category": "units", "id": 2589, "directions": 5, "note": "Male villager kneeling picking berries"},
+    # VMFAR_UN declares 15 frames per facing in the DAT. Its SLP has five extra trailing frames.
+    {"key": "villager_sow", "category": "units", "id": 3842, "directions": 5, "max_frames": 75, "note": "Male farmer scattering seed"},
+    {"key": "villager_hoe", "category": "units", "id": 1512, "directions": 5, "note": "Male farmer working the soil with a hoe"},
     {"key": "villager_chop", "category": "units", "id": 1535, "directions": 5, "note": "Male villager woodcutter chopping"},
     {"key": "villager_mine", "category": "units", "id": 1560, "directions": 5, "note": "Male villager miner mining"},
     {"key": "villager_build", "category": "units", "id": 1496, "directions": 5, "note": "Male villager builder kneeling"},
@@ -368,6 +371,7 @@ def export_priority(resources: Path, out_dir: Path, player: int = 1) -> Dict[str
                 directions=item.get("directions", 1),
                 palette_name=item.get("palette", "interface"),
                 player=player,
+                max_frames=item.get("max_frames"),
                 note=item.get("note", ""),
             )
             results.append(meta)

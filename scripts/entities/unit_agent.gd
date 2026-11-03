@@ -757,8 +757,7 @@ func _finish_build_order() -> void:
 	if _advance_build_queue(): return
 	if not is_instance_valid(completed) or completed.is_queued_for_deletion():
 		return
-	var building_def := completed.get("def") as BuildingDef
-	if building_def != null and building_def.id == &"farm" and bool(completed.get("is_complete")) and completed.get("team") == team and completed.has_method("extract"):
+	if _is_farm(completed) and bool(completed.get("is_complete")) and completed.get("team") == team and completed.has_method("extract"):
 		command_gather(completed)
 
 func _process_gather(delta: float) -> void:
@@ -1956,26 +1955,33 @@ func _resolve_visual_action() -> StringName:
 		Enums.OrderType.GATHER:
 			if _gather_state == "gathering":
 				var resource_type := carry_type
-				if resource_type == -1 and is_instance_valid(_gather_target):
+				if is_instance_valid(_gather_target):
 					resource_type = int(_gather_target.get("resource_type"))
+					if resource_type == Enums.ResourceType.FOOD and _is_farm(_gather_target):
+						return &"hoe"
 				match resource_type:
 					Enums.ResourceType.FOOD:
 						return &"gather_food"
 					Enums.ResourceType.WOOD:
 						return &"chop"
-					Enums.ResourceType.GOLD:
+					Enums.ResourceType.GOLD, Enums.ResourceType.STONE:
 						return &"mine"
 					_:
 						return &"gather_food"
 			return &"walk"
 		Enums.OrderType.BUILD:
 			if _is_in_build_range():
-				return &"build"
+				return &"sow" if _is_farm(_build_target) else &"build"
 			return &"walk"
 		Enums.OrderType.ATTACK:
 			return &"attack"
 		_:
 			return &"idle"
+
+
+func _is_farm(target: Node2D) -> bool:
+	var building_def := target.get("def") as BuildingDef
+	return building_def != null and building_def.id == &"farm"
 
 
 func _is_in_build_range() -> bool:

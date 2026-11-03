@@ -32,6 +32,8 @@ const VILLAGER_ACTION_SHEETS := {
 	&"walk": "res://assets/sprites/units/villager_walk",
 	&"idle": "res://assets/sprites/units/villager_idle",
 	&"gather_food": "res://assets/sprites/units/villager_gather_food",
+	&"sow": "res://assets/sprites/units/villager_sow",
+	&"hoe": "res://assets/sprites/units/villager_hoe",
 	&"chop": "res://assets/sprites/units/villager_chop",
 	&"mine": "res://assets/sprites/units/villager_mine",
 	&"build": "res://assets/sprites/units/villager_build",

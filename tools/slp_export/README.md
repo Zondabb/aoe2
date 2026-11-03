@@ -143,6 +143,8 @@ Classic AoE unit SLPs store **5 authored facings** (frame counts like 50/60/75 d
 | villager_walk | 1484 | Male villager moving |
 | villager_idle | 1479 | Male villager standing |
 | villager_gather_food | 2589 | Male villager kneeling picking berries |
+| villager_sow | 3842 | Male farmer scattering seed during farm construction (5 directions × 15 frames) |
+| villager_hoe | 1512 | Male farmer hoeing a completed field |
 | villager_chop | 1535 | Male villager woodcutter chopping |
 | villager_mine | 1560 | Male villager miner mining |
 | villager_build | 1496 | Male villager builder kneeling |
