@@ -8,7 +8,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 3, "name": "Player", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 4, "name": "Player", "civ": "chinese"}
 HASH = "a" * 64
 
 
@@ -28,7 +28,7 @@ async def started(mm):
         found = drain(player)[-1]
         assert found["host_team"] == room.host_team
         assert found["seed"] == room.seed
-        assert found["protocol_version"] == 3
+        assert found["protocol_version"] == 4
         await mm.handle(player, {"type": "ready"})
     for player in players:
         assert drain(player)[-1]["type"] == "start"
@@ -158,6 +158,7 @@ def test_timed_out_and_cancelled_keyframe_responses_are_harmless():
 @pytest.mark.parametrize("packet", [
     {**JOIN, "protocol_version": 1},
     {**JOIN, "protocol_version": 2},
+    {**JOIN, "protocol_version": 3},
     {"type": "frame", "tick": True, "commands": [], "checksum": HASH},
     {"type": "frame", "tick": 2, "commands": [], "checksum": HASH},
     {"type": "frame", "tick": 3, "commands": [], "checksum": "bad"},

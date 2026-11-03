@@ -1,9 +1,10 @@
 extends RefCounted
 
-## Authored rectangles remain map handles. Their union defines one deterministic
-## inset coast, shared by rendering, placement and moving-circle collisions.
+## Authored rectangles remain map handles. The host creates the inset coast once
+## and shares its quantized vertices; peers do not repeat Geometry2D/libm work.
 const MAX_VERTICES := 192
 const COAST_STEP := 3.0
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 
 static func rectangle(rect: Rect2) -> PackedVector2Array:
 	return PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
@@ -21,6 +22,17 @@ static func build_contours(rects: Array) -> Array[PackedVector2Array]:
 					remaining.erase(rect)
 			index += 1
 		result.append_array(_build_component(component))
+	return quantize_contours(result)
+
+static func quantize_contours(contours: Array) -> Array[PackedVector2Array]:
+	var result: Array[PackedVector2Array] = []
+	for source: PackedVector2Array in contours:
+		var loop := PackedVector2Array()
+		for point in source:
+			var quantized := Fixed.quantize_vector(point)
+			if loop.is_empty() or loop[-1] != quantized: loop.append(quantized)
+		if loop.size() > 1 and loop[0] == loop[-1]: loop.resize(loop.size() - 1)
+		if loop.size() >= 3: result.append(loop)
 	return result
 
 static func _build_component(rects: Array) -> Array[PackedVector2Array]:
@@ -201,50 +213,102 @@ static func _bounds(polygon: PackedVector2Array) -> Rect2:
 
 static func contains(point: Vector2, contours: Array) -> bool:
 	var inside := false
+	var p := Fixed.vector(point)
 	for polygon: PackedVector2Array in contours:
-		if Geometry2D.is_point_in_polygon(point, polygon): inside = not inside
+		if _contains_q(p, polygon): inside = not inside
 	return inside
 
-static func signed_distance(point: Vector2, contours: Array) -> float:
-	var nearest := INF
+static func _cross(a: Vector2i, b: Vector2i) -> int:
+	return int(a.x) * int(b.y) - int(a.y) * int(b.x)
+
+static func _dot(a: Vector2i, b: Vector2i) -> int:
+	return int(a.x) * int(b.x) + int(a.y) * int(b.y)
+
+static func _on_segment(point: Vector2i, a: Vector2i, b: Vector2i) -> bool:
+	return _cross(point - a, b - a) == 0 and point.x >= mini(a.x, b.x) and point.x <= maxi(a.x, b.x) and point.y >= mini(a.y, b.y) and point.y <= maxi(a.y, b.y)
+
+static func _contains_q(point: Vector2i, polygon: PackedVector2Array) -> bool:
+	var inside := false
+	for index in polygon.size():
+		var a := Fixed.vector(polygon[index])
+		var b := Fixed.vector(polygon[(index + 1) % polygon.size()])
+		if _on_segment(point, a, b): return true
+		if (a.y > point.y) == (b.y > point.y): continue
+		var left: int = int(point.x - a.x) * int(b.y - a.y)
+		var right: int = int(b.x - a.x) * int(point.y - a.y)
+		var crosses_right := left < right if b.y > a.y else left > right
+		if crosses_right: inside = not inside
+	return inside
+
+## Map dimensions are limited to 1024 tiles. Promoted products are therefore
+## at most ~2.4e18, below int64; Vector2i arithmetic alone would overflow.
+static func _closest_q(point: Vector2i, a: Vector2i, b: Vector2i) -> Vector2i:
+	var edge := b - a
+	var length_squared := Fixed.length_sq(edge)
+	if length_squared == 0: return a
+	var numerator := clampi(_dot(point - a, edge), 0, length_squared)
+	return a + Vector2i(Fixed.mul_div(edge.x, numerator, length_squared), Fixed.mul_div(edge.y, numerator, length_squared))
+
+static func _segments_intersect_q(a: Vector2i, b: Vector2i, c: Vector2i, d: Vector2i) -> bool:
+	var ab_c := _cross(b - a, c - a)
+	var ab_d := _cross(b - a, d - a)
+	var cd_a := _cross(d - c, a - c)
+	var cd_b := _cross(d - c, b - c)
+	if ab_c == 0 and _on_segment(c, a, b): return true
+	if ab_d == 0 and _on_segment(d, a, b): return true
+	if cd_a == 0 and _on_segment(a, c, d): return true
+	if cd_b == 0 and _on_segment(b, c, d): return true
+	return ((ab_c < 0 and ab_d > 0) or (ab_c > 0 and ab_d < 0)) and ((cd_a < 0 and cd_b > 0) or (cd_a > 0 and cd_b < 0))
+
+static func _nearest_q(point: Vector2i, contours: Array) -> Vector2i:
+	var nearest := point
+	var distance: int = 9223372036854775807
 	for polygon: PackedVector2Array in contours:
 		for index in polygon.size():
-			nearest = minf(nearest, point.distance_to(Geometry2D.get_closest_point_to_segment(point, polygon[index], polygon[(index + 1) % polygon.size()])))
-	return -nearest if contains(point, contours) else nearest
+			var candidate := _closest_q(point, Fixed.vector(polygon[index]), Fixed.vector(polygon[(index + 1) % polygon.size()]))
+			var candidate_distance := Fixed.length_sq(point - candidate)
+			if candidate_distance < distance:
+				distance = candidate_distance
+				nearest = candidate
+	return nearest
+
+static func _signed_distance_q(point: Vector2i, contours: Array) -> int:
+	var distance := Fixed.isqrt(Fixed.length_sq(point - _nearest_q(point, contours)))
+	return -distance if contains(Fixed.to_vector(point), contours) else distance
+
+static func signed_distance(point: Vector2, contours: Array) -> float:
+	return INF if contours.is_empty() else Fixed.to_float(_signed_distance_q(Fixed.vector(point), contours))
 
 static func circle_hits(point: Vector2, radius: float, contours: Array) -> bool:
 	if contains(point, contours): return true
-	var limit := maxf(radius - 0.0001, 0.0)
-	if limit == 0.0: return false
+	var limit := maxi(Fixed.coord(radius) - 1, 0)
+	if limit == 0: return false
+	var p := Fixed.vector(point)
 	for polygon: PackedVector2Array in contours:
 		for index in polygon.size():
-			if point.distance_squared_to(Geometry2D.get_closest_point_to_segment(point, polygon[index], polygon[(index + 1) % polygon.size()])) < limit * limit: return true
+			var nearest := _closest_q(p, Fixed.vector(polygon[index]), Fixed.vector(polygon[(index + 1) % polygon.size()]))
+			if Fixed.length_sq(p - nearest) < limit * limit: return true
 	return false
 
 static func segment_hits(from: Vector2, to: Vector2, radius: float, contours: Array) -> bool:
+	var origin := Fixed.vector(from)
+	var target := Fixed.vector(to)
 	if circle_hits(from, radius, contours):
 		# Permit escape from a changed shoreline, but never movement deeper in.
-		var nearest := Vector2.INF
-		var distance := INF
-		for polygon: PackedVector2Array in contours:
-			for index in polygon.size():
-				var candidate := Geometry2D.get_closest_point_to_segment(from, polygon[index], polygon[(index + 1) % polygon.size()])
-				if from.distance_squared_to(candidate) < distance:
-					distance = from.distance_squared_to(candidate)
-					nearest = candidate
-		var outward := nearest - from if contains(from, contours) else from - nearest
-		return (to - from).dot(outward) < -0.00001 or signed_distance(to, contours) < signed_distance(from, contours) - 0.0001
+		var nearest := _nearest_q(origin, contours)
+		var outward := nearest - origin if contains(from, contours) else origin - nearest
+		return _dot(target - origin, outward) < 0 or _signed_distance_q(target, contours) < _signed_distance_q(origin, contours)
 	if contains(to, contours): return true
-	var limit := maxf(radius - 0.0001, 0.0)
+	var limit := maxi(Fixed.coord(radius) - 1, 0)
 	for polygon: PackedVector2Array in contours:
 		for index in polygon.size():
-			var a := polygon[index]
-			var b := polygon[(index + 1) % polygon.size()]
-			if Geometry2D.segment_intersects_segment(from, to, a, b) != null: return true
-			var distance := minf(from.distance_to(Geometry2D.get_closest_point_to_segment(from, a, b)), to.distance_to(Geometry2D.get_closest_point_to_segment(to, a, b)))
-			distance = minf(distance, a.distance_to(Geometry2D.get_closest_point_to_segment(a, from, to)))
-			distance = minf(distance, b.distance_to(Geometry2D.get_closest_point_to_segment(b, from, to)))
-			if distance < limit: return true
+			var a := Fixed.vector(polygon[index])
+			var b := Fixed.vector(polygon[(index + 1) % polygon.size()])
+			if _segments_intersect_q(origin, target, a, b): return true
+			var distance := mini(Fixed.length_sq(origin - _closest_q(origin, a, b)), Fixed.length_sq(target - _closest_q(target, a, b)))
+			distance = mini(distance, Fixed.length_sq(a - _closest_q(a, origin, target)))
+			distance = mini(distance, Fixed.length_sq(b - _closest_q(b, origin, target)))
+			if distance < limit * limit: return true
 	return false
 
 ## Bounding box of every contour point (empty contours: an empty Rect2).
@@ -260,22 +324,28 @@ static func contours_bounds(contours: Array) -> Rect2:
 				bounds = bounds.expand(point)
 	return bounds
 
-## Same result as intersects_rect. Every test there (corner in polygon, contour
-## point strictly inside the rectangle, edge crossing) needs the rectangle to
-## reach the contours' bounding box, so a rectangle clear of it is rejected
-## without walking the shoreline. The margin only widens the full-test band.
+## Reject disjoint bounds on the same integer lattice as the exact tests.
+## Touching boxes still need the polygon test, including along negative edges.
 static func intersects_rect_within(rect: Rect2, contours: Array, bounds: Rect2) -> bool:
-	if not rect.intersects(bounds.grow(0.01), true): return false
+	var low := Fixed.vector(rect.position)
+	var high := Fixed.vector(rect.end)
+	var min_coast := Fixed.vector(bounds.position)
+	var max_coast := Fixed.vector(bounds.end)
+	if low.x > max_coast.x or low.y > max_coast.y or high.x < min_coast.x or high.y < min_coast.y:
+		return false
 	return intersects_rect(rect, contours)
 
 static func intersects_rect(rect: Rect2, contours: Array) -> bool:
 	var corners := rectangle(rect)
+	var low := Fixed.vector(rect.position)
+	var high := Fixed.vector(rect.end)
 	for point in corners:
 		if contains(point, contours): return true
 	for polygon: PackedVector2Array in contours:
 		for point in polygon:
-			if point.x > rect.position.x + 0.0001 and point.x < rect.end.x - 0.0001 and point.y > rect.position.y + 0.0001 and point.y < rect.end.y - 0.0001: return true
+			var p := Fixed.vector(point)
+			if p.x > low.x and p.x < high.x and p.y > low.y and p.y < high.y: return true
 		for index in polygon.size():
 			for edge in corners.size():
-				if Geometry2D.segment_intersects_segment(polygon[index], polygon[(index + 1) % polygon.size()], corners[edge], corners[(edge + 1) % corners.size()]) != null: return true
+				if _segments_intersect_q(Fixed.vector(polygon[index]), Fixed.vector(polygon[(index + 1) % polygon.size()]), Fixed.vector(corners[edge]), Fixed.vector(corners[(edge + 1) % corners.size()])): return true
 	return false

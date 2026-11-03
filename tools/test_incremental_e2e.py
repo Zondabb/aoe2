@@ -65,7 +65,9 @@ def main() -> None:
                 if proc.poll() is not None and label != "server":
                     time.sleep(.5)
                     raise RuntimeError("\n".join(f"{f.name}: {f.read_text(encoding='utf-8', errors='replace')[-7000:]}" for f in logs.glob("*.txt")))
-            if "spectator" not in processes and time.monotonic() - start > 5:
+            # A cold map load can exceed five seconds. Join after the host has
+            # actually simulated a second so the observer exercises late entry.
+            if "spectator" not in processes and (logs / "finish.txt.watch-ready").exists():
                 peer("spectator")
             if all((logs / f"{role}.json").exists() for role in ["player-a", "player-b", "spectator"]): break
             time.sleep(.15)

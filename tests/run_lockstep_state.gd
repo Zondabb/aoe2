@@ -126,9 +126,29 @@ func _run() -> void:
 	runtime.entities.add_child(projectile)
 	projectile.setup(units[0].sim_pos, units[0].sim_pos + Vector2(20, 0), load("res://data/units/archer.tres"), units[0].team, units[0])
 	for _step in 8: sim.step()
+	# A blocked native steering solve uses this sentinel (larger than the
+	# integer precision of JSON numbers). Also check the adjacent value so
+	# a double conversion cannot pass just because the sentinel is a power of 2.
+	own_unit._avoidance_cache["risk"] = LocalAvoidance.RISK_INF
+	for large in [LocalAvoidance.RISK_INF, LocalAvoidance.RISK_INF + 1, -LocalAvoidance.RISK_INF - 1]:
+		var wire: Variant = JSON.parse_string(JSON.stringify(State.encode(large)))
+		check(State.valid_encoded(wire, {}) and State.decode(wire, {}) == large, "int64 steering state survives JSON exactly")
+	check(not State.valid_encoded(["i", "5"], {}), "small integers use one canonical wire representation")
+	var compact := State.digest(runtime)
+	var exhaustive := State.full_digest(runtime)
+	var facing: int = own_unit._facing_dir
+	own_unit._facing_dir = (facing + 1) % 5
+	check(State.digest(runtime) == compact and State.full_digest(runtime) == exhaustive, "local sprite direction does not cause a repair")
+	own_unit._facing_dir = facing
 	var original: Dictionary = sim.capture()
 	var payload: Dictionary = JSON.parse_string(JSON.stringify(original, "", true, true))
 	check(State.validate(payload.simulation, payload.world), "wire keyframe validates")
+	var coast_index: int = payload.simulation.entities.find_custom(func(record: Dictionary): return record.kind == "terrain" and not record.fields.water_contours[1].is_empty())
+	check(coast_index >= 0, "default map keyframe carries the host's coast geometry")
+	if coast_index >= 0:
+		var bad_coast: Dictionary = payload.simulation.duplicate(true)
+		bad_coast.entities[coast_index].fields.water_contours = ["a", [["i", 1]]]
+		check(not State.validate(bad_coast, payload.world), "wrong shoreline element type rejected before world mutation")
 	var malformed: Dictionary = payload.simulation.duplicate(true)
 	malformed.entities[0].fields.hp_q = "bad"
 	check(not State.validate(malformed, payload.world), "wrong property type rejected before mutation")

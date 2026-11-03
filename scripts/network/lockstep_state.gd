@@ -2,13 +2,15 @@ extends RefCounted
 ## Versioned, allow-listed simulation state. No scripts, paths, object IDs or
 ## local configuration cross the wire. References use match-local net_id.
 const Catalog := preload("res://scripts/data/game_catalog.gd")
-const VERSION := 2
+const VERSION := 3
+const JSON_INTEGER_LIMIT := 1000000000000000
+const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const JobClock := preload("res://scripts/systems/age_progression.gd")
-const UNIT_FIELDS := ["_sim_pos_q", "hp_q", "melee_armor_q", "pierce_armor_q", "order", "carry_type", "carry_amount_q", "carry_capacity_q", "vision_radius_override", "_move_target", "_formation_move_speed", "_gather_target", "_last_resource", "_drop_off_target", "_build_target", "_last_seen_resource_pos", "_last_seen_attack_pos", "_attack_target", "_attack_cooldown_remaining_units", "_gather_state", "_gather_resource_type", "_gather_source_depleted", "_gather_candidates", "_gather_work_points", "_automatic_gather_target", "_automatic_gather_goal", "_automatic_gather_resource_pos", "_population_registered", "_facing_dir", "_facing_flip", "_no_progress_frames", "_combat_action", "_combat_anim_time_units", "_attack_hit_applied", "_projectile_spawned", "max_hp_q", "_path", "_path_index", "_path_pending", "_nav_goal", "_stuck_repath_attempts", "_path_retry_cooldown_units", "_locomotion_velocity", "_avoidance_cache", "_stuck_seconds_units", "_repath_cooldown_units", "_requested_move_target", "_progress_elapsed_units", "_progress_distance", "_pending_crowd_route", "_path_is_crowd_route", "_has_move_command", "_goal_refresh_remaining_units", "_build_queue"]
+const UNIT_FIELDS := ["_sim_pos_q", "hp_q", "melee_armor_q", "pierce_armor_q", "order", "carry_type", "carry_amount_q", "carry_capacity_q", "vision_radius_override", "_move_target", "_formation_move_speed", "_gather_target", "_last_resource", "_drop_off_target", "_build_target", "_last_seen_resource_pos", "_last_seen_attack_pos", "_attack_target", "_attack_cooldown_remaining_units", "_gather_state", "_gather_resource_type", "_gather_source_depleted", "_gather_candidates", "_gather_work_points", "_automatic_gather_target", "_automatic_gather_goal", "_automatic_gather_resource_pos", "_population_registered", "_no_progress_frames", "_combat_action", "_combat_anim_time_units", "_attack_hit_applied", "_projectile_spawned", "max_hp_q", "_path", "_path_index", "_path_pending", "_nav_goal", "_stuck_repath_attempts", "_path_retry_cooldown_units", "_locomotion_velocity", "_avoidance_cache", "_stuck_seconds_units", "_repath_cooldown_units", "_requested_move_target", "_progress_elapsed_units", "_progress_distance", "_pending_crowd_route", "_path_is_crowd_route", "_has_move_command", "_goal_refresh_remaining_units", "_build_queue"]
 const BUILDING_FIELDS := ["sim_pos", "hp_q", "melee_armor_q", "pierce_armor_q", "build_time_elapsed", "is_complete", "amount_q", "resource_type", "gather_rate_q", "farm_has_crops", "accepts_all_resources", "accepted_resource_type", "train_queue", "train_queue_ids", "_next_train_id", "_train_payments", "train_time_elapsed", "_construction_started", "_population_cap_registered", "_reserved_population", "spawn_retry_time", "_production_exit_blocked", "wall_orientation", "gate_state", "gate_open", "gate_time", "_last_gate_navigation", "_gather_remainder"]
 const PROJECTILE_FIELDS := ["sim_pos", "aim_pos", "attacker_def", "attacker", "_consumed", "_origin", "_total_distance_fixed", "_traveled_fixed", "_impact_elapsed_time", "_stone", "_travel_remainder"]
 const RESOURCE_FIELDS := ["sim_pos", "resource_type", "amount_q", "gather_rate_q", "block_size_override", "_gather_remainder"]
-const TERRAIN_FIELDS := ["sim_pos", "kind", "block_size"]
+const TERRAIN_FIELDS := ["sim_pos", "kind", "block_size", "water_contours"]
 const STATE_FIELDS := ["resources", "population", "population_cap", "population_reserved", "progression_enabled", "team_ages", "team_civilizations", "researched_technologies", "team_color_ids", "winner", "frozen"]
 
 static func fields_for(kind: String) -> Array:
@@ -90,7 +92,10 @@ static func _fields(object: Object, names: Array) -> Dictionary:
 
 static func encode(value: Variant) -> Variant:
 	if value == null: return null
-	if value is int: return ["i", value]
+	if value is int:
+		# Godot parses JSON numbers as doubles. The native steering cache can
+		# contain 1 << 60; keep every int64 bit across a JSON relay round trip.
+		return ["i", str(value)] if value <= -JSON_INTEGER_LIMIT or value >= JSON_INTEGER_LIMIT else ["i", value]
 	if value is float:
 		# Decimal JSON parsing can round a binary64 value by one ULP across
 		# runtimes. Preserve the exact bits for deterministic continuation.
@@ -152,13 +157,20 @@ static func decode(value: Variant, nodes: Dictionary) -> Variant:
 static func _number(value: Variant) -> bool:
 	return (value is int or value is float) and is_finite(float(value)) and absf(float(value)) < 1e15
 
+static func _integer_payload(value: Variant) -> bool:
+	if value is String:
+		if value.length() > 20 or not value.is_valid_int(): return false
+		var parsed: int = value.to_int()
+		return str(parsed) == value and (parsed <= -JSON_INTEGER_LIMIT or parsed >= JSON_INTEGER_LIMIT)
+	return _number(value) and float(value) == floorf(float(value))
+
 static func valid_encoded(value: Variant, ids: Dictionary, depth := 0) -> bool:
 	if depth > 12: return false
 	if value == null or value is bool or value is String: return true
 	if _number(value): return true
 	if value is not Array or value.size() < 2 or value.size() > 3 or value[0] is not String: return false
 	match value[0]:
-		"i": return value.size() == 2 and _number(value[1]) and float(value[1]) == floorf(float(value[1]))
+		"i": return value.size() == 2 and _integer_payload(value[1])
 		"f":
 			if value.size() != 2 or value[1] is not String or value[1].length() != 12: return false
 			var bytes := Marshalls.base64_to_raw(value[1])
@@ -228,6 +240,16 @@ static func _tag(value: Variant, tag: String) -> bool:
 	return value is Array and value.size() >= 2 and value[0] == tag
 
 static func _valid_field_type(field: String, value: Variant) -> bool:
+	if field == "water_contours":
+		if not _tag(value, "a"): return false
+		# valid_encoded already checked the point pair shape. Disallow other
+		# element types before assigning the typed array on an existing actor.
+		for loop in value[1]:
+			if not _tag(loop, "p") or loop[1].size() < 3: return false
+			for point in loop[1]:
+				for coordinate in point:
+					if absf(float(coordinate)) > 10000.0 or float(coordinate) * Fixed.SCALE != roundf(float(coordinate) * Fixed.SCALE): return false
+		return true
 	if field == "_sim_pos_q": return _tag(value, "vi")
 	if field in ["hp_q", "melee_armor_q", "pierce_armor_q", "carry_amount_q", "carry_capacity_q", "max_hp_q", "amount_q", "gather_rate_q", "build_time_elapsed", "train_time_elapsed", "spawn_retry_time", "gate_time", "_total_distance_fixed", "_traveled_fixed", "_impact_elapsed_time", "_attack_cooldown_remaining_units", "_combat_anim_time_units", "_path_retry_cooldown_units", "_stuck_seconds_units", "_repath_cooldown_units", "_progress_elapsed_units", "_goal_refresh_remaining_units", "_gather_remainder", "_travel_remainder"]: return _tag(value, "i")
 	if field in ["sim_pos", "_move_target", "_last_seen_resource_pos", "_last_seen_attack_pos", "_automatic_gather_goal", "_automatic_gather_resource_pos", "_nav_goal", "_locomotion_velocity", "_requested_move_target", "_last_gate_navigation", "aim_pos", "_origin", "block_size_override", "block_size"]: return _tag(value, "v")
@@ -256,6 +278,8 @@ static func restore(network: Node, data: Dictionary) -> bool:
 		var node: Node = nodes.get(int(record.id))
 		if node == null: return false
 		_apply_fields(node, record.fields, nodes)
+		if node is PathBlocker and node.kind == &"water":
+			node.apply_authoritative_water_contours(node.water_contours)
 		if node.has_meta("network_replica"):
 			node.remove_meta("network_replica")
 			# Snapshot replicas disabled interpolation because they jumped to
@@ -454,7 +478,6 @@ static func _digest_unit(unit: UnitAgent, ints: PackedInt64Array, floats: Packed
 	ints.append(unit._gather_resource_type)
 	ints.append(unit._gather_work_points.size())
 	ints.append(unit._build_queue.size())
-	ints.append(unit._facing_dir)
 	ints.append(int(unit._path_pending) | int(unit._attack_hit_applied) << 1 | int(unit._projectile_spawned) << 2 | int(unit._has_move_command) << 3 | int(unit._gather_source_depleted) << 4 | int(unit._path_is_crowd_route) << 5 | int(unit._pending_crowd_route) << 6)
 	ints.append(unit._gather_state.hash())
 	ints.append(String(unit._combat_action).hash())

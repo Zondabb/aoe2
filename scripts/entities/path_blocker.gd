@@ -19,23 +19,47 @@ const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
 var block_half := Vector2.ONE
 var _selection: Line2D
 var water_contours: Array[PackedVector2Array] = []
+## Network terrain is immutable after the host supplies its actual coast. In
+## particular, deferred editor-style refreshes must not replace a keyframe.
+var water_contours_authoritative := false
 
 func get_water_contours() -> Array[PackedVector2Array]:
 	return water_contours
 
+func freeze_water_contours() -> void:
+	if kind != &"water" or auto_block_size: return
+	water_contours = ShoreGeometry.quantize_contours(water_contours)
+	water_contours_authoritative = true
+
+func apply_authoritative_water_contours(contours: Array) -> void:
+	if kind != &"water" or auto_block_size: return
+	water_contours = ShoreGeometry.quantize_contours(contours)
+	water_contours_authoritative = true
+	if has_meta("lockstep_water_pending"): remove_meta("lockstep_water_pending")
+	if not is_inside_tree(): return
+	_refresh_water_visual()
+	for holder in get_tree().get_nodes_in_group("nav_service"):
+		if holder.get_parent().is_ancestor_of(self): holder.invalidate_static_geometry()
+
+func _refresh_water_visual() -> void:
+	for label in ["Billboard", "Body", "Fallback"]:
+		var previous := get_node_or_null(label)
+		if previous != null: previous.free()
+	TerrainVisualScript.populate(self, kind, block_size, sim_pos)
+
 func _exit_tree() -> void:
-	if kind != &"water" or auto_block_size or get_parent() == null: return
+	if not _uses_generated_shore() or get_parent() == null: return
 	for sibling in get_parent().get_children():
-		if sibling != self and sibling is PathBlocker and sibling.kind == &"water" and not sibling.auto_block_size:
+		if sibling != self and sibling is PathBlocker and sibling._uses_generated_shore():
 			sibling._refresh_water_regions(self)
 			sibling.call_deferred("_refresh_water_regions")
 			break
 
 func _refresh_water_regions(excluding: Node = null) -> void:
-	if not is_inside_tree() or get_parent() == null: return
+	if water_contours_authoritative or has_meta("lockstep_water_pending") or not is_inside_tree() or get_parent() == null: return
 	var nodes: Array[PathBlocker] = []
 	for sibling in get_parent().get_children():
-		if sibling != excluding and sibling is PathBlocker and sibling.is_inside_tree() and sibling.kind == &"water" and not sibling.auto_block_size and not sibling.is_queued_for_deletion():
+		if sibling != excluding and sibling is PathBlocker and sibling.is_inside_tree() and sibling._uses_generated_shore() and not sibling.is_queued_for_deletion():
 			nodes.append(sibling)
 	var remaining := nodes.duplicate()
 	while not remaining.is_empty():
@@ -55,12 +79,12 @@ func _refresh_water_regions(excluding: Node = null) -> void:
 		for actor in component:
 			if actor.water_contours == contours and actor.get_node_or_null("Billboard") != null: continue
 			actor.water_contours = contours
-			for label in ["Billboard", "Body", "Fallback"]:
-				var previous := actor.get_node_or_null(label)
-				if previous != null: previous.free()
-			TerrainVisualScript.populate(actor, actor.kind, actor.block_size, actor.sim_pos)
+			actor._refresh_water_visual()
 	for holder in get_tree().get_nodes_in_group("nav_service"):
 		if holder.get_parent().is_ancestor_of(self): holder.invalidate_static_geometry()
+
+func _uses_generated_shore() -> bool:
+	return kind == &"water" and not auto_block_size and not water_contours_authoritative and not has_meta("lockstep_water_pending")
 
 func _ready() -> void:
 	add_to_group("path_blockers")
@@ -110,6 +134,12 @@ func _setup_visual() -> void:
 	# New map terrain specifies its footprint explicitly. Keep old auto-sized
 	# SLP blockers / test arenas intact, including their generic fallback art.
 	if kind in [&"water", &"cliff"] and not auto_block_size:
+		# Replica creation precedes state restore. Building the host's shoreline
+		# from each newly added neighbor would regenerate it many times.
+		if kind == &"water" and has_meta("lockstep_water_pending"): return
+		if kind == &"water" and water_contours_authoritative:
+			_refresh_water_visual()
+			return
 		for label in ["Billboard", "Body", "Fallback"]:
 			var previous := get_node_or_null(label)
 			if previous != null: previous.free()

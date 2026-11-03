@@ -1,6 +1,6 @@
 # 联机同步性能
 
-## 当前 v3：增量操作帧
+## 协议 v3 的增量操作帧实测
 
 主机不再每秒发送 10 份完整世界。每帧只有有序操作、tick 和 SHA-256 摘要；空帧仍推进模拟。双方每帧运行三个 `1/30` 秒固定步，步在物理帧中逐个执行；主机最多领先客端确认 6 帧，观众独立跟随。
 
@@ -88,4 +88,4 @@ python tools/bench_lockstep_e2e.py --godot "<Godot console executable>" --army 3
 
 旧版使用完整 JSON 快照，静态资源、实体和迷雾反复发送，默认场景约 195 KB/帧，正常 10 Hz 时约 1.87 MB/s。旧实现还曾按游戏倍速增加发送频率，引发收发队列积压；复现中的断开原因为 `slow_consumer`。后续 v1 修复将网络频率改为实际时间并合并过时快照。
 
-v3 保留实际时间超时、消息大小限制和连接诊断，但不再合并增量帧。日志中的 `slow_consumer`、`rate_limited`、`send_timeout` 或 `idle_timeout` 分别对应输出积压、输入限流、发送超时与心跳超时。旧 `tools/test_network_stability.py` 和周期快照测试针对 v1，不能作为当前 v3 的性能断言。
+v3 保留实际时间超时、消息大小限制和连接诊断，但不再合并增量帧。日志中的 `slow_consumer`、`rate_limited`、`send_timeout` 或 `idle_timeout` 分别对应输出积压、输入限流、发送超时与心跳超时。旧 `tools/test_network_stability.py` 和周期快照测试针对 v1，不能作为当前协议的性能断言。
