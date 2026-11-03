@@ -777,6 +777,14 @@ func capture_snapshot() -> Dictionary:
 
 
 
+var _applying_keyframe_world := false
+
+func apply_keyframe_world(snapshot: Dictionary, sequence: int) -> bool:
+	_applying_keyframe_world = true
+	var applied := apply_snapshot(snapshot, sequence)
+	_applying_keyframe_world = false
+	return applied
+
 func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 	if is_host or _terminal or sequence <= _last_snapshot_sequence or entities == null or match_state == null:
 		return false
@@ -919,6 +927,8 @@ func _spawn_replica(record: Dictionary) -> Node2D:
 			if record.has("block_size"): entity.set("block_size_override", _vec(record.block_size))
 		"terrain":
 			entity = TerrainScript.new()
+			if _applying_keyframe_world and record.terrain_id == "water":
+				entity.set_meta("lockstep_water_pending", true)
 			entity.set("kind", StringName(record.terrain_id))
 			entity.set("auto_block_size", false)
 			entity.set("block_size", _vec(record.block_size))

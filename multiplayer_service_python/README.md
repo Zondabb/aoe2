@@ -20,14 +20,14 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 ## 增量指令同步与观战
 
-服务使用 **协议 v3**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1/v2 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
+服务使用 **协议 v4**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v3 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
 
 双方玩家只提交操作。服务根据连接身份注入队伍，转交本局主机校验；主机每批执行三个固定模拟步，发布按序排列的合法操作和状态校验值。另一位玩家与观众用相同操作推进自己的模拟，不再持续接收世界快照。客端玩家返回 `ack`，主机确认校验值相同后推进下一批；观众的确认不参与对局等待。
 
 UTF-8 JSON 文本帧，端点 `/ws`。核心消息（示例中的校验值实际为 64 位 SHA-256 十六进制串）：
 
 ```json
-{"type":"join_queue","protocol_version":3,"name":"玩家","civ":"chinese"}
+{"type":"join_queue","protocol_version":4,"name":"玩家","civ":"chinese"}
 {"type":"ready"}
 {"type":"command","seq":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
 {"type":"frame","tick":3,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"64位校验值"}
@@ -126,6 +126,6 @@ docker run --rm -p 8001:8001 -v aoe2-multiplayer-data:/data aoe2-multiplayer
 ./multiplayer_service_python/.venv/Scripts/python.exe -m pytest multiplayer_service_python/tests -q
 ```
 
-服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v3；游戏模拟和关键帧恢复的验证入口见下方联机说明。
+服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v4；游戏模拟和关键帧恢复的验证入口见下方联机说明。
 
 协议与客户端实现见 [联机说明](../docs/multiplayer.md)。

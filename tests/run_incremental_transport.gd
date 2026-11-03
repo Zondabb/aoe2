@@ -1,5 +1,5 @@
 extends SceneTree
-## Protocol v3 transport contracts, independent of gameplay simulation.
+## Protocol v4 transport contracts, independent of gameplay simulation.
 const Session := preload("res://scripts/network/network_session.gd")
 const HASH := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 const MATCH_ID := "0123456789abcdef0123456789abcdef"
@@ -24,7 +24,7 @@ func check(ok: bool, message: String) -> void:
 
 func info(side := 0, host := 1) -> Dictionary:
 	return {"type": "match_found", "match_id": MATCH_ID, "team": side, "host_team": host,
-		"protocol_version": 3, "seed": 1923, "tick_rate": 30, "frame_ticks": 3,
+		"protocol_version": 4, "seed": 1923, "tick_rate": 30, "frame_ticks": 3,
 		"players": [{"team": 0, "name": "甲", "civ": "chinese"}, {"team": 1, "name": "乙", "civ": "teutons"}]}
 
 func configured(side := 0, host := 1) -> RecordingSession:

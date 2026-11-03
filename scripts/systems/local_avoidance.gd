@@ -10,8 +10,8 @@ extends RefCounted
 ## rounding, so the GDExtension port (native/aoe_sim/src/avoidance.cpp) gives
 ## bit-identical results on every platform. Keep both files in step.
 ##
-## Water shorelines are the only float geometry left; units near water use
-## this script on every peer (the native solver accepts axis-aligned boxes).
+## Units near shoreline polygons use this script's fixed-point contour checks
+## on every peer. The native solver accepts axis-aligned boxes.
 
 const Fixed := preload("res://scripts/core/sim_fixed.gd")
 const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")

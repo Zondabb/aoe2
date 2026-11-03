@@ -24,8 +24,75 @@ func _initialize() -> void:
 	_test_sweeps()
 	_test_wall_axes()
 	_test_fog_lattice()
+	_test_integer_path_costs()
 	print("INTEGER GEOMETRY: %d checks, %d failures" % [checks, failures])
 	quit(0 if failures == 0 else 1)
+
+func _test_integer_path_costs() -> void:
+	var grid := Grid.new()
+	grid.setup(-6, 6, 1.0)
+	check(grid._grid._compute_cost(Vector2i.ZERO, Vector2i(1, 0)) == 10, "cardinal path cost is an exact integer")
+	check(grid._grid._compute_cost(Vector2i.ZERO, Vector2i(1, 1)) == 14, "diagonal path cost avoids square root")
+	check(grid._grid._estimate_cost(Vector2i(-3, -4), Vector2i(2, 3)) == 90, "octile lower bound is integer across negative cells")
+	grid._grid.set_point_solid(Vector2i.ZERO, true)
+	var first: Array = grid._grid.get_id_path(Vector2i(-4, 0), Vector2i(4, 0))
+	var total := 0
+	for i in range(1, first.size()):
+		total += int(grid._grid._compute_cost(first[i - 1], first[i]))
+	check(total == 88 and not first.has(Vector2i.ZERO), "integer grid selects minimal 88-cost detour around one blocked cell")
+	check(first == grid._grid.get_id_path(Vector2i(-4, 0), Vector2i(4, 0)), "equal-cost path tie order is stable")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 91823
+	for trial in 96:
+		var size := 9
+		var start := Vector2i(0, 0)
+		var goal := Vector2i(size - 1, size - 1)
+		grid.setup(0, size)
+		for y in size:
+			for x in size:
+				var p := Vector2i(x, y)
+				if p != start and p != goal and rng.randi_range(0, 99) < 29: grid._grid.set_point_solid(p, true)
+		var route: Array[Vector2i] = grid._grid.get_id_path(start, goal)
+		var cost := 0 if not route.is_empty() else -1
+		var safe := true
+		for i in range(1, route.size()):
+			var p := route[i - 1]
+			var direction := (route[i] - p).sign()
+			while p != route[i]:
+				if not _can_step(grid._grid, p, direction):
+					safe = false
+					break
+				p += direction
+				cost += 14 if direction.x != 0 and direction.y != 0 else 10
+		check(safe and cost == _shortest_cost(grid._grid, start, goal), "jumped path avoids closed corners and has minimal cost on map %d" % trial)
+
+func _can_step(grid: AStarGrid2D, at: Vector2i, direction: Vector2i) -> bool:
+	var next := at + direction
+	if not grid.region.has_point(next) or grid.is_point_solid(next): return false
+	if direction.x == 0 or direction.y == 0: return true
+	return not grid.is_point_solid(at + Vector2i(direction.x, 0)) and not grid.is_point_solid(at + Vector2i(0, direction.y))
+
+## Independent Dijkstra reference for small grids. Use adjacent steps only.
+func _shortest_cost(grid: AStarGrid2D, start: Vector2i, goal: Vector2i) -> int:
+	var best: Dictionary = {start: 0}
+	var pending: Dictionary = {start: 0}
+	while not pending.is_empty():
+		var at: Vector2i = pending.keys()[0]
+		for other: Vector2i in pending:
+			if pending[other] < pending[at]: at = other
+		var cost: int = pending[at]
+		if at == goal: return cost
+		pending.erase(at)
+		for y in range(-1, 2):
+			for x in range(-1, 2):
+				var direction := Vector2i(x, y)
+				if direction == Vector2i.ZERO or not _can_step(grid, at, direction): continue
+				var next := at + direction
+				var next_cost := cost + (14 if x != 0 and y != 0 else 10)
+				if next_cost < int(best.get(next, 2147483647)):
+					best[next] = next_cost
+					pending[next] = next_cost
+	return -1
 
 func _test_cells_and_radius() -> void:
 	check(Fixed.floor_div(-1, 1024) == -1 and Fixed.ceil_div(-1, 1024) == 0, "negative fractional cell floors away from zero")

@@ -1,5 +1,5 @@
 extends RefCounted
-## The only gameplay clock in protocol v3. Rendering and transport are free to
+## The only gameplay clock in protocol v4. Rendering and transport are free to
 ## run at any rate; every participant consumes the same fixed simulation steps.
 const State := preload("res://scripts/network/lockstep_state.gd")
 const STEP := 1.0 / 30.0
@@ -78,6 +78,8 @@ func _index(entity: Node) -> void:
 	if kind.is_empty(): return
 	network.call("entity_id", entity)
 	entity.set_meta("lockstep_entity", true)
+	if entity is PathBlocker and entity.kind == &"water" and not entity.water_contours_authoritative:
+		entity.freeze_water_contours()
 	entity.set_physics_process(false)
 	if entity is BuildingAgent: entity.set_process(false)
 	if kind in ["unit", "building", "projectile"]: _order_dirty = true
@@ -149,7 +151,7 @@ func restore(payload: Dictionary, sequence := 0) -> bool:
 	if payload.get("world") is not Dictionary or not State.validate(payload.get("simulation"), payload.world):
 		push_warning("Invalid lockstep simulation keyframe schema")
 		return false
-	if not network.call("apply_snapshot", payload.world, sequence):
+	if not network.call("apply_keyframe_world", payload.world, sequence):
 		push_warning("Invalid lockstep world keyframe")
 		return false
 	if not State.restore(network, payload.simulation):

@@ -30,6 +30,9 @@ const ATTACK_HIT_FRACTION := 0.45
 const RANGED_RELEASE_FRACTION := 0.35
 const ATTACK_CHASE_SLACK := 0.25
 const MELEE_ATTACK_SLOTS := 12
+## Q10 unit directions at 30-degree intervals. These constants replace libm
+## trigonometry when assigning authoritative combat approach points.
+const MELEE_DIRECTIONS_Q := [Vector2i(1024, 0), Vector2i(887, 512), Vector2i(512, 887), Vector2i(0, 1024), Vector2i(-512, 887), Vector2i(-887, 512), Vector2i(-1024, 0), Vector2i(-887, -512), Vector2i(-512, -887), Vector2i(0, -1024), Vector2i(512, -887), Vector2i(887, -512)]
 const FALLBACK_ATTACK_DURATION := 0.45
 const FALLBACK_DIE_DURATION := 0.8
 const WORLD_HP_BAR_WIDTH := 28.0
@@ -134,6 +137,8 @@ var _hotspot_flip := false
 var _hotspot_offset := Vector2.ZERO
 var _no_progress_frames := 0
 var _combat_action := &""
+## Durations are immutable catalog values shared by every instance of a unit.
+static var _combat_durations: Dictionary = {}
 var _combat_anim_time_units: int = 0
 var _combat_anim_time: float:
 	get: return Fixed.time_to_seconds(_combat_anim_time_units)
@@ -307,10 +312,10 @@ func _physics_process(delta: float) -> void:
 	if order == Enums.OrderType.MOVE:
 		_progress_elapsed_units += time_units
 		if _progress_elapsed_units >= 2 * Fixed.TIME_SCALE:
-			var distance := sim_pos.distance_to(_move_target)
-			if distance >= _progress_distance - 0.5:
+			var distance_q := Fixed.isqrt(Fixed.distance_squared(sim_pos, _move_target))
+			if is_finite(_progress_distance) and distance_q >= Fixed.from_float(_progress_distance) - Fixed.SCALE / 2:
 				_try_recover_from_stuck()
-			_progress_distance = distance
+			_progress_distance = Fixed.to_float(distance_q)
 			_progress_elapsed = 0.0
 
 func locomotion_velocity() -> Vector2:
@@ -338,7 +343,7 @@ func render_canvas_transform(source: Node2D) -> Transform2D:
 func _process_move(delta: float) -> void:
 	_refresh_reserved_goal()
 	var from_pos := sim_pos
-	if sim_pos.distance_to(_move_target) <= ARRIVAL_DISTANCE:
+	if _within_distance(sim_pos, _move_target, ARRIVAL_DISTANCE):
 		_finish_move()
 		return
 	if _path_pending and _path.is_empty():
@@ -361,8 +366,7 @@ func _process_move(delta: float) -> void:
 	_skip_visible_waypoints()
 	var steer_target := _current_steer_target()
 	var offset := steer_target - sim_pos
-	var distance := offset.length()
-	if distance <= ARRIVAL_DISTANCE:
+	if Fixed.length_sq(Fixed.vector(offset)) <= Fixed.from_float(ARRIVAL_DISTANCE) * Fixed.from_float(ARRIVAL_DISTANCE):
 		if _advance_path_waypoint():
 			return
 		# A temporary crowd detour may end at a nearby free cell, not our goal.
@@ -387,11 +391,12 @@ func _finish_move() -> void:
 	_update_idle_animation(0.0)
 
 func command_move(target: Vector2) -> void:
+	target = Fixed.quantize_vector(target)
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
 	_build_queue.clear()
 	_formation_move_speed = 0.0
-	if order == Enums.OrderType.MOVE and _requested_move_target.is_equal_approx(target):
+	if order == Enums.OrderType.MOVE and _requested_move_target == target:
 		return
 	_cancel_gather_search()
 	_cancel_combat_action()
@@ -408,7 +413,7 @@ func command_move(target: Vector2) -> void:
 	_stuck_repath_attempts = 0
 	_stuck_seconds = 0
 	_repath_cooldown = 0
-	_progress_distance = sim_pos.distance_to(_move_target)
+	_progress_distance = Fixed.to_float(Fixed.isqrt(Fixed.distance_squared(sim_pos, _move_target)))
 	_progress_elapsed = 0
 	_goal_refresh_remaining = 0
 	_request_nav_path(_move_target)
@@ -658,29 +663,43 @@ func _combat_anim_duration(action: StringName) -> float:
 	return Fixed.time_to_seconds(_combat_anim_duration_units(action))
 
 func _combat_anim_duration_units(action: StringName) -> int:
-	var billboard := get_node_or_null("Billboard") as AnimatedSprite2D
-	if billboard == null or billboard.sprite_frames == null or def == null:
-		return Fixed.time_from_seconds(FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION)
-	var anim := _combat_animation_name(action)
-	if not billboard.sprite_frames.has_animation(anim):
-		return Fixed.time_from_seconds(FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION)
-	var frame_count := billboard.sprite_frames.get_frame_count(anim)
-	return maxi(frame_count * Fixed.time_from_seconds(1.0 / _animation_fps(action)), Fixed.TIME_SCALE / 10)
+	var fallback := Fixed.time_from_seconds(FALLBACK_ATTACK_DURATION if action == &"attack" else FALLBACK_DIE_DURATION)
+	if def == null: return fallback
+	if not _combat_durations.has(def.id): _combat_durations[def.id] = {}
+	var durations: Dictionary = _combat_durations[def.id]
+	if not durations.has(action):
+		# The simulation reads direction-zero timing from the shipped metadata.
+		# Headless and rendered matches can have different sprite nodes.
+		var sheet := SpriteCatalogScript.combat_sheet_base(def.id, action)
+		if def.id == &"villager":
+			sheet = SpriteCatalogScript.VILLAGER_ACTION_SHEETS[&"chop" if action == &"attack" else &"die"]
+		var meta: Dictionary = SpriteCatalogScript.load_meta(sheet) if not sheet.is_empty() else {}
+		var frames_per_direction := int(meta.get("frames_per_direction", 0))
+		var count := mini(frames_per_direction, int(meta.get("frame_count", frames_per_direction)))
+		durations[action] = fallback
+		if count > 0:
+			var seconds := _frame_duration_seconds(action, meta)
+			var frame_time := maxi(1, Fixed.time_from_seconds(seconds)) if seconds > 0.0 else Fixed.mul_div(Fixed.TIME_SCALE, 1, int(ANIM_FPS))
+			durations[action] = maxi(count * frame_time, Fixed.TIME_SCALE / 10)
+	var duration := int(durations[action])
+	if action == &"attack": duration = maxi(duration, Fixed.time_from_seconds(def.attack_release_delay))
+	return duration
 
 
 func _animation_fps(action: StringName) -> float:
 	var meta: Dictionary = _sprite_metas.get(action, _sprite_metas.get(&"", {}) if action == &"walk" else {})
+	var frame_duration := _frame_duration_seconds(action, meta)
+	return 1.0 / frame_duration if frame_duration > 0.0 else ANIM_FPS
+
+
+func _frame_duration_seconds(action: StringName, meta: Dictionary) -> float:
 	var frame_duration := float(meta.get("frame_duration", 0.0))
 	if action == &"attack" and def != null:
 		var profiles: Dictionary = GameCatalog.siege_projectiles() if def.projectile_kind == &"stone" else GameCatalog.arrow_projectiles().get("units", {})
 		var profile: Dictionary = profiles.get(String(def.id), {})
 		frame_duration = float(profile.get("attack_frame_duration", frame_duration))
-	return 1.0 / frame_duration if frame_duration > 0.0 else ANIM_FPS
+	return frame_duration
 
-func _combat_animation_name(action: StringName) -> StringName:
-	if _villager_actions:
-		return _pick_villager_animation(action)
-	return _dir_anim(action, _facing_dir) if not String(action).is_empty() else StringName("_dir_%d" % _facing_dir)
 
 func take_damage(amount: float, source: Node = null) -> void:
 	take_damage_fixed(Fixed.from_float(amount), source)
@@ -966,7 +985,7 @@ func _apply_gather_search_path(path: PackedVector2Array) -> void:
 	if not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion() or (FogAccess.can_see(self, _gather_target) and not _resource_available(_gather_target)):
 		_gather_work_points.clear()
 		path = PackedVector2Array()
-	if path.is_empty() or path[-1].distance_to(_automatic_gather_goal) > GATHER_RANGE:
+	if path.is_empty() or not _within_distance(path[-1], _automatic_gather_goal, GATHER_RANGE):
 		if not _queue_gather_work_point():
 			_gather_source_depleted = true
 			if carry_amount > 0.0:
@@ -1004,8 +1023,8 @@ func _gather_reach_distance(resource: Node2D) -> float:
 	if resource == null:
 		return INF
 	if resource.has_method("approach_point"):
-		return sim_pos.distance_to(GatherSystemScript.work_point(resource, sim_pos, _pathfinding_radius()))
-	return sim_pos.distance_to(resource.get("sim_pos"))
+		return Fixed.to_float(Fixed.isqrt(Fixed.distance_squared(sim_pos, GatherSystemScript.work_point(resource, sim_pos, _pathfinding_radius()))))
+	return Fixed.to_float(Fixed.isqrt(Fixed.distance_squared(sim_pos, resource.get("sim_pos"))))
 
 
 ## In-range threshold for starting/staying in gathering.
@@ -1029,14 +1048,10 @@ func _build_approach_point(building: Node2D) -> Vector2:
 	var center: Vector2 = building.get("sim_pos")
 	if building_def == null:
 		return center
-	var half := building_def.footprint * 0.5
-	var to_unit := sim_pos - center
-	if to_unit.length_squared() <= 0.0001:
-		to_unit = Vector2(1.0, 0.0)
-	else:
-		to_unit = to_unit.normalized()
-	var stand_radius := maxf(half.x, half.y) + _pathfinding_radius() + 0.2
-	return center + to_unit * stand_radius
+	var center_q := Fixed.vector(center)
+	var stand_radius_q := Fixed.from_float(maxf(building_def.footprint.x, building_def.footprint.y) * 0.5)
+	stand_radius_q += Fixed.from_float(_pathfinding_radius()) + Fixed.from_float(0.2)
+	return Fixed.to_vector(center_q + _direction_q(_sim_pos_q - center_q, stand_radius_q))
 
 ## Same reach band as construction: nav often stops short of the approach point.
 func _building_interaction_range(building: Node2D) -> float:
@@ -1128,37 +1143,44 @@ func _needs_attack_chase(target: Node2D) -> bool:
 	return _distance_squared_to(target) > maximum * maximum
 
 
+## Scale a direction with integer arithmetic. The fallback direction also
+## handles coincident actors without an arbitrary floating epsilon.
+static func _direction_q(offset: Vector2i, length_q: int = Fixed.SCALE) -> Vector2i:
+	var distance_q := Fixed.isqrt(Fixed.length_sq(offset))
+	if distance_q == 0: return Vector2i(length_q, 0)
+	return Vector2i(Fixed.mul_div(offset.x, length_q, distance_q), Fixed.mul_div(offset.y, length_q, distance_q))
+
+static func _within_distance(a: Vector2, b: Vector2, distance: float) -> bool:
+	var radius_q := Fixed.from_float(distance)
+	return Fixed.distance_squared(a, b) <= radius_q * radius_q
+
 func _attack_approach_point(target: Node2D) -> Vector2:
-	var target_pos: Vector2 = target.get("sim_pos")
-	var offset := sim_pos - target_pos
-	var dist := offset.length()
-	if dist < 0.001:
-		offset = Vector2.RIGHT
-		dist = 1.0
-	var approach_dir := offset / dist
+	var target_q := Fixed.vector(target.get("sim_pos"))
+	var offset_q := _sim_pos_q - target_q
+	var distance_q := Fixed.isqrt(Fixed.length_sq(offset_q))
+	var maximum_q := Fixed.from_float(_effective_attack_range(target))
 	if def.is_ranged:
-		var standoff := _preferred_attack_range(target)
-		if _distance_to(target) < def.minimum_attack_range:
-			standoff = minf(def.attack_range, def.minimum_attack_range + 1.0)
-		elif _distance_to(target) > _effective_attack_range(target):
-			standoff = minf(standoff, dist)
+		var standoff_q := Fixed.from_float(_preferred_attack_range(target))
+		var minimum_q := Fixed.from_float(def.minimum_attack_range)
+		var edge_distance_squared := _distance_squared_to(target)
+		if edge_distance_squared < minimum_q * minimum_q:
+			standoff_q = mini(maximum_q, minimum_q + Fixed.SCALE)
+		elif edge_distance_squared > maximum_q * maximum_q:
+			standoff_q = mini(standoff_q, distance_q)
 		else:
 			return sim_pos
-		var target_edge := ProjectileAgentScript.aim_point_for_target(sim_pos, target)
-		return target_edge + approach_dir * standoff
+		var edge_q := Fixed.vector(ProjectileAgentScript.aim_point_for_target(sim_pos, target))
+		return Fixed.to_vector(edge_q + _direction_q(offset_q, standoff_q))
 	if target.get("def") is BuildingDef:
-		var building_standoff := _effective_attack_range(target) * 0.95
-		# Aim for the near edge. A goal inside the solid footprint may project
-		# to the far side of a wall, producing an unreachable route indefinitely.
-		var target_edge := ProjectileAgentScript.aim_point_for_target(sim_pos, target)
-		var edge_direction := (sim_pos - target_edge).normalized()
-		return target_edge + (edge_direction if edge_direction != Vector2.ZERO else approach_dir) * building_standoff
-	# Melee: ring slots so units squeeze around the target instead of one stack point.
-	var ring_r := _effective_attack_range(target) * 0.98
+		# Keep the near edge so a wall never redirects an approach to its far side.
+		var edge_q := Fixed.vector(ProjectileAgentScript.aim_point_for_target(sim_pos, target))
+		var edge_direction_q := _sim_pos_q - edge_q
+		if edge_direction_q == Vector2i.ZERO: edge_direction_q = offset_q
+		return Fixed.to_vector(edge_q + _direction_q(edge_direction_q, Fixed.mul_div(maximum_q, 95, 100)))
+	var approach_q := _direction_q(offset_q)
 	var slot := int(get_meta("net_id", get_instance_id())) % MELEE_ATTACK_SLOTS
-	var slot_dir := Vector2.from_angle(TAU * float(slot) / float(MELEE_ATTACK_SLOTS))
-	var blended := (approach_dir * 1.6 + slot_dir).normalized()
-	return target_pos + blended * ring_r
+	var blended_q: Vector2i = Vector2i(Fixed.mul_div(approach_q.x, 8, 5), Fixed.mul_div(approach_q.y, 8, 5)) + MELEE_DIRECTIONS_Q[slot]
+	return Fixed.to_vector(target_q + _direction_q(blended_q, Fixed.mul_div(maximum_q, 98, 100)))
 
 
 func _move_resolve_context() -> Dictionary:
@@ -1232,22 +1254,43 @@ func _bounded_integer_step(from: Vector2, to: Vector2, budget: int) -> Vector2:
 
 
 ## Reserve separate, walkable destinations even for repeated AI rally commands.
+@warning_ignore("integer_division")
+static func _ring_offset_q(ring: int, slot: int, spacing_q: int, approach_q: Vector2i) -> Vector2i:
+	if ring == 0: return Vector2i.ZERO
+	var phase := slot % ring
+	var offset := Vector2i.ZERO
+	match slot / ring:
+		0: offset = Vector2i(ring, phase)
+		1: offset = Vector2i(ring - phase, ring)
+		2: offset = Vector2i(-phase, ring)
+		3: offset = Vector2i(-ring, ring - phase)
+		4: offset = Vector2i(-ring, -phase)
+		5: offset = Vector2i(-ring + phase, -ring)
+		6: offset = Vector2i(phase, -ring)
+		7: offset = Vector2i(ring, -ring + phase)
+	# Scale before normalizing, retaining precision on the small ring stencil.
+	offset = _direction_q(offset * Fixed.SCALE, spacing_q * ring)
+	return Vector2i(Fixed.mul_div(offset.x, approach_q.x, Fixed.SCALE) - Fixed.mul_div(offset.y, approach_q.y, Fixed.SCALE), Fixed.mul_div(offset.x, approach_q.y, Fixed.SCALE) + Fixed.mul_div(offset.y, approach_q.x, Fixed.SCALE))
+
 func _choose_move_goal(target: Vector2) -> Vector2:
 	if not is_inside_tree():
-		return target
+		return Fixed.quantize_vector(target)
 	var radius := _pathfinding_radius()
+	var radius_q := Fixed.from_float(radius)
 	var nav := _get_nav_service()
 	var center := CollisionResolverScript.clamp_to_map(target, radius)
 	if nav != null:
 		center = nav.nearest_walkable_world(center, radius)
+	var center_q := Fixed.vector(center)
 	var units := get_tree().get_nodes_in_group("units")
-	var spacing := radius * 2.0 + 0.3
-	var approach := (sim_pos - center).angle()
+	var spacing_q := radius_q * 2 + Fixed.from_float(0.3)
+	var approach_q := _direction_q(_sim_pos_q - center_q)
 	for ring in range(0, 13):
 		var count := 1 if ring == 0 else ring * 8
 		for slot in count:
-			var candidate := center + Vector2.from_angle(approach + TAU * slot / count) * spacing * ring
-			if not CollisionResolverScript.clamp_to_map(candidate, radius).is_equal_approx(candidate):
+			var candidate_q := center_q + _ring_offset_q(ring, slot, spacing_q, approach_q)
+			var candidate := Fixed.to_vector(candidate_q)
+			if Fixed.vector(CollisionResolverScript.clamp_to_map(candidate, radius)) != candidate_q:
 				continue
 			if nav != null and not nav.is_world_walkable_with_radius(candidate, radius):
 				continue
@@ -1256,21 +1299,22 @@ func _choose_move_goal(target: Vector2) -> Vector2:
 				if other == self or other.hp <= 0:
 					continue
 				var occupied: Vector2 = other._move_target if other.order == Enums.OrderType.MOVE else other.sim_pos
-				if candidate.distance_to(occupied) < radius + CollisionResolverScript.unit_radius(other) + 0.2:
+				var separation_q := radius_q + Fixed.from_float(CollisionResolverScript.unit_radius(other)) + Fixed.from_float(0.2)
+				if Fixed.length_sq(candidate_q - Fixed.vector(occupied)) < separation_q * separation_q:
 					available = false
 					break
 			if available:
 				return candidate
-	return center
+	return Fixed.to_vector(center_q)
 
 
 func _refresh_reserved_goal() -> void:
-	if _goal_refresh_remaining > 0 or _move_target.is_equal_approx(_requested_move_target) or not is_inside_tree():
+	if _goal_refresh_remaining > 0 or _move_target == _requested_move_target or not is_inside_tree():
 		return
 	_goal_refresh_remaining = 0.5
 	var radius := _pathfinding_radius()
 	var nav := _get_nav_service()
-	if not CollisionResolverScript.clamp_to_map(_requested_move_target, radius).is_equal_approx(_requested_move_target):
+	if Fixed.vector(CollisionResolverScript.clamp_to_map(_requested_move_target, radius)) != Fixed.vector(_requested_move_target):
 		return
 	if nav != null and not nav.is_world_walkable_with_radius(_requested_move_target, radius):
 		return
@@ -1278,7 +1322,8 @@ func _refresh_reserved_goal() -> void:
 		if other == self or other.hp <= 0:
 			continue
 		var occupied: Vector2 = other._move_target if other.order == Enums.OrderType.MOVE else other.sim_pos
-		if _requested_move_target.distance_to(occupied) < radius + CollisionResolverScript.unit_radius(other) + 0.2:
+		var separation_q := Fixed.from_float(radius) + Fixed.from_float(CollisionResolverScript.unit_radius(other)) + Fixed.from_float(0.2)
+		if Fixed.distance_squared(_requested_move_target, occupied) < separation_q * separation_q:
 			return
 	_move_target = _requested_move_target
 	_request_nav_path(_move_target)
@@ -1288,7 +1333,7 @@ func _skip_visible_waypoints() -> void:
 	var nav := _get_nav_service()
 	while _path_index + 1 < _path.size():
 		var next: Vector2 = _path[_path_index + 1]
-		if sim_pos.distance_to(_path[_path_index]) <= ARRIVAL_DISTANCE:
+		if _within_distance(sim_pos, _path[_path_index], ARRIVAL_DISTANCE):
 			_path_index += 1
 		elif not _path_is_crowd_route and nav != null and nav.has_method("is_segment_walkable") and nav.is_segment_walkable(sim_pos, next, _pathfinding_radius()):
 			_path_index += 1
@@ -1297,8 +1342,9 @@ func _skip_visible_waypoints() -> void:
 
 
 func _move_toward(target: Vector2, delta: float) -> void:
+	target = Fixed.quantize_vector(target)
 	_move_target = target
-	if (_nav_goal.distance_to(target) > 0.75 or _path.is_empty()) and not _path_pending and _path_retry_cooldown <= 0:
+	if (not _within_distance(_nav_goal, target, 0.75) or _path.is_empty()) and not _path_pending and _path_retry_cooldown <= 0:
 		if _path.is_empty():
 			_request_nav_path(target)
 		else:
@@ -1316,15 +1362,14 @@ func _move_toward(target: Vector2, delta: float) -> void:
 	_skip_visible_waypoints()
 	var steer_target := _current_steer_target()
 	var offset := steer_target - sim_pos
-	var distance := offset.length()
-	if distance <= ARRIVAL_DISTANCE:
+	if Fixed.length_sq(Fixed.vector(offset)) <= Fixed.from_float(ARRIVAL_DISTANCE) * Fixed.from_float(ARRIVAL_DISTANCE):
 		if _advance_path_waypoint():
 			return
 		# A clearance grid may stop before the precise working position. Once
 		# consumed, keep steering toward that position instead of walking back
 		# to the final grid point after each short direct step.
 		_path_index = _path.size()
-		if sim_pos.distance_to(_move_target) > ARRIVAL_DISTANCE:
+		if not _within_distance(sim_pos, _move_target, ARRIVAL_DISTANCE):
 			_direct_step_toward(_move_target, delta)
 			return
 		if _villager_actions:
@@ -1344,8 +1389,7 @@ func _move_toward(target: Vector2, delta: float) -> void:
 
 func _direct_step_toward(target: Vector2, delta: float) -> void:
 	var offset := target - sim_pos
-	var distance := offset.length()
-	if distance <= ARRIVAL_DISTANCE:
+	if Fixed.length_sq(Fixed.vector(offset)) <= Fixed.from_float(ARRIVAL_DISTANCE) * Fixed.from_float(ARRIVAL_DISTANCE):
 		if _villager_actions:
 			_update_idle_animation(0.0)
 		else:
@@ -1365,7 +1409,8 @@ func _track_move_progress(
 	from_pos: Vector2, _velocity: Vector2, step: float, delta: float, face_vector: Vector2
 ) -> void:
 	var actual := sim_pos - from_pos
-	var walking := actual.length() > maxf(0.001, step * 0.08)
+	var walking_threshold_q := maxi(1, Fixed.mul_div(Fixed.from_float(step), 8, 100))
+	var walking := Fixed.length_sq(Fixed.vector(actual)) > walking_threshold_q * walking_threshold_q
 	if walking:
 		_no_progress_frames = 0
 		_stuck_seconds = 0
@@ -1455,7 +1500,7 @@ func apply_nav_path(path: PackedVector2Array) -> void:
 	_path = path
 	_path_index = 0
 	var nav := _get_nav_service()
-	if _path[-1].distance_to(_move_target) > ARRIVAL_DISTANCE and nav != null and nav.is_segment_walkable(_path[-1], _move_target, _pathfinding_radius()):
+	if not _within_distance(_path[-1], _move_target, ARRIVAL_DISTANCE) and nav != null and nav.is_segment_walkable(_path[-1], _move_target, _pathfinding_radius()):
 		_path.append(_move_target)
 
 
@@ -1498,19 +1543,21 @@ func _try_settle_shared_goal() -> bool:
 	for other in units:
 		if other == self or other.hp <= 0 or other.team != team:
 			continue
-		if other._has_move_command and other._requested_move_target.distance_to(_requested_move_target) < 0.1:
+		if other._has_move_command and Fixed.distance_squared(other._requested_move_target, _requested_move_target) < Fixed.from_float(0.1) * Fixed.from_float(0.1):
 			peers += 1
 			settled = settled or other.order == Enums.OrderType.NONE
 	if peers < 2 or not settled:
 		return false
-	var arrival_radius := _pathfinding_radius() * 2.0 * sqrt(float(peers))
-	if sim_pos.distance_to(_requested_move_target) > arrival_radius:
+	var radius_q := Fixed.from_float(_pathfinding_radius())
+	if Fixed.distance_squared(sim_pos, _requested_move_target) > radius_q * radius_q * 4 * peers:
 		return false
 	var nav := _get_nav_service()
 	if nav != null and not nav.is_segment_walkable(sim_pos, _requested_move_target, _pathfinding_radius()):
 		return false
 	for other in units:
-		if other != self and other.hp > 0 and sim_pos.distance_to(other.sim_pos) < _pathfinding_radius() + CollisionResolverScript.unit_radius(other) + 0.05:
+		if other == self or other.hp <= 0: continue
+		var separation_q := radius_q + Fixed.from_float(CollisionResolverScript.unit_radius(other)) + Fixed.from_float(0.05)
+		if Fixed.distance_squared(sim_pos, other.sim_pos) < separation_q * separation_q:
 			return false
 	_move_target = sim_pos
 	_finish_move()
@@ -1536,8 +1583,9 @@ func _crowd_blockers_for_stuck_repath(target: Vector2) -> Array:
 		move_dir = _current_steer_target() - sim_pos
 	if move_dir.length_squared() < 0.0001:
 		return blockers
-	move_dir = move_dir.normalized()
-	var cone_cos := cos(deg_to_rad(STUCK_CROWD_BLOCK_ANGLE_DEG))
+	var move_q := _direction_q(Fixed.vector(move_dir))
+	var move_length_squared := Fixed.length_sq(move_q)
+	var move_length_q := Fixed.isqrt(move_length_squared)
 	var query_r := minf(resolved_vision_radius(), STUCK_CROWD_QUERY_RADIUS)
 	var candidates: Array = []
 	var vision := _get_vision_service()
@@ -1549,8 +1597,7 @@ func _crowd_blockers_for_stuck_repath(target: Vector2) -> Array:
 				continue
 			if float(node.get("hp")) <= 0.0:
 				continue
-			var dist: float = sim_pos.distance_to(node.get("sim_pos"))
-			if dist <= query_r:
+			if _within_distance(sim_pos, node.get("sim_pos"), query_r):
 				candidates.append(node)
 	for other in candidates:
 		var unit := other as Object
@@ -1559,14 +1606,16 @@ func _crowd_blockers_for_stuck_repath(target: Vector2) -> Array:
 		if float(unit.get("hp")) <= 0.0:
 			continue
 		var other_pos: Vector2 = unit.get("sim_pos")
-		var to_other := other_pos - sim_pos
-		var dist := to_other.length()
-		if dist < 0.001:
+		var to_other_q := Fixed.vector(other_pos) - _sim_pos_q
+		var distance_squared := Fixed.length_sq(to_other_q)
+		if distance_squared == 0:
 			continue
-		var to_dir := to_other / dist
-		if to_dir.dot(move_dir) < cone_cos:
+		var dot: int = int(to_other_q.x) * move_q.x + int(to_other_q.y) * move_q.y
+		# The fixed 60-degree cone has cos=1/2. Direction is normalized to Q10
+		# before squaring so map-size coordinate products stay in int64 range.
+		if dot < 0 or 4 * dot * dot < distance_squared * move_length_squared:
 			continue
-		if to_other.dot(move_dir) < 0.15:
+		if dot < Fixed.from_float(0.15) * move_length_q:
 			continue
 		blockers.append(unit)
 	return blockers
@@ -1593,10 +1642,6 @@ func _current_steer_target() -> Vector2:
 
 func _steer_velocity_toward(delta: float) -> Vector2:
 	if def == null:
-		return Vector2.ZERO
-	var offset := _current_steer_target() - sim_pos
-	var distance := offset.length()
-	if distance <= 0.0001:
 		return Vector2.ZERO
 	return Fixed.normalize_step(sim_pos, _current_steer_target(), _movement_step(delta)) - sim_pos
 

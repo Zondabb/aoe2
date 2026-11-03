@@ -34,7 +34,7 @@ FIELDS = {
     "watch_ready": {"type"},
 }
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 TICK_RATE = 30
 FRAME_TICKS = 3
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
@@ -105,7 +105,7 @@ def parse_message(raw: str, settings: Settings) -> dict:
     _check_tree(data)
     if kind == "join_queue":
         if type(data["protocol_version"]) is not int or data["protocol_version"] != PROTOCOL_VERSION:
-            raise ProtocolError("protocol_mismatch", "Only protocol_version 3 (fixed-point lockstep) is supported; update the game client")
+            raise ProtocolError("protocol_mismatch", "Only protocol_version 4 (fixed-point lockstep) is supported; update the game client")
         name = data["name"]
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 24:
             raise ProtocolError("invalid_name", "Player name must contain 1 to 24 characters")

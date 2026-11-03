@@ -6,6 +6,7 @@ const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.
 const CollisionResolverScript := preload("res://scripts/systems/collision_resolver.gd")
 const ShoreGeometry := preload("res://scripts/world/shore_geometry.gd")
 const Fixed := preload("res://scripts/core/sim_fixed.gd")
+const IntegerGrid := preload("res://scripts/systems/integer_astar_grid.gd")
 
 ## Grid A* over logical xz (sim_pos). Buildings, ores, and terrain cells are
 ## static blockers; water follows its shared coast. Units are not baked in.
@@ -88,11 +89,12 @@ func setup_rect(minimum: Vector2i, maximum: Vector2i, p_cell_size: float = CELL_
 	_grid_solid = _solid.duplicate()
 	_grid_solid_indices.clear()
 	_manual_changed = false
-	_grid = AStarGrid2D.new()
+	_grid = IntegerGrid.new()
 	_grid.region = Rect2i(_origin_cell, Vector2i(_width, _height))
 	_grid.cell_size = Vector2(cell_size, cell_size)
-	_grid.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
-	_grid.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	# All traversable cells have weight 1. Jump over uniform runs so the
+	# integer cost callbacks are invoked at turning points instead of each cell.
+	_grid.jumping_enabled = true
 	_grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
 	_grid.update()
 
@@ -480,10 +482,14 @@ func _get_or_build_solid_for_radius(radius: float) -> PackedByteArray:
 	var indices := PackedInt32Array()
 	# Only the thin border can fail clearance against map edges. Stamp it
 	# directly rather than testing every one of the 230,400 interior cells.
-	var left := clampi(ceili(radius / cell_size - 0.5), 0, _width)
-	var top := clampi(ceili(radius / cell_size - 0.5), 0, _height)
-	var right := clampi(ceili(_width - radius / cell_size - 0.5), 0, _width)
-	var bottom := clampi(ceili(_height - radius / cell_size - 0.5), 0, _height)
+	var radius_q := Fixed.coord(radius)
+	var cell_q := Fixed.coord(cell_size)
+	var near_edge := Fixed.ceil_div(2 * radius_q - cell_q, 2 * cell_q)
+	var far_inset := Fixed.floor_div(2 * radius_q + cell_q, 2 * cell_q)
+	var left := clampi(near_edge, 0, _width)
+	var top := clampi(near_edge, 0, _height)
+	var right := clampi(_width - far_inset, 0, _width)
+	var bottom := clampi(_height - far_inset, 0, _height)
 	if _layer_kernel != null:
 		# Same cells and index order as the loops below: the script computes
 		# each blocker's cell rectangle, the kernel fills the layer.
@@ -615,11 +621,12 @@ func _adapt_cached_path(
 	if cached.is_empty():
 		return cached
 	var points := cached.duplicate()
-	if safe_from.distance_to(points[0]) > WAYPOINT_ARRIVAL:
+	var arrival_q := Fixed.from_float(WAYPOINT_ARRIVAL)
+	if Fixed.distance_squared(safe_from, points[0]) > arrival_q * arrival_q:
 		points.insert(0, safe_from)
 	if is_world_walkable_with_radius(to, radius):
 		points[points.size() - 1] = to
-	elif points[points.size() - 1].distance_to(safe_to) > WAYPOINT_ARRIVAL:
+	elif Fixed.distance_squared(points[-1], safe_to) > arrival_q * arrival_q:
 		points[points.size() - 1] = safe_to
 	return points
 

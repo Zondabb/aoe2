@@ -15,7 +15,7 @@ const CONNECT_TIMEOUT := 12.0
 const RECEIVE_TIMEOUT := 25.0
 const READY_TIMEOUT := 40.0
 const PING_INTERVAL := 8.0
-const PROTOCOL_VERSION := 3
+const PROTOCOL_VERSION := 4
 const TICK_RATE := 30
 const FRAME_TICKS := 3
 const MAX_FRAME_COMMANDS := 64
@@ -35,7 +35,7 @@ var last_status := ""
 var last_result: Dictionary = {}
 ## A spectator has no team or command authority, regardless of selected view.
 var spectator := false
-## Kept empty for old diagnostic scripts; protocol v3 never caches snapshots.
+## Kept empty for old diagnostic scripts; protocol v4 never caches snapshots.
 var latest_snapshot: Dictionary = {}
 var _peer: WebSocketPeer
 var _join_message: Dictionary = {}

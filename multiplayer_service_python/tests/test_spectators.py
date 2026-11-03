@@ -11,7 +11,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 3, "name": "Host", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 4, "name": "Host", "civ": "chinese"}
 
 
 def drain(player):
@@ -50,7 +50,7 @@ async def watch(mm, host, *, ready=True):
     joined, = drain(viewer)
     assert joined["type"] == "spectate_started" and joined["role"] == "spectator"
     assert joined["host_team"] == host.team and joined["match_id"] == host.room_id
-    assert joined["protocol_version"] == 3 and joined["tick_rate"] == 30 and joined["frame_ticks"] == 3
+    assert joined["protocol_version"] == 4 and joined["tick_rate"] == 30 and joined["frame_ticks"] == 3
     assert "team" not in joined and "state" not in joined
     if ready:
         await mm.handle(viewer, {"type": "watch_ready"})
