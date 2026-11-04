@@ -2,7 +2,10 @@
 class_name RtsCamera2D
 extends Camera2D
 
+signal manual_navigation
+
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
+var broadcast_following := false
 
 @export var pan_speed := 900.0
 @export var edge_margin := 18.0
@@ -32,6 +35,7 @@ func set_map_bounds(world_min: Vector2, world_max: Vector2) -> void:
 	_clamp_position()
 
 func focus_on(world_position: Vector2) -> void:
+	manual_navigation.emit()
 	position = IsoMathScript.world_to_screen(world_position)
 	_clamp_position()
 
@@ -53,14 +57,15 @@ func _process(delta: float) -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
 	var mouse_position := get_viewport().get_mouse_position()
 	# GUI navigation (especially dragging the minimap) must not also edge-pan.
-	var over_ui := get_viewport().gui_get_hovered_control() != null
-	if not over_ui and mouse_position.x <= edge_margin:
+	# A parked cursor at the edge mustn't pan a live broadcast indefinitely.
+	var edge_pan := not broadcast_following and get_viewport().gui_get_hovered_control() == null
+	if edge_pan and mouse_position.x <= edge_margin:
 		pan_input.x -= 1.0
-	elif not over_ui and mouse_position.x >= viewport_size.x - edge_margin:
+	elif edge_pan and mouse_position.x >= viewport_size.x - edge_margin:
 		pan_input.x += 1.0
-	if not over_ui and mouse_position.y <= edge_margin:
+	if edge_pan and mouse_position.y <= edge_margin:
 		pan_input.y -= 1.0
-	elif not over_ui and mouse_position.y >= viewport_size.y - edge_margin:
+	elif edge_pan and mouse_position.y >= viewport_size.y - edge_margin:
 		pan_input.y += 1.0
 
 	if pan_input != Vector2.ZERO:
@@ -75,21 +80,26 @@ func _unhandled_input(event: InputEvent) -> void:
 			_set_zoom(zoom.x - zoom_step)
 
 func _pan(input_direction: Vector2, delta: float) -> void:
+	manual_navigation.emit()
 	var speed := pan_speed * delta / maxf(zoom.x, 0.001)
 	position += input_direction * speed
 	_clamp_position()
 
 func _set_zoom(value: float) -> void:
+	manual_navigation.emit()
 	var clamped := clampf(value, min_zoom, max_zoom)
 	zoom = Vector2(clamped, clamped)
 	_clamp_position()
 
 func _clamp_position() -> void:
+	position = clamped_position(position)
+
+func clamped_position(point: Vector2) -> Vector2:
 	if not limit_to_map_bounds or not is_inside_tree():
-		return
+		return point
 	var viewport_size := get_viewport_rect().size
 	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
-		return
+		return point
 	var half_view := viewport_size * 0.5 / maxf(zoom.x, 0.001)
 	var corners := [
 		Vector2(map_world_min.x, map_world_min.y),
@@ -105,11 +115,5 @@ func _clamp_position() -> void:
 		max_screen = max_screen.max(screen)
 	var min_pos := min_screen + half_view
 	var max_pos := max_screen - half_view
-	if min_pos.x > max_pos.x:
-		position.x = (min_screen.x + max_screen.x) * 0.5
-	else:
-		position.x = clampf(position.x, min_pos.x, max_pos.x)
-	if min_pos.y > max_pos.y:
-		position.y = (min_screen.y + max_screen.y) * 0.5
-	else:
-		position.y = clampf(position.y, min_pos.y, max_pos.y)
+	var center := (min_screen + max_screen) * 0.5
+	return point.clamp(min_pos.min(center), max_pos.max(center))

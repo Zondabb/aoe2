@@ -122,6 +122,12 @@ func _finish_setup() -> void:
 		player_ai.name = "PlayerAiControl"
 		get_parent().add_child(player_ai)
 		player_ai.setup(self)
+		var camera := get_node_or_null("../Camera2D") as RtsCamera2D
+		if camera != null:
+			var director := preload("res://scripts/presentation/broadcast_director.gd").new()
+			director.name = "BroadcastDirector"
+			camera.add_child(director)
+			director.setup(camera, player_ai)
 	if GameSession.online_active:
 		var network := load("res://scripts/network/network_match.gd").new() as Node
 		network.name = "NetworkMatch"

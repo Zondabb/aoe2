@@ -4,6 +4,7 @@ extends Control
 var _controller: Node
 var _panel: PanelContainer
 var _check: CheckBox
+var _follow: CheckBox
 var _status: Label
 var _service_button: Button
 var _service_panel: PanelContainer
@@ -56,6 +57,15 @@ func _ready() -> void:
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(_status)
+	_follow = CheckBox.new()
+	_follow.name = "BroadcastCamera"
+	_follow.text = "自动运镜"
+	_follow.tooltip_text = "优先展示视野内的交战，其次是建筑完工和新单位。方向键、小地图或滚轮可手动调整，7 秒后恢复。"
+	_follow.add_theme_font_size_override("font_size", 14)
+	_follow.button_pressed = true
+	_follow.hide()
+	_follow.toggled.connect(_on_follow_toggled)
+	row.add_child(_follow)
 	_service_button = Button.new()
 	_service_button.name = "ServiceSettings"
 	_service_button.text = "AI 地址"
@@ -215,6 +225,7 @@ func _sync_state() -> void:
 	var status := String(state.get("status", "off"))
 	var available := bool(state.get("available", false))
 	var message := String(state.get("message", ""))
+	_follow.visible = enabled and status == "active" and has_node("../../Camera2D/BroadcastDirector")
 	_check.set_pressed_no_signal(enabled)
 	# Connecting can be cancelled immediately. Only an unacknowledged online
 	# request temporarily prevents another toggle.
@@ -245,6 +256,11 @@ func _on_toggled(enabled: bool) -> void:
 		_controller.call("request_local_enabled", enabled)
 	# Render authoritative state, including a rejected or pending request.
 	_sync_state()
+
+func _on_follow_toggled(enabled: bool) -> void:
+	var director := get_node_or_null("../../Camera2D/BroadcastDirector")
+	if director != null:
+		director.set_follow_enabled(enabled)
 
 
 func _sync_layout() -> void:
