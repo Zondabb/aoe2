@@ -33,14 +33,14 @@ const TRAIN_SPAWN_RETRY_INTERVAL := 0.25
 @export var accepted_resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
 var amount_q := 175 * Fixed.SCALE
 var amount: float:
-	get: return Fixed.to_float(amount_q)
-	set(value): amount_q = Fixed.from_float(value)
+	get: return float(amount_q) / Fixed.SCALE
+	set(value): amount_q = roundi(value * Fixed.SCALE)
 var resource_type := Enums.ResourceType.FOOD
 var gather_rate_q := 4 * Fixed.SCALE
 var _gather_remainder: int = 0
 var gather_rate: float:
-	get: return Fixed.to_float(gather_rate_q)
-	set(value): gather_rate_q = Fixed.from_float(value)
+	get: return float(gather_rate_q) / Fixed.SCALE
+	set(value): gather_rate_q = roundi(value * Fixed.SCALE)
 var farm_has_crops := false:
 	set(value):
 		if farm_has_crops == value:
@@ -55,20 +55,20 @@ var match_state: MatchState
 var sim_pos := Vector2.ZERO
 var hp_q := 0
 var hp: float:
-	get: return Fixed.to_float(hp_q)
-	set(value): hp_q = Fixed.from_float(value)
+	get: return float(hp_q) / Fixed.SCALE
+	set(value): hp_q = roundi(value * Fixed.SCALE)
 var melee_armor_q := 0
 var melee_armor: float:
-	get: return Fixed.to_float(melee_armor_q)
-	set(value): melee_armor_q = Fixed.from_float(value)
+	get: return float(melee_armor_q) / Fixed.SCALE
+	set(value): melee_armor_q = roundi(value * Fixed.SCALE)
 var pierce_armor_q := 0
 var pierce_armor: float:
-	get: return Fixed.to_float(pierce_armor_q)
-	set(value): pierce_armor_q = Fixed.from_float(value)
+	get: return float(pierce_armor_q) / Fixed.SCALE
+	set(value): pierce_armor_q = roundi(value * Fixed.SCALE)
 var build_time_elapsed := 0
 var build_progress: float:
-	get: return Fixed.time_to_seconds(build_time_elapsed)
-	set(value): build_time_elapsed = Fixed.time_from_seconds(value)
+	get: return float(build_time_elapsed) / Fixed.TIME_SCALE
+	set(value): build_time_elapsed = roundi(value * Fixed.TIME_SCALE)
 var is_complete := true:
 	set(value):
 		if is_complete == value:
@@ -90,8 +90,8 @@ var _next_train_id := 1
 var _train_payments: Dictionary = {}
 var train_time_elapsed := 0
 var train_progress: float:
-	get: return Fixed.time_to_seconds(train_time_elapsed)
-	set(value): train_time_elapsed = Fixed.time_from_seconds(value)
+	get: return float(train_time_elapsed) / Fixed.TIME_SCALE
+	set(value): train_time_elapsed = roundi(value * Fixed.TIME_SCALE)
 var _construction_started := false
 var _population_cap_registered := false
 var _reserved_population := 0
@@ -102,16 +102,16 @@ var block_half := Vector2.ONE
 var _visual_age := 0
 var spawn_retry_time := 0
 var _spawn_retry_remaining: float:
-	get: return Fixed.time_to_seconds(spawn_retry_time)
-	set(value): spawn_retry_time = Fixed.time_from_seconds(value)
+	get: return float(spawn_retry_time) / Fixed.TIME_SCALE
+	set(value): spawn_retry_time = roundi(value * Fixed.TIME_SCALE)
 var _production_exit_blocked := false
 var wall_orientation := 0
 var gate_state := "auto"
 var gate_open := false
 var gate_time := 0
 var _gate_timer: float:
-	get: return Fixed.time_to_seconds(gate_time)
-	set(value): gate_time = Fixed.time_from_seconds(value)
+	get: return float(gate_time) / Fixed.TIME_SCALE
+	set(value): gate_time = roundi(value * Fixed.TIME_SCALE)
 var _last_gate_navigation := Vector2(-1, -1)
 
 func get_placement_footprint() -> Vector2:

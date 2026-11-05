@@ -26,6 +26,9 @@ const GATHER_CENTER_RANGE_SLACK := 0.4
 const DEBUG_DROP_OFF := true
 const DEBUG_DROP_OFF_INTERVAL := 0.5
 const ANIM_FPS := 18.0
+## Sprite row and mirroring of each SpriteCatalog.quantize_xz_facing sector.
+const FACING_SECTOR_DIRS: Array[int] = [0, 1, 2, 3, 4, 3, 2, 1]
+const FACING_SECTOR_FLIPS: Array[bool] = [false, true, true, true, false, false, false, false]
 const ATTACK_HIT_FRACTION := 0.45
 const RANGED_RELEASE_FRACTION := 0.35
 const ATTACK_CHASE_SLACK := 0.25
@@ -58,33 +61,33 @@ const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.
 
 var hp_q: int = 0
 var hp: float:
-	get: return Fixed.to_float(hp_q)
-	set(value): hp_q = Fixed.from_float(value)
+	get: return float(hp_q) / Fixed.SCALE
+	set(value): hp_q = roundi(value * Fixed.SCALE)
 var melee_armor_q: int = 0
 var melee_armor: float:
-	get: return Fixed.to_float(melee_armor_q)
-	set(value): melee_armor_q = Fixed.from_float(value)
+	get: return float(melee_armor_q) / Fixed.SCALE
+	set(value): melee_armor_q = roundi(value * Fixed.SCALE)
 var pierce_armor_q: int = 0
 var pierce_armor: float:
-	get: return Fixed.to_float(pierce_armor_q)
-	set(value): pierce_armor_q = Fixed.from_float(value)
+	get: return float(pierce_armor_q) / Fixed.SCALE
+	set(value): pierce_armor_q = roundi(value * Fixed.SCALE)
 var order: Enums.OrderType = Enums.OrderType.NONE
 var _sim_pos_q := Vector2i.ZERO
 var sim_pos: Vector2:
-	get: return Fixed.to_vector(_sim_pos_q)
-	set(value): _sim_pos_q = Fixed.vector(value)
+	get: return Vector2(float(_sim_pos_q.x) / Fixed.SCALE, float(_sim_pos_q.y) / Fixed.SCALE)
+	set(value): _sim_pos_q = Vector2i(roundi(value.x * Fixed.SCALE), roundi(value.y * Fixed.SCALE))
 ## CanvasItem exposes the physics transform, not the server's interpolated
 ## draw transform. The outline mask needs the same translation as the actor.
 var previous_physics_position := Vector2.ZERO
 var carry_type := -1
 var carry_amount_q: int = 0
 var carry_amount: float:
-	get: return Fixed.to_float(carry_amount_q)
-	set(value): carry_amount_q = Fixed.from_float(value)
+	get: return float(carry_amount_q) / Fixed.SCALE
+	set(value): carry_amount_q = roundi(value * Fixed.SCALE)
 var carry_capacity_q: int = 10 * Fixed.SCALE
 @export var carry_capacity: float = 10.0:
-	get: return Fixed.to_float(carry_capacity_q)
-	set(value): carry_capacity_q = maxi(0, Fixed.from_float(value))
+	get: return float(carry_capacity_q) / Fixed.SCALE
+	set(value): carry_capacity_q = maxi(0, roundi(value * Fixed.SCALE))
 var match_state: MatchState
 var _move_target := Vector2.ZERO
 var _formation_move_speed := 0.0
@@ -97,8 +100,8 @@ var _last_seen_attack_pos := Vector2.ZERO
 var _attack_target: Node2D
 var _attack_cooldown_remaining_units: int = 0
 var _attack_cooldown_remaining: float:
-	get: return Fixed.time_to_seconds(_attack_cooldown_remaining_units)
-	set(value): _attack_cooldown_remaining_units = Fixed.time_from_seconds(value)
+	get: return float(_attack_cooldown_remaining_units) / Fixed.TIME_SCALE
+	set(value): _attack_cooldown_remaining_units = roundi(value * Fixed.TIME_SCALE)
 var _gather_state := ""
 var _gather_resource_type := -1
 var _gather_source_depleted := false
@@ -141,14 +144,14 @@ var _combat_action := &""
 static var _combat_durations: Dictionary = {}
 var _combat_anim_time_units: int = 0
 var _combat_anim_time: float:
-	get: return Fixed.time_to_seconds(_combat_anim_time_units)
-	set(value): _combat_anim_time_units = Fixed.time_from_seconds(value)
+	get: return float(_combat_anim_time_units) / Fixed.TIME_SCALE
+	set(value): _combat_anim_time_units = roundi(value * Fixed.TIME_SCALE)
 var _attack_hit_applied := false
 var _projectile_spawned := false
 var max_hp_q: int = 0
 var _max_hp: float:
-	get: return Fixed.to_float(max_hp_q)
-	set(value): max_hp_q = Fixed.from_float(value)
+	get: return float(max_hp_q) / Fixed.SCALE
+	set(value): max_hp_q = roundi(value * Fixed.SCALE)
 var _path: PackedVector2Array = PackedVector2Array()
 var _path_index := 0
 var _path_pending := false
@@ -156,37 +159,37 @@ var _nav_goal := Vector2.ZERO
 var _stuck_repath_attempts := 0
 var _path_retry_cooldown_units: int = 0
 var _path_retry_cooldown: float:
-	get: return Fixed.time_to_seconds(_path_retry_cooldown_units)
-	set(value): _path_retry_cooldown_units = Fixed.time_from_seconds(value)
+	get: return float(_path_retry_cooldown_units) / Fixed.TIME_SCALE
+	set(value): _path_retry_cooldown_units = roundi(value * Fixed.TIME_SCALE)
 ## Fixed units per second, measured from this unit's last movement update.
 ## The float view keeps keyframes, saves and animation code unchanged.
 var _locomotion_velocity_q := Vector2i.ZERO
 var _locomotion_velocity: Vector2:
-	get: return Fixed.to_vector(_locomotion_velocity_q)
-	set(value): _locomotion_velocity_q = Fixed.vector(value)
+	get: return Vector2(float(_locomotion_velocity_q.x) / Fixed.SCALE, float(_locomotion_velocity_q.y) / Fixed.SCALE)
+	set(value): _locomotion_velocity_q = Vector2i(roundi(value.x * Fixed.SCALE), roundi(value.y * Fixed.SCALE))
 ## Scheduled steering state of LocalAvoidance (integers only).
 var _avoidance_cache := {}
 var _stuck_seconds_units: int = 0
 var _stuck_seconds: float:
-	get: return Fixed.time_to_seconds(_stuck_seconds_units)
-	set(value): _stuck_seconds_units = Fixed.time_from_seconds(value)
+	get: return float(_stuck_seconds_units) / Fixed.TIME_SCALE
+	set(value): _stuck_seconds_units = roundi(value * Fixed.TIME_SCALE)
 var _repath_cooldown_units: int = 0
 var _repath_cooldown: float:
-	get: return Fixed.time_to_seconds(_repath_cooldown_units)
-	set(value): _repath_cooldown_units = Fixed.time_from_seconds(value)
+	get: return float(_repath_cooldown_units) / Fixed.TIME_SCALE
+	set(value): _repath_cooldown_units = roundi(value * Fixed.TIME_SCALE)
 var _requested_move_target := Vector2.ZERO
 var _progress_elapsed_units: int = 0
 var _progress_elapsed: float:
-	get: return Fixed.time_to_seconds(_progress_elapsed_units)
-	set(value): _progress_elapsed_units = Fixed.time_from_seconds(value)
+	get: return float(_progress_elapsed_units) / Fixed.TIME_SCALE
+	set(value): _progress_elapsed_units = roundi(value * Fixed.TIME_SCALE)
 var _progress_distance := INF
 var _pending_crowd_route := false
 var _path_is_crowd_route := false
 var _has_move_command := false
 var _goal_refresh_remaining_units: int = 0
 var _goal_refresh_remaining: float:
-	get: return Fixed.time_to_seconds(_goal_refresh_remaining_units)
-	set(value): _goal_refresh_remaining_units = Fixed.time_from_seconds(value)
+	get: return float(_goal_refresh_remaining_units) / Fixed.TIME_SCALE
+	set(value): _goal_refresh_remaining_units = roundi(value * Fixed.TIME_SCALE)
 var _drop_off_debug_timer := 0.0
 var _debug_steer_velocity := Vector2.ZERO
 var _debug_actual_delta := Vector2.ZERO
@@ -325,6 +328,9 @@ func locomotion_velocity() -> Vector2:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESET_PHYSICS_INTERPOLATION:
 		previous_physics_position = position
+	elif what == NOTIFICATION_VISIBILITY_CHANGED and visible and _billboard_pending:
+		# Hidden units (fog of war) keep only the latest sprite request.
+		_flush_billboard_frame()
 
 
 func render_canvas_transform(source: Node2D) -> Transform2D:
@@ -461,7 +467,7 @@ func command_stop() -> void:
 func command_gather(resource: Node2D) -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
-	if not FogAccess.can_see(self, resource):
+	if not _can_see(resource):
 		return
 	if not is_instance_valid(resource) or resource.is_queued_for_deletion() or float(resource.get("amount")) <= 0.0:
 		return
@@ -514,7 +520,7 @@ func command_attack(target: Node) -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
 	if def != null and def.attack <= 0: return
-	if not FogAccess.can_see(self, target):
+	if not _can_see(target):
 		return
 	var target_2d := target as Node2D
 	if (
@@ -549,7 +555,7 @@ func _process_attack(delta: float) -> void:
 		_attack_target = null
 		order = Enums.OrderType.NONE
 		return
-	if match_state != null and match_state.fog_enabled and not FogAccess.can_see(self, _attack_target):
+	if match_state != null and match_state.fog_enabled and not _can_see(_attack_target):
 		_cancel_combat_action()
 		command_move(_last_seen_attack_pos)
 		return
@@ -729,7 +735,7 @@ func _try_retaliate(source: Node) -> void:
 func _attack_target_available() -> bool:
 	return (
 		is_instance_valid(_attack_target)
-		and FogAccess.can_see(self, _attack_target)
+		and _can_see(_attack_target)
 		and not _attack_target.is_queued_for_deletion()
 		and float(_attack_target.get("hp")) > 0.0
 		and _attack_target.get("team") != team
@@ -764,11 +770,12 @@ func _process_gather(delta: float) -> void:
 	if _gather_state == "searching_resource":
 		_update_idle_animation(delta)
 		return
-	if _gather_state in ["to_resource", "gathering"] and (not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion()):
+	var working := _gather_state == "to_resource" or _gather_state == "gathering"
+	if working and (not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion()):
 		_gather_target = null
 		_finish_or_drop_off()
 		return
-	if _gather_state in ["to_resource", "gathering"] and match_state != null and match_state.fog_enabled and not FogAccess.can_see(self, _gather_target):
+	if working and match_state != null and match_state.fog_enabled and not _can_see(_gather_target):
 		# Returning through fog is still part of the gather order. A MOVE command
 		# clears the resource target and leaves the worker idle after one delivery.
 		# Use only the remembered location until sight returns, never hidden stock.
@@ -849,7 +856,8 @@ func _process_drop_off(delta: float) -> void:
 	var interact_range := _building_interaction_range(_drop_off_target)
 	var edge_dist := _distance_to(_drop_off_target)
 	if edge_dist > interact_range:
-		_drop_off_log_throttled(
+		# The details are only built when this unit's log is shown.
+		if DEBUG_DROP_OFF and _drop_off_debug_timer <= 0.0 and UnitDebugFocusScript.wants(self): _drop_off_log_throttled(
 			"approaching",
 			{
 				"edge_dist": edge_dist,
@@ -872,7 +880,7 @@ func _process_drop_off(delta: float) -> void:
 	carry_amount = 0.0
 	carry_type = -1
 	_drop_off_target = null
-	if not _gather_source_depleted and is_instance_valid(_last_resource) and not _last_resource.is_queued_for_deletion() and not FogAccess.can_see(self, _last_resource):
+	if not _gather_source_depleted and is_instance_valid(_last_resource) and not _last_resource.is_queued_for_deletion() and not _can_see(_last_resource):
 		_gather_target = _last_resource
 		_gather_state = "to_resource"
 		_clear_gather_path()
@@ -981,7 +989,7 @@ func _queue_gather_work_point() -> bool:
 
 
 func _apply_gather_search_path(path: PackedVector2Array) -> void:
-	if not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion() or (FogAccess.can_see(self, _gather_target) and not _resource_available(_gather_target)):
+	if not is_instance_valid(_gather_target) or _gather_target.is_queued_for_deletion() or (_can_see(_gather_target) and not _resource_available(_gather_target)):
 		_gather_work_points.clear()
 		path = PackedVector2Array()
 	if path.is_empty() or not _within_distance(path[-1], _automatic_gather_goal, GATHER_RANGE):
@@ -1003,7 +1011,11 @@ func _apply_gather_search_path(path: PackedVector2Array) -> void:
 
 func _resource_available(resource: Variant) -> bool:
 	# May receive a cached resource that was freed during the drop-off trip.
-	return is_instance_valid(resource) and not resource.is_queued_for_deletion() and float(resource.get("amount")) > 0.0
+	if not is_instance_valid(resource) or resource.is_queued_for_deletion():
+		return false
+	if resource is ResourceNode: return (resource as ResourceNode).amount_q > 0
+	if resource is BuildingAgent: return (resource as BuildingAgent).amount_q > 0
+	return float(resource.get("amount")) > 0.0
 
 
 func _gather_approach_point(resource: Node2D) -> Vector2:
@@ -1199,7 +1211,8 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_con
 	var water: Array = []
 	if is_inside_tree():
 		var vision := _get_vision_service()
-		if vision != null: field = vision.get("unit_field")
+		if vision is VisionService: field = (vision as VisionService).unit_field
+		elif vision != null: field = vision.get("unit_field")
 		var nav_holder := _static_query_holder
 		if nav_holder == null or not is_instance_valid(nav_holder) or not nav_holder.is_inside_tree() or not nav_holder.is_in_group("nav_service"):
 			nav_holder = get_tree().get_first_node_in_group("nav_service")
@@ -1207,7 +1220,7 @@ func _apply_resolved_position(from_pos: Vector2, desired_pos: Vector2, _move_con
 		# Include the complete prediction circle: avoidance may turn in any
 		# direction, and large footprints are indexed by all occupied buckets.
 		var reach := radius + def.move_speed * maxf(Avoidance.HORIZON_TIME / float(Fixed.TIME_SCALE), delta) + 1.0
-		if nav_holder != null and nav_holder.has_method("query_static_boxes"):
+		if nav_holder is NavServiceHolder or (nav_holder != null and nav_holder.has_method("query_static_boxes")):
 			var found: Array = nav_holder.query_static_boxes(from_pos, reach, radius_q)
 			boxes = found[0]
 			water = found[1]
@@ -1282,6 +1295,17 @@ func _choose_move_goal(target: Vector2) -> Vector2:
 		center = nav.nearest_walkable_world(center, radius)
 	var center_q := Fixed.vector(center)
 	var units := get_tree().get_nodes_in_group("units")
+	# Every candidate is tested against the same units: take their reserved
+	# points and squared separations once (same values and arithmetic as per test).
+	var occupied_q: Array[Vector2i] = []
+	var separations_sq := PackedInt64Array()
+	for other in units:
+		if other == self or other.hp <= 0:
+			continue
+		var occupied: Vector2 = other._move_target if other.order == Enums.OrderType.MOVE else other.sim_pos
+		var separation_q := radius_q + Fixed.from_float(CollisionResolverScript.unit_radius(other)) + Fixed.from_float(0.2)
+		occupied_q.append(Fixed.vector(occupied))
+		separations_sq.append(separation_q * separation_q)
 	var spacing_q := radius_q * 2 + Fixed.from_float(0.3)
 	var approach_q := _direction_q(_sim_pos_q - center_q)
 	for ring in range(0, 13):
@@ -1294,12 +1318,8 @@ func _choose_move_goal(target: Vector2) -> Vector2:
 			if nav != null and not nav.is_world_walkable_with_radius(candidate, radius):
 				continue
 			var available := true
-			for other in units:
-				if other == self or other.hp <= 0:
-					continue
-				var occupied: Vector2 = other._move_target if other.order == Enums.OrderType.MOVE else other.sim_pos
-				var separation_q := radius_q + Fixed.from_float(CollisionResolverScript.unit_radius(other)) + Fixed.from_float(0.2)
-				if Fixed.length_sq(candidate_q - Fixed.vector(occupied)) < separation_q * separation_q:
+			for index in occupied_q.size():
+				if Fixed.length_sq(candidate_q - occupied_q[index]) < separations_sq[index]:
 					available = false
 					break
 			if available:
@@ -1479,7 +1499,17 @@ func _request_nav_path_keeping_route(target: Vector2) -> void:
 
 
 func _pathfinding_radius() -> float:
-	return CollisionResolverScript.unit_radius(self)
+	# CollisionResolver.unit_radius(self) with a typed definition read.
+	return def.resolved_footprint_radius() if def != null else CollisionResolverScript.DEFAULT_RADIUS
+
+## FogAccess.can_see(self, target), reading this unit's own fields directly.
+func _can_see(target: Variant) -> bool:
+	if not is_instance_valid(target):
+		return false
+	if match_state == null or not match_state.fog_enabled:
+		return true
+	var fog: Object = match_state.fog
+	return fog != null and fog.can_see(team, target)
 
 func apply_nav_path(path: PackedVector2Array) -> void:
 	if not _path_pending:
@@ -1910,9 +1940,16 @@ func _update_billboard_facing_from_vector(
 ) -> void:
 	if not _use_billboard:
 		return
-	var facing: Dictionary = SpriteCatalogScript.quantize_xz_facing(dir)
-	_facing_dir = int(facing["dir"])
-	_facing_flip = bool(facing["flip"])
+	# SpriteCatalog.quantize_xz_facing(dir) without its result dictionary.
+	var sx := dir.x - dir.y
+	var sy := dir.x + dir.y
+	if sx * sx + sy * sy < 0.000001:
+		_facing_dir = 0
+		_facing_flip = false
+	else:
+		var sector := posmod(int(round(atan2(sx, sy) / (PI / 4.0))), 8)
+		_facing_dir = FACING_SECTOR_DIRS[sector]
+		_facing_flip = FACING_SECTOR_FLIPS[sector]
 	if animate:
 		_anim_frame = fmod(_anim_frame + _animation_fps(&"walk") * delta, 1024.0)
 	_apply_billboard_frame(animate, &"", actually_moving)
@@ -2028,23 +2065,24 @@ func _billboard_node() -> AnimatedSprite2D:
 
 func _pick_villager_animation(action: StringName) -> StringName:
 	var billboard := _billboard_node()
-	if billboard == null or billboard.sprite_frames == null:
+	var frames: SpriteFrames = billboard.sprite_frames if billboard != null else null
+	if frames == null:
 		return &"walk_dir_0"
 	var resolved := action
-	if action == &"attack" and not billboard.sprite_frames.has_animation(&"attack_dir_0"):
+	if action == &"attack" and not frames.has_animation(&"attack_dir_0"):
 		resolved = &"chop"
-	var anim := _dir_anim(resolved, _facing_dir) if not String(resolved).is_empty() else StringName("_dir_%d" % _facing_dir)
-	if billboard.sprite_frames.has_animation(anim):
+	var anim := _dir_anim(resolved, _facing_dir) if not resolved.is_empty() else StringName("_dir_%d" % _facing_dir)
+	if frames.has_animation(anim):
 		return anim
 	var action_dir0 := _dir_anim(resolved, 0)
-	if not String(resolved).is_empty() and billboard.sprite_frames.has_animation(action_dir0):
+	if not resolved.is_empty() and frames.has_animation(action_dir0):
 		return action_dir0
 	if action == &"idle":
 		for direction in 5:
 			var idle_anim := _dir_anim(&"idle", direction)
-			if billboard.sprite_frames.has_animation(idle_anim):
+			if frames.has_animation(idle_anim):
 				return idle_anim
-	if billboard.sprite_frames.has_animation(&"walk_dir_0"):
+	if frames.has_animation(&"walk_dir_0"):
 		return &"walk_dir_0"
 	return &"dir_0"
 
@@ -2063,10 +2101,11 @@ func _apply_billboard_frame(
 		if not defer:
 			_billboard_drawn_frame = frame
 			_billboard_drawn_tick = tick
-	if defer:
+	# A hidden unit (fog of war) draws its latest request once shown again.
+	if defer or not visible:
 		if not _billboard_pending:
 			_billboard_pending = true
-			set_process(true)
+			if visible: set_process(true)
 		_billboard_animate = animate
 		_billboard_action = forced_action
 		_billboard_moving = actually_moving
@@ -2090,7 +2129,10 @@ func _process(_delta: float) -> void:
 
 func _draw_billboard_frame(animate: bool, forced_action: StringName, actually_moving: bool) -> void:
 	var billboard := _billboard_node()
-	if billboard == null or billboard.sprite_frames == null:
+	if billboard == null:
+		return
+	var frames := billboard.sprite_frames
+	if frames == null:
 		return
 	var anim: StringName
 	var action := forced_action
@@ -2105,28 +2147,28 @@ func _draw_billboard_frame(animate: bool, forced_action: StringName, actually_mo
 	else:
 		if action.is_empty():
 			var idle_anim := _dir_anim(&"idle", _facing_dir)
-			if not actually_moving and billboard.sprite_frames.has_animation(idle_anim):
+			if not actually_moving and frames.has_animation(idle_anim):
 				action = &"idle"
 				anim = idle_anim
 			else:
 				anim = _dir_anim(&"", _facing_dir)
 		else:
 			anim = _dir_anim(action, _facing_dir)
-			if not billboard.sprite_frames.has_animation(anim):
+			if not frames.has_animation(anim):
 				if action == &"attack":
 					anim = _dir_anim(&"walk", _facing_dir)
-				if not billboard.sprite_frames.has_animation(anim):
+				if not frames.has_animation(anim):
 					anim = _dir_anim(&"", _facing_dir)
-		if not billboard.sprite_frames.has_animation(anim):
+		if not frames.has_animation(anim):
 			return
 	billboard.flip_h = _facing_flip
 	if billboard.animation != anim:
 		billboard.animation = anim
-	var frame_count := billboard.sprite_frames.get_frame_count(anim)
+	var frame_count := frames.get_frame_count(anim)
 	if frame_count <= 0:
 		return
 	_apply_billboard_player_color(billboard, anim)
-	var one_shot := action in [&"attack", &"die"]
+	var one_shot := action == &"attack" or action == &"die"
 	var frame_idx := 0
 	if one_shot:
 		frame_idx = mini(int(_combat_anim_time * _animation_fps(action)), frame_count - 1)
@@ -2134,7 +2176,7 @@ func _draw_billboard_frame(animate: bool, forced_action: StringName, actually_mo
 		frame_idx = int(_anim_frame) % frame_count
 	billboard.frame = frame_idx
 	_apply_billboard_hotspot(billboard, anim, frame_idx)
-	if hp > 0.0 and hp < _max_hp:
+	if hp_q > 0 and hp_q < max_hp_q:
 		_position_world_hp_bar()
 
 
@@ -2179,7 +2221,8 @@ func _apply_team_color() -> void:
 func _apply_billboard_player_color(billboard: AnimatedSprite2D, anim: StringName) -> void:
 	if def == null:
 		return
-	var color_id := TeamColorCatalogScript.resolve_color_id(team, match_state)
+	# TeamColorCatalog.resolve_color_id: a MatchState always answers a valid id.
+	var color_id := match_state.get_team_color_id(team) if match_state != null else TeamColorCatalogScript.resolve_color_id(team, null)
 	if anim == _player_color_animation and def.id == _player_color_unit_id and color_id == _player_color_id:
 		return
 	var base := SpriteCatalogScript.unit_animation_sheet_base(def.id, anim)
@@ -2273,13 +2316,15 @@ func _vision_unregister() -> void:
 
 func _vision_sync_position() -> void:
 	var vision := _get_vision_service()
-	if vision != null and vision.has_method("sync_position"):
+	if vision is VisionService: (vision as VisionService).sync_position(self)
+	elif vision != null and vision.has_method("sync_position"):
 		vision.call("sync_position", self)
 
 
 func _vision_sync_motion() -> void:
 	var vision := _get_vision_service()
-	if vision != null and vision.has_method("sync_motion"):
+	if vision is VisionService: (vision as VisionService).sync_motion(self)
+	elif vision != null and vision.has_method("sync_motion"):
 		vision.call("sync_motion", self)
 
 ## Change a researched unit line without resetting its orders or registering population again.

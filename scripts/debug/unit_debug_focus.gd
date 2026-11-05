@@ -7,6 +7,8 @@ static var _focus_id := -1
 static var _listeners: Array[Callable] = []
 ## ai_vs_ai 观战：未点选单位时不输出任何单位调试日志。
 static var _spectator_mode := false
+## 调试时设为 true：未点选单位时输出所有单位的调试日志（观战模式除外）。
+static var log_all_units := false
 
 
 static func set_spectator_mode(enabled: bool) -> void:
@@ -71,6 +73,11 @@ static func log(unit: Object, channel: String, message: String, details: Diction
 	_emit_line(line)
 
 
+## Whether log() would print for this unit (callers skip building details).
+static func wants(unit: Object) -> bool:
+	return _should_emit_for(unit)
+
+
 static func log_status(unit: Object, line: String) -> void:
 	if not _should_emit_for(unit):
 		return
@@ -79,11 +86,12 @@ static func log_status(unit: Object, line: String) -> void:
 
 
 static func _should_emit_for(unit: Object) -> bool:
-	if _spectator_mode and _focus_id < 0:
-		return false
-	if _focus_id >= 0 and not is_focused(unit):
-		return false
-	return true
+	if _focus_id < 0:
+		# Every worker logging several lines a second (console and the log
+		# panel) cost a large share of each frame in big matches; logs follow
+		# the selected unit unless log_all_units is set while debugging.
+		return log_all_units and not _spectator_mode
+	return is_focused(unit)
 
 
 static func _emit_line(line: String) -> void:

@@ -24,6 +24,10 @@ class StaticRecord:
 	var observed_mask := 0
 	var seen_geometry := Rect2()
 	var terrain := false
+	## FAST_RESOURCE / FAST_BUILDING when the node's script is exactly
+	## ResourceNode or BuildingAgent/FarmAgent: their fields are read typed
+	## (same values as the property-name path, which other nodes keep).
+	var fast := 0
 
 var fog := Fog.new()
 var match_state: MatchState
@@ -74,6 +78,13 @@ var _presented_frame := -1
 var _presented_tick := -1
 var _deferred_presentation := false
 const TEAMS := [Enums.Team.PLAYER, Enums.Team.AI]
+const FAST_RESOURCE := 1
+const FAST_BUILDING := 2
+static var _farm_script: Script = load("res://scripts/entities/farm_agent.gd")
+## Records of terrain regions (lakes, cliffs): the only nodes bind_fog touches.
+var _terrain_records: Array[StaticRecord] = []
+## ResourceNode.geometry_revision when every record last matched its node.
+var _resource_geometry_stamp := -1
 var _presentation_dirty := false
 var _dynamic_dirty := false
 var _presentation_usec := 0
@@ -260,6 +271,7 @@ func _ensure_entity_cache() -> void:
 	_dynamic_entities.clear()
 	_vision_sources.clear()
 	_static_records.clear()
+	_terrain_records.clear()
 	# A trained/lost unit changes these lists without changing the forest or
 	# wall records. Reuse those records instead of allocating thousands again.
 	var existing_records := _records_by_id
@@ -286,6 +298,9 @@ func _ensure_entity_cache() -> void:
 			record.kind = static_kind
 			record.resource = resource
 			record.terrain = node.is_in_group("terrain_regions")
+			var script: Script = node.get_script()
+			record.fast = FAST_RESOURCE if script == ResourceNode else (FAST_BUILDING if (script == BuildingAgent or script == _farm_script) and static_kind == "building" else 0)
+			if record.terrain: _terrain_records.append(record)
 			record.team = node.get("team")
 			record.definition = definition
 			record.position = node.get("sim_pos")
@@ -297,6 +312,7 @@ func _ensure_entity_cache() -> void:
 			_records_by_id[id] = record
 			if static_kind == "resource": _track_resource_visual(node, id)
 		if node.get("hp") != null and node.get("team") in Enums.Team.values(): _vision_sources.append(node)
+	_resource_geometry_stamp = ResourceNode.geometry_revision
 	for id in _shown.keys():
 		if not alive_ids.has(id): _shown.erase(id)
 	for id in _resource_visual_cache.keys():
@@ -344,32 +360,49 @@ func _refresh_static_record(record: StaticRecord) -> bool:
 	if not is_instance_valid(node) or node.is_queued_for_deletion():
 		_entities_dirty = true
 		return false
-	var position: Vector2 = node.get("sim_pos")
-	record.team = node.get("team")
+	var position: Vector2
 	var footprint: Vector2 = record.footprint
-	if record.kind == "building":
-		var definition: Variant = node.get("def")
-		if definition != record.definition:
-			record.definition = definition
+	if record.fast == FAST_RESOURCE:
+		var tree: ResourceNode = node
+		position = tree.sim_pos
+		record.team = null
+		if tree.block_size_override != record.size_override or tree.resource_type != record.resource_type:
+			record.size_override = tree.block_size_override
+			record.resource_type = tree.resource_type
+			footprint = tree.block_size
+	elif record.fast == FAST_BUILDING:
+		var building: BuildingAgent = node
+		position = building.sim_pos
+		record.team = building.team
+		if building.def != record.definition:
+			record.definition = building.def
 			footprint = Fog.footprint_of(node)
-	elif node is ResourceNode:
-		var resource: ResourceNode = node
-		if resource.block_size_override != record.size_override or resource.resource_type != record.resource_type:
-			record.size_override = resource.block_size_override
-			record.resource_type = resource.resource_type
-			footprint = resource.block_size
-	elif record.resource or record.kind == "blocker":
-		var override: Variant = node.get("block_size_override")
-		var resource_type: Variant = node.get("resource_type") if record.resource else null
-		var type_changed: bool = resource_type != record.resource_type
-		record.resource_type = resource_type
-		if override is Vector2:
-			if override != record.size_override or type_changed:
-				record.size_override = override
+	else:
+		position = node.get("sim_pos")
+		record.team = node.get("team")
+		if record.kind == "building":
+			var definition: Variant = node.get("def")
+			if definition != record.definition:
+				record.definition = definition
 				footprint = Fog.footprint_of(node)
-		else:
-			var size: Variant = node.get("block_size")
-			if size is Vector2: footprint = size
+		elif node is ResourceNode:
+			var resource: ResourceNode = node
+			if resource.block_size_override != record.size_override or resource.resource_type != record.resource_type:
+				record.size_override = resource.block_size_override
+				record.resource_type = resource.resource_type
+				footprint = resource.block_size
+		elif record.resource or record.kind == "blocker":
+			var override: Variant = node.get("block_size_override")
+			var resource_type: Variant = node.get("resource_type") if record.resource else null
+			var type_changed: bool = resource_type != record.resource_type
+			record.resource_type = resource_type
+			if override is Vector2:
+				if override != record.size_override or type_changed:
+					record.size_override = override
+					footprint = Fog.footprint_of(node)
+			else:
+				var size: Variant = node.get("block_size")
+				if size is Vector2: footprint = size
 	if position != record.position or footprint != record.footprint:
 		record.position = position
 		record.footprint = footprint
@@ -444,7 +477,32 @@ func _update_memories(_nodes: Array) -> void:
 	for index in _static_records.size():
 		var record := _static_records[index]
 		record.observed_mask = 0
-		valid[index] = 1 if _refresh_static_record(record) else 0
+		if record.fast != FAST_RESOURCE:
+			valid[index] = 1 if _refresh_static_record(record) else 0
+			continue
+		# _refresh_static_record's resource branch inline: most records are
+		# trees and mines, and the call itself was a large share of this loop.
+		var entity: Variant = record.entity
+		if not is_instance_valid(entity) or entity.is_queued_for_deletion():
+			_entities_dirty = true
+			valid[index] = 0
+			continue
+		var tree: ResourceNode = entity
+		valid[index] = 1
+		record.team = null
+		var footprint: Vector2 = record.footprint
+		if tree.block_size_override != record.size_override or tree.resource_type != record.resource_type:
+			record.size_override = tree.block_size_override
+			record.resource_type = tree.resource_type
+			footprint = tree.block_size
+		var position := tree.sim_pos
+		if position != record.position or footprint != record.footprint:
+			record.position = position
+			record.footprint = footprint
+			record.cells = fog.footprint_cells(position, footprint)
+			_static_rects_dirty = true
+			_static_seen_revision = -1
+	_resource_geometry_stamp = ResourceNode.geometry_revision
 	_compute_seen_masks(valid)
 	for index in _static_records.size():
 		if valid[index] == 0: continue
@@ -457,10 +515,23 @@ func _update_memories(_nodes: Array) -> void:
 		var appearance := 0
 		var appearance_ready := false
 		var captured: Array = []
+		# Facts about the node, read once for both teams (nothing changes them
+		# in between): -1 until a team needs them.
+		var eligible := -1
+		var resource_type: Variant = null
+		var kind: Variant = null
+		var terrain_region := false
 		for team in TEAMS:
-			var seen: bool = (record.seen_mask & (1 << team)) != 0
-			if not seen or record.team == team or node.get("is_placement_ghost") == true: continue
-			if (record.resource and node.get("amount") <= 0) or (record.kind == "building" and node.get("hp") != null and node.get("hp") <= 0): continue
+			if (record.seen_mask & (1 << team)) == 0 or record.team == team: continue
+			if eligible < 0:
+				eligible = 1 if _memory_eligible(record, node) else 0
+				if record.fast == FAST_RESOURCE: resource_type = (node as ResourceNode).resource_type
+				elif record.fast == FAST_BUILDING: resource_type = (node as BuildingAgent).resource_type
+				else:
+					resource_type = node.get("resource_type")
+					kind = node.get("kind")
+				terrain_region = node.is_in_group("terrain_regions")
+			if eligible == 0: continue
 			record.observed_mask |= 1 << team
 			var known: Dictionary = fog.memories[team]
 			var previous: Dictionary = known.get(key, {})
@@ -478,8 +549,8 @@ func _update_memories(_nodes: Array) -> void:
 				# and walls are seen again on every pass.
 				if previous.size() == 12 and previous.has("last_seen_msec") and previous.sim_pos == record.position and previous.position == node.position \
 						and previous.footprint == record.footprint and previous.cells == record.cells and previous.minimap_kind == record.kind \
-						and previous.team == record.team and previous.resource_type == node.get("resource_type") and previous.kind == node.get("kind") \
-						and previous.terrain_region == node.is_in_group("terrain_regions"):
+						and previous.team == record.team and previous.resource_type == resource_type and previous.kind == kind \
+						and previous.terrain_region == terrain_region:
 					previous.last_seen_msec = seen_at
 					continue
 			else:
@@ -487,16 +558,30 @@ func _update_memories(_nodes: Array) -> void:
 				parts = captured
 			known[key] = {"sim_pos":record.position, "position":node.position, "footprint":record.footprint,
 				"cells":record.cells, "parts":parts, "appearance":appearance, "minimap_kind":record.kind,
-				"team":record.team, "resource_type":node.get("resource_type"), "kind":node.get("kind"),
-				"terrain_region":node.is_in_group("terrain_regions"), "last_seen_msec":seen_at}
+				"team":record.team, "resource_type":resource_type, "kind":kind,
+				"terrain_region":terrain_region, "last_seen_msec":seen_at}
 	for team in TEAMS:
 		var known: Dictionary = fog.memories[team]
+		var bit: int = 1 << team
 		for key in known.keys():
+			# Observed this pass: kept regardless of its cells.
+			var record: StaticRecord = _records_by_id.get(key)
+			if record != null and (record.observed_mask & bit) != 0: continue
 			var snapshot: Dictionary = known[key]
 			var cells: Rect2i = snapshot.cells if snapshot.has("cells") else fog.footprint_cells(snapshot.sim_pos, snapshot.footprint)
-			var record: StaticRecord = _records_by_id.get(key)
-			if (record == null or (record.observed_mask & (1 << team)) == 0) and fog.rect_visible(team, cells, true): known.erase(key)
+			if fog.rect_visible(team, cells, true): known.erase(key)
 	_static_seen_revision = fog.revision
+
+## Whether a seen static node can enter a team's memory (not a placement
+## ghost, depleted resource or destroyed building).
+func _memory_eligible(record: StaticRecord, node: Node2D) -> bool:
+	if record.fast == FAST_RESOURCE:
+		return (node as ResourceNode).amount_q > 0
+	if record.fast == FAST_BUILDING:
+		var building: BuildingAgent = node
+		return not building.is_placement_ghost and (not record.resource or building.amount_q > 0) and building.hp_q > 0
+	if node.get("is_placement_ghost") == true: return false
+	return not ((record.resource and node.get("amount") <= 0) or (record.kind == "building" and node.get("hp") != null and node.get("hp") <= 0))
 
 ## Consumers must treat the shared list as read-only. It excludes visual
 ## memory proxies, while retaining hidden real entities for team queries.
@@ -534,15 +619,36 @@ func _apply_visibility(update_static := true, use_cached_seen := false) -> void:
 		if use_cached_seen:
 			if not is_instance_valid(node) or node.is_queued_for_deletion(): continue
 		elif not _refresh_static_record(record): continue
-		var visible_visual: bool = not record.resource or float(node.get("amount")) > 0
+		var visible_visual: bool
 		var seen := view_team == ALL
-		if not seen:
-			var hp: Variant = node.get("hp") if record.team == view_team else null
-			if hp != null and float(hp) > 0: seen = true
-			elif node.get("is_placement_ghost") == true: seen = record.team == view_team
-			elif fog.ready:
+		if record.fast == FAST_RESOURCE:
+			# No team, health or ghost state: only the fog test applies.
+			visible_visual = (node as ResourceNode).amount_q > 0
+			if not seen and fog.ready:
 				seen = (record.seen_mask & (1 << view_team)) != 0 if use_cached_seen else fog.rect_visible(view_team, record.cells)
-		_set_entity_visible(node, visible_visual and seen)
+		elif record.fast == FAST_BUILDING:
+			var building: BuildingAgent = node
+			visible_visual = not record.resource or building.amount_q > 0
+			if not seen:
+				if record.team == view_team and building.hp_q > 0: seen = true
+				elif building.is_placement_ghost: seen = record.team == view_team
+				elif fog.ready:
+					seen = (record.seen_mask & (1 << view_team)) != 0 if use_cached_seen else fog.rect_visible(view_team, record.cells)
+		else:
+			visible_visual = not record.resource or float(node.get("amount")) > 0
+			if not seen:
+				var hp: Variant = node.get("hp") if record.team == view_team else null
+				if hp != null and float(hp) > 0: seen = true
+				elif node.get("is_placement_ghost") == true: seen = record.team == view_team
+				elif fog.ready:
+					seen = (record.seen_mask & (1 << view_team)) != 0 if use_cached_seen else fog.rect_visible(view_team, record.cells)
+		# _set_entity_visible(node, visible_visual and seen), inlined.
+		var value := visible_visual and seen
+		if node.visible != value:
+			node.visible = value
+			if not value and node.has_method("set_selected"): node.call("set_selected", false)
+		if value: _shown[record.id] = true
+		else: _shown.erase(record.id)
 	_sync_memory_views()
 
 func _set_entity_visible(node: Node2D, value: bool) -> void:
@@ -621,7 +727,7 @@ func _sync_texture() -> void:
 	_bind_terrain_fog()
 
 func _bind_terrain_fog() -> void:
-	for record in _static_records:
+	for record in _terrain_records:
 		var node: Node2D = record.entity
 		if is_instance_valid(node) and node.is_in_group("terrain_regions"):
 			Terrain.bind_fog(node, self)

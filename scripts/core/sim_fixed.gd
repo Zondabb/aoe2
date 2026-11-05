@@ -19,7 +19,7 @@ static func time_to_seconds(value: int) -> float:
 	return float(value) / TIME_SCALE
 
 static func delta_time(delta: float, lockstep: bool = false) -> int:
-	return STEP_TIME if lockstep else maxi(0, time_from_seconds(delta))
+	return STEP_TIME if lockstep else maxi(0, roundi(delta * TIME_SCALE))
 
 ## Round to nearest; exact halves are rounded away from zero on every platform.
 ## Callers keep products within signed 64-bit range (game/map limits).
@@ -47,17 +47,19 @@ static func floor_div(value: int, denominator: int) -> int:
 static func ceil_div(value: int, denominator: int) -> int:
 	return -floor_div(-value, denominator)
 
+# The conversions below spell out from_float/to_float: they run thousands of
+# times per simulation step and nested script calls dominated their cost.
 static func coord(value: float) -> int:
-	return from_float(value)
+	return roundi(value * SCALE)
 
 static func vector(value: Vector2) -> Vector2i:
-	return Vector2i(coord(value.x), coord(value.y))
+	return Vector2i(roundi(value.x * SCALE), roundi(value.y * SCALE))
 
 static func to_vector(value: Vector2i) -> Vector2:
-	return Vector2(to_float(value.x), to_float(value.y))
+	return Vector2(float(value.x) / SCALE, float(value.y) / SCALE)
 
 static func quantize_vector(value: Vector2) -> Vector2:
-	return to_vector(vector(value))
+	return Vector2(float(roundi(value.x * SCALE)) / SCALE, float(roundi(value.y * SCALE)) / SCALE)
 
 static func length_sq(value: Vector2i) -> int:
 	# Vector2i's dot/length_squared use 32-bit components in the engine; promote
@@ -65,7 +67,8 @@ static func length_sq(value: Vector2i) -> int:
 	return int(value.x) * int(value.x) + int(value.y) * int(value.y)
 
 static func distance_squared(a: Vector2, b: Vector2) -> int:
-	return length_sq(vector(a) - vector(b))
+	var d := Vector2i(roundi(a.x * SCALE), roundi(a.y * SCALE)) - Vector2i(roundi(b.x * SCALE), roundi(b.y * SCALE))
+	return int(d.x) * int(d.x) + int(d.y) * int(d.y)
 
 ## Floor square root, without libm or floating point conversion.
 @warning_ignore("integer_division")

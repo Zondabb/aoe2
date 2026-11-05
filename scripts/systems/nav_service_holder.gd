@@ -244,18 +244,25 @@ func query_static_boxes(from: Vector2, reach: float, radius_q: int) -> Array:
 	var maximum := from + margin
 	var first := Vector2i((minimum / STATIC_BUCKET_SIZE).floor())
 	var last := Vector2i((maximum / STATIC_BUCKET_SIZE).floor())
+	# A record spans several buckets; one bucket lists each record once.
+	var single_bucket := first == last
 	var seen := {}
 	var boxes := PackedInt64Array()
 	var water: Array = []
 	for y in range(first.y, last.y + 1):
 		for x in range(first.x, last.x + 1):
 			for id in _static_buckets.get(Vector2i(x, y), []):
-				if seen.has(id): continue
-				seen[id] = true
+				if not single_bucket:
+					if seen.has(id): continue
+					seen[id] = true
 				var record: Dictionary = _static_records[id]
 				var node: Node = record.node.get_ref()
 				if node == null or not node.is_inside_tree() or node.is_queued_for_deletion(): continue
-				if node.get("def") is not BuildingDef and node.get("resource_type") != null and float(node.get("amount")) <= 0: continue
+				# Depleted resources no longer block (typed reads of the generic test).
+				if node is ResourceNode:
+					if (node as ResourceNode).amount_q <= 0: continue
+				elif node is BuildingAgent and (node as BuildingAgent).def != null: pass
+				elif node.get("def") is not BuildingDef and node.get("resource_type") != null and float(node.get("amount")) <= 0: continue
 				var center: Vector2 = record.center
 				var half: Vector2 = record.half
 				if center.x + half.x < minimum.x or center.x - half.x > maximum.x or center.y + half.y < minimum.y or center.y - half.y > maximum.y: continue
@@ -352,14 +359,30 @@ func _check_building_changes() -> void:
 		if process_frame == _last_building_check_process_frame and Engine.is_in_physics_frame(): return
 		_last_building_check_process_frame = process_frame
 	_last_building_check_frame = frame
-	for id in _tracked_buildings.keys():
+	var vanished: Array = []
+	for id in _tracked_buildings:
 		var record: Dictionary = _tracked_buildings[id]
 		var node: Node = record.node.get_ref()
 		if node == null:
-			_tracked_buildings.erase(id)
-			_queue_static_rebuild()
+			vanished.append(id)
+		elif node is BuildingAgent:
+			# _signature_changed's typed branch, inlined: this runs for every
+			# building on every tick.
+			var building: BuildingAgent = node
+			var signature: Array = record.signature
+			var changed: bool
+			if building.is_queued_for_deletion() or building.is_placement_ghost:
+				changed = not signature.is_empty()
+			else:
+				var half := building.get_movement_half()
+				if half.x <= 0.0 or half.y <= 0.0: changed = not signature.is_empty()
+				else: changed = signature.size() != 2 or signature[0] != building.sim_pos or signature[1] != half
+			if changed: _queue_static_rebuild()
 		elif _signature_changed(record.signature, node):
 			_queue_static_rebuild()
+	for id in vanished:
+		_tracked_buildings.erase(id)
+		_queue_static_rebuild()
 
 
 ## record.signature != _building_signature(node) without building the array:

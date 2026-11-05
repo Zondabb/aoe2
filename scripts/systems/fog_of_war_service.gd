@@ -24,6 +24,13 @@ var _static_masks: Dictionary = {}
 var _static_rows: Dictionary = {}
 ## The FogOfWarHolder showing this fog, if any (cached_static_seen()).
 var static_cache: Object = null
+## Fixed-point copy of the bounds and cell size for cell_at().
+var _lattice_origin := Vector2(NAN, NAN)
+var _lattice_end := Vector2(NAN, NAN)
+var _lattice_cell := NAN
+var _origin_q := Vector2i.ZERO
+var _end_q := Vector2i.ZERO
+var _cell_q := 1
 ## Native circle stamping and exploration (aoe_sim GDExtension). Integer
 ## results identical to _stamp() and the script loops below.
 static var _kernel: RefCounted = ClassDB.instantiate("AoeSimKernel") if ClassDB.class_exists("AoeSimKernel") and ClassDB.class_has_method("AoeSimKernel", "fog_stamp") else null
@@ -59,15 +66,22 @@ func reset() -> void:
 	dirty = true
 	revision += 1
 
+@warning_ignore("integer_division")
 func cell_at(pos: Vector2) -> Vector2i:
-	var point := Fixed.vector(pos)
-	var origin := Fixed.vector(map_origin)
-	var end := Fixed.vector(map_end)
-	if point.x < origin.x or point.y < origin.y or point.x > end.x or point.y > end.y:
+	# The lattice is converted once per bounds change instead of every call.
+	if map_origin != _lattice_origin or map_end != _lattice_end or cell_size != _lattice_cell:
+		_lattice_origin = map_origin
+		_lattice_end = map_end
+		_lattice_cell = cell_size
+		_origin_q = Fixed.vector(map_origin)
+		_end_q = Fixed.vector(map_end)
+		_cell_q = maxi(1, Fixed.coord(cell_size))
+	var point := Vector2i(roundi(pos.x * Fixed.SCALE), roundi(pos.y * Fixed.SCALE))
+	if point.x < _origin_q.x or point.y < _origin_q.y or point.x > _end_q.x or point.y > _end_q.y:
 		return Vector2i(-1, -1)
-	var size := maxi(1, Fixed.coord(cell_size))
-	return Vector2i(clampi(Fixed.floor_div(point.x - origin.x, size), 0, side-1),
-		clampi(Fixed.floor_div(point.y - origin.y, size), 0, grid_size.y-1))
+	# Both offsets are non-negative here, so division is the floor division.
+	return Vector2i(clampi((point.x - _origin_q.x) / _cell_q, 0, side-1),
+		clampi((point.y - _origin_q.y) / _cell_q, 0, grid_size.y-1))
 
 func state_at(team: int, pos: Vector2) -> int:
 	var cell := cell_at(pos)
@@ -168,7 +182,23 @@ static func footprint_of(entity: Object) -> Vector2:
 	return Vector2.ZERO
 
 func can_see(team: int, entity: Object) -> bool:
-	if not is_instance_valid(entity) or entity.get("sim_pos") == null:
+	if not is_instance_valid(entity):
+		return false
+	if entity is UnitAgent:
+		# Units are point-sized and never placement ghosts or cached statics:
+		# the generic path below with typed reads of the same fields.
+		var unit: UnitAgent = entity
+		if unit.team == team and unit.hp_q > 0: return true
+		if not ready: return false
+		return footprint_visible(team, unit.sim_pos, Vector2.ZERO)
+	if entity.get_script() == ResourceNode:
+		# Trees and mines: no team, health or ghost flag; straight to the cache.
+		if not ready: return false
+		if static_cache != null and is_instance_valid(static_cache):
+			var cached_tree: int = static_cache.cached_static_seen(team, entity)
+			if cached_tree >= 0: return cached_tree == 1
+		return footprint_visible(team, (entity as ResourceNode).sim_pos, (entity as ResourceNode).block_size)
+	if entity.get("sim_pos") == null:
 		return false
 	if entity.get("is_placement_ghost") == true:
 		return entity.get("team") == team
