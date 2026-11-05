@@ -135,6 +135,7 @@ func _test_batch_capture() -> void:
 	var ctx := AiRunContext.new()
 	ctx.match_state = MatchState.new()
 	ctx.match_state.setup_defaults()
+	ctx.match_state.population_cap[Enums.Team.AI] = 5  # The stub TC does not register housing.
 	for resource in Enums.ResourceType.values():
 		ctx.match_state.resources[Enums.Team.AI][resource] = 10000
 	ctx.entities = entities

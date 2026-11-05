@@ -13,6 +13,7 @@ const ResourceNodeScript := preload("res://scripts/entities/resource_node.gd")
 ## movement/vision, then leave one original tile for workers and army traffic.
 ## This is settlement planning only; player/protocol construction rules stay intact.
 const SETTLEMENT_FOOTPRINT_SCALE := 4.0
+const FARM_PLANNING_SIDE := 8.0
 const SETTLEMENT_LANE_WIDTH := 4.0
 const SETTLEMENT_EDGE_MARGIN := 4.0
 const SETTLEMENT_SLOT_STEP := 8
@@ -213,6 +214,40 @@ static func all_buildings(entities: Node2D) -> Array[Node2D]:
 	return result
 
 
+static func planning_size(id: StringName, footprint: Vector2) -> Vector2:
+	# The rendered 3-tile field is 345.6 px wide. At 44 px per isometric
+	# ground square this occupies just under 8 simulation units on each axis.
+	return Vector2.ONE * FARM_PLANNING_SIDE if id == &"farm" else footprint * SETTLEMENT_FOOTPRINT_SCALE
+
+
+## Search all four sides of every food drop-off, closest delivery first.
+## Mirroring the offsets towards the map center keeps symmetric starts fair.
+static func farm_sites(anchors: Array, side: Vector2, lane: float, first_ring := 0, ring_count := 4) -> Array:
+	var by_point := {}
+	var step := ceilf(FARM_PLANNING_SIDE * 0.5 + lane)
+	for anchor: Dictionary in anchors:
+		var half: Vector2 = anchor.footprint * 0.5
+		var inner := ceilf(half.x * SETTLEMENT_FOOTPRINT_SCALE + FARM_PLANNING_SIDE * 0.5 + lane)
+		for ring in range(first_ring, first_ring + ring_count):
+			var radius := inner + ring * ceilf(FARM_PLANNING_SIDE + lane)
+			var slots := ceili(radius / step)
+			for slot in range(-slots, slots + 1):
+				var shift := clampf(slot * step, -radius, radius)
+				for outward: Vector2 in [Vector2.RIGHT, Vector2.DOWN, Vector2.LEFT, Vector2.UP]:
+					var offset := (outward * radius + outward.orthogonal() * shift) * side
+					var point: Vector2 = anchor.pos + offset
+					var edge: Vector2 = anchor.pos + offset.clamp(-half, half)
+					var score := 100.0 - point.distance_to(edge)
+					if by_point.has(point) and score <= by_point[point].score: continue
+					# Workers can hand over food from the building's interaction band.
+					var delivery_goal := edge.move_toward(point, 1.0 + half.x)
+					by_point[point] = {"point": point, "score": score, "drop_off_id": anchor.drop_off_id,
+						"delivery_goal": delivery_goal, "resource_id": null, "index": by_point.get(point, {}).get("index", by_point.size())}
+	var candidates := by_point.values()
+	candidates.sort_custom(func(a, b): return a.index < b.index if a.score == b.score else a.score > b.score)
+	return candidates
+
+
 static func next_build_position(
 	building_def: BuildingDef,
 	town_center: Node2D,
@@ -227,27 +262,42 @@ static func next_build_position(
 			existing.append(node)
 	var origin: Vector2 = town_center.get("sim_pos")
 	var side := _build_side_sign(origin)
-	var offsets: Array[Vector2] = []
-	# Prefer the inner side of the map; expand in deterministic, roomy rings.
-	for radius in range(16, SETTLEMENT_MAX_RADIUS + 1, SETTLEMENT_SLOT_STEP):
-		for offset in range(0, radius + 1, SETTLEMENT_SLOT_STEP):
-			offsets.append(Vector2(radius, offset))
-			if offset != radius:
-				offsets.append(Vector2(offset, radius))
 	var resources: Array[Node2D] = []
 	for node in entities.get_children():
 		if node.has_method("extract") and not node.get("def") is BuildingDef:
 			if float(node.get("amount")) > 0.0 and FogAccess.can_see(town_center, node):
 				resources.append(node as Node2D)
 	var bounds := _settlement_map_bounds(town_center)
+	var fog := FogAccess.for_node(town_center)
+	var state: MatchState = town_center.get("match_state")
+	if building_def.id == &"farm":
+		var anchors: Array = []
+		for node in existing:
+			var definition := node.get("def") as BuildingDef
+			if definition == null or definition.id not in [&"town_center", &"mill"]: continue
+			if node.get("team") != town_center.get("team") or not node.get("is_complete") or node.get("hp") <= 0 or node.is_queued_for_deletion() or node.get("is_placement_ghost") == true: continue
+			anchors.append({"pos": node.get("sim_pos"), "footprint": definition.footprint, "drop_off_id": node.get_instance_id()})
+		# Usually the first two rings suffice. Only expand around the drop-offs
+		# when those plots are full, without rotating through generic build slots.
+		for first_ring in range(0, 8, 2):
+			for site in farm_sites(anchors, side, SETTLEMENT_LANE_WIDTH, first_ring, 2):
+				if state != null and state.fog_enabled and (fog == null or not fog.footprint_visible(town_center.get("team"), site.point, building_def.footprint, true)): continue
+				if can_plan_settlement(building_def.footprint, site.point, existing, resources, bounds, building_def.id):
+					return site.point
+		return null
+	var offsets: Array[Vector2] = []
+	# Other buildings use the original inward expansion slots.
+	for radius in range(16, SETTLEMENT_MAX_RADIUS + 1, SETTLEMENT_SLOT_STEP):
+		for offset in range(0, radius + 1, SETTLEMENT_SLOT_STEP):
+			offsets.append(Vector2(radius, offset))
+			if offset != radius:
+				offsets.append(Vector2(offset, radius))
 	for index in offsets.size():
 		var slot := posmod(build_slot + index, offsets.size())
 		var candidate: Vector2 = origin + offsets[slot] * side
-		var fog := FogAccess.for_node(town_center)
-		var state: MatchState = town_center.get("match_state")
-		if state != null and state.fog_enabled and fog != null and not fog.footprint_visible(town_center.get("team"), candidate, building_def.footprint, true):
+		if state != null and state.fog_enabled and (fog == null or not fog.footprint_visible(town_center.get("team"), candidate, building_def.footprint, true)):
 			continue
-		if can_plan_settlement(building_def.footprint, candidate, existing, resources, bounds):
+		if can_plan_settlement(building_def.footprint, candidate, existing, resources, bounds, building_def.id):
 			return candidate
 	return null
 
@@ -256,11 +306,11 @@ static func next_build_position(
 ## gathering space beside resources, and a lane inside rectangular map edges.
 static func can_plan_settlement(
 	footprint: Vector2, center: Vector2, existing: Array,
-	resources: Array = [], bounds: Rect2 = Rect2()
+	resources: Array = [], bounds: Rect2 = Rect2(), building_id: StringName = &""
 ) -> bool:
 	if not BuildSystemScript.can_place(footprint, center, existing):
 		return false
-	var half := footprint * (SETTLEMENT_FOOTPRINT_SCALE * 0.5)
+	var half := planning_size(building_id, footprint) * 0.5
 	if bounds.has_area():
 		var margin := half + Vector2.ONE * SETTLEMENT_EDGE_MARGIN
 		if not bounds.encloses(Rect2(center - margin, margin * 2.0)):
@@ -274,7 +324,7 @@ static func can_plan_settlement(
 			if ShoreGeometry.intersects_rect(Rect2(center - coast_half, coast_half * 2.0), building.get_water_contours()): return false
 			continue
 		var definition := building.get("def") as BuildingDef
-		var other_half := (definition.footprint if definition != null else Vector2.ONE) * (SETTLEMENT_FOOTPRINT_SCALE * 0.5)
+		var other_half := planning_size(definition.id, definition.footprint) * 0.5 if definition != null else Vector2.ONE * SETTLEMENT_FOOTPRINT_SCALE * 0.5
 		if definition == null and building.get("block_size") is Vector2:
 			other_half = building.get("block_size") * 0.5
 		if _settlement_boxes_overlap(center, half, building.get("sim_pos"), other_half):

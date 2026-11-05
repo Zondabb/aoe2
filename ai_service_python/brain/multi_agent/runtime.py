@@ -1818,6 +1818,9 @@ class MultiAgentRuntime:
             if name in ("lumber_camp", "mining_camp"):
                 options = self._sane_drop_off_sites(f, name, options)
             def site_score(option):
+                if name == "farm":
+                    # Godot scores the delivery trip to the TC or mill serving this field.
+                    return -float(option.get("score", 0))
                 dist = _distance(option["pos"], f.base)
                 zone = option.get("zone", "")
                 military = name in MILITARY_BUILDINGS

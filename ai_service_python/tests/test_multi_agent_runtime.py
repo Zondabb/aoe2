@@ -444,10 +444,13 @@ def test_farms_capped_by_staffable_jobs_and_low_food_prioritized_over_optional_m
     req.observation.economy.food = 4000
     first = runtime.tick(req)
     assert not any(c["building_def_id"] == "farm" for c in issued(first, "place_building"))
-    req = frame(2, entities=[building(2, "barracks"), building(3, "mill")] + farmers,
-                construction_options=[{"building_def_id": "farm", "builder_id": 10, "pos": [20, 20]}], events=accept(first))
+    req = frame(2, entities=[building(2, "barracks"), building(3, "mill", [60, 50])] + farmers,
+                construction_options=[{"building_def_id": "farm", "builder_id": 10, "pos": [20, 20], "score": 75},
+                                      {"building_def_id": "farm", "builder_id": 10, "pos": [60, 60], "score": 91}],
+                events=accept(first))
     req.observation.economy.food = 50
-    assert any(c["building_def_id"] == "farm" for c in issued(runtime.tick(req), "place_building"))
+    farms = [c for c in issued(runtime.tick(req), "place_building") if c["building_def_id"] == "farm"]
+    assert [c["pos"] for c in farms] == [[60, 60]]  # Shorter mill delivery wins over proximity to the original base.
 
 
 def test_resource_delivery_not_retasked_and_food_surplus_redirects_idle_workers():

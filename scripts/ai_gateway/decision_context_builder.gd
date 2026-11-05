@@ -6,6 +6,7 @@ const Catalog := preload("res://scripts/data/game_catalog.gd")
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
 const Protocol := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const FogAccess := preload("res://scripts/systems/fog_access.gd")
+const Queries := preload("res://scripts/systems/ai/ai_entity_queries.gd")
 const Build := preload("res://scripts/systems/build_system.gd")
 const Nav := preload("res://scripts/systems/nav_grid_service.gd")
 const Age := preload("res://scripts/systems/age_progression.gd")
@@ -17,7 +18,7 @@ const MAX_FRONTIERS := 12
 const POSITIONS_PER_BUILDING := 3
 const MAX_ROUTE_CHECKS_PER_BUILDING := 4
 const MILITARY_BUILDINGS := ["barracks", "archery_range", "stable", "siege_workshop", "castle"]
-const PLANNING_SCALE := 4.0
+const PLANNING_SCALE := Queries.SETTLEMENT_FOOTPRINT_SCALE
 const FARM_RESERVE_RADIUS := 22.0
 const LANE_WIDTH := 3.0
 ## Bucket size (simulation units) of the per-call construction site index.
@@ -253,9 +254,8 @@ static func _cost(definition: Resource) -> Dictionary:
 
 
 static func planning_footprint(definition: BuildingDef) -> Vector2:
-	# Original sprites cover four simulation units per source tile. This is a
-	# planning preference, never a change to authoritative placement legality.
-	return definition.footprint * PLANNING_SCALE
+	# Visual ground clearance is separate from authoritative placement legality.
+	return Queries.planning_size(definition.id, definition.footprint)
 
 
 ## Drops actors freed or queued for deletion across a frame boundary.
@@ -304,8 +304,6 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 	var base: Vector2 = work.base
 	var direction: Vector2 = work.direction
 	var start_angle: float = work.start_angle
-	var sites: Dictionary = work.sites
-	var wall_strips: Array[Rect2] = work.wall_strips
 	if Walls.is_fortification(StringName(record.id)): return result
 	# Resource shortages do not invalidate geometry: the planner can save up.
 	if not record.available and record.blocked_reason != "资源不足": return result
@@ -316,9 +314,6 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 	# unlocks. Include bounded outer alternatives, still requiring own sight,
 	# clear delivery lanes and a reachable builder; nearer plots score first.
 	var radii: Array = [26.0, 30.0, 34.0, 44.0, 50.0, 56.0, 68.0]
-	if zone == "farm":
-		radii = [18.0, 22.0, 28.0, 36.0, 44.0]
-		anchors = _farm_anchors(snapshots, team, base, int(derived.get("own_tc_id", -1)))
 	if record.id in ["lumber_camp", "mining_camp", "mill"]:
 		zone = "resource_drop_off"
 		anchors = _resource_anchors(record.id, snapshots, base)
@@ -329,40 +324,56 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 			# so a missing mill cannot permanently block farms and enclosure.
 			anchors.append({"pos": base, "resource_id": null, "radii": [18.0, 22.0, 26.0, 34.0, 44.0, 50.0], "score_bonus": -10.0})
 	var candidates: Array = []
-	var seen := {}
-	for anchor: Dictionary in anchors:
-		for radius in anchor.get("radii", radii):
-			# At larger radii the original 16 spokes leave wide gaps, missing
-			# legal plots along the irregular edge of the team's current sight.
-			var sectors := 32 if float(radius) > 44.0 else 16
-			for sector in sectors:
-				var point: Vector2 = (anchor.pos + Vector2.from_angle(start_angle + TAU * (sector + 0.5) / float(sectors)) * float(radius)).round()
-				if seen.has(point): continue
-				seen[point] = true
-				if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue
-				if not _planning_clear(definition, point, base, sites, bounds): continue
-				# Reserve the actual wall line, including production exit clearance,
-				# before the first foundation is paid for.
-				if not Perimeter.strips_clear(wall_strips, point, definition.footprint + Vector2.ONE * 4): continue
-				if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): continue
-				if not _can_place(definition.footprint, point, sites) or not _footprint_walkable(point, definition.footprint, nav): continue
-				var facing := (point - base).normalized().dot(direction)
-				var score: float = 100.0 - point.distance_to(anchor.pos) - point.distance_to(base) * 0.1 + float(anchor.get("score_bonus", 0))
-				if zone == "military": score += facing * 10.0
-				elif zone == "residential": score -= facing * 8.0
-				candidates.append({"point": point, "score": score, "resource_id": anchor.resource_id, "drop_off_id": anchor.get("drop_off_id")})
-	candidates.sort_custom(func(a, b): return a.score > b.score)
+	if zone == "farm":
+		var side := Vector2(-1 if direction.x < 0 else 1, -1 if direction.y < 0 else 1)
+		candidates = Queries.farm_sites(_farm_anchors(snapshots, team), side, LANE_WIDTH * 0.5)
+	else:
+		var seen := {}
+		for anchor: Dictionary in anchors:
+			for radius in anchor.get("radii", radii):
+				# At larger radii the original 16 spokes leave wide gaps, missing
+				# legal plots along the irregular edge of the team's current sight.
+				var sectors := 32 if float(radius) > 44.0 else 16
+				for sector in sectors:
+					var point: Vector2 = (anchor.pos + Vector2.from_angle(start_angle + TAU * (sector + 0.5) / float(sectors)) * float(radius)).round()
+					if seen.has(point): continue
+					seen[point] = true
+					if zone == "military" and point.distance_to(base) < FARM_RESERVE_RADIUS + planning_footprint(definition).length() * 0.25: continue
+					if not _site_available(definition, point, work, state, team, bounds, nav): continue
+					var facing := (point - base).normalized().dot(direction)
+					var score: float = 100.0 - point.distance_to(anchor.pos) - point.distance_to(base) * 0.1 + float(anchor.get("score_bonus", 0))
+					if zone == "military": score += facing * 10.0
+					elif zone == "residential": score -= facing * 8.0
+					candidates.append({"point": point, "score": score, "resource_id": anchor.resource_id, "drop_off_id": anchor.get("drop_off_id")})
+		candidates.sort_custom(func(a, b): return a.score > b.score)
 	var found := 0
 	var checked := 0
-	for candidate: Dictionary in candidates:
-		if found >= POSITIONS_PER_BUILDING or checked >= MAX_ROUTE_CHECKS_PER_BUILDING: break
+	var index := 0
+	while index < candidates.size() and found < POSITIONS_PER_BUILDING and checked < MAX_ROUTE_CHECKS_PER_BUILDING:
+		var candidate: Dictionary = candidates[index]
+		index += 1
 		var point: Vector2 = candidate.point
+		if zone == "farm" and not _site_available(definition, point, work, state, team, bounds, nav): continue
 		var builder: Node2D = free_builders[0]
 		for unit in free_builders:
 			if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
 		checked += 1
-		var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, builder.get("def").resolved_footprint_radius())
-		if route.is_empty() or route[-1].distance_to(point) > 2: continue
+		var radius: float = builder.get("def").resolved_footprint_radius()
+		var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, radius)
+		var reachable := not route.is_empty() and route[-1].distance_to(point) <= 2
+		if reachable and zone == "farm":
+			var detour := _delivery_detour(nav, point, candidate.delivery_goal, radius)
+			reachable = is_finite(detour)
+			candidate.score -= detour
+		if not reachable:
+			if zone == "farm":
+				# Four faces of an isolated mill must not spend the whole path budget.
+				# Try the other depots first, then retry the remaining faces.
+				var remaining := candidates.slice(index)
+				candidates = remaining.filter(func(site): return site.drop_off_id != candidate.drop_off_id)
+				candidates.append_array(remaining.filter(func(site): return site.drop_off_id == candidate.drop_off_id))
+				index = 0
+			continue
 		var exit_pos := point + Vector2.RIGHT * (definition.footprint.x * 0.5 + 2.0)
 		if definition.id in MILITARY_BUILDINGS and not nav.is_world_walkable_with_radius(exit_pos, 0.6): continue
 		result.append({"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point),
@@ -371,7 +382,23 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 			"drop_off_id": candidate.drop_off_id,
 			"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "farm_and_lane_reserve"]})
 		found += 1
+	if zone == "farm":
+		result.sort_custom(func(a, b): return a.score > b.score)
 	return result
+
+
+## Charge only the extra walking around known obstacles. Open fields need
+## just one line check and keep their original edge-distance ranking.
+static func _delivery_detour(nav: RefCounted, point: Vector2, goal: Vector2, radius: float) -> float:
+	if nav.is_segment_walkable(point, goal, radius): return 0.0
+	var path: PackedVector2Array = nav.find_path(point, goal, radius)
+	if path.is_empty() or path[-1].distance_to(goal) > 0.1: return INF
+	var previous := point
+	var length := 0.0
+	for waypoint in path:
+		length += previous.distance_to(waypoint)
+		previous = waypoint
+	return maxf(0.0, length - point.distance_to(goal))
 
 
 static func _defense_options(state: MatchState, entities: Node2D, team: int, civ: CivDef, builders: Array[Node2D], derived: Dictionary, bounds: Rect2, nav: RefCounted) -> Array:
@@ -515,19 +542,21 @@ static func _defense_finish(work: Dictionary) -> Dictionary:
 	return result
 
 
-static func _farm_anchors(snapshots: Array, team: int, base: Vector2, tc_id: int) -> Array:
-	# Housing and military can occupy the first TC rings. Existing food drop-offs
-	# provide bounded secondary farm districts instead of stopping food production.
-	var result: Array = [{"pos": base, "resource_id": null, "drop_off_id": tc_id, "score_bonus": 4.0}]
-	var drop_offs: Array = snapshots.filter(func(item): return item.get("kind") == "building" and int(item.get("team", -1)) == team and item.get("def_id") in ["mill", "town_center"] and bool(item.get("is_complete", false)) and int(item.get("id", -1)) != tc_id)
-	drop_offs.sort_custom(func(a, b): return Protocol.array_to_vec2(a.pos).distance_squared_to(base) < Protocol.array_to_vec2(b.pos).distance_squared_to(base))
-	for drop_off: Dictionary in drop_offs:
-		var point: Vector2 = Protocol.array_to_vec2(drop_off.pos)
-		if result.any(func(anchor): return anchor.pos.distance_to(point) < 12.0): continue
-		result.append({"pos": point, "resource_id": null, "drop_off_id": drop_off.id,
-			"radii": [14.0, 18.0, 22.0, 28.0] if drop_off.def_id == "mill" else [18.0, 22.0, 28.0, 36.0]})
-		if result.size() >= 3: break
-	return result
+static func _site_available(definition: BuildingDef, point: Vector2, work: Dictionary, state: MatchState, team: int, bounds: Rect2, nav: RefCounted) -> bool:
+	if not _planning_clear(definition, point, work.base, work.sites, bounds): return false
+	if not Perimeter.strips_clear(work.wall_strips, point, definition.footprint + Vector2.ONE * 4): return false
+	if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): return false
+	return _can_place(definition.footprint, point, work.sites) and _footprint_walkable(point, definition.footprint, nav)
+
+
+static func _farm_anchors(snapshots: Array, team: int) -> Array:
+	var anchors: Array = []
+	for item: Dictionary in snapshots:
+		if item.get("kind") != "building" or item.get("team") != team or item.get("def_id") not in ["mill", "town_center"]: continue
+		if not item.get("is_complete", false) or float(item.get("hp", 0)) <= 0: continue
+		var definition := Catalog.get_building(item.def_id)
+		anchors.append({"pos": Protocol.array_to_vec2(item.pos), "footprint": definition.footprint, "drop_off_id": item.id})
+	return anchors
 
 
 static func _resource_anchors(building_id: String, snapshots: Array, base: Vector2) -> Array:

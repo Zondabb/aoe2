@@ -7,10 +7,16 @@ from brain.game_data import BUILDINGS
 
 # Match AiEntityQueries settlement planning, not the player's legal footprint.
 SETTLEMENT_FOOTPRINT_SCALE = 4.0
+FARM_PLANNING_SIDE = 8.0
 SETTLEMENT_LANE_WIDTH = 4.0
 SETTLEMENT_EDGE_MARGIN = 4.0
 SETTLEMENT_SLOT_STEP = 8
 SETTLEMENT_MAX_RADIUS = 96
+
+
+def planning_size(name, footprint):
+    # The farm ground texture covers just under 8 x 8 simulation units.
+    return (FARM_PLANNING_SIDE,) * 2 if name == "farm" else tuple(side * SETTLEMENT_FOOTPRINT_SCALE for side in footprint)
 
 
 def can_place(
@@ -57,7 +63,7 @@ def can_plan_settlement(
     if not can_place(building_def_id, center, existing_buildings, definitions):
         return False
     footprint = definitions[building_def_id]["footprint"]
-    half = tuple(float(side) * SETTLEMENT_FOOTPRINT_SCALE * 0.5 for side in footprint)
+    half = tuple(side * 0.5 for side in planning_size(building_def_id, footprint))
     if map_bounds is not None:
         minimum_x, minimum_y, maximum_x, maximum_y = map_bounds
         if (
@@ -68,8 +74,9 @@ def can_plan_settlement(
         ):
             return False
     for existing in existing_buildings:
-        other_fp = definitions.get(str(existing.get("def_id", "")), {}).get("footprint", (1.0, 1.0))
-        other_half = tuple(float(side) * SETTLEMENT_FOOTPRINT_SCALE * 0.5 for side in other_fp)
+        name = str(existing.get("def_id", ""))
+        other_fp = definitions.get(name, {}).get("footprint", (1.0, 1.0))
+        other_half = tuple(side * 0.5 for side in planning_size(name, other_fp))
         if _boxes_overlap(center, half, existing.get("pos", (0.0, 0.0)), other_half):
             return False
     resource_footprints = {"FOOD": 0.8, "WOOD": 1.2, "GOLD": 2.0, "STONE": 2.0}
@@ -122,6 +129,16 @@ def next_build_position(
         float(town_center["pos"][1]),
     )
     side = build_side_sign(origin)
+    if building_def_id == "farm":
+        drop_offs = [b for b in all_buildings if b.get("def_id") in ("town_center", "mill")
+                     and b.get("team") == town_center.get("team") and b.get("is_complete", True)
+                     and b.get("hp", 1) > 0 and not b.get("is_placement_ghost")]
+        for first_ring in range(0, 8, 2):
+            for point in _farm_sites(drop_offs, definitions, side, range(first_ring, first_ring + 2)):
+                if (footprint_visible(point, definitions["farm"]["footprint"], placement_visibility)
+                        and can_plan_settlement("farm", point, all_buildings, definitions, resources, map_bounds)):
+                    return point
+        return None
     offsets = []
     for radius in range(16, SETTLEMENT_MAX_RADIUS + 1, SETTLEMENT_SLOT_STEP):
         for offset in range(0, radius + 1, SETTLEMENT_SLOT_STEP):
@@ -137,6 +154,27 @@ def next_build_position(
         if can_plan_settlement(building_def_id, candidate, all_buildings, definitions, resources, map_bounds):
             return candidate
     return None
+
+
+def _farm_sites(drop_offs, definitions, side, rings):
+    """Mirror Godot's farm rings and rank plots by distance to the delivery building's edge."""
+    distances = {}
+    step = math.ceil(FARM_PLANNING_SIDE / 2 + SETTLEMENT_LANE_WIDTH)
+    for building in drop_offs:
+        cx, cy = building["pos"]
+        width, height = definitions[building["def_id"]]["footprint"]
+        inner = math.ceil((width * SETTLEMENT_FOOTPRINT_SCALE + FARM_PLANNING_SIDE) / 2 + SETTLEMENT_LANE_WIDTH)
+        for ring in rings:
+            radius = inner + ring * math.ceil(FARM_PLANNING_SIDE + SETTLEMENT_LANE_WIDTH)
+            slots = math.ceil(radius / step)
+            for slot in range(-slots, slots + 1):
+                shift = max(-radius, min(radius, slot * step))
+                for dx, dy in ((1, 0), (0, 1), (-1, 0), (0, -1)):
+                    x = cx + side[0] * (dx * radius + dy * shift)
+                    y = cy + side[1] * (dy * radius - dx * shift)
+                    gap = math.hypot(max(0, abs(x - cx) - width / 2), max(0, abs(y - cy) - height / 2))
+                    distances[x, y] = min(gap, distances.get((x, y), math.inf))
+    return sorted(distances, key=distances.get)
 
 
 def footprint_visible(center: tuple[float, float], footprint: list | tuple,

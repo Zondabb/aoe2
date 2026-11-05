@@ -133,6 +133,6 @@ func _run() -> void:
 	for farm in current_farms:
 		var others := Queries.all_buildings(entities)
 		others.erase(farm)
-		check(Queries.can_plan_settlement(farm.def.footprint, farm.sim_pos, others), "all active and exhausted plots retain AI layout clearance")
+		check(Queries.can_plan_settlement(farm.def.footprint, farm.sim_pos, others, [], Rect2(), &"farm"), "all active and exhausted plots retain field and traffic clearance")
 	print("AI FARM SUPPLY: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)

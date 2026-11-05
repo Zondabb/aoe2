@@ -248,6 +248,53 @@ func _test_secondary_farm_district() -> void:
 	var after: Array = Observation.build_json_safe(state, world, 0, 1, 5).decision_context.construction_options
 	check(JSON.stringify(before) == JSON.stringify(after), "moving an unseen enemy mill changes no farm district or candidate")
 
+func _test_short_farm_deliveries() -> void:
+	_fixture()
+	var tc := _building(&"town_center", Vector2.ZERO)
+	var mill := _building(&"mill", Vector2(40, 36))
+	var worker := _unit(&"villager", Vector2(12, 12))
+	var obs := Observation.build_json_safe(state, world, 0, 1, 0)
+	var plots: Array = obs.decision_context.construction_options.filter(func(o): return o.building_def_id == "farm")
+	check(not plots.is_empty(), "open mill has farm options")
+	if plots.is_empty(): return
+	var pos := Vector2(plots[0].pos[0], plots[0].pos[1])
+	check(plots[0].drop_off_id == Registry.id_of(mill) and pos.distance_to(mill.sim_pos) == 10, "field hugs the open side of the mill with traffic clearance")
+	var farm := _building(&"farm", pos)
+	worker.sim_pos = pos
+	var food := state.get_resource(0, Enums.ResourceType.FOOD)
+	worker.command_gather(farm)
+	for tick in 120: worker._physics_process(0.1)
+	check(state.get_resource(0, Enums.ResourceType.FOOD) >= food + 20, "one farmer delivers two loads to the mill within 12 simulation seconds")
+	worker.command_stop()
+	worker.carry_amount = 0
+	for dx in [-10, 0, 10]:
+		for dy in [-10, 0, 10]:
+			var occupied := mill.sim_pos + Vector2(dx, dy)
+			if occupied != mill.sim_pos and occupied != pos: _building(&"farm", occupied)
+	obs = Observation.build_json_safe(state, world, 0, 1, 1)
+	plots = obs.decision_context.construction_options.filter(func(o): return o.building_def_id == "farm")
+	check(not plots.is_empty(), "crowded mill can use another drop-off")
+	if not plots.is_empty():
+		pos = Vector2(plots[0].pos[0], plots[0].pos[1])
+		check(plots[0].drop_off_id == Registry.id_of(tc) and pos.distance_to(tc.sim_pos) < 16, "next field uses the open TC ring before expanding beyond the mill")
+
+func _test_inaccessible_mill() -> void:
+	_fixture()
+	var tc := _building(&"town_center", Vector2(-36, -24))
+	_building(&"mill", Vector2(8, 24))
+	_unit(&"villager", Vector2(-30, -16))
+	var cliff := PathBlocker.new()
+	cliff.auto_block_size = false
+	cliff.kind = &"cliff"
+	cliff.block_size = Vector2(2, 168)
+	cliff.sim_pos = Vector2.ZERO
+	world.add_child(cliff)
+	var obs := Observation.build_json_safe(state, world, 0, 1, 0)
+	var plots: Array = obs.decision_context.construction_options.filter(func(o): return o.building_def_id == "farm")
+	check(not plots.is_empty(), "an isolated mill leaves pathfinding budget for the reachable TC")
+	for plot in plots:
+		check(plot.drop_off_id == Registry.id_of(tc) and plot.pos[0] < 0, "field and delivery site are both on the builder's side of the cliff")
+
 func _test_crowded_base_siege_workshop() -> void:
 	_fixture()
 	state.progression_enabled = true
@@ -306,6 +353,8 @@ func _run() -> void:
 	_test_production_progress_and_exit()
 	_test_observation_and_layout()
 	_test_secondary_farm_district()
+	_test_short_farm_deliveries()
+	_test_inaccessible_mill()
 	_test_crowded_base_siege_workshop()
 	_test_projectiles_are_not_observers()
 	world.free()

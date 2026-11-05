@@ -10,6 +10,23 @@ DEFINITIONS = {
 BOUNDS = (-240.0, -180.0, 240.0, 180.0)
 
 
+def test_farms_use_nearest_open_food_drop_off_independently_of_build_slot():
+    defs = {**DEFINITIONS, "farm": {"footprint": [3, 3]}, "mill": {"footprint": [2, 2]}}
+    tc = {"def_id": "town_center", "pos": [0, 0], "team": 0, "is_complete": True}
+    mill = {**tc, "def_id": "mill", "pos": [60, 40]}
+    buildings = [tc, {**mill, "team": 1, "pos": [0, 60]}, {**mill, "pos": [-60, -40], "is_complete": False}]
+    assert next_build_position("farm", tc, buildings, 55, defs) == (16, 0)
+    buildings.append(mill)
+    tc_sight = {"origin": [-100, -100], "cell_size": 1, "grid_size": [200, 200], "sources": [[0, 0, 25]]}
+    assert next_build_position("farm", tc, buildings, 55, defs, placement_visibility=tc_sight) == (16, 0)
+    for slot in (0, 55, 99, 120):
+        plot = next_build_position("farm", tc, buildings, slot, defs)
+        assert abs(plot[0] - 60) + abs(plot[1] - 40) == 12
+        assert can_plan_settlement("farm", plot, buildings, defs)
+        buildings.append({"def_id": "farm", "pos": plot})
+    assert next_build_position("farm", tc, buildings, 55, defs) == (16, 0)
+
+
 def test_planned_spacing_does_not_change_player_build_legality():
     tc = {"def_id": "town_center", "pos": [0, 0]}
     assert can_place("house", (6, 0), [tc], DEFINITIONS)
