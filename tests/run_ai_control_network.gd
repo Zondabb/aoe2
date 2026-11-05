@@ -11,6 +11,10 @@ class ControlStub extends Node:
 		"1": {"enabled": false, "status": "idle", "message": "手动控制"},
 	}
 	var requests: Array = []
+	var instructions: Array = []
+	func accept_instruction(team: int, text: String) -> bool:
+		instructions.append([team, text])
+		return true
 	var remote_updates := 0
 	var stop_count := 0
 
@@ -32,12 +36,7 @@ class ControlStub extends Node:
 			states[team] = {"enabled": false, "status": "idle", "message": "手动控制"}
 
 class SessionStub extends Node:
-	var snapshots: Array = []
 	var finished: Array = []
-
-	func send_snapshot(value: Dictionary) -> bool:
-		snapshots.append(value.duplicate(true))
-		return true
 
 	func finish_match(winner: int) -> bool:
 		finished.append(winner)
@@ -82,6 +81,11 @@ func _run() -> void:
 	var guest := runtime(false)
 	var control := host.get_parent().get_node("PlayerAiControl") as ControlStub
 	var replica := guest.get_parent().get_node("PlayerAiControl") as ControlStub
+	check(host._queue_command({"op": "ai_instruction", "text": "多生产一些骑士"}, 1), "guest instruction reaches host queue")
+	check(not host._queue_command({"op": "ai_instruction", "text": "采粮", "team": 0}, 1), "guest cannot choose the team")
+	host._begin_host_frame()
+	check(control.instructions == [[1, "多生产一些骑士"]], "private instruction routed to sender's team")
+	check(not JSON.stringify(host._frame_commands).contains("多生产一些骑士"), "instruction stays out of player and spectator frames")
 	check(host.execute_team_command({"op": "set_ai_control", "enabled": true}, 1), "guest may enable its own AI on the host")
 	check(control.requests == [{"team": 1, "enabled": true}] and control.states["1"].enabled and not control.states["0"].enabled, "sender identity selects only the guest team")
 	check(host.execute_team_command({"op": "set_ai_control", "enabled": true}, 0), "host may enable its own AI independently")
@@ -109,9 +113,9 @@ func _run() -> void:
 	host._terminal = true
 	check(not host.execute_team_command({"op": "set_ai_control", "enabled": false}, 0), "ended match rejects controls")
 	host._terminal = false
-	host._process(0.0)
+	host._begin_host_frame()
 	var transport := host.session as SessionStub
-	check(transport.snapshots.size() == 1, "accepted control is acknowledged on the next frame")
+	check(host._frame_commands.any(func(item): return item.command.op == "ai_control_state" and item.command.states == control.states), "accepted control is acknowledged on the next frame")
 	var packet: Dictionary = JSON.parse_string(JSON.stringify(host.capture_snapshot()))
 	check(guest.apply_snapshot(packet, 1), "AI control snapshot survives JSON transport")
 	check(replica.remote_updates == 1 and replica.states == control.states, "guest UI receives canonical states for both teams")
@@ -157,10 +161,46 @@ func _run() -> void:
 	check(guest.apply_snapshot(legacy, 2) and replica.remote_updates == 1, "older snapshots without AI ownership remain compatible")
 	host._on_winner(0)
 	check(control.stop_count == 1 and not control.states["0"].enabled and not control.states["1"].enabled, "victory stops both external AIs")
-	check(not transport.snapshots[-1].ai_control["0"].enabled and transport.finished == [0], "victory synchronizes cancelled ownership before match completion")
+	check(transport.finished == [0], "host sends match completion after stopping AI")
 	host._on_ended({"winner": -1, "message": "测试断线"})
 	check(control.stop_count == 2 and host.match_state.frozen and not host._playing, "disconnect stops AI and freezes the match")
 	host.get_parent().free()
 	guest.get_parent().free()
+	_test_instruction_gateway()
 	print("AI CONTROL NETWORK: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)
+
+func _test_instruction_gateway() -> void:
+	var controller = load("res://scripts/ai_gateway/player_ai_control.gd").new()
+	root.add_child(controller)
+	controller.match_state = MatchState.new()
+	controller.match_state.setup_defaults()
+	var gateway = load("res://scripts/ai_gateway/ai_gateway.gd").new()
+	controller.add_child(gateway)
+	gateway._teams.assign([{"team": 0}])
+	gateway.service_status = "online"
+	controller._gateways[0] = gateway
+	controller._set_state(0, true, "active", "")
+	check(controller.request_local_instruction("  多生产一些骑士  "), "real player controller accepts active-team text")
+	check(not controller.request_local_instruction(" ") and not controller.request_local_instruction("x".repeat(241)), "real controller rejects empty and oversized text")
+	check(not controller.accept_instruction(1, "增加食物采集"), "other team has no access to this gateway")
+	for message in ["增加食物采集", "防守基地", "升级城堡时代", "优先采金"]:
+		check(controller.request_local_instruction(message), "active player may revise plans")
+	var expected := ["增加食物采集", "防守基地", "升级城堡时代", "优先采金"]
+	var payload: Dictionary = gateway._assemble_tick_payload({}, 1, [], {"team": 0, "civ": null, "time_sec": 1.0, "enemy_team": 1}, {})
+	check(payload.observation.player_instructions == expected, "recent four instructions survive ordinary tick assembly")
+	check(gateway._assemble_multi_agent_payload(payload, 1).observation.player_instructions == expected, "v3 HTTP payload carries exact player text")
+	check(gateway._assemble_chat_payload(payload, 1).observation.player_instructions == expected, "v2 HTTP payload carries exact player text")
+	var other: Dictionary = gateway._assemble_tick_payload({}, 1, [], {"team": 1, "civ": null, "time_sec": 1.0, "enemy_team": 0}, {})
+	check(not other.observation.has("player_instructions"), "observations keep team instructions separate")
+	gateway.stop()
+	check(gateway._player_instructions.is_empty() and not controller.request_local_instruction("继续采金"), "stopping a gateway clears directions and prevents late text")
+	var network := Runtime.new()
+	network.name = "NetworkMatch"
+	controller.add_child(network)
+	network._playing = true
+	controller.online = true
+	check(not controller.local_state().available and not controller.request_local_enabled(true), "initial synchronization keeps online takeover unavailable")
+	network.synchronized = true
+	check(controller.local_state().available, "synchronized peer can request AI takeover")
+	controller.free()

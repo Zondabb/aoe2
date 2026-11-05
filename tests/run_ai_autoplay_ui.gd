@@ -6,6 +6,10 @@ class MockController extends Node:
 	signal state_changed
 	var state := {"enabled": false, "status": "off", "message": "", "available": true}
 	var requests: Array[bool] = []
+	var instructions: Array[String] = []
+	func request_local_instruction(value: String) -> bool:
+		instructions.append(value)
+		return true
 	var routes := {0: "http://127.0.0.1:8765", 1: "http://127.0.0.1:8766"}
 	var route_requests: Array = []
 	var remote_state := {"enabled": false, "status": "off", "message": "", "available": true}
@@ -83,6 +87,15 @@ func _run() -> void:
 	checkbox.button_pressed = false
 	_check(controller.requests == [true, false] and label.text == "手动控制", "取消勾选向 controller 申请停止")
 	controller.update({"enabled": true, "status": "active"})
+	var input := control._instruction
+	_check(input.is_visible_in_tree() and input.max_length == 240 and control._send.disabled, "托管中显示本队指令输入框")
+	input.text = "多生产一些骑士"
+	input.text_submitted.emit(input.text)
+	input.text = "增加食物采集"
+	control._send.pressed.emit()
+	_check(controller.instructions == ["多生产一些骑士", "增加食物采集"] and input.text.is_empty(), "回车和发送按钮提交原文并清空输入框")
+	input.text_submitted.emit("   ")
+	_check(controller.instructions.size() == 2, "空白指令不发送")
 	_check(checkbox.button_pressed and label.text == "托管中", "状态信号更新托管显示且不产生额外请求")
 	_check(controller.requests.size() == 2, "权威状态刷新不触发 toggle 回传")
 	controller.update({"status": "pending"})

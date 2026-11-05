@@ -51,6 +51,10 @@ def _command(command: Any, settings: Settings) -> None:
         raise ProtocolError("invalid_payload", "command must contain a string op")
     if any(key in command for key in ("team", "player_id", "match_id", "host_team")):
         raise ProtocolError("invalid_payload", "Command identity is assigned by the service")
+    if command.get("op") == "ai_instruction":
+        text = command.get("text")
+        if set(command) != {"op", "text"} or not isinstance(text, str) or not text.strip() or len(text) > 240:
+            raise ProtocolError("invalid_payload", "AI instruction requires 1 to 240 characters of text")
     if command.get("op") == "set_ai_control":
         if set(command) != {"op", "enabled"} or type(command["enabled"]) is not bool:
             raise ProtocolError("invalid_payload", "AI control requires only op and a boolean enabled field")
@@ -136,6 +140,8 @@ def parse_message(raw: str, settings: Settings) -> dict:
                 if not isinstance(entry, dict) or set(entry) != {"team", "command"} or type(entry["team"]) is not int or entry["team"] not in (0, 1):
                     raise ProtocolError("invalid_payload", "Each frame command requires a team and command")
                 _command(entry["command"], settings)
+                if entry["command"]["op"] == "ai_instruction":
+                    raise ProtocolError("invalid_payload", "Player instructions are private to the host")
             if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
                 raise ProtocolError("invalid_payload", "Frame exceeds the size limit")
         elif kind == "keyframe":

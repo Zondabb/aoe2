@@ -21,6 +21,7 @@ func wait_for(predicate: Callable, seconds := 10.0) -> bool:
 	return false
 
 func _run() -> void:
+	Engine.time_scale = 1.0
 	var args := OS.get_cmdline_user_args()
 	if args.is_empty():
 		push_error("Run tools/test_ai_autoplay_e2e.py with a local mock upstream")
@@ -30,6 +31,8 @@ func _run() -> void:
 	session.online_active = false
 	session.match_ai_mode = "local"
 	session.ai_service_url = args[0]
+	session.ai_team_service_urls = {0: "", 1: ""}
+	session.ai_team_service_tokens = {0: "", 1: ""}
 	session.ai_service_token = ""
 	session.ai_chat_url = ""
 	session.ai_llm_base_url = ""
@@ -38,7 +41,7 @@ func _run() -> void:
 	session.ai_service_timeout_sec = 10.0
 	session.ai_multi_agent_enabled = args.size() < 3 or args[2] != "v2"
 	session.ai_fast_tick_interval_sec = 0.25
-	session.ai_fast_timeout_sec = 3.0
+	session.ai_fast_timeout_sec = 15.0
 	# The opt-in selects the Python service independently of obsolete provider settings.
 	session.ai_backend = "rules_compat"
 	session.ai_protocol = "v1_tick"
@@ -59,7 +62,19 @@ func _run() -> void:
 	var first_gateway_id := gateway.get_instance_id()
 	check(not gateway.config.use_local_embedded and gateway.config.protocol == "v2_chat", "player opt-in forces external Python AI service")
 	check(gateway.config.uses_multi_agent_protocol() == session.ai_multi_agent_enabled, "player opt-in honors v3 setting and v2 rollback")
-	check(await wait_for(func(): return gateway.metrics.tick_success_count >= 1), "actual external HTTP decision completed")
+	if not await wait_for(func(): return not control._gateways.has(0) or control._gateways[0].metrics.tick_success_count >= 1, 20.0):
+		check(false, "first AI decision timed out")
+	if not is_instance_valid(gateway):
+		check(false, "gateway connection failed: " + str(control.local_state()))
+		quit(1)
+		return
+	var instruction_input: LineEdit = world.get_node("UILayer/AiAutoplayControls")._instruction
+	var decisions_before_instructions: int = gateway.metrics.tick_success_count
+	for message in ["多生产一些骑士", "增加食物采集"]:
+		instruction_input.text = message
+		instruction_input.text_submitted.emit(message)
+		check(instruction_input.text.is_empty(), "instruction submitted through the active player's HUD")
+	check(await wait_for(func(): return gateway.metrics.tick_success_count >= decisions_before_instructions + 2, 20.0), "subsequent HTTP decisions complete after submitting instructions")
 	check(await wait_for(func(): return gateway.tick >= 2 and _has_orders(world, 0)), "external commands execute for own team")
 	if session.ai_multi_agent_enabled:
 		check(await wait_for(func(): return _all_roles_planned(gateway), 15.0), "all seven real propose_plan responses are applied to player specialists")
@@ -74,6 +89,7 @@ func _run() -> void:
 	}]})
 	checkbox.button_pressed = false
 	check(not control.local_state().enabled and not gateway.enabled and gateway._pending_responses.is_empty(), "uncheck immediately stops and clears queued decisions")
+	check(gateway._player_instructions.is_empty() and not control.request_local_instruction("采粮"), "cancellation drops previous instructions and rejects new ones")
 	gateway._execute_due_commands(gateway.tick + 100)
 	check(tc.train_queue.size() == queued and control.match_state.get_resource(0, Enums.ResourceType.FOOD) == before_food, "cancelled future order cannot spend resources")
 	check(queued > 0 and tc.train_queue.size() == queued, "existing production remains after cancellation")
@@ -94,11 +110,13 @@ func _run() -> void:
 	# A dead local endpoint fails visibly and leaves the checkbox retryable.
 	session.ai_service_url = args[1]
 	session.ai_service_timeout_sec = 0.5
+	session.ai_fast_timeout_sec = 0.5
 	checkbox.button_pressed = true
 	check(await wait_for(func(): return control.local_state().status == "error"), "offline Python service produces clear error")
 	check(not checkbox.button_pressed and not checkbox.disabled and control._gateways.is_empty(), "connection failure restores manual control and allows retry")
 	session.ai_service_url = args[0]
 	session.ai_service_timeout_sec = 10.0
+	session.ai_fast_timeout_sec = 15.0
 	checkbox.button_pressed = true
 	check(await wait_for(func(): return control.local_state().status == "active"), "service can recover after retry")
 	control.match_state.set_winner(0)

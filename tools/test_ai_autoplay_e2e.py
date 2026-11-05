@@ -39,6 +39,8 @@ def main() -> int:
     mock = MockStrategist()
     planner = RolePlanner()
     offered_plan = set()
+    saw_instructions = threading.Event()
+    online_instructions = set()
     mock_lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -57,8 +59,18 @@ def main() -> int:
                         return
                     context = json.loads(payload["messages"][-1]["content"])
                     offered_plan.add(context["role"])
+                    if context.get("player_instructions") == ["多生产一些骑士", "增加食物采集"]:
+                        saw_instructions.set()
+                    for team in (0, 1):
+                        if context.get("player_instructions") == [f"队伍{team}：增加食物采集"]:
+                            online_instructions.add(team)
                     result = planner.complete(payload)
                 else:
+                    brief = payload["messages"][-1]["content"]
+                    instructions = json.loads(brief.split("\n", 1)[1]).get("player_instructions", []) if brief.startswith("RTS decision brief:\n") else []
+                    if instructions == ["多生产一些骑士", "增加食物采集"]: saw_instructions.set()
+                    for team in (0, 1):
+                        if instructions == [f"队伍{team}：增加食物采集"]: online_instructions.add(team)
                     result = mock.complete(payload)
                 response = json.dumps(result).encode("utf-8")
             try:
@@ -113,7 +125,7 @@ def main() -> int:
         raise RuntimeError("temporary service startup timed out")
 
     def wait_clients(clients: list[subprocess.Popen], labels: list[str], marker: str) -> None:
-        deadline = time.monotonic() + 45
+        deadline = time.monotonic() + 120
         while any(client.poll() is None for client in clients):
             if time.monotonic() > deadline:
                 raise RuntimeError("Godot autoplay timed out")
@@ -143,9 +155,13 @@ def main() -> int:
         ai_url = f"http://127.0.0.1:{ai_port}"
         single = godot("run_ai_autoplay.gd", "single", [ai_url, f"http://127.0.0.1:{dead_port}", args.protocol])
         wait_clients([single], ["single"], "AI AUTOPLAY SINGLE:")
+        if not saw_instructions.is_set():
+            raise RuntimeError("Player instructions did not reach the upstream model")
         peers = [godot("run_ai_autoplay_peer.gd", f"peer-{side}",
                        [f"ws://127.0.0.1:{relay_port}/ws", ai_url, args.protocol]) for side in range(2)]
         wait_clients(peers, ["peer-0", "peer-1"], "AI AUTOPLAY PEER:")
+        if online_instructions != {0, 1}:
+            raise RuntimeError(f"Both online teams' instructions must reach separate model contexts: {online_instructions}")
         if args.protocol == "v3":
             expected = {"commander", "construction", "economy", "technology", "scout", "combat", "defense"}
             if planner.calls < 6 or planner.roles != expected or offered_plan != expected:

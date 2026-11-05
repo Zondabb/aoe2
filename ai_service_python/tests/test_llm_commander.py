@@ -270,6 +270,7 @@ def test_transport_failure_continues_plan_and_is_explicit() -> None:
 def test_brief_is_in_actual_upstream_body_and_does_not_mutate_request() -> None:
     commander = LlmCommander("chinese")
     req = request()
+    req.observation.player_instructions = ["多生产一些骑士", "增加食物采集"]
     before = req.model_dump()
     prepared = commander.prepare_request(req)
     payload = build_openai_payload(prepared)
@@ -277,6 +278,7 @@ def test_brief_is_in_actual_upstream_body_and_does_not_mutate_request() -> None:
     assert "observation" not in payload
     assert payload["tools"][-1]["function"]["name"] == "set_strategy"
     brief = json.loads(payload["messages"][-1]["content"].split("\n", 1)[1])
+    assert brief["player_instructions"] == req.observation.player_instructions
     assert brief["catalog"]["units"][1]["cost"] == {"food": 60, "gold": 20}
     assert brief["construction_options"][0]["builder_id"] == 10
     assert brief["scouting"]["frontiers"][0]["pos"] == [20, 20]

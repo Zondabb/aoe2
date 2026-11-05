@@ -60,6 +60,7 @@ const COMMAND_FIELDS := {
 	"research_technology": ["op", "building_id", "technology_id"], "cancel_technology": ["op", "building_id", "technology_id"],
 	"place_wall": ["op", "builder_id", "building_def_id", "start", "end", "include_gate", "append_queue"],
 	"set_gate_state": ["op", "building_id", "gate_state"], "set_ai_control": ["op", "enabled"],
+	"ai_instruction": ["op", "text"],
 }
 
 
@@ -499,6 +500,13 @@ func _begin_host_frame() -> void:
 	var batch := _pending_commands.slice(0, MAX_FRAME_PLAYER_COMMANDS)
 	_pending_commands = _pending_commands.slice(batch.size())
 	for item in batch:
+		# The text belongs only to this player's host-side gateway. The resulting
+		# validated gameplay orders go into subsequent lockstep frames as usual.
+		if item.command.get("op") == "ai_instruction":
+			var ai := _ai_controller()
+			if ai != null and item.command.get("text") is String:
+				ai.accept_instruction(int(item.team), item.command.text)
+			continue
 		var ok := false
 		if item.has("ai_context"):
 			ok = execute_team_command(item.command, int(item.team), item.ai_context, item.ai_original)

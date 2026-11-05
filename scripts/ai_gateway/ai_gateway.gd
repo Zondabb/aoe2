@@ -34,6 +34,8 @@ var last_tick_latency_ms := -1.0
 var service_status := "starting"
 
 var _teams: Array[Dictionary] = []
+const MAX_PLAYER_INSTRUCTIONS := 4
+var _player_instructions: Dictionary = {}
 var _exec_contexts: Dictionary = {}
 var _tick_accum := 0.0
 var _http_client: HttpAiClient
@@ -82,6 +84,7 @@ func setup(
 	decision_log = shared_log if shared_log != null else AiDecisionLogScript.new()
 	metrics = AiGatewayMetricsScript.new()
 	_teams.clear()
+	_player_instructions.clear()
 	for team_entry in teams:
 		if team_entry is Dictionary:
 			_teams.append(team_entry)
@@ -93,6 +96,7 @@ func stop(status: String = "stopped") -> void:
 	var stopped_epoch := _generation
 	_generation += 1
 	enabled = false
+	_player_instructions.clear()
 	service_status = status
 	set_process(false)
 	_pending_responses.clear()
@@ -648,8 +652,22 @@ func _build_tick_payload_budgeted(team_entry: Dictionary, current_tick: int, eve
 	return _assemble_tick_payload(team_entry, current_tick, events, info, observation)
 
 
+func add_player_instruction(team: int, message: String) -> bool:
+	var instruction := message.strip_edges()
+	if not enabled or service_status != "online" or instruction.is_empty() or message.length() > AiProtocolScript.MAX_PLAYER_INSTRUCTION_LENGTH:
+		return false
+	if not _teams.any(func(entry): return entry.team == team):
+		return false
+	var recent: Array = _player_instructions.get(team, [])
+	recent.append(instruction)
+	if recent.size() > MAX_PLAYER_INSTRUCTIONS: recent.pop_front()
+	_player_instructions[team] = recent
+	return true
+
 func _assemble_tick_payload(team_entry: Dictionary, current_tick: int, events: Array, info: Dictionary, observation: Dictionary) -> Dictionary:
 	var team: int = info.team
+	if _player_instructions.has(team):
+		observation["player_instructions"] = _player_instructions[team].duplicate()
 	var civ: CivDef = info.civ
 	return {
 		"team": team,

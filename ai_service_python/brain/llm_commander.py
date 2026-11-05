@@ -217,6 +217,9 @@ class LlmCommander:
             "A bounded executor continues scouting, foundations, economy, military production and rallying between plans. "
             "muster holds the army until you select attack; attack still requires army_target before first commitment. "
             "Rejected actions in recent_rejections must be repaired, not repeated. Keep your answer concise.")))
+        if obs.player_instructions:
+            brief["player_instructions"] = obs.player_instructions
+            out.messages[-1].content += " Follow your team's player_instructions using legal game actions. Newer instructions take precedence when they conflict."
         out.messages.append(ChatMessage(role="user", content="RTS decision brief:\n" + json.dumps(brief, ensure_ascii=False, separators=(",", ":"))))
         return out
 

@@ -99,6 +99,7 @@ ROLE_PROMPTS = {
     "technology": _COMMON_PROMPT + "Own age and dependency goals. target_age controls advancement (siege needs may require age 2). Once a target age is reached, reassess the next age using income and threats instead of repeating a completed goal forever. budget_fraction controls savings/research affordability, trading current production for progress. priority orders available economy, military or siege upgrades. Use catalog prerequisites and supported capabilities.",
     "scout": _COMMON_PROMPT + "Own information missions. focus prioritizes enemy_base probes, resource frontiers or attack_route information. scout_count uses up to that many available scouts; revisit_seconds sets the delay before checking remembered buildings. Respond to missing resources/route information using observed knowledge only.",
     "combat": _COMMON_PROMPT + "Own military capacity and a persistent destroy-TC objective. Siege demolishes blocking walls, then the enemy TC and production; regular soldiers screen siege against defenders and raid nearby villagers. A bounded siege complement is funded proactively once available; do not wait for a failed TC assault. Closest suitable soldiers handle base threats without recalling the whole siege force. producer/producer_count request that building type and total count; choose supported production suited to visible enemies and income. army_target affects the next sortie once the current size is frozen. Use strategy_signals and failed_sorties to rebuild after losses; raise capacity only when income can fund it. retreat_hp_fraction retreats a wounded force below that health share; lower it for commitment, raise it to preserve units. "
+              "Use composition=knights and producer=stable for a player request to train knights; this favors available knight-line units. "
               "composition=counter trains the best resource-efficient answer to intel.estimated_enemy_army (this game's real damage rules, "
               "which may differ from the original game's bonuses); infantry/archers/cavalry force a unit family; mixed diversifies. "
               "target_priority=army fights enemy soldiers first, economy raids villagers while only answering soldiers that engage, "
@@ -1555,7 +1556,7 @@ class MultiAgentRuntime:
             best = next((item for item in self.counter_ranking if item.get("available_now")), None)
             name = best["producer"] if best and best["score"] >= .1 else None
         else:
-            name = {"infantry": "barracks", "archers": "archery_range", "cavalry": "stable"}.get(composition)
+            name = {"infantry": "barracks", "archers": "archery_range", "cavalry": "stable", "knights": "stable"}.get(composition)
         return name if name in ("barracks", "archery_range", "stable") and name in f.building_defs else None
 
     def _recover_approach(self, f: _DecisionFrame, unit: dict, goal: list) -> bool:
@@ -2108,6 +2109,8 @@ class MultiAgentRuntime:
             preferred_classes = COMPOSITION_CLASSES.get(composition, set())
 
             def composition_key(name):
+                if composition == "knights":
+                    return 0 if name in ("knight", "cavalier", "paladin") else 1
                 if composition == "counter":
                     return -round(self.counter_map.get(name, 0.0), 1)
                 return 0 if not preferred_classes or unit_class(name) in preferred_classes else 1

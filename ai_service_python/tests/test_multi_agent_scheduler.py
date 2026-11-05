@@ -225,6 +225,42 @@ def test_goal_discovery_keeps_economy_plan_but_still_rejects_combat_plan(schemas
         service.shutdown()
 
 
+def test_new_player_instruction_reaches_upstream_and_supersedes_inflight_plan(schemas, monkeypatch):
+    from brain.llm_proxy import build_openai_payload
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    contexts = []
+
+    def forward(req):
+        contexts.append(json.loads(build_openai_payload(req)["messages"][-1]["content"]))
+        return completion()
+
+    now = [0.0]
+    service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=1, clock=lambda: now[0])
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        service.tick(tick_request(1))
+        req = tick_request(2)
+        req.observation.player_instructions = ["多生产一些骑士", "增加食物采集"]
+        service.tick(req)
+        service._pool.finish()
+        session = service._sessions[("multi-test", 0)]
+        assert not session.runtime.plans
+        assert session.plan_status["commander"]["state"] == "player_instructions_changed"
+        req = tick_request(3)
+        req.observation.player_instructions = ["多生产一些骑士", "增加食物采集"]
+        service.tick(req)
+        service._pool.finish()
+        assert contexts[-1]["player_instructions"] == req.observation.player_instructions
+        assert len(session.runtime.plans) == 1
+        now[0] += 6  # Expire the previous team's unserved demand.
+        service.tick(tick_request(1, team=1))
+        service._pool.finish()
+        assert "player_instructions" not in contexts[-1]
+    finally:
+        service.shutdown()
+
+
 def test_expired_invalid_output_reports_both_failures(schemas, monkeypatch):
     monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
     logs = []
