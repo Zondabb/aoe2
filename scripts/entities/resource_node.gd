@@ -8,23 +8,35 @@ const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.
 const AiEventBufferScript := preload("res://scripts/ai_gateway/event_buffer.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 
-@export var resource_type: Enums.ResourceType = Enums.ResourceType.FOOD
+## Counts every change of any resource's position, type or size override:
+## the fog/minimap caches reuse their per-record geometry while it is unchanged.
+static var geometry_revision := 0
+@export var resource_type: Enums.ResourceType = Enums.ResourceType.FOOD:
+	set(value):
+		resource_type = value
+		geometry_revision += 1
 var amount_q: int = 100 * Fixed.SCALE
 var gather_rate_q: int = 4 * Fixed.SCALE
 var _gather_remainder: int = 0
 @export var amount: float = 100.0:
-	get: return Fixed.to_float(amount_q)
-	set(value): amount_q = maxi(0, Fixed.from_float(value))
+	get: return float(amount_q) / Fixed.SCALE
+	set(value): amount_q = maxi(0, roundi(value * Fixed.SCALE))
 @export var gather_rate: float = 4.0:
-	get: return Fixed.to_float(gather_rate_q)
-	set(value): gather_rate_q = maxi(0, Fixed.from_float(value))
+	get: return float(gather_rate_q) / Fixed.SCALE
+	set(value): gather_rate_q = maxi(0, roundi(value * Fixed.SCALE))
 ## Generated forests reserve one converted terrain tile per tree. Old maps keep
 ## their existing playable footprints unless a size is explicitly supplied.
-@export var block_size_override := Vector2.ZERO
+@export var block_size_override := Vector2.ZERO:
+	set(value):
+		block_size_override = value
+		geometry_revision += 1
 var block_size: Vector2:
 	get: return selection_footprint(resource_type) if resource_type == Enums.ResourceType.FOOD else pathfinding_size()
 
-var sim_pos := Vector2.ZERO
+var sim_pos := Vector2.ZERO:
+	set(value):
+		sim_pos = value
+		geometry_revision += 1
 var _use_billboard := false
 var block_half := Vector2.ONE
 

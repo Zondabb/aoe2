@@ -50,6 +50,7 @@ var _static_mesh_key: Array = []
 var _static_mesh_vertices := PackedVector2Array()
 var _static_mesh_colors := PackedColorArray()
 var _static_mesh_indices := PackedInt32Array()
+var _quad_index_pattern := PackedInt32Array()
 
 func _ready() -> void:
 	# Blend the fog terrain between cells; marker visibility still uses fog.can_see.
@@ -244,10 +245,28 @@ func refresh_markers() -> void:
 	# This is a read-only snapshot for this synchronous refresh. Resolving it
 	# after live_entities() matters: rebuilding that list invalidates old records.
 	var records: Dictionary = {}
-	if reuse_visibility and _holder is FogHolder and _fog.ready and _holder._static_seen_revision == _fog.revision:
-		records = _holder._records_by_id
+	if reuse_visibility and _holder is FogHolder and _fog.ready:
+		# The visibility queries below would compute the per-revision masks on
+		# first use; computing them first lets every static record use them.
+		if _holder._static_seen_revision != _fog.revision and not _holder._entities_dirty: _holder._compute_seen_masks()
+		if _holder._static_seen_revision == _fog.revision: records = _holder._records_by_id
 	var team_mask := 1 << _team if restricted and _team >= 0 else 0
-	for entity in live:
+	# Units take FogOfWarHolder.entity_visible_for's own answer for a live unit
+	# (no record): own units, else the fog test at its point.
+	var unit_fog: FogOfWarService = _fog if reuse_visibility and _holder is FogHolder and _fog is FogOfWarService else null
+	var iteration: Array = live
+	if not records.is_empty() and team_mask != 0 and ResourceNode.geometry_revision == _holder._resource_geometry_stamp:
+		# No tree or mine changed position, type or size since the holder last
+		# matched its records, so every unseen one fails the geometry test below
+		# unchanged: skip those by record. Static entities keep their order, then
+		# mobile ones; markers are grouped by layer, and each layer holds only one
+		# of the two, so the result is the same.
+		iteration = []
+		for record in _holder._static_records:
+			if record.fast == FogHolder.FAST_RESOURCE and (record.seen_mask & team_mask) == 0: continue
+			iteration.append(record.entity)
+		iteration.append_array(_holder._dynamic_entities)
+	for entity in iteration:
 		if not is_instance_valid(entity) or entity.is_queued_for_deletion(): continue
 		if not reuse_visibility and entity.has_meta("fog_memory"): continue
 		var entity_id: int = entity.get_instance_id()
@@ -257,26 +276,33 @@ func refresh_markers() -> void:
 		# Object.get() lookups for properties that resources do not even have.
 		if entity is ResourceNode:
 			var resource: ResourceNode = entity
-			if resource.amount <= 0.0: continue
+			if resource.amount_q <= 0: continue
 			# Forests outside sight need neither a live marker nor a projection
 			# cache entry. Reuse only the exact observed geometry; a moved/resized
 			# tree still takes the live visibility path before the next fog tick.
 			if record != null and (record.seen_mask & team_mask) == 0:
-				var footprint: Vector2 = record.footprint if record.position == resource.sim_pos and record.resource_type == resource.resource_type and record.size_override == resource.block_size_override else resource.block_size
-				if record.seen_geometry == Rect2(resource.sim_pos, footprint): continue
+				var position := resource.sim_pos
+				var footprint: Vector2 = record.footprint if record.position == position and record.resource_type == resource.resource_type and record.size_override == resource.block_size_override else resource.block_size
+				if record.seen_geometry == Rect2(position, footprint): continue
 			marker = _resource_marker(resource, entity_id)
 		elif entity is BuildingAgent and entity.def != null:
 			var building: BuildingAgent = entity
-			if building.hp <= 0.0 or building.is_placement_ghost: continue
-			if building.has_method("extract") and building.amount <= 0.0: continue
+			if building.hp_q <= 0 or building.is_placement_ghost: continue
+			if building.has_method("extract") and building.amount_q <= 0: continue
 			if record != null and building.team != _team and (record.seen_mask & team_mask) == 0 and record.seen_geometry == Rect2(building.sim_pos, building.def.footprint): continue
 			marker = _static_marker(entity_id, building.sim_pos, building.def.footprint,
 				"building", building.team, building.resource_type, null, building.def)
 		elif entity is UnitAgent and entity.def != null:
 			var unit: UnitAgent = entity
-			if unit.hp <= 0.0: continue
-			marker = {"sim_pos":unit.sim_pos, "minimap_kind":"unit", "team":unit.team,
+			if unit.hp_q <= 0: continue
+			var unit_pos := unit.sim_pos
+			marker = {"sim_pos":unit_pos, "minimap_kind":"unit", "team":unit.team,
 				"resource_type":null, "kind":null, "footprint":Vector2.ZERO, "memory":false}
+			if restricted and unit_fog != null:
+				if unit.team != _team and not (unit_fog.ready and unit_fog.footprint_visible(_team, unit_pos, Vector2.ZERO)): continue
+				shown[entity_id] = true
+				_markers.append(marker)
+				continue
 		elif entity is PathBlocker and entity.is_in_group("path_blockers"):
 			var blocker: PathBlocker = entity
 			marker = _static_marker(entity_id, blocker.sim_pos, blocker.block_size,
@@ -487,20 +513,60 @@ func _rebuild_marker_mesh() -> void:
 		static_count += 1
 		key.append(marker._mesh_key if marker.has("_mesh_key") else [marker.sim_pos, marker.footprint,
 			marker.minimap_kind, marker.get("team"), marker.get("resource_type"), marker.get("kind"), marker.get("memory", false)])
+	# Same arrays as _append_marker_quad over each range (team colours resolved
+	# once per rebuild, the index pattern shared).
+	var team_colors := {}
 	if key != _static_mesh_key:
 		_static_mesh_key = key
-		_static_mesh_vertices = PackedVector2Array()
-		_static_mesh_colors = PackedColorArray()
-		_static_mesh_indices = PackedInt32Array()
-		for index in static_count:
-			_append_marker_quad(_markers[index], _static_mesh_vertices, _static_mesh_colors, _static_mesh_indices)
+		var built := _marker_quads(0, static_count, team_colors)
+		_static_mesh_vertices = built[0]
+		_static_mesh_colors = built[1]
+		_static_mesh_indices = built[2]
 		_marker_mesh = _make_marker_mesh(_static_mesh_vertices, _static_mesh_colors, _static_mesh_indices)
+	var tail := _marker_quads(static_count, _markers.size(), team_colors)
+	_tail_marker_mesh = _make_marker_mesh(tail[0], tail[1], tail[2])
+
+## [vertices, colors, indices] of _markers[start..end): four corners per
+## non-empty polygon, quads indexed (0, 1, 2), (0, 2, 3).
+@warning_ignore("integer_division")
+func _marker_quads(start: int, end: int, team_colors: Dictionary) -> Array:
 	var vertices := PackedVector2Array()
 	var colors := PackedColorArray()
-	var indices := PackedInt32Array()
-	for index in range(static_count, _markers.size()):
-		_append_marker_quad(_markers[index], vertices, colors, indices)
-	_tail_marker_mesh = _make_marker_mesh(vertices, colors, indices)
+	for index in range(start, end):
+		var marker: Dictionary = _markers[index]
+		var polygon := _marker_polygon(marker)
+		if polygon.is_empty(): continue
+		vertices.append_array(polygon)
+		var color := _marker_color_cached(marker, team_colors)
+		colors.append(color)
+		colors.append(color)
+		colors.append(color)
+		colors.append(color)
+	var quads := vertices.size() / 4
+	while _quad_index_pattern.size() < quads * 6:
+		var base := _quad_index_pattern.size() / 6 * 4
+		_quad_index_pattern.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+	return [vertices, colors, _quad_index_pattern.slice(0, quads * 6)]
+
+## marker_color() with each team's palette colour looked up once per rebuild.
+func _marker_color_cached(marker: Dictionary, team_colors: Dictionary) -> Color:
+	var kind: Variant = marker.minimap_kind
+	var color := Color(0.55, 0.53, 0.45)
+	if kind == "unit" or kind == "building":
+		var team := int(marker.team)
+		var cached: Variant = team_colors.get(team)
+		if cached == null:
+			cached = Colors.fallback_color(Colors.resolve_color_id(team, match_state))
+			team_colors[team] = cached
+		color = cached
+	elif kind == "resource":
+		match int(marker.resource_type):
+			Enums.ResourceType.WOOD: color = Color(0.08, 0.25, 0.06)
+			Enums.ResourceType.GOLD: color = Color(1.0, 0.79, 0.13)
+			Enums.ResourceType.FOOD: color = Color(0.72, 0.26, 0.13)
+	elif marker.get("kind") == &"water":
+		color = Color(0.18, 0.40, 0.60)
+	return color.darkened(0.45) if marker.get("memory", false) else color
 
 func _make_marker_mesh(vertices: PackedVector2Array, colors: PackedColorArray, indices: PackedInt32Array) -> ArrayMesh:
 	if vertices.is_empty(): return null

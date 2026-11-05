@@ -30,6 +30,29 @@ func clear() -> void:
 
 
 func register(entity: Object) -> void:
+	if entity != null and is_instance_valid(entity):
+		var script: Script = entity.get_script()
+		# Typed forms of the generic path below (lockstep re-registers every
+		# unit and building each step).
+		if script == UnitAgent:
+			var unit: UnitAgent = entity
+			if unit.hp_q <= 0: return
+			var unit_pos := unit.sim_pos
+			hash.insert(unit, unit_pos)
+			if unit.def != null:
+				unit_hash.insert(unit, unit_pos)
+				sync_motion(unit)
+			else:
+				unit_hash.remove(unit)
+				unit_field.remove(unit.get_instance_id())
+			return
+		if script == BuildingAgent:
+			var building: BuildingAgent = entity
+			if building.is_placement_ghost or building.hp_q <= 0: return
+			hash.insert(building, building.sim_pos)
+			unit_hash.remove(building)
+			unit_field.remove(building.get_instance_id())
+			return
 	if not _is_indexable(entity):
 		return
 	hash.insert(entity, entity.get("sim_pos") as Vector2)
@@ -60,6 +83,20 @@ func sync_motion(entity: Object) -> void:
 
 func sync_position(entity: Object) -> void:
 	if entity == null or not is_instance_valid(entity):
+		return
+	if entity.get_script() == UnitAgent:
+		# Typed form of the generic path below: a unit is indexable while alive.
+		var unit: UnitAgent = entity
+		if not hash.has_entity(unit):
+			if unit.hp_q > 0: register(unit)
+			return
+		if unit.hp_q <= 0:
+			unregister(unit)
+			return
+		var pos := unit.sim_pos
+		hash.move(unit, pos)
+		if unit.def != null: unit_hash.move(unit, pos)
+		else: unit_hash.remove(unit)
 		return
 	if not hash.has_entity(entity):
 		if _is_indexable(entity):

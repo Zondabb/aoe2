@@ -12,8 +12,8 @@ var cooldown_times: Dictionary = {}
 var heal_remainders: Dictionary = {}
 var elapsed_time: int = 0
 var elapsed: float:
-	get: return Fixed.time_to_seconds(elapsed_time)
-	set(value): elapsed_time = Fixed.time_from_seconds(value)
+	get: return float(elapsed_time) / Fixed.TIME_SCALE
+	set(value): elapsed_time = roundi(value * Fixed.TIME_SCALE)
 
 func setup(value: MatchState, root: Node) -> void:
 	state = value

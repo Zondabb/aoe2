@@ -24,11 +24,11 @@ var _total_distance_fixed: int = 0
 var _traveled_fixed: int = 0
 var _travel_remainder: int = 0
 var _total_distance: float:
-	get: return Fixed.to_float(_total_distance_fixed)
-	set(value): _total_distance_fixed = Fixed.from_float(value)
+	get: return float(_total_distance_fixed) / Fixed.SCALE
+	set(value): _total_distance_fixed = roundi(value * Fixed.SCALE)
 var _traveled: float:
-	get: return Fixed.to_float(_traveled_fixed)
-	set(value): _traveled_fixed = Fixed.from_float(value)
+	get: return float(_traveled_fixed) / Fixed.SCALE
+	set(value): _traveled_fixed = roundi(value * Fixed.SCALE)
 var _clock_hours := SpriteCatalogScript.ARROW_CLOCK_START_HOURS
 var _projectile_meta: Dictionary = {}
 var _projectile_texture: Texture2D
@@ -40,8 +40,8 @@ var _shadow_meta: Dictionary = {}
 var _shadow_texture: Texture2D
 var _impact_elapsed_time: int = 0
 var _impact_elapsed: float:
-	get: return Fixed.time_to_seconds(_impact_elapsed_time)
-	set(value): _impact_elapsed_time = Fixed.time_from_seconds(value)
+	get: return float(_impact_elapsed_time) / Fixed.TIME_SCALE
+	set(value): _impact_elapsed_time = roundi(value * Fixed.TIME_SCALE)
 var _launch_height := 0.0
 var _stone := false
 var _ground_shadow: Sprite2D
