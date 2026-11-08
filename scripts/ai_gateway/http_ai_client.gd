@@ -6,6 +6,11 @@ const BACKGROUND_ENTITY_COUNT := 96
 const BACKGROUND_VALUE_COUNT := 2048
 const BACKGROUND_TEXT_LENGTH := 32768
 const MAX_JSON_DEPTH := 128
+## Health and match start/end are not on the per-second tick path. The v3 fast
+## tick timeout (3 s by default) is too short for them: HTTPRequest counts
+## scaled frame time, so a long loading frame or 2x game speed used it up and
+## the opponent AI stayed offline for the whole match.
+const CONTROL_TIMEOUT_SEC := 15.0
 
 class JsonPayloadInfo extends RefCounted:
 	var values := 0
@@ -42,6 +47,8 @@ var _json_task_id := -1
 var _json_job: JsonEncodingJob
 var _frame_waiters: Array[RequestFrameWaiter] = []
 var last_error := ""
+## Timeout for the next _request_json call only; 0 uses the configured one.
+var _next_request_timeout := 0.0
 
 
 func _ready() -> void:
@@ -79,15 +86,22 @@ func cancel_requests() -> void:
 
 
 func get_health() -> Dictionary:
+	_next_request_timeout = _control_timeout()
 	return await _request_json("GET", config.health_url(), {})
 
 
 func post_match_start(payload: Dictionary) -> Dictionary:
+	_next_request_timeout = _control_timeout()
 	return await _request_json("POST", config.match_start_url(), payload)
 
 
 func post_match_end(payload: Dictionary) -> Dictionary:
+	_next_request_timeout = _control_timeout()
 	return await _request_json("POST", config.match_end_url(), payload)
+
+
+func _control_timeout() -> float:
+	return maxf(CONTROL_TIMEOUT_SEC, _request_timeout())
 
 
 func post_tick(request_dict: Dictionary, retry: bool = true) -> Dictionary:
@@ -168,10 +182,19 @@ func _ensure_http() -> bool:
 func _apply_timeout() -> void:
 	if _http == null or config == null:
 		return
-	_http.timeout = maxf(0.5, config.fast_timeout_sec if config.uses_multi_agent_protocol() else config.timeout_sec)
+	_http.timeout = _request_timeout()
+
+
+func _request_timeout() -> float:
+	if config == null:
+		return CONTROL_TIMEOUT_SEC
+	return maxf(0.5, config.fast_timeout_sec if config.uses_multi_agent_protocol() else config.timeout_sec)
 
 
 func _request_json(method: String, url: String, payload: Dictionary, generation: int = -1) -> Dictionary:
+	# Read before any await: the next caller may set its own timeout meanwhile.
+	var timeout_sec := _next_request_timeout
+	_next_request_timeout = 0.0
 	if generation == -1:
 		generation = _cancel_generation
 	if generation != _cancel_generation:
@@ -205,6 +228,8 @@ func _request_json(method: String, url: String, payload: Dictionary, generation:
 	if generation != _cancel_generation:
 		return {"ok": false, "reason": "cancelled"}
 	var http_method := HTTPClient.METHOD_GET if method == "GET" else HTTPClient.METHOD_POST
+	# Requests are serialized, so the per-request timeout cannot leak into another.
+	_http.timeout = timeout_sec if timeout_sec > 0.0 else _request_timeout()
 	var err := _http.request(url, headers, http_method, body)
 	if err != OK:
 		_active = false

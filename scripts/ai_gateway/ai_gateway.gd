@@ -172,7 +172,20 @@ func _init_runtime() -> void:
 		ctx.require_session_epoch = config.uses_multi_agent_protocol()
 		_exec_contexts[team] = ctx
 
-	call_deferred("_on_match_start", _generation)
+	call_deferred("_start_when_loaded", _generation)
+
+
+## Talk to the service once the match has finished loading. The first frame
+## after loading carries the whole loading time as its delta, which HTTPRequest
+## counts against the timeout of a request already sent.
+func _start_when_loaded(generation: int) -> void:
+	for _frame in 2:
+		if not is_inside_tree():
+			break
+		await get_tree().process_frame
+		if not _is_current(generation):
+			return
+	_on_match_start(generation)
 
 
 func _on_match_start(generation: int = -1) -> void:
