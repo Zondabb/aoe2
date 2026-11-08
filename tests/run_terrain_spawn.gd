@@ -74,7 +74,7 @@ func _run() -> void:
 	var trained := _trained(fixture)
 	check(trained.size() == 1, "ordinary open terrain produces one unit")
 	if not trained.is_empty():
-		check(trained[0].sim_pos.is_equal_approx(Vector2(2.8, 0)), "unobstructed town center keeps its original exit")
+		check(trained[0].sim_pos.distance_to(fixture.building.sim_pos + Vector2(fixture.building.get_interaction_half().x + 0.8, 0)) < 0.01, "unobstructed town center exits just outside its drawn edge (%s)" % trained[0].sim_pos)
 	check(fixture.state.population[0] == 1 and fixture.state.population_reserved[0] == 0, "successful spawn transfers the population reservation once")
 	fixture.world.free()
 	for with_nav in [true, false]:

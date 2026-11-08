@@ -32,6 +32,12 @@ const FACING_SECTOR_FLIPS: Array[bool] = [false, true, true, true, false, false,
 const ATTACK_HIT_FRACTION := 0.45
 const RANGED_RELEASE_FRACTION := 0.35
 const ATTACK_CHASE_SLACK := 0.25
+const ATTACK_SPOT_PATIENCE := 5.0
+const ATTACK_SPOT_TOLERANCE := 0.25
+const ATTACK_SPOT_STUCK_TIME := 1.5
+const ATTACK_SPOT_STUCK_DISTANCE := 0.3
+const ATTACK_SPOT_NEAR := 3.0
+const WallRulesScript := preload("res://scripts/systems/wall_system.gd")
 const MELEE_ATTACK_SLOTS := 12
 ## Q10 unit directions at 30-degree intervals. These constants replace libm
 ## trigonometry when assigning authoritative combat approach points.
@@ -98,6 +104,16 @@ var _build_target: Node2D
 var _last_seen_resource_pos := Vector2.ZERO
 var _last_seen_attack_pos := Vector2.ZERO
 var _attack_target: Node2D
+## Edge spot held around the building being attacked (see BuildingAgent),
+## and how long this unit, already within reach, may still walk along the
+## edge to that spot before striking from wherever it stands.
+var _attack_spot := -1
+var _attack_spot_patience_units: int = 0
+## Spots this unit found blocked around its current target, and where it stood
+## when its progress toward its spot was last checked.
+var _attack_spot_skipped := {}
+var _attack_spot_check_q := Vector2i.ZERO
+var _attack_spot_check_units: int = 0
 var _attack_cooldown_remaining_units: int = 0
 var _attack_cooldown_remaining: float:
 	get: return float(_attack_cooldown_remaining_units) / Fixed.TIME_SCALE
@@ -536,6 +552,8 @@ func command_attack(target: Node) -> void:
 	_last_seen_attack_pos = target_2d.get("sim_pos")
 	if _attack_target != target_2d:
 		_cancel_combat_action()
+		_attack_spot = -1
+		_attack_spot_skipped.clear()
 	_has_move_command = false
 	_attack_target = target_2d
 	_gather_target = null
@@ -565,10 +583,11 @@ func _process_attack(delta: float) -> void:
 		_attack_target = null
 		order = Enums.OrderType.NONE
 		return
-	if _needs_attack_chase(_attack_target):
+	if _needs_attack_chase(_attack_target) or _seeks_attack_spot(_attack_target, delta):
 		if _combat_action == &"attack":
 			_cancel_combat_action()
 		_move_toward(_attack_approach_point(_attack_target), delta)
+		_check_attack_spot_progress(_attack_target, delta)
 		return
 	if _combat_action == &"attack":
 		_process_attack_animation(delta)
@@ -1140,8 +1159,114 @@ func _preferred_attack_range(target: Node2D) -> float:
 	return _effective_attack_range(target) * 0.92
 
 
+## Attacks reach a building at its drawn edge (BuildingAgent.get_interaction_half),
+## not at the much smaller logical footprint; otherwise attackers stood inside
+## the building art and crowded around one point.
+func _attack_half_q(target: Node2D) -> Vector2i:
+	var building_def := target.get("def") as BuildingDef
+	if building_def == null:
+		return Vector2i.ZERO
+	if target.has_method("get_interaction_half"):
+		return Fixed.vector(target.get_interaction_half())
+	var footprint: Vector2 = target.get_placement_footprint() if target.has_method("get_placement_footprint") else building_def.footprint
+	return Fixed.vector(footprint * 0.5)
+
+func _attack_distance_squared_to(target: Node2D) -> int:
+	var half := _attack_half_q(target)
+	if half.x <= 0 or half.y <= 0:
+		return _distance_squared_to(target)
+	var offset := _sim_pos_q - Fixed.vector(target.get("sim_pos"))
+	return Fixed.length_sq(offset - Vector2i(clampi(offset.x, -half.x, half.x), clampi(offset.y, -half.y, half.y)))
+
+## Nearest point of the target's attack edge.
+func _attack_edge_q(target: Node2D) -> Vector2i:
+	var target_q := Fixed.vector(target.get("sim_pos"))
+	var half := _attack_half_q(target)
+	if half.x <= 0 or half.y <= 0:
+		return target_q
+	var offset := _sim_pos_q - target_q
+	return target_q + Vector2i(clampi(offset.x, -half.x, half.x), clampi(offset.y, -half.y, half.y))
+
+## A melee attacker already within reach of a building keeps walking to its
+## own edge spot for a while, so it does not stop on a spot another attacker
+## is heading for. Once it strikes, or its patience runs out, it stays put.
+func _seeks_attack_spot(target: Node2D, delta: float) -> bool:
+	if _attack_spot < 0 or _attack_spot_patience_units <= 0 or _combat_action == &"attack" or not target.has_method("attack_spot"):
+		return false
+	var spot: Array = target.attack_spot(_attack_spot)
+	var point_q: Vector2i = spot[0] + _direction_q(spot[1], _attack_spot_standoff_q(target))
+	var tolerance_q := Fixed.from_float(ATTACK_SPOT_TOLERANCE)
+	if Fixed.length_sq(_sim_pos_q - point_q) <= tolerance_q * tolerance_q:
+		_attack_spot_patience_units = 0
+		return false
+	_attack_spot_patience_units -= _simulation_time_delta(delta)
+	return true
+
+## A unit that barely moves for a while cannot reach its spot (other units
+## stand there). Within reach it strikes from where it stands; farther out it
+## gives the spot up and heads for another one.
+func _check_attack_spot_progress(target: Node2D, delta: float) -> void:
+	if _attack_spot < 0 or not target.has_method("release_attack_spot"):
+		return
+	var near := Fixed.from_float(ATTACK_SPOT_NEAR)
+	if _attack_distance_squared_to(target) > near * near:
+		# Crowds on the way are not a blocked spot.
+		_attack_spot_check_q = _sim_pos_q
+		_attack_spot_check_units = 0
+		return
+	_attack_spot_check_units += _simulation_time_delta(delta)
+	if _attack_spot_check_units < Fixed.time_from_seconds(ATTACK_SPOT_STUCK_TIME):
+		return
+	_attack_spot_check_units = 0
+	var moved := Fixed.length_sq(_sim_pos_q - _attack_spot_check_q)
+	_attack_spot_check_q = _sim_pos_q
+	var enough := Fixed.from_float(ATTACK_SPOT_STUCK_DISTANCE)
+	if moved >= enough * enough:
+		return
+	if not _needs_attack_chase(target):
+		_attack_spot_patience_units = 0
+		return
+	_attack_spot_skipped[_attack_spot] = true
+	target.release_attack_spot(self)
+	_attack_spot = -1
+
+func _attack_spot_standoff_q(target: Node2D) -> int:
+	return Fixed.mul_div(Fixed.from_float(_effective_attack_range(target)), 95, 100)
+
+## Where to walk next for an edge spot: straight to it from its own side,
+## otherwise round the drawn corners so the walk never crosses the building.
+func _attack_spot_waypoint_q(target: Node2D) -> Vector2i:
+	var spot: Array = target.attack_spot(_attack_spot)
+	var edge_q: Vector2i = spot[0]
+	var normal_q: Vector2i = spot[1]
+	var standoff_q := _attack_spot_standoff_q(target)
+	var center_q := Fixed.vector(target.get("sim_pos"))
+	var half := _attack_half_q(target)
+	var offset := _sim_pos_q - center_q
+	# Side axis 0 faces along x, 1 along y; sign is the side's outward direction.
+	var axis := 0 if normal_q.x != 0 else 1
+	var side_sign := signi(normal_q[axis])
+	if offset[axis] * side_sign >= half[axis]:
+		return edge_q + _direction_q(normal_q, standoff_q)
+	var other := 1 - axis
+	var corner := Vector2i.ZERO
+	corner[axis] = half[axis] * side_sign
+	corner[other] = half[other] * (1 if offset[other] >= 0 else -1)
+	if offset[other] * signi(corner[other]) < half[other]:
+		if offset[axis] * side_sign > -half[axis]:
+			# Already inside the drawn building: just step out to the spot.
+			return edge_q + _direction_q(normal_q, standoff_q)
+		# Behind the building: first reach the corner on the unit's own side.
+		corner[axis] = -corner[axis]
+	return center_q + corner + Vector2i(signi(corner.x) * standoff_q, signi(corner.y) * standoff_q)
+
+## Whether this unit is still set on attacking the target. Buildings use it to
+## free the edge spots of attackers that died or turned elsewhere.
+func is_attacking(target: Node) -> bool:
+	return _attack_target == target and hp > 0.0 and not is_queued_for_deletion()
+
 func _in_attack_range(target: Node2D) -> bool:
-	var distance_squared := _distance_squared_to(target)
+	var distance_squared := _attack_distance_squared_to(target)
 	var minimum := Fixed.from_float(def.minimum_attack_range)
 	var maximum := Fixed.from_float(_effective_attack_range(target))
 	return distance_squared >= minimum * minimum and distance_squared <= maximum * maximum
@@ -1151,7 +1276,7 @@ func _needs_attack_chase(target: Node2D) -> bool:
 	if def.is_ranged or def.minimum_attack_range > 0.0:
 		return not _in_attack_range(target)
 	var maximum := Fixed.from_float(_effective_attack_range(target)) + Fixed.from_float(ATTACK_CHASE_SLACK)
-	return _distance_squared_to(target) > maximum * maximum
+	return _attack_distance_squared_to(target) > maximum * maximum
 
 
 ## Scale a direction with integer arithmetic. The fallback direction also
@@ -1173,21 +1298,37 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 	if def.is_ranged:
 		var standoff_q := Fixed.from_float(_preferred_attack_range(target))
 		var minimum_q := Fixed.from_float(def.minimum_attack_range)
-		var edge_distance_squared := _distance_squared_to(target)
+		var edge_distance_squared := _attack_distance_squared_to(target)
 		if edge_distance_squared < minimum_q * minimum_q:
 			standoff_q = mini(maximum_q, minimum_q + Fixed.SCALE)
 		elif edge_distance_squared > maximum_q * maximum_q:
 			standoff_q = mini(standoff_q, distance_q)
 		else:
 			return sim_pos
-		var edge_q := Fixed.vector(ProjectileAgentScript.aim_point_for_target(sim_pos, target))
+		var edge_q := _attack_edge_q(target)
 		return Fixed.to_vector(edge_q + _direction_q(offset_q, standoff_q))
-	if target.get("def") is BuildingDef:
-		# Keep the near edge so a wall never redirects an approach to its far side.
-		var edge_q := Fixed.vector(ProjectileAgentScript.aim_point_for_target(sim_pos, target))
+	var building_def := target.get("def") as BuildingDef
+	if building_def != null:
+		# Around a drawn building each attacker heads for its own edge spot.
+		# Walls keep the near edge so an approach never goes to their far side.
+		var standoff_q := Fixed.mul_div(maximum_q, 95, 100)
+		if not WallRulesScript.is_fortification(building_def.id) and target.has_method("claim_attack_spot"):
+			var claimed: int = target.claim_attack_spot(self, _sim_pos_q, _attack_spot, _attack_spot_skipped)
+			if claimed < 0 and not _attack_spot_skipped.is_empty():
+				# Every other spot is taken: try the blocked ones again.
+				_attack_spot_skipped.clear()
+				claimed = target.claim_attack_spot(self, _sim_pos_q, _attack_spot)
+			if claimed != _attack_spot:
+				_attack_spot_patience_units = Fixed.time_from_seconds(ATTACK_SPOT_PATIENCE)
+				_attack_spot_check_q = _sim_pos_q
+				_attack_spot_check_units = 0
+			_attack_spot = claimed
+			if claimed >= 0:
+				return Fixed.to_vector(_attack_spot_waypoint_q(target))
+		var edge_q := _attack_edge_q(target)
 		var edge_direction_q := _sim_pos_q - edge_q
 		if edge_direction_q == Vector2i.ZERO: edge_direction_q = offset_q
-		return Fixed.to_vector(edge_q + _direction_q(edge_direction_q, Fixed.mul_div(maximum_q, 95, 100)))
+		return Fixed.to_vector(edge_q + _direction_q(edge_direction_q, standoff_q))
 	var approach_q := _direction_q(offset_q)
 	var slot := int(get_meta("net_id", get_instance_id())) % MELEE_ATTACK_SLOTS
 	var blended_q: Vector2i = Vector2i(Fixed.mul_div(approach_q.x, 8, 5), Fixed.mul_div(approach_q.y, 8, 5)) + MELEE_DIRECTIONS_Q[slot]

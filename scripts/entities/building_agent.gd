@@ -122,6 +122,81 @@ func get_movement_half() -> Vector2:
 		return Vector2.ZERO if gate_open and is_complete else get_placement_footprint() * 0.5
 	return block_half if def != null and def.blocks_movement else Vector2.ZERO
 
+## One original map tile is 96 px wide in the imported art, which is drawn at
+## ORIGINAL_ART_PIXEL_SCALE_2D, while one world unit spans 2 * IsoMath.SCALE_X px.
+## Footprints stay in original tiles for placement and pathing, so a building
+## is drawn about 2.6 times wider than its logical footprint.
+static func art_tile_world() -> float:
+	return 96.0 * SpriteCatalogScript.ORIGINAL_ART_PIXEL_SCALE_2D / (2.0 * IsoMathScript.SCALE_X)
+
+## Half extents of the drawn building. Trained units appear just outside it
+## and attackers stand along it, as in the original game. Walls and gates are
+## drawn per logical segment and keep their footprint.
+func get_interaction_half() -> Vector2:
+	var half := get_placement_footprint() * 0.5
+	if def == null or WallRules.is_fortification(def.id):
+		return half
+	return half * art_tile_world()
+
+## Melee attackers each hold one spot along the drawn edge, a little more
+## than a unit's width apart, so a crowd wraps around the building instead of queueing
+## behind the soldiers already striking it.
+const ATTACK_SPOT_SPACING := 1.1
+var _attack_spot_holders := {}
+
+func _attack_spot_counts() -> Vector2i:
+	var half_q := Fixed.vector(get_interaction_half())
+	var spacing_q := Fixed.from_float(ATTACK_SPOT_SPACING)
+	return Vector2i(maxi(1, Fixed.mul_div(half_q.x, 2, spacing_q)), maxi(1, Fixed.mul_div(half_q.y, 2, spacing_q)))
+
+## Edge point and outward normal of one attack spot, walking the four sides.
+func attack_spot(index: int) -> Array:
+	var counts := _attack_spot_counts()
+	var half_q := Fixed.vector(get_interaction_half())
+	var center_q := Fixed.vector(sim_pos)
+	var side := 0
+	var lanes := counts.x
+	while index >= lanes and side < 3:
+		index -= lanes
+		side += 1
+		lanes = counts.y if side % 2 == 1 else counts.x
+	var lane_q := Fixed.mul_div(half_q.y if side % 2 == 1 else half_q.x, index * 2 + 1 - lanes, lanes)
+	match side:
+		0: return [center_q + Vector2i(lane_q, -half_q.y), Vector2i(0, -Fixed.SCALE)]
+		1: return [center_q + Vector2i(half_q.x, lane_q), Vector2i(Fixed.SCALE, 0)]
+		2: return [center_q + Vector2i(lane_q, half_q.y), Vector2i(0, Fixed.SCALE)]
+	return [center_q + Vector2i(-half_q.x, lane_q), Vector2i(-Fixed.SCALE, 0)]
+
+## Keep the attacker's spot, or give it the free spot nearest to it, passing
+## over spots it found blocked. Spots of attackers that died or turned
+## elsewhere are freed first. Returns -1 when no spot is left.
+func claim_attack_spot(attacker: Node2D, from_q: Vector2i, held := -1, skipped := {}) -> int:
+	if held >= 0 and _attack_spot_holders.get(held) == attacker:
+		return held
+	for index in _attack_spot_holders.keys():
+		var holder: Variant = _attack_spot_holders[index]
+		if not is_instance_valid(holder) or holder == attacker or not (holder as Node).has_method("is_attacking") or not holder.is_attacking(self):
+			_attack_spot_holders.erase(index)
+	var counts := _attack_spot_counts()
+	var best := -1
+	var best_distance := 0
+	for index in 2 * (counts.x + counts.y):
+		if _attack_spot_holders.has(index) or skipped.has(index):
+			continue
+		var distance := Fixed.length_sq(attack_spot(index)[0] - from_q)
+		if best < 0 or distance < best_distance:
+			best = index
+			best_distance = distance
+	if best >= 0:
+		_attack_spot_holders[best] = attacker
+	return best
+
+func release_attack_spot(attacker: Node2D) -> void:
+	for index in _attack_spot_holders.keys():
+		var holder: Variant = _attack_spot_holders[index]
+		if is_instance_valid(holder) and holder == attacker:
+			_attack_spot_holders.erase(index)
+
 func get_navigation_half() -> Vector2:
 	# An auto gate is a possible route. Its physical door opens only for allies
 	# approaching it; hostile walkers cannot trigger the door themselves.
@@ -600,7 +675,8 @@ func _spawn_trained_unit(unit_def: UnitDef) -> bool:
 
 func _training_spawn_position(unit_def: UnitDef, parent: Node2D) -> Variant:
 	var radius := unit_def.resolved_footprint_radius()
-	var half := def.footprint * 0.5 if def != null else Vector2.ONE
+	# Leave from the drawn building, not from inside its art.
+	var half := get_interaction_half() if def != null else Vector2.ONE
 	half = half.max(CollisionResolverScript._blocker_half(self, 0.0))
 	var clearance := maxf(0.8, radius + 0.2)
 	var holder: Node
