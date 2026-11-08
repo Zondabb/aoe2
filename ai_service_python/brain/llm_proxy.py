@@ -95,10 +95,20 @@ def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
     return f"{base}/api/chat" if base else None
 
 
+def _numeric_limits(schema: dict[str, Any]) -> str:
+    """Ollama's format grammar enforces types and enums but not numeric bounds,
+    and the native request carries no tool description the model could read."""
+    limits = [f"{name} {rule['minimum']}..{rule['maximum']}" for name, rule in schema.get("properties", {}).items()
+              if isinstance(rule, dict) and rule.get("type") in ("integer", "number")
+              and "minimum" in rule and "maximum" in rule]
+    return f" Numbers must stay within: {', '.join(limits)}." if limits else ""
+
+
 def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
     messages = _messages_payload(req)
     instruction = ("Return only the propose_plan arguments as one JSON object matching the supplied "
-                   "schema. Do not include commentary, markdown, or a tool-call wrapper.")
+                   "schema. Do not include commentary, markdown, or a tool-call wrapper."
+                   + _numeric_limits(req.tools[0].function.parameters))
     if messages and messages[0]["role"] == "system":
         messages[0]["content"] = f"{messages[0].get('content') or ''}\n{instruction}"
     else:

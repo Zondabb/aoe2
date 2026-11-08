@@ -19,7 +19,7 @@ import time
 from urllib.request import urlopen
 
 from test_external_llm_e2e import MockStrategist, mock_service_settings
-from test_multi_agent_e2e import RolePlanner
+from test_multi_agent_e2e import RolePlanner, planning_context, player_orders
 
 
 def free_port() -> int:
@@ -57,12 +57,13 @@ def main() -> int:
                     if "propose_plan" not in tools:
                         self.send_error(400, "v3 must offer propose_plan")
                         return
-                    context = json.loads(payload["messages"][-1]["content"])
+                    context = json.loads(planning_context(payload)["content"])
                     offered_plan.add(context["role"])
-                    if context.get("player_instructions") == ["多生产一些骑士", "增加食物采集"]:
+                    orders = player_orders(payload)
+                    if orders == ["多生产一些骑士", "增加食物采集"]:
                         saw_instructions.set()
                     for team in (0, 1):
-                        if context.get("player_instructions") == [f"队伍{team}：增加食物采集"]:
+                        if orders == [f"队伍{team}：增加食物采集"]:
                             online_instructions.add(team)
                     result = planner.complete(payload)
                 else:
