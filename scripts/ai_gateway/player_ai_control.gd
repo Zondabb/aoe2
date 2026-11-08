@@ -62,6 +62,20 @@ func request_local_enabled(value: bool) -> bool:
 	return set_team_enabled(local_team, value)
 
 
+func request_local_instruction(message: String) -> bool:
+	var state := local_state()
+	if not state.available or not state.enabled or state.status != "active": return false
+	var instruction := message.strip_edges()
+	if instruction.is_empty() or message.length() > AiProtocol.MAX_PLAYER_INSTRUCTION_LENGTH: return false
+	if online and not has_authority():
+		return Commands.runtime(self).submit_command({"op": "ai_instruction", "text": instruction})
+	return accept_instruction(local_team, instruction)
+
+func accept_instruction(team: int, message: String) -> bool:
+	if not has_authority() or not _available() or not _gateways.has(team): return false
+	var gateway: AiGateway = _gateways[team]
+	return gateway.add_player_instruction(team, message)
+
 func set_team_enabled(team: int, value: bool) -> bool:
 	# Online guests never instantiate a Gateway or execute AI orders locally.
 	if team not in [0, 1] or not has_authority():
@@ -228,7 +242,7 @@ func _available() -> bool:
 		return false
 	if online:
 		var network := Commands.runtime(self)
-		return network != null and bool(network.get("_playing")) and not bool(network.get("_terminal"))
+		return network != null and bool(network.get("_playing")) and bool(network.get("synchronized")) and not bool(network.get("_terminal"))
 	return true
 
 

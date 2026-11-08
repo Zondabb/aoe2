@@ -13,7 +13,7 @@ import math
 from .combat_model import COMBAT_CATALOG, cost_value, profile, trade_efficiency, unit_class
 
 DOCTRINES = ("adaptive", "rush", "boom", "fast_castle", "timing_push", "turtle")
-COMPOSITIONS = ("counter", "infantry", "archers", "cavalry", "mixed")
+COMPOSITIONS = ("counter", "infantry", "archers", "cavalry", "knights", "mixed")
 TARGET_PRIORITIES = ("army", "economy", "buildings")
 NON_COMBAT = {"villager", "petard", "trade_cart", "monk"}
 

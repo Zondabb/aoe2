@@ -73,6 +73,7 @@ def test_local_ollama_sends_schema_and_native_thinking_controls(monkeypatch):
     assert sent["keep_alive"] == "10m"
     assert "tools" not in sent and "tool_choice" not in sent and "max_tokens" not in sent
     assert "Return only the propose_plan arguments" in sent["messages"][0]["content"]
+    assert "Numbers must stay within" not in sent["messages"][0]["content"]
     assert req.model_dump() == before
     choice = response.choices[0]
     assert choice.finish_reason == "tool_calls"
@@ -83,6 +84,19 @@ def test_local_ollama_sends_schema_and_native_thinking_controls(monkeypatch):
     assert raw["total_duration"] == 123456 and raw["prompt_eval_duration"] == 1234
     assert raw["usage"] == response.usage.model_dump()
     assert "usage" not in native_raw
+
+
+def test_local_ollama_prompt_states_numeric_ranges(monkeypatch):
+    # The format grammar enforces types and enums but not numeric bounds.
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    req = plan_request()
+    req.tools[0].function.parameters = {"type": "object", "additionalProperties": False,
+        "required": ["worker_target", "food_workers_ratio", "stance"], "properties": {
+            "worker_target": {"type": "integer", "minimum": 8, "maximum": 60},
+            "food_workers_ratio": {"type": "number", "minimum": .2, "maximum": .65},
+            "stance": {"type": "string", "enum": ["balanced"]}}}
+    system = llm_proxy.build_openai_payload(req)["messages"][0]["content"]
+    assert system.endswith("Numbers must stay within: worker_target 8..60, food_workers_ratio 0.2..0.65.")
 
 
 @pytest.mark.parametrize("base", [

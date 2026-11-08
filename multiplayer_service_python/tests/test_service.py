@@ -126,6 +126,18 @@ def test_external_ai_control_rejects_ambiguous_flags_and_spoofed_identity(comman
         parse_message(json.dumps({"type": "command", "seq": 1, "command": command}), Settings())
 
 
+def test_player_instruction_is_private_and_bounded():
+    settings = Settings()
+    command = {"op": "ai_instruction", "text": "增加食物采集"}
+    assert parse_message(json.dumps({"type": "command", "seq": 1, "command": command}), settings)["command"] == command
+    for invalid in [dict(command, team=0), dict(command, text="  "), dict(command, text=42), dict(command, text="a" * 241)]:
+        with pytest.raises(ProtocolError):
+            parse_message(json.dumps({"type": "command", "seq": 1, "command": invalid}), settings)
+    with pytest.raises(ProtocolError, match="private"):
+        parse_message(json.dumps({"type": "frame", "tick": 3, "checksum": "0" * 64,
+                                  "commands": [{"team": 0, "command": command}]}), settings)
+
+
 def test_queue_cancel_and_cancel_after_match_race_cleanup():
     with TestClient(create_app()) as client, client.websocket_connect("/ws") as host, client.websocket_connect("/ws") as guest:
         host.send_json(JOIN)

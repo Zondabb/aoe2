@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 PROTOCOL_VERSION = 1
 
@@ -102,6 +102,7 @@ class Progression(BaseModel):
 
 
 class Observation(BaseModel):
+    player_instructions: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=240)]] = Field(default_factory=list, max_length=4)
     economy: Economy
     derived: Derived
     entities: list[dict[str, Any]]

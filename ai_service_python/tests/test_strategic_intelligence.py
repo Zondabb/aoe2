@@ -146,6 +146,16 @@ def test_fixed_composition_plan_overrides_counter_ranking():
     assert trained and trained[0] in ("archer", "skirmisher")   # both are archer-family units
 
 
+def test_requested_knight_composition_prefers_knights_even_with_fewer_scouts():
+    runtime = MultiAgentRuntime("chinese")
+    plan(runtime, "combat", composition="knights", producer="stable")
+    stable = building(50, "stable", trainable=["knight", "scout_cavalry"])
+    req = battle([building(1, "town_center"), stable, unit(20, "knight"), *[unit(10 + i) for i in range(6)]])
+    req.observation.economy.pop_cap = 40
+    trained = [c["unit_def_id"] for c in issued(runtime.tick(req), "train") if c["building_id"] == 50]
+    assert trained == ["knight"]
+
+
 def test_focus_fire_spreads_once_committed_damage_kills_the_target():
     weak = [unit(210, pos=[36, 35], team=1, hp=10, max_hp=25), unit(211, pos=[36, 36], team=1, hp=10, max_hp=25)]
     out = departing().tick(battle([*[unit(30 + i, "militia", [35, 35]) for i in range(4)], *weak]))

@@ -21,6 +21,18 @@ from urllib.request import urlopen
 from test_external_llm_e2e import mock_service_settings
 
 
+def planning_context(payload: dict) -> dict:
+    """The role's observation JSON; player orders, when present, follow it."""
+    return next(m for m in payload["messages"] if m["role"] == "user" and m["content"].startswith("{"))
+
+
+def player_orders(payload: dict) -> list[str]:
+    prefix = "Player orders for your team (oldest to newest):\n"
+    orders = [m["content"] for m in payload["messages"] if m["role"] == "user" and m["content"].startswith(prefix)]
+    # "1. [new] text" -> "text"
+    return [line.split("] ", 1)[1] for line in orders[-1][len(prefix):].splitlines()] if orders else []
+
+
 class RolePlanner:
     def __init__(self):
         self.roles: set[str] = set()
@@ -30,7 +42,7 @@ class RolePlanner:
     def complete(self, payload: dict) -> dict:
         if payload.get("model") != "mock-role-planner":
             raise ValueError("upstream model did not come from isolated server configuration")
-        context = json.loads(payload["messages"][-1]["content"])
+        context = json.loads(planning_context(payload)["content"])
         role = context["role"]
         plan = dict(context["plan"])
         # These are plans, not unit IDs, coordinates, commands or resource grants.

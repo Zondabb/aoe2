@@ -225,6 +225,140 @@ def test_goal_discovery_keeps_economy_plan_but_still_rejects_combat_plan(schemas
         service.shutdown()
 
 
+def test_new_player_instruction_reaches_upstream_and_supersedes_inflight_plan(schemas, monkeypatch):
+    from brain.llm_proxy import build_openai_payload
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    requests = []
+
+    def forward(req):
+        requests.append(build_openai_payload(req)["messages"])
+        return completion()
+
+    now = [0.0]
+    service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=1, clock=lambda: now[0])
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        service.tick(tick_request(1))
+        req = tick_request(2)
+        req.observation.player_instructions = ["多生产一些骑士", "增加食物采集"]
+        service.tick(req)
+        service._pool.finish()
+        session = service._sessions[("multi-test", 0)]
+        assert not session.runtime.plans
+        assert session.plan_status["commander"]["state"] == "player_instructions_changed"
+        req = tick_request(3)
+        req.observation.player_instructions = ["多生产一些骑士", "增加食物采集"]
+        service.tick(req)
+        service._pool.finish()
+        # Orders are the final message, outside the observation data, and the
+        # system prompt makes them the role's priority.
+        system, context, orders = requests[-1]
+        assert orders == {"role": "user", "content": "Player orders for your team (oldest to newest):\n"
+                          "1. [new] 多生产一些骑士\n2. [new] 增加食物采集"}
+        assert "player_instructions" not in json.loads(context["content"])
+        assert "Player orders are not game observations" in system["content"]
+        assert len(session.runtime.plans) == 1
+        now[0] += 6  # Expire the previous team's unserved demand.
+        service.tick(tick_request(1, team=1))
+        service._pool.finish()
+        assert len(requests[-1]) == 2 and "Player orders" not in requests[-1][0]["content"]
+    finally:
+        service.shutdown()
+
+
+def test_order_statuses_follow_the_sliding_window():
+    from brain.multi_agent.scheduler import order_statuses
+    assert order_statuses((), ("a", "b")) == ["new", "new"]
+    assert order_statuses(("a", "b"), ("a", "b")) == ["in effect", "in effect"]
+    assert order_statuses(("a", "b"), ("a", "b", "c")) == ["in effect", "in effect", "new"]
+    assert order_statuses(("a", "b", "c", "d"), ("b", "c", "d", "e")) == ["in effect"] * 3 + ["new"]
+    assert order_statuses(("x",), ("a",)) == ["new"]
+
+
+def test_served_order_is_in_effect_and_protected_from_plan_review(schemas, monkeypatch):
+    from brain.llm_proxy import build_openai_payload
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    requests = []
+
+    def forward(req):
+        requests.append(build_openai_payload(req)["messages"])
+        return completion()
+
+    class ReviewRuntime(Runtime):
+        def planning_context(self, role):
+            # A deterministic review that contradicts the field the order changed.
+            return {**super().planning_context(role), "plan": {"value": 0},
+                    "plan_review": [{"field": "value", "current": 1, "suggested": 0, "why": "counter"},
+                                    {"field": "other", "current": 1, "suggested": 2, "why": "growth"}]}
+
+    service = MultiAgentService(forward=forward, runtime_factory=ReviewRuntime, max_workers=1, clock=lambda: 0.0)
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        req = tick_request(1)
+        req.observation.player_instructions = ["增加食物采集"]
+        service.tick(req)
+        session = service._sessions[("multi-test", 0)]
+        role = ROLES[session.next_role - 1]
+        service._pool.finish()
+        first = requests[-1]
+        assert first[-1]["content"].endswith("1. [new] 增加食物采集")
+        assert [item["field"] for item in json.loads(first[1]["content"])["plan_review"]] == ["value", "other"]
+        assert session.served_orders[role] == ("增加食物采集",)
+        assert session.order_fields[role] == {"value"}
+        session.last_attempt.clear()
+        session.next_role = ROLES.index(role)
+        req = tick_request(2)
+        req.observation.player_instructions = ["增加食物采集", "多生产一些骑士"]
+        service.tick(req)
+        service._pool.finish()
+        second = requests[-1]
+        assert second[-1]["content"].endswith("1. [in effect] 增加食物采集\n2. [new] 多生产一些骑士")
+        # The order's field stays out of review; unrelated suggestions remain.
+        assert [item["field"] for item in json.loads(second[1]["content"])["plan_review"]] == ["other"]
+        req = tick_request(3)
+        service.tick(req)
+        assert not session.served_orders and not session.order_fields
+    finally:
+        service.shutdown()
+
+
+def test_ignored_order_stays_new_until_reaffirmed_twice(schemas, monkeypatch):
+    from brain.llm_proxy import build_openai_payload
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    requests = []
+
+    def forward(req):
+        requests.append(build_openai_payload(req)["messages"])
+        return completion('{"value":0}')  # the plan the role already has
+
+    class SameRuntime(Runtime):
+        def planning_context(self, role):
+            return {**super().planning_context(role), "plan": {"value": 0}}
+
+    service = MultiAgentService(forward=forward, runtime_factory=SameRuntime, max_workers=1, clock=lambda: 0.0)
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        session = None
+        for seq in (1, 2, 3):
+            req = tick_request(seq)
+            req.observation.player_instructions = ["多生产一些骑士"]
+            if session is not None:
+                session.last_attempt.clear()
+                session.next_role = 0
+            service.tick(req)
+            session = service._sessions[("multi-test", 0)]
+            service._pool.finish()
+            assert requests[-1][-1]["content"].endswith(("1. [new] 多生产一些骑士", "1. [new] 多生产一些骑士",
+                                                         "1. [in effect] 多生产一些骑士")[seq - 1])
+        assert session.served_orders["commander"] == ("多生产一些骑士",)
+        assert not session.order_fields
+    finally:
+        service.shutdown()
+
+
 def test_expired_invalid_output_reports_both_failures(schemas, monkeypatch):
     monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
     logs = []

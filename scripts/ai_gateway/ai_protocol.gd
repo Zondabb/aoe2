@@ -5,6 +5,7 @@ extends RefCounted
 
 const Catalog := preload("res://scripts/data/game_catalog.gd")
 const PROTOCOL_VERSION := 1
+const MAX_PLAYER_INSTRUCTION_LENGTH := 240
 const META_ENTITY_ID := &"entity_id"
 
 const OP_MOVE := &"move"

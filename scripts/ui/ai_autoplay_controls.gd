@@ -11,6 +11,10 @@ var _service_panel: PanelContainer
 var _service_rows: Dictionary = {}
 var _service_note: Label
 var _route_message := ""
+var _instruction_panel: PanelContainer
+var _instruction: LineEdit
+var _send: Button
+const INSTRUCTION_HINT := "给本队 AI 下指令，例如：增加食物采集"
 
 
 func _ready() -> void:
@@ -73,11 +77,43 @@ func _ready() -> void:
 	_service_button.visible = false
 	_service_button.toggled.connect(_on_service_panel_toggled)
 	row.add_child(_service_button)
+	_build_instruction_panel(style)
 	_build_service_panel(style)
 	resized.connect(_sync_layout)
 	_sync_layout()
 	call_deferred("_bind_controller")
 
+
+func _build_instruction_panel(style: StyleBoxFlat) -> void:
+	_instruction_panel = PanelContainer.new()
+	_instruction_panel.name = "InstructionPanel"
+	_instruction_panel.add_theme_stylebox_override("panel", style)
+	_instruction_panel.hide()
+	add_child(_instruction_panel)
+	var row := HBoxContainer.new()
+	_instruction_panel.add_child(row)
+	_instruction = LineEdit.new()
+	_instruction.placeholder_text = INSTRUCTION_HINT
+	_instruction.max_length = AiProtocol.MAX_PLAYER_INSTRUCTION_LENGTH
+	_instruction.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_instruction.text_submitted.connect(_submit_instruction)
+	row.add_child(_instruction)
+	_send = Button.new()
+	_send.text = "发送指令"
+	_send.disabled = true
+	_send.pressed.connect(func(): _submit_instruction(_instruction.text))
+	_instruction.text_changed.connect(func(value: String): _send.disabled = value.strip_edges().is_empty())
+	row.add_child(_send)
+
+func _submit_instruction(value: String) -> void:
+	if not _instruction_panel.is_visible_in_tree() or value.strip_edges().is_empty(): return
+	if _controller.request_local_instruction(value):
+		_instruction.clear()
+		_send.disabled = true
+		_instruction.placeholder_text = "已提交：" + value.strip_edges()
+		_instruction.tooltip_text = _instruction.placeholder_text
+	else:
+		_status.text = "指令未提交，请重试"
 
 func _build_service_panel(style: StyleBoxFlat) -> void:
 	_service_panel = PanelContainer.new()
@@ -225,6 +261,12 @@ func _sync_state() -> void:
 	var status := String(state.get("status", "off"))
 	var available := bool(state.get("available", false))
 	var message := String(state.get("message", ""))
+	_instruction_panel.visible = available and enabled and status == "active" and _controller.has_method("request_local_instruction")
+	if not _instruction_panel.visible:
+		_instruction.clear()
+		_send.disabled = true
+		_instruction.placeholder_text = INSTRUCTION_HINT
+		_instruction.tooltip_text = ""
 	_follow.visible = enabled and status == "active" and has_node("../../Camera2D/BroadcastDirector")
 	_check.set_pressed_no_signal(enabled)
 	# Connecting can be cancelled immediately. Only an unacknowledged online
@@ -268,6 +310,8 @@ func _sync_layout() -> void:
 		return
 	_panel.position = Vector2(16, 36)
 	_panel.size = Vector2(minf(440, maxf(280, size.x - 32)), 34)
+	_instruction_panel.position = Vector2(16, 74)
+	_instruction_panel.size = Vector2(_panel.size.x, 0)
 	if _service_panel != null:
-		_service_panel.position = Vector2(16, 74)
+		_service_panel.position = Vector2(16, _instruction_panel.position.y + _instruction_panel.size.y + 4 if _instruction_panel.visible else 74.0)
 		_service_panel.size = Vector2(_panel.size.x, 0)

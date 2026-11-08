@@ -6,6 +6,7 @@ var failures := 0
 class GuestNetwork extends Node:
 	var is_host := false
 	var _playing := true
+	var synchronized := true
 	var _terminal := false
 
 func _initialize() -> void:
