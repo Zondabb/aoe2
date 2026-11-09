@@ -2,6 +2,20 @@
 
 地图编辑器和正式对局现在支持水域、悬崖两类不可通行地形。陆地单位需要沿陆地绕行，村民也不能在这些地形上建造建筑。默认单机地图增加了两片湖泊和两段悬崖。
 
+## 原版树木与联机一致性
+
+森林使用原版 HD 的阔叶树、松树、棕榈和竹林图集，对应 SLP `4652`、`4654`、`4653`、`2293`。导入保留全部 40 帧及各帧的落地点；游戏选用其中 35 种带枝叶的造型，排除 5 种枯树。地图编辑器、单人、联机及旧存档中的木材节点自动使用这些造型。
+
+重新导入本机素材：
+
+```powershell
+python tools/slp_export/import_trees.py --resources "D:/BaiduNetdiskDownload/gaoqingban2/gaoqingban2/resources"
+```
+
+树种由地图坐标按固定整数规则计算，同一区块形成同类林木，对称位置保留相同外观。算法不使用进程对象 ID、加载顺序、时间或游戏随机数，也不根据本机素材数量改变选择范围。联机双方和晚加入的观众从关键帧里的坐标恢复相同的图集、帧和落地点，读档使用同一规则。各端应使用相同版本的游戏及素材；缺失图集的本机回退显示旧橡树。
+
+树木的木材量、采集速度、碰撞尺寸和寻路规则沿用原有数据，联机协议和消息大小保持不变。来源和校验和记录在 `assets/sprites/resources/tree_sources.json`。`tests/run_tree_variants.gd` 覆盖完整默认森林的客端、观战关键帧与读档一致性；`tests/render_tree_variants.gd` 使用真实图形后端输出 `.godot/tree-variants-preview.png`。
+
 ## 草地细节与缩放
 
 草地使用本机原版 HD 的 `resources/_common/terrain/textures/g_grs_00_color.png`，保持 512×512 原始像素；项目 `assets/terrain/grass.png` 与原图字节相同，SHA256 为 `969cfdc1918d9ee7f49cc1b8e67e2ef99e67c842fae4fa687e5b60821ebc6e4f`。导入工具 `tools/slp_export/import_terrain.py` 现在同时记录和复制草地、水面、浅水、沙滩、岩石五张原版纹理，来源登记在 `assets/terrain/terrain_sources.json`。

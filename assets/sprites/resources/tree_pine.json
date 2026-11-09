@@ -1,0 +1,56 @@
+{
+  "key": "tree_pine",
+  "slp_id": 4654,
+  "source": "_common/drs/graphics/4654.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "note": "Original static tree shapes; select one frame, never animate",
+  "cols": 3,
+  "rows": 3,
+  "frame_w": 106,
+  "frame_h": 157,
+  "frame_count": 9,
+  "directions": 1,
+  "frames_per_direction": 9,
+  "hotspots": [
+    {
+      "x": 45,
+      "y": 156
+    },
+    {
+      "x": 52,
+      "y": 148
+    },
+    {
+      "x": 63,
+      "y": 142
+    },
+    {
+      "x": 52,
+      "y": 153
+    },
+    {
+      "x": 57,
+      "y": 160
+    },
+    {
+      "x": 43,
+      "y": 155
+    },
+    {
+      "x": 54,
+      "y": 145
+    },
+    {
+      "x": 46,
+      "y": 148
+    },
+    {
+      "x": 52,
+      "y": 153
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "source_sha256": "b85db4f1d3177c8b27ea56d5559258a9e8c105944c69b90de3f06e2dc2f0bf82"
+}

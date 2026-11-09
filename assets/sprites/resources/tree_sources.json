@@ -1,0 +1,33 @@
+{
+  "edition": "Age of Empires II HD",
+  "trees": [
+    {
+      "key": "tree_deciduous",
+      "slp_id": 4652,
+      "frame_count": 14,
+      "source": "_common/drs/graphics/4652.slp",
+      "sha256": "4e5865fc65bde2fb3a198dc8e2c34b1e306821a77f74267d0426b2689531122f"
+    },
+    {
+      "key": "tree_palm",
+      "slp_id": 4653,
+      "frame_count": 13,
+      "source": "_common/drs/graphics/4653.slp",
+      "sha256": "785f668ff902d5d4b72c03ae84c31f3f9e94e757761860ef10906a864bf187b8"
+    },
+    {
+      "key": "tree_pine",
+      "slp_id": 4654,
+      "frame_count": 9,
+      "source": "_common/drs/graphics/4654.slp",
+      "sha256": "b85db4f1d3177c8b27ea56d5559258a9e8c105944c69b90de3f06e2dc2f0bf82"
+    },
+    {
+      "key": "tree_bamboo",
+      "slp_id": 2293,
+      "frame_count": 4,
+      "source": "_common/drs/graphics/2293.slp",
+      "sha256": "9150913b01f74a3e5c6289dfb28069949c74d668bb1aedaf3e28d2660e7277a1"
+    }
+  ]
+}

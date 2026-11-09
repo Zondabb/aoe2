@@ -979,7 +979,8 @@ func _apply_record(entity: Node2D, record: Dictionary) -> void:
 		entity.set("gather_rate", float(record.gather_rate))
 		entity.set("block_size_override", block_size)
 		if geometry_changed: entity.block_half = entity.pathfinding_size() * 0.5
-		if type_changed: entity.call("_setup_presentation")
+		if type_changed or (position_changed and entity.resource_type == Enums.ResourceType.WOOD):
+			entity.call("_setup_presentation")
 		# Fog owns positive resources' visibility. Re-showing hidden trees on each
 		# packet invalidates their visual caches and makes them flicker under fog.
 		if float(record.amount) <= 0.0:

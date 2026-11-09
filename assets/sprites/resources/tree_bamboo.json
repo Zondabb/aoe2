@@ -1,0 +1,36 @@
+{
+  "key": "tree_bamboo",
+  "slp_id": 2293,
+  "source": "_common/drs/graphics/2293.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "note": "Original static tree shapes; select one frame, never animate",
+  "cols": 2,
+  "rows": 2,
+  "frame_w": 71,
+  "frame_h": 91,
+  "frame_count": 4,
+  "directions": 1,
+  "frames_per_direction": 4,
+  "hotspots": [
+    {
+      "x": 28,
+      "y": 74
+    },
+    {
+      "x": 30,
+      "y": 83
+    },
+    {
+      "x": 37,
+      "y": 86
+    },
+    {
+      "x": 36,
+      "y": 78
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "source_sha256": "9150913b01f74a3e5c6289dfb28069949c74d668bb1aedaf3e28d2660e7277a1"
+}

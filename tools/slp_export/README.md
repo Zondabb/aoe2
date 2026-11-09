@@ -356,6 +356,22 @@ The runtime uniformly scales native 96×48 tiles onto its 44×22 logical grid fo
 continuous joins and uses original construction stages/foundations. See
 `../../docs/walls_and_gates.md` for controls and validation.
 
+## Forest trees
+
+`python tools/slp_export/import_trees.py --resources "<AoE2 HD>/resources"`
+imports the original deciduous, pine, palm and bamboo atlases (40 static shapes)
+to `assets/sprites/resources/`. Source IDs and SHA-256 checksums are recorded in
+`tree_sources.json`. The runtime uses 35 leafy shapes, preserving each frame's
+own ground hotspot. These frames are alternatives, not an animation.
+
+Tree selection uses only synchronized map coordinates, quantized to 1/1024 and
+mixed with fixed integer arithmetic. Nearby trees share a grove family; mirrored
+forests share their appearance. No RNG calls, extra network packets, save fields,
+wood amounts or collision sizes are introduced. Players and late spectators
+running the same game/assets reconstruct identical trees from a keyframe. Old
+maps and saves automatically gain the variants. Install the converted atlases
+on all peers; an absent atlas falls back to the existing oak sprite locally.
+
 ## Modules
 
 | File | API |

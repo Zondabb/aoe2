@@ -1,0 +1,76 @@
+{
+  "key": "tree_deciduous",
+  "slp_id": 4652,
+  "source": "_common/drs/graphics/4652.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "note": "Original static tree shapes; select one frame, never animate",
+  "cols": 4,
+  "rows": 4,
+  "frame_w": 128,
+  "frame_h": 188,
+  "frame_count": 14,
+  "directions": 1,
+  "frames_per_direction": 14,
+  "hotspots": [
+    {
+      "x": 56,
+      "y": 187
+    },
+    {
+      "x": 62,
+      "y": 188
+    },
+    {
+      "x": 52,
+      "y": 188
+    },
+    {
+      "x": 52,
+      "y": 173
+    },
+    {
+      "x": 59,
+      "y": 187
+    },
+    {
+      "x": 65,
+      "y": 176
+    },
+    {
+      "x": 62,
+      "y": 186
+    },
+    {
+      "x": 55,
+      "y": 183
+    },
+    {
+      "x": 53,
+      "y": 169
+    },
+    {
+      "x": 60,
+      "y": 186
+    },
+    {
+      "x": 58,
+      "y": 184
+    },
+    {
+      "x": 59,
+      "y": 189
+    },
+    {
+      "x": 52,
+      "y": 190
+    },
+    {
+      "x": 57,
+      "y": 187
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "source_sha256": "4e5865fc65bde2fb3a198dc8e2c34b1e306821a77f74267d0426b2689531122f"
+}

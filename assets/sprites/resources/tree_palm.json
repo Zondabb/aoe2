@@ -1,0 +1,72 @@
+{
+  "key": "tree_palm",
+  "slp_id": 4653,
+  "source": "_common/drs/graphics/4653.slp",
+  "palette": "_common/drs/interface/50500.bina",
+  "note": "Original static tree shapes; select one frame, never animate",
+  "cols": 4,
+  "rows": 4,
+  "frame_w": 129,
+  "frame_h": 168,
+  "frame_count": 13,
+  "directions": 1,
+  "frames_per_direction": 13,
+  "hotspots": [
+    {
+      "x": 40,
+      "y": 175
+    },
+    {
+      "x": 64,
+      "y": 168
+    },
+    {
+      "x": 67,
+      "y": 178
+    },
+    {
+      "x": 45,
+      "y": 174
+    },
+    {
+      "x": 67,
+      "y": 164
+    },
+    {
+      "x": 32,
+      "y": 165
+    },
+    {
+      "x": 71,
+      "y": 160
+    },
+    {
+      "x": 61,
+      "y": 157
+    },
+    {
+      "x": 72,
+      "y": 165
+    },
+    {
+      "x": 61,
+      "y": 151
+    },
+    {
+      "x": 44,
+      "y": 151
+    },
+    {
+      "x": 51,
+      "y": 158
+    },
+    {
+      "x": 43,
+      "y": 164
+    }
+  ],
+  "player_color": {
+    "mode": "none"
+  },
+  "source_sha256": "785f668ff902d5d4b72c03ae84c31f3f9e94e757761860ef10906a864bf187b8"
+}

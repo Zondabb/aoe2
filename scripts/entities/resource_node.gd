@@ -2,6 +2,7 @@ class_name ResourceNode
 extends Node2D
 
 const Fixed := preload("res://scripts/core/sim_fixed.gd")
+const TreeVariants := preload("res://scripts/presentation/tree_variants.gd")
 const SpriteCatalogScript := preload("res://scripts/presentation/sprite_catalog.gd")
 const IsoMathScript := preload("res://scripts/presentation/iso_math.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
@@ -174,6 +175,12 @@ func _setup_presentation() -> void:
 	var existing_billboard := get_node_or_null("Billboard") as Sprite2D
 	var existing_marker := get_node_or_null("Marker") as CanvasItem
 	var base := SpriteCatalogScript.resource_sheet_base(resource_type)
+	var frame_index := 0
+	if resource_type == Enums.ResourceType.WOOD:
+		var tree := TreeVariants.at_position(sim_pos)
+		if SpriteCatalogScript.sheet_paths_exist(tree.base):
+			base = tree.base
+			frame_index = tree.frame
 	if SpriteCatalogScript.sheet_paths_exist(base):
 		var meta := SpriteCatalogScript.load_meta(base)
 		var texture := SpriteCatalogScript.load_texture(base)
@@ -183,8 +190,8 @@ func _setup_presentation() -> void:
 				billboard = Sprite2D.new()
 				billboard.name = "Billboard"
 				add_child(billboard)
-			billboard.texture = SpriteCatalogScript.first_atlas_texture(meta, texture)
-			var hotspot := SpriteCatalogScript.average_hotspot(meta)
+			billboard.texture = SpriteCatalogScript.atlas_frame_at(meta, texture, frame_index)
+			var hotspot := SpriteCatalogScript.hotspot_at_index(meta, frame_index) if resource_type == Enums.ResourceType.WOOD else SpriteCatalogScript.average_hotspot(meta)
 			var offset := SpriteCatalogScript.offset_for_hotspot_2d(meta, hotspot)
 			SpriteCatalogScript.configure_sprite_2d(
 				billboard, SpriteCatalogScript.RESOURCE_PIXEL_SCALE_2D, offset
