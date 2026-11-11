@@ -205,3 +205,30 @@ def test_two_service_processes_write_separate_model_logs(tmp_path):
         for name in ("multi_agent.jsonl", "llm.log"):
             content = (tmp_path / "logs" / model / name).read_text(encoding="utf-8")
             assert model in content and other not in content
+
+
+def test_ai_runtime_defaults_to_the_baseline_and_follows_file_env_and_cli(monkeypatch, tmp_path: Path) -> None:
+    assert runtime_settings.ai_runtime() == "multi_agent"
+    config = tmp_path / "runtime.toml"
+    config.write_text('[ai]\nruntime = "cabinet"\n[llm]\nbackend = "rules_compat"\n', encoding="utf-8")
+    runtime_settings.load_config(config)
+    assert runtime_settings.ai_runtime() == "cabinet"
+    monkeypatch.setenv("AOE2_AI_RUNTIME", " Multi_Agent ")
+    assert runtime_settings.ai_runtime() == "multi_agent"
+    args = runtime_settings.build_parser().parse_args(["--config", str(config), "--runtime", "cabinet"])
+    runtime_settings.apply_args(args)
+    assert runtime_settings.ai_runtime() == "cabinet"
+
+
+def test_unknown_ai_runtime_is_refused_at_startup(monkeypatch, tmp_path: Path) -> None:
+    config = tmp_path / "runtime.toml"
+    config.write_text('[ai]\nruntime = "cabinnet"\n', encoding="utf-8")
+    runtime_settings.load_config(config)
+    with pytest.raises(ValueError, match="Unknown AI runtime: 'cabinnet'"):
+        runtime_settings.ai_runtime()
+    args = runtime_settings.build_parser().parse_args(["--config", str(config)])
+    with pytest.raises(ValueError, match="expected one of: multi_agent, cabinet"):
+        runtime_settings.apply_args(args)
+    config.write_text('[ai]\nmodel = "x"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="Unknown AI configuration option: ai.model"):
+        runtime_settings.load_config(config)

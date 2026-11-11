@@ -3,6 +3,9 @@
 [service]
 # api_token = "game-to-service-bearer-token"
 
+[ai]
+# runtime = "cabinet"
+
 [llm]
 # model = "your-model"
 # base_url = "https://your-provider.example/v1"

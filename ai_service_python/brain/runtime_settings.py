@@ -19,7 +19,11 @@ _KEYS = {
     "llm": {"backend": "backend", "model": "llm_model", "base_url": "llm_base_url",
             "token": "llm_token", "max_tokens": "llm_max_tokens", "temperature": "llm_temperature",
             "timeout_sec": "llm_timeout_sec", "num_ctx": "llm_num_ctx"},
+    "ai": {"runtime": "ai_runtime"},
 }
+# v3 runtimes a team session can run: the seven-role baseline, or the premier
+# and five departments of docs/cabinet_ai_design.md.
+AI_RUNTIMES = ("multi_agent", "cabinet")
 
 
 def load_config(path: str | Path | None = None) -> None:
@@ -115,6 +119,15 @@ def backend() -> str:
     return get_value("backend", "AOE2_AI_BACKEND", default="openai")
 
 
+def ai_runtime() -> str:
+    """Runtime given to each new v3 team session."""
+    value = get_value("ai_runtime", "AOE2_AI_RUNTIME", default=AI_RUNTIMES[0]).lower()
+    if value not in AI_RUNTIMES:
+        # A mistyped name must not quietly run the baseline in an A/B duel.
+        raise ValueError(f"Unknown AI runtime: {value!r} (expected one of: {', '.join(AI_RUNTIMES)})")
+    return value
+
+
 def llm_timeout_sec() -> float:
     return _bounded_number("llm_timeout_sec", "AOE2_LLM_TIMEOUT_SEC", 30, 2, 600)
 
@@ -157,6 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-dir", default="", help="Log directory (relative to the selected config file)")
     parser.add_argument("--ai-token", default="", help="Optional Bearer token required from the game")
     parser.add_argument("--backend", default="", help="Backend: openai | rules_compat")
+    parser.add_argument("--runtime", default="", help=f"v3 runtime: {' | '.join(AI_RUNTIMES)}")
     return parser
 
 
@@ -174,7 +188,8 @@ def apply_args(args: argparse.Namespace) -> None:
     for key in ("host", "port", "llm_base_url", "llm_model", "llm_timeout_sec", "llm_max_tokens",
                 "llm_temperature", "llm_num_ctx", "ai_token", "backend", "log_observation", "log_dir"):
         set_cli(**{key: getattr(args, key, None)})
-    set_cli(llm_token=token)
+    set_cli(llm_token=token, ai_runtime=getattr(args, "runtime", None))
+    ai_runtime()  # refuse to start on an unknown runtime name
     args.host = get_value("host", "AOE2_AI_HOST", default="127.0.0.1")
     args.port = int(_bounded_number("port", "AOE2_AI_PORT", 8765, 1, 65535))
 

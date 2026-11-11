@@ -6,6 +6,11 @@ host = "127.0.0.1"
 port = 8765
 log_observation = false
 
+[ai]
+# v3 runtime for new team sessions: "multi_agent" (seven roles) or "cabinet"
+# (premier and five departments, docs/cabinet_ai_design.md).
+runtime = "multi_agent"
+
 [llm]
 backend = "openai"
 model = "qwen3:8b"

@@ -18,11 +18,13 @@ from brain import runtime_settings
 # --config first so it can override an invalid environment/default file.
 if __name__ != "__main__":
     runtime_settings.load_config()
+    runtime_settings.ai_runtime()  # an unknown runtime name stops the import
 
 from brain.director import AiDirector
 from brain.llm_commander import LlmCommander
 from brain.multi_agent.scheduler import MultiAgentService, SessionError
 from brain.multi_agent.memory_bank import StrategyMemory
+from brain.runtime_factory import create_runtime
 from pathlib import Path
 from brain.stores import PHASE_ATTACK, PHASE_BOOM, PHASE_DEFEND, PHASE_ECO
 from brain.llm_proxy import build_openai_payload, forward_openai, is_openai_backend, resolve_backend
@@ -77,7 +79,8 @@ def _strategy_memory_path() -> Path | None:
     return Path(configured).expanduser() if configured else runtime_settings.log_dir() / "strategy_memory.json"
 
 
-_multi_agent_service = MultiAgentService(log=_write_multi_agent_event, memory=StrategyMemory(_strategy_memory_path))
+_multi_agent_service = MultiAgentService(log=_write_multi_agent_event, memory=StrategyMemory(_strategy_memory_path),
+                                         runtime_factory=create_runtime)
 
 app = FastAPI(title="AoE2 RTS AI Service", version="1.0.0")
 
@@ -505,10 +508,11 @@ def chat_completions_batch(req: ChatCompletionBatchRequest) -> ChatCompletionBat
 def _log_startup(host: str, port: int) -> None:
     token = runtime_settings.llm_token()
     logger.info(
-        '{"event":"startup","listen":"%s:%d","backend":"%s","llm_model":"%s","llm_token":"%s"}',
+        '{"event":"startup","listen":"%s:%d","backend":"%s","runtime":"%s","llm_model":"%s","llm_token":"%s"}',
         host,
         port,
         runtime_settings.backend(),
+        runtime_settings.ai_runtime(),
         runtime_settings.llm_model(),
         runtime_settings.mask_secret(token),
     )

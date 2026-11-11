@@ -30,6 +30,9 @@ host = "127.0.0.1"
 port = 8765
 log_observation = false
 
+[ai]
+runtime = "multi_agent"
+
 [llm]
 backend = "openai"
 model = "qwen3:8b"
@@ -41,6 +44,8 @@ num_ctx = 8192
 ```
 
 `backend="openai"` 表示兼容上游模型；要使用纯规则策略，在服务端改为 `rules_compat`。`base_url` 是模型服务的地址，游戏的 `service_url` 是本 Python 服务的地址，两者用途不同。
+
+`[ai].runtime` 选择 v3 快速通道使用的运行时：`multi_agent` 是现有的七角色运行时，`cabinet` 是首相加五部门的新架构，设计见 [cabinet_ai_design.md](../docs/cabinet_ai_design.md)。每个队伍会话在建立时读取一次，之后不再切换；名称写错时服务拒绝启动。当前阶段 `cabinet` 把全部调用委托给七角色运行时，两者下发的命令相同。
 
 私有模型或密钥可以写入 `config.local.toml`（已忽略 Git 和 Docker 构建），格式见 `config.local.example.toml`。例如远程模型：
 
@@ -118,6 +123,7 @@ python main.py --host 127.0.0.1 --port 8765 --backend openai \
 | `--log-observation` / `--no-log-observation` | 启用或关闭观察摘要日志 |
 | `--log-dir` | 日志目录；相对路径以所选配置文件目录为起点，两个服务应使用不同目录 |
 | `--backend` | 强制 `openai` 或 `rules_compat` |
+| `--runtime` | v3 运行时：`multi_agent` 或 `cabinet`，也可用环境变量 `AOE2_AI_RUNTIME` |
 | `--ai-token` | 游戏访问本服务时的 Bearer（可选） |
 
 环境变量 `AOE2_LLM_TOKEN` / `AOE2_LLM_BASE_URL` / `AOE2_LLM_MODEL` / `AOE2_LLM_MAX_TOKENS` / `AOE2_LLM_TEMPERATURE` / `AOE2_LLM_TIMEOUT_SEC` 仍可用，但命令行优先。原生 Ollama 规划还读取 `AOE2_LLM_NUM_CTX`（默认 8192，范围 2048–32768）。系统里设了环境变量后，需在新终端中启动进程才会读取新值。
