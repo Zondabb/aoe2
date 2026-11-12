@@ -14,7 +14,7 @@ def create_runtime(profile_id: str):
     name = runtime_settings.ai_runtime()
     logger.info(json.dumps({"event": "runtime_selected", "runtime": name, "profile_id": profile_id}))
     if name == "cabinet":
-        from brain.cabinet import CabinetRuntime
+        from brain.cabinet.runtime import CabinetRuntime
         return CabinetRuntime(profile_id)
     from brain.multi_agent.runtime import MultiAgentRuntime
     return MultiAgentRuntime(profile_id)

@@ -15,9 +15,10 @@ import os
 from typing import Any
 
 from brain.build_placement import footprint_visible
+from brain.cabinet.kernel import FORTIFICATION_TYPES, WALL_TYPES, Kernel
 from brain.land_progression import AGE_COSTS, PREREQUISITES, CATALOG
 from brain.profile_loader import profile_for_id
-from brain.llm_commander import LlmCommander, _DecisionFrame, _distance, _vec, RESOURCES, MILITARY_BUILDINGS, SCOUT_TYPES, MAX_COMMANDS
+from brain.llm_commander import LlmCommander, _DecisionFrame, _distance, _vec, RESOURCES, MILITARY_BUILDINGS, SCOUT_TYPES
 from protocol.models import ChatCompletionRequest
 
 from .combat_model import profile as combat_profile, simulate, unit_class
@@ -57,9 +58,7 @@ ROLE_SCHEMAS = {
     "defense": _schema(policy=_enum("reactive", "balanced", "fortify"), material=_enum("auto", "palisade_wall", "stone_wall"),
                        max_segments=_integer(4, 512), reserve_wood=_integer(0, 300), gate_mode=_enum("auto", "locked")),
 }
-WALL_TYPES = {"palisade_wall", "stone_wall", "fortified_wall"}
 DEFAULT_WORKER_TARGET = 16
-FORTIFICATION_TYPES = WALL_TYPES | {"gate", "palisade_gate", "stone_gate"}
 DEMOLITION_UNITS = {"battering_ram", "capped_ram", "siege_ram", "mangonel", "onager", "siege_onager", "bombard_cannon", "trebuchet"}
 # Raid detection (world units). Hostile raiders are enemy units attacking our
 # units or buildings, or already within STRIKE_RANGE of a worker (ranged:
@@ -122,11 +121,26 @@ class RoleState:
     events: deque = field(default_factory=lambda: deque(maxlen=12))
 
 
+def _kernel_state(name: str) -> property:
+    """Arbiter state under the name the role code already uses."""
+    return property(lambda self: getattr(self.kernel, name), lambda self, value: setattr(self.kernel, name, value))
+
+
 class MultiAgentRuntime:
     """A session/team scoped cooperative executor. Caller serializes mutation."""
 
+    tasks = _kernel_state("tasks")
+    pending = _kernel_state("pending")
+    leases = _kernel_state("leases")
+    failures = _kernel_state("failures")
+    frame_events = _kernel_state("reports")
+    now = _kernel_state("now")
+
     def __init__(self, profile_id: str = "default") -> None:
         self.validator = LlmCommander(profile_id)
+        # Orders, unit leases and task follow-up are arbitrated by the kernel;
+        # this runtime supplies the roles and listens for what concerns them.
+        self.kernel = Kernel(self.validator, self)
         target = max(2, min(24, self.validator.profile.military_attack_count))
         self.roles = {
             "commander": RoleState({"stance": "balanced", "army_target": target, "muster_timeout": 75, "strategy": "adaptive"}),
@@ -142,25 +156,17 @@ class MultiAgentRuntime:
             "defense": RoleState({"policy": "balanced", "material": "auto", "max_segments": 384, "reserve_wood": 100, "gate_mode": "auto"}),
         }
         self.enemy_knowledge: dict[int, dict] = {}
-        self.tasks: dict[str, dict] = {}
-        self.pending: dict[str, dict] = {}
-        self.leases: dict[int, dict] = {}
-        self.failures: dict[str, dict] = {}
         self.scout_missions: dict[int, dict] = {}
         self.visited: deque = deque(maxlen=96)
         self.last_req: ChatCompletionRequest | None = None
         self.last_tick = -1
         self.cached: dict | None = None
-        self.now = 0.0
         self.frame: _DecisionFrame | None = None
         self.build_requests: list[tuple[int, str, str]] = []
         self.demands = {r: 0.0 for r in RESOURCES}
         self.goals = {"objective": "destroy_enemy_town_center", "phase": "opening", "goal_version": 1,
                       "sortie_target": target, "sortie_started": None, "sortie_departed": None,
                       "target_id": None, "needs_siege": False, "victory_confirmed": False}
-        self.seen_events: deque = deque(maxlen=512)
-        self.last_event_seq = -1
-        self.frame_events: list[dict] = []
         self.debug: list[dict] = []
         self.tech_reserve: dict = {}
         self.construction_reserve: dict = {}
@@ -595,15 +601,7 @@ class MultiAgentRuntime:
             self.validator.profile = profile_for_id(req.metadata.profile_id)
         self.debug, self.build_requests = [], []
         self.demands = {r: 0.0 for r in RESOURCES}
-        self.frame_events = self._new_reports(req)
-        # The compatibility validator also consumes feedback. Feed deduplicated
-        # events only, or a retried rejection would extend its cooldown forever.
-        observed_req = req.model_copy(deep=True)
-        observed_req.events = []
-        observed_req.observation.decision_context["action_feedback"] = self.frame_events
-        self.validator._observe(observed_req)
-        self.frame = f = _DecisionFrame(self.validator, req)
-        self._reconcile(f)
+        self.frame = f = self.kernel.begin(req)
         self._knowledge(f)
         self._remember_resources(f)
         self._intelligence(f)
@@ -628,21 +626,12 @@ class MultiAgentRuntime:
         else:
             for role in self.roles:
                 self._status(role, "complete", self.goals["phase"])
-            for task in self.tasks.values():
-                if task["status"] not in ("completed", "failed", "cancelled"):
-                    task["status"] = "completed" if task.get("target_destroyed") else "cancelled"
-            self.pending.clear()
-            self.leases.clear()
+            self.kernel.end_match()
         statuses = self._statuses()
         self.cached = {"commands": [c.model_dump(exclude_none=True) for c in f.commands],
                        "debug": self.debug + [d.model_dump() for d in f.debug][:8],
                        "agent_status": statuses, "goals": copy.deepcopy(self.goals)}
-        # Keep useful lifecycle history bounded, preserving all active entries.
-        terminal = [key for key, task in self.tasks.items() if task["status"] in ("completed", "failed", "cancelled")]
-        for key in terminal[:-96]:
-            self.tasks.pop(key, None)
-        self.failures = {k: v for k, v in self.failures.items() if self.now - v["last_failure"] < 300}
-        self.leases = {uid: lease for uid, lease in self.leases.items() if lease["until"] > self.now and uid in f.entities}
+        self.kernel.prune(f)
         for role in self.roles.values():
             for key in ("movement", "reported_stalls", "worker_progress", "command_times", "last_attack"):
                 if key in role.memory:
@@ -662,214 +651,35 @@ class MultiAgentRuntime:
             self.debug.append({"category": "MULTI_AGENT", "message": f"{role}: {status} ({reason})"})
         state.status, state.reason = status, reason
 
-    def _new_reports(self, req: ChatCompletionRequest) -> list[dict]:
-        reports = [event.model_dump(exclude_none=True) for event in req.events]
-        reports += [e for e in req.observation.decision_context.get("action_feedback", []) if isinstance(e, dict)]
-        fresh = []
-        # Sequence values are global stream IDs, so gaps between events visible
-        # to this team are normal. Acknowledged metadata alone diagnoses loss.
-        for report in sorted(reports, key=lambda e: e.get("seq", self.last_event_seq + 1)):
-            seq = report.get("seq")
-            if isinstance(seq, int):
-                if seq <= self.last_event_seq:
-                    continue
-                self.last_event_seq = seq
-            else:
-                token = (report.get("type"), report.get("command_id"), report.get("entity_id"), report.get("time_sec"), report.get("reason"))
-                if token in self.seen_events:
-                    continue
-                self.seen_events.append(token)
-            fresh.append(report)
-        return fresh
+    # KernelListener: what the arbiter observes that concerns the roles.
 
-    def _reports(self, f: _DecisionFrame) -> list[dict]:
-        return self.frame_events
+    def kernel_note(self, message: str) -> None:
+        self.debug.append({"category": "MULTI_AGENT", "message": message})
 
-    def _reconcile(self, f: _DecisionFrame) -> None:
-        delivery = getattr(f.req.metadata, "event_delivery", {}) or {}
-        if delivery.get("gap") or delivery.get("resync_required"):
-            self.debug.append({"category": "MULTI_AGENT", "message": "event_gap: reconcile tasks from authoritative full snapshot"})
-        for report in self._reports(f):
-            for role in self.roles.values():
-                role.events.append({k: report[k] for k in ("type", "entity_id", "command_id", "reason", "ok", "success", "progress") if k in report})
-            command_id = report.get("command_id") or report.get("lineage", {}).get("command_id")
-            task = self.tasks.get(command_id)
-            rejected = any(report.get(key) is False for key in ("ok", "success", "accepted")) or report.get("type") in ("command_rejected", "action_rejected", "task_failed", "order_failed")
-            if task and rejected:
-                self._fail(task, str(report.get("reason", "rejected")))
-            elif task and report.get("type") in ("command_result", "command_accepted", "action_accepted"):
-                if task["status"] == "dispatched":
-                    task["status"] = "accepted"
-                # Receipt belongs to the same authoritative snapshot. Do not
-                # subtract its already-applied expense a second time.
-                self.pending.pop(command_id, None)
-                if report.get("created_entity_id") is not None:
-                    task["created_entity_id"] = report["created_entity_id"]
-                if isinstance(report.get("created_entity_ids"), list):
-                    task["created_entity_ids"] = [eid for eid in report["created_entity_ids"] if isinstance(eid, int) and not isinstance(eid, bool)]
-                if report.get("queue_id") is not None:
-                    task["queue_id"] = report["queue_id"]
-            elif task and report.get("type") in ("task_completed", "order_completed"):
-                task["status"] = "completed"
-                self.pending.pop(command_id, None)
-            if report.get("type") in ("manual_command", "human_command", "manual_order", "player_command"):
-                ids = report.get("unit_ids", [report.get("unit_id", report.get("entity_id"))])
-                if report.get("building_id") is not None:
-                    ids = [*(ids if isinstance(ids, list) else []), report["building_id"]]
-                for uid in ids if isinstance(ids, list) else []:
-                    if uid in f.entities and f.entities[uid].get("team") == f.team:
-                        self.leases[uid] = {"role": "human", "until": self.now + 12}
-                        self.scout_missions.pop(uid, None)
-                        for previous in self.tasks.values():
-                            if previous["command"].get("unit_id", previous["command"].get("builder_id")) == uid and previous["status"] not in ("completed", "failed", "cancelled"):
-                                previous["status"] = "cancelled"
-                                self.pending.pop(previous["id"], None)
-            if report.get("type") == "unit_order_finished":
-                previous = self.tasks.get(report.get("previous_lineage", {}).get("command_id"))
-                if previous and previous["command"]["op"] in ("move", "stop"):
-                    previous["status"] = "completed"
-                    self.pending.pop(previous["id"], None)
-            if report.get("type") == "unit_stalled":
-                uid = report.get("entity_id")
-                self.roles["combat"].memory.setdefault("reported_stalls", {})[uid] = self.now
-                self.roles["economy"].memory.setdefault("reported_stalls", {})[uid] = self.now
-            if report.get("type") in ("train_completed", "unit_trained", "unit_produced", "training_completed"):
-                queue_id = report.get("queue_id")
-                producer_id = report.get("building_id", report.get("producer_id"))
-                for previous in self.tasks.values():
-                    if previous["command"]["op"] == "train" and previous["command"]["building_id"] == producer_id and (previous["id"] == command_id or previous.get("queue_id") == queue_id and queue_id is not None):
-                        previous["status"] = "completed"
-                        previous["spawned_entity_id"] = report.get("created_entity_id", report.get("entity_id"))
-                        self.pending.pop(previous["id"], None)
-        for task in list(self.tasks.values()):
-            if task["status"] in ("completed", "failed", "cancelled"):
-                continue
-            command = task["command"]
-            actor = f.entities.get(command.get("unit_id", command.get("builder_id")), {})
-            building = f.entities.get(command.get("building_id"), {})
-            op = command["op"]
-            observed = False
-            completed = False
-            if op == "place_building":
-                placed = next((b for b in f.buildings if b.get("def_id") == command["building_def_id"] and _distance(b["pos"], command["pos"]) < 2), None)
-                if placed:
-                    observed, completed = True, bool(placed.get("is_complete"))
-                    task["created_entity_id"] = placed["id"]
-            elif op == "place_wall":
-                ids = task.get("created_entity_ids", [])
-                if not ids:
-                    # Recover from a lost receipt using only newly observed
-                    # owned wall foundations on this exact offered segment.
-                    start, end = command["start"], command["end"]
-                    dx, dy = end[0] - start[0], end[1] - start[1]
-                    length2 = max(.001, dx * dx + dy * dy)
-                    for candidate in f.buildings:
-                        if candidate["id"] in task["before_ids"] or candidate.get("def_id") not in FORTIFICATION_TYPES:
-                            continue
-                        t = ((candidate["pos"][0] - start[0]) * dx + (candidate["pos"][1] - start[1]) * dy) / length2
-                        if -.01 <= t <= 1.01 and _distance(candidate["pos"], [start[0] + t * dx, start[1] + t * dy]) <= 1:
-                            ids.append(candidate["id"])
-                    if ids:
-                        task["created_entity_ids"] = ids
-                pieces = [f.entities[eid] for eid in ids if eid in f.entities]
-                observed = bool(pieces)
-                # An absent piece may have been destroyed; do not report the
-                # entire wall completed until every surviving piece is built.
-                completed = bool(ids) and bool(pieces) and all(b.get("is_complete") for b in pieces)
-            elif op == "set_gate_state":
-                completed = building.get("gate_state") == command["gate_state"]
-            elif op == "build":
-                observed = actor.get("order") == "BUILD" and actor.get("target_id") == command["building_id"]
-                completed = bool(building.get("is_complete"))
-            elif op == "train":
-                production = building.get("production", {})
-                queue_ids = production.get("queue_ids", building.get("train_queue_ids", []))
-                if task.get("queue_id") is not None:
-                    observed = task["queue_id"] in queue_ids
-                else:
-                    observed = bool(building.get("train_queue")) or building.get("train_queue_empty") is False
-                    if observed and len(queue_ids) == 1:
-                        task["queue_id"] = queue_ids[0]
-                # A birth at a different producer must not complete this task.
-                # Prefer exact spawn lineage; older fixtures use a nearby new
-                # entity only once, after this producer's queue has drained.
-                born = [e for e in f.units if e.get("def_id") == command["unit_def_id"] and e["id"] not in task["before_ids"]
-                        and building and _distance(e["pos"], building["pos"]) < 12
-                        and not any(t.get("spawned_entity_id") == e["id"] for t in self.tasks.values())]
-                completed = bool(born) and not observed and task["status"] in ("accepted", "running")
-                if completed:
-                    task["spawned_entity_id"] = min(born, key=lambda e: _distance(e["pos"], building["pos"]))["id"]
-            elif op == "research_age":
-                observed = bool(building.get("is_researching"))
-                completed = f.age > task["before_age"]
-            elif op == "research_technology":
-                observed = bool(building.get("is_researching"))
-                completed = bool(f.obs.progression and f.obs.progression.researched_technologies.get(command["technology_id"]))
-            elif op == "move":
-                observed = actor.get("order") == "MOVE" and _vec(actor.get("move_goal")) is not None and _distance(actor["move_goal"], command["pos"]) < 3
-                completed = bool(actor and _distance(actor["pos"], command["pos"]) <= 3)
-            elif op in ("gather", "attack"):
-                observed = actor.get("order") == op.upper() and actor.get("target_id") == command.get("target_id")
-                # Gathering is a continuing assignment, not a single delivery.
-                completed = op == "attack" and task.get("target_destroyed", False)
-            if completed:
-                task["status"] = "completed"
-                self.pending.pop(task["id"], None)
-                uid = command.get("unit_id", command.get("builder_id"))
-                if uid in self.leases and self.leases[uid]["role"] != "human":
-                    self.leases.pop(uid, None)
-            elif observed:
-                task["status"] = "running"
-                self.pending.pop(task["id"], None)
-                task["last_observed_at"] = self.now
-            elif task["status"] == "dispatched" and self.now - task["issued_at"] >= 8:
-                self._fail(task, "not_observed_after_receipt_window")
-            elif task["status"] in ("accepted", "running") and self.now - task.get("last_observed_at", task["issued_at"]) >= 180:
-                task["status"] = "cancelled"
-            if command.get("unit_id", command.get("builder_id")) is not None and not actor:
-                task["status"] = "cancelled"
-                self.pending.pop(task["id"], None)
-            if op in ("train", "research_age", "research_technology", "set_gate_state") and not building:
-                task["status"] = "cancelled"
-                self.pending.pop(task["id"], None)
-        for task in self.pending.values():
-            for resource, amount in task["cost"].items():
-                f.budget[resource] = max(0, f.budget[resource] - amount)
-            command = task["command"]
-            if command["op"] in ("train", "research_age", "research_technology", "set_gate_state"):
-                f.producers.add(command["building_id"])
-                f.pop_used += task["population"]
-            uid = command.get("unit_id", command.get("builder_id"))
-            if uid is not None:
-                f.actors.add(uid)
-        # A wall is one continuing job across many foundations. Its queued
-        # builder must not be reassigned between segments by another role.
-        for worker in f.units:
-            if worker.get("build_queue_ids"):
-                f.actors.add(worker["id"])
-                if self.leases.get(worker["id"], {}).get("role") != "human":
-                    self.leases[worker["id"]] = {"role": "defense", "until": self.now + 15}
-        for uid, lease in self.leases.items():
-            if lease["role"] == "human" and lease["until"] > self.now:
-                if f.entities.get(uid, {}).get("kind") == "building":
-                    f.producers.add(uid)
-                else:
-                    f.actors.add(uid)
+    def report_seen(self, report: dict) -> None:
+        for role in self.roles.values():
+            role.events.append({k: report[k] for k in ("type", "entity_id", "command_id", "reason", "ok", "success", "progress") if k in report})
 
-    def _fail(self, task: dict, reason: str) -> None:
-        task["status"], task["reason"] = "failed", reason
-        self.pending.pop(task["id"], None)
-        key = self.validator._key(task["command"])
-        count = self.failures.get(key, {}).get("count", 0) + 1
-        self.failures[key] = {"count": count, "until": self.now + min(120, 5 * 2 ** min(count, 5)), "last_failure": self.now}
-        task["attempts"] = count
+    def unit_released(self, uid: int) -> None:
+        self.scout_missions.pop(uid, None)
+
+    def unit_stalled(self, uid: int) -> None:
+        self.roles["combat"].memory.setdefault("reported_stalls", {})[uid] = self.now
+        self.roles["economy"].memory.setdefault("reported_stalls", {})[uid] = self.now
+
+    def task_failed(self, task: dict, reason: str) -> None:
         uid = task["command"].get("unit_id", task["command"].get("builder_id"))
-        if uid in self.leases and self.leases[uid]["role"] != "human":
-            self.leases.pop(uid, None)
         mission = self.scout_missions.pop(uid, None)
         if mission:
             self.visited.append((tuple(mission["goal"]), self.now + 120))
         self._status(task["role"], "blocked", reason)
+
+    def command_issued(self, role: str, op: str, args: dict) -> None:
+        uid = args.get("unit_id", args.get("builder_id"))
+        if role == "combat" and uid is not None:
+            self.roles[role].memory.setdefault("command_times", {})[uid] = self.now
+            if op == "attack":
+                self.roles[role].memory.setdefault("last_attack", {})[uid] = (args["target_id"], self.now)
 
     def _knowledge(self, f: _DecisionFrame) -> None:
         previously_over = self.goals.get("match_over", False)
@@ -895,13 +705,11 @@ class MultiAgentRuntime:
                         self.goals["target_id"] = None
                         self.goals["goal_version"] += 1
                     self.roles["scout"].events.append({"type": "remembered_site_confirmed_empty", "entity_id": eid})
-        for report in self._reports(f):
+        for report in self.frame_events:
             if report.get("type") in ("entity_died", "entity_destroyed", "building_destroyed"):
                 eid = report.get("entity_id")
                 self.enemy_knowledge.pop(eid, None)
-                for task in self.tasks.values():
-                    if task["command"].get("target_id") == eid:
-                        task["target_destroyed"] = True
+                self.kernel.target_destroyed(eid)
                 if self.goals["target_id"] == eid:
                     self.goals["target_id"] = None
                     self.goals["goal_version"] += 1
@@ -926,66 +734,10 @@ class MultiAgentRuntime:
             self.match_summary = self.match_report(f)
 
     def _claim(self, uid: int, role: str, emergency: bool = False) -> bool:
-        lease = self.leases.get(uid)
-        if lease and lease["until"] > self.now and lease["role"] != role:
-            builder_borrow = role in ("construction", "defense") and lease["role"] == "economy"
-            if lease["role"] == "human" or not (emergency or builder_borrow):
-                return False
-            self.scout_missions.pop(uid, None)
-        self.leases[uid] = {"role": role, "until": self.now + (15 if role in ("construction", "defense") else 8)}
-        return True
+        return self.kernel.claim(uid, role, emergency)
 
     def _emit(self, f: _DecisionFrame, role: str, op: str, args: dict, emergency: bool = False) -> bool:
-        # Large armies may all need new routes at once. Leave room for the
-        # later construction, production, defense and economy executors; the
-        # global command bound remains unchanged. Training is not a move slot.
-        if role in ("scout", "combat") and op in ("move", "attack", "stop") and len(f.commands) >= MAX_COMMANDS - 12:
-            return False
-        command = {"op": op, **args}
-        key = self.validator._key(command)
-        failure = self.failures.get(key, {})
-        if failure.get("until", 0) > self.now:
-            return False
-        uid = args.get("unit_id", args.get("builder_id"))
-        if uid is not None and uid in f.actors:
-            return False
-        previous_lease = copy.deepcopy(self.leases.get(uid))
-        if uid is not None and not self._claim(uid, role, emergency):
-            return False
-        # Pending exact orders cannot be purchased twice on adjacent snapshots.
-        if any(self.validator._key(task["command"]) == key for task in self.pending.values()):
-            return False
-        before_budget, before_pop = dict(f.budget), f.pop_used
-        if not f.add(op, args, role, quiet=True):
-            if uid is not None:
-                if previous_lease:
-                    self.leases[uid] = previous_lease
-                else:
-                    self.leases.pop(uid, None)
-            return False
-        parsed = f.commands[-1]
-        old_id = parsed.command_id
-        epoch = str(getattr(f.req.metadata, "session_epoch", 0))
-        parsed.command_id = f"ma_{epoch}_{f.req.metadata.tick}_{len(f.commands) - 1}"
-        command = parsed.model_dump(exclude_none=True)
-        self.validator.issued.pop(old_id, None)
-        self.validator.issued[parsed.command_id] = command
-        task = {"id": parsed.command_id, "role": role, "status": "dispatched", "command": command,
-                "issued_at": self.now, "cost": {r: before_budget[r] - f.budget[r] for r in RESOURCES if before_budget[r] > f.budget[r]},
-                "population": f.pop_used - before_pop, "before_age": f.age,
-                "before_ids": [u["id"] for u in f.units] if op == "train" else [b["id"] for b in f.buildings] if op == "place_wall" else [], "attempts": failure.get("count", 0)}
-        # A new actor order supersedes the previous continuing assignment.
-        if uid is not None:
-            for prior in self.tasks.values():
-                if prior["command"].get("unit_id", prior["command"].get("builder_id")) == uid and prior["status"] in ("accepted", "running"):
-                    prior["status"] = "cancelled"
-        self.tasks[task["id"]] = task
-        self.pending[task["id"]] = task
-        if role == "combat" and uid is not None:
-            self.roles[role].memory.setdefault("command_times", {})[uid] = self.now
-            if op == "attack":
-                self.roles[role].memory.setdefault("last_attack", {})[uid] = (args["target_id"], self.now)
-        return True
+        return self.kernel.emit(f, role, op, args, emergency)
 
     def _move(self, f: _DecisionFrame, role: str, unit: dict, goal: list, force: bool = False, arrival_radius: float = 3) -> bool:
         if _distance(unit["pos"], goal) <= arrival_radius:

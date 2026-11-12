@@ -1,6 +1,6 @@
 # 外部 Python 多 Agent AI 实现说明
 
-下一代架构（元首、首相、五部门）的设计与实施进度见 [cabinet_ai_design.md](cabinet_ai_design.md)；通过服务端 `[ai] runtime` 切换，默认仍是本文描述的七角色运行时。
+下一代架构（元首、首相、五部门）的设计与实施进度见 [cabinet_ai_design.md](cabinet_ai_design.md)；通过服务端 `[ai] runtime` 切换，默认仍是本文描述的七角色运行时。命令仲裁、单位租约和任务对账的代码在 `ai_service_python/brain/cabinet/kernel.py`，两套运行时共用。
 
 实现与验证日期：2026-10-15 至 2026-10-23。完整方案和原始对局分析见[设计文档](multi_agent_ai_design.md)。本页说明已经落地的代码、使用方式和边界；城墙防御、攻城生产与战斗分工见[攻城策略说明](ai_siege_strategy.md)。
 

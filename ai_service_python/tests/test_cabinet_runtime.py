@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from brain.cabinet import CabinetRuntime
+from brain.cabinet.runtime import CabinetRuntime
 from brain.multi_agent.runtime import MultiAgentRuntime, ROLE_SCHEMAS
 from brain.multi_agent.scheduler import MultiAgentService, ROLES
 from brain.runtime_factory import create_runtime

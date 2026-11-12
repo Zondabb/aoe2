@@ -2,7 +2,7 @@
 
 日期：2026-11-11 · 分支：`new_ai` · 状态：设计已确认，按阶段实施
 
-实施进度：阶段 0（运行时开关与 `cabinet` 包骨架）已完成，开关用法见 [Python 服务配置](../ai_service_python/README.md#服务配置)。现有七角色实现见 [multi_agent_ai.md](multi_agent_ai.md)。
+实施进度：阶段 0（运行时开关与 `cabinet` 包骨架）和阶段 1（命令仲裁、单位租约、任务对账抽到 `brain/cabinet/kernel.py`，七角色运行时已改用它）已完成，开关用法见 [Python 服务配置](../ai_service_python/README.md#服务配置)。现有七角色实现见 [multi_agent_ai.md](multi_agent_ai.md)。
 
 ## 目标与范围
 
@@ -394,7 +394,7 @@ Godot 脚本把这三个字典当不透明数据保存，不读角色名。读�
 ```text
 ai_service_python/brain/cabinet/
   runtime.py        CabinetRuntime.tick(req)，每轮的编排；对外接口与 MultiAgentRuntime 相同
-  kernel.py         命令仲裁、单位租约、任务对账（从 _emit / _claim / _reconcile 抽出）
+  kernel.py         命令仲裁、单位租约、任务对账（从 _emit / _claim / _reconcile 抽出）；角色各自的反应经 KernelListener 回调
   treasury.py       国库账本：专款、对账、按档位拨款
   models.py         Request / Mandate / DeptReport / IntelBrief / Broadcast 数据类
   premier.py        首相：指令台账、两种调用的 schema 和提示词、规则兜底
