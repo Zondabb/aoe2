@@ -108,6 +108,13 @@ ROLE_PROMPTS = {
 }
 
 
+def _line_distance(point, start, end) -> float:
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length_squared = dx * dx + dy * dy
+    fraction = max(0, min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / max(.001, length_squared)))
+    return _distance(point, [start[0] + fraction * dx, start[1] + fraction * dy])
+
+
 @dataclass
 class RoleState:
     plan: dict
@@ -593,18 +600,7 @@ class MultiAgentRuntime:
             return copy.deepcopy(self.cached)
         if req.metadata.tick < self.last_tick or req.observation is None:
             return {"commands": [], "debug": [], "agent_status": self._statuses(), "goals": copy.deepcopy(self.goals)}
-        self.last_req, self.last_tick, self.now = req.model_copy(deep=True), req.metadata.tick, float(req.metadata.time_sec)
-        if self.validator.profile_id == "default" and req.metadata.profile_id:
-            # Standalone runtime callers may omit the constructor profile.
-            # The authoritative session metadata still names the civilization.
-            self.validator.profile_id = req.metadata.profile_id
-            self.validator.profile = profile_for_id(req.metadata.profile_id)
-        self.debug, self.build_requests = [], []
-        self.demands = {r: 0.0 for r in RESOURCES}
-        self.frame = f = self.kernel.begin(req)
-        self._knowledge(f)
-        self._remember_resources(f)
-        self._intelligence(f)
+        f = self._open_frame(req)
         if not self.goals.get("match_over", False):
             self._commander(f)
             self._scout(f)
@@ -624,11 +620,35 @@ class MultiAgentRuntime:
                 f.budget[resource] += held
             self._economy(f)
         else:
+            self._end_match()
+        self.cached = self._close_frame(f)
+        return copy.deepcopy(self.cached)
+
+    def _open_frame(self, req: ChatCompletionRequest) -> _DecisionFrame:
+        """Take in one observation: tasks, enemy knowledge, resource memory, intelligence."""
+        self.last_req, self.last_tick, self.now = req.model_copy(deep=True), req.metadata.tick, float(req.metadata.time_sec)
+        if self.validator.profile_id == "default" and req.metadata.profile_id:
+            # Standalone runtime callers may omit the constructor profile.
+            # The authoritative session metadata still names the civilization.
+            self.validator.profile_id = req.metadata.profile_id
+            self.validator.profile = profile_for_id(req.metadata.profile_id)
+        self.debug, self.build_requests = [], []
+        self.demands = {r: 0.0 for r in RESOURCES}
+        self.frame = f = self.kernel.begin(req)
+        self._knowledge(f)
+        self._remember_resources(f)
+        self._intelligence(f)
+        return f
+
+    def _end_match(self) -> None:
             for role in self.roles:
                 self._status(role, "complete", self.goals["phase"])
             self.kernel.end_match()
+
+    def _close_frame(self, f: _DecisionFrame) -> dict:
+        """This tick's response; then forget finished tasks and units that are gone."""
         statuses = self._statuses()
-        self.cached = {"commands": [c.model_dump(exclude_none=True) for c in f.commands],
+        result = {"commands": [c.model_dump(exclude_none=True) for c in f.commands],
                        "debug": self.debug + [d.model_dump() for d in f.debug][:8],
                        "agent_status": statuses, "goals": copy.deepcopy(self.goals)}
         self.kernel.prune(f)
@@ -636,7 +656,7 @@ class MultiAgentRuntime:
             for key in ("movement", "reported_stalls", "worker_progress", "command_times", "last_attack"):
                 if key in role.memory:
                     role.memory[key] = {uid: value for uid, value in role.memory[key].items() if uid in f.entities}
-        return copy.deepcopy(self.cached)
+        return result
 
     def _statuses(self) -> dict:
         return {role: {"status": state.status, "reason": state.reason, "plan_version": state.version,
@@ -1354,13 +1374,9 @@ class MultiAgentRuntime:
             target = min(target, doctrine["age_cap_before_sortie"])
         return target, max(plan["budget_fraction"], doctrine.get("tech_budget_floor", 0.0))
 
-    def _technology(self, f: _DecisionFrame) -> None:
-        role = self.roles["technology"]
-        self.tech_reserve = {}
-        if not f.progression_enabled:
-            self._status("technology", "complete", "progression_disabled")
-            return
-        target_age, budget_fraction = self._technology_targets()
+    def _age_plan(self, f: _DecisionFrame) -> dict:
+        """Whether the next age is due and what it takes; asks for missing prerequisite buildings."""
+        target_age, _ = self._technology_targets()
         need_age = f.age < target_age
         if self.goals["needs_siege"] and f.age < 2:
             need_age = True
@@ -1395,13 +1411,45 @@ class MultiAgentRuntime:
         enough_workers = villagers >= 8 and (villagers >= self._worker_targets(f.age)[1] or not producing)
         eligible = need_age and enough_workers and not self.roles["commander"].memory.get("threat_ids")
         tcs = [b for b in f.buildings if b.get("def_id") == "town_center" and b.get("is_complete")]
+        return {"eligible": eligible, "tcs": tcs, "cost": age_record.get("cost", AGE_COSTS[min(f.age, 2)]),
+                "prereqs_ready": castle_alternative or len(set(eligible_buildings) & completed_types) >= required_count}
+
+    def _tech_options(self, f: _DecisionFrame) -> list[tuple[dict, dict]]:
+        """Researchable upgrades with their buildings, the technology plan's favourites first."""
+        role = self.roles["technology"]
+        counts = self._force_counts(f)
+        options = [(b, t) for b in f.buildings for t in b.get("technologies", [])
+                   if t.get("reason") == "" and t.get("id") in f.tech_defs]
+        escort_count = sum(u.get("def_id") != "villager" and u.get("def_id") not in SCOUT_TYPES and not self._demolition(u)
+                           for u in f.units)
+        first_force_needed = escort_count < self.goals["sortie_target"] and not self.roles["combat"].memory.get("initial_force")
+        first_siege_needed = self.goals["needs_siege"] and not any(counts[name] for name in DEMOLITION_UNITS)
+        options = [(b, t) for b, t in options if not (b.get("def_id") in MILITARY_BUILDINGS
+                   and (first_force_needed or first_siege_needed and b.get("def_id") in ("siege_workshop", "castle")))]
+        priority = role.plan["priority"]
+        def score(item):
+            name = item[1]["id"]
+            economic = any(key in name for key in ("axe", "saw", "mining", "collar", "plow", "wheelbarrow", "hand_cart"))
+            siege = any(key in name for key in ("ram", "siege", "onager"))
+            return (not (economic if priority == "economy" else siege if priority == "siege" else not economic), name)
+        return sorted(options, key=score)
+
+    def _technology(self, f: _DecisionFrame) -> None:
+        role = self.roles["technology"]
+        self.tech_reserve = {}
+        if not f.progression_enabled:
+            self._status("technology", "complete", "progression_disabled")
+            return
+        _, budget_fraction = self._technology_targets()
+        age = self._age_plan(f)
+        eligible, tcs = age["eligible"], age["tcs"]
         if eligible:
-            cost = age_record.get("cost", AGE_COSTS[min(f.age, 2)])
+            cost = age["cost"]
             for tc in tcs:
                 if tc.get("age_upgrade_reason") == "" and self._emit(f, "technology", "research_age", {"building_id": tc["id"]}):
                     self._status("technology", "running", "age_research_started")
                     return
-            prereqs_ready = castle_alternative or len(set(eligible_buildings) & completed_types) >= required_count
+            prereqs_ready = age["prereqs_ready"]
             if prereqs_ready and not any(b.get("is_researching") for b in tcs):
                 start = role.memory.setdefault("reserve_started", self.now)
                 # Slow but positive income must be allowed to reach 500 food.
@@ -1438,21 +1486,7 @@ class MultiAgentRuntime:
             role.memory.pop("reserve_started", None)
             role.memory.pop("reserve_high_water", None)
             role.memory.pop("reserve_progress_at", None)
-        options = [(b, t) for b in f.buildings for t in b.get("technologies", [])
-                   if t.get("reason") == "" and t.get("id") in f.tech_defs]
-        escort_count = sum(u.get("def_id") != "villager" and u.get("def_id") not in SCOUT_TYPES and not self._demolition(u)
-                           for u in f.units)
-        first_force_needed = escort_count < self.goals["sortie_target"] and not self.roles["combat"].memory.get("initial_force")
-        first_siege_needed = self.goals["needs_siege"] and not any(counts[name] for name in DEMOLITION_UNITS)
-        options = [(b, t) for b, t in options if not (b.get("def_id") in MILITARY_BUILDINGS
-                   and (first_force_needed or first_siege_needed and b.get("def_id") in ("siege_workshop", "castle")))]
-        priority = role.plan["priority"]
-        def score(item):
-            name = item[1]["id"]
-            economic = any(key in name for key in ("axe", "saw", "mining", "collar", "plow", "wheelbarrow", "hand_cart"))
-            siege = any(key in name for key in ("ram", "siege", "onager"))
-            return (not (economic if priority == "economy" else siege if priority == "siege" else not economic), name)
-        for building, option in sorted(options, key=score):
+        for building, option in self._tech_options(f):
             cost = f.tech_defs[option["id"]].get("cost", {})
             if all(f.budget[r] >= amount / max(.1, budget_fraction) for r, amount in cost.items()):
                 if self._emit(f, "technology", "research_technology", {"building_id": building["id"], "technology_id": option["id"]}):
@@ -1504,9 +1538,9 @@ class MultiAgentRuntime:
         if "gold" in known and len(workers) >= 8:
             self._request_building(f, "mining_camp", 58, "gold_delivery")
 
-    def _construction(self, f: _DecisionFrame) -> None:
+    def _staff_foundations(self, f: _DecisionFrame) -> int:
+        """Send a free worker to every unstaffed foundation; returns the builders now at work."""
         role = self.roles["construction"]
-        self.construction_reserve = {}
         workers = [u for u in f.units if u.get("def_id") == "villager"]
         active = sum(u.get("order") == "BUILD" for u in workers)
         queued = {eid for worker in workers for eid in worker.get("build_queue_ids", [])}
@@ -1520,24 +1554,63 @@ class MultiAgentRuntime:
                 if active < role.plan["max_builders"] and self._emit(f, "construction", "build", {"unit_id": worker["id"], "building_id": foundation["id"]}):
                     active += 1
                     break
+        return active
+
+    @staticmethod
+    def _unlocked_for_saving(f: _DecisionFrame, definition: dict) -> bool:
+        # The real catalog's `available` includes affordability. Saving
+        # must remain active while wood is below the price, otherwise
+        # cheap farms consume every delivery and the workshop never exists.
+        if definition.get("blocked_reason") == "资源不足":
+            definition = {**definition, "available": True, "blocked_reason": ""}
+        return f._unlock(definition)
+
+    def _building_sites(self, f: _DecisionFrame, name: str) -> list[dict]:
+        """Legal sites for this building with a free builder, best first."""
+        role = self.roles["construction"]
+        options = [o for o in f.context.get("construction_options", []) if o.get("building_def_id") == name and _vec(o.get("pos"))]
+        if name in ("lumber_camp", "mining_camp"):
+            options = self._sane_drop_off_sites(f, name, options)
+        def site_score(option):
+            if name == "farm":
+                # Godot scores the delivery trip to the TC or mill serving this field.
+                return -float(option.get("score", 0))
+            dist = _distance(option["pos"], f.base)
+            zone = option.get("zone", "")
+            military = name in MILITARY_BUILDINGS
+            core_penalty = max(0, role.plan["farm_reserve_radius"] - dist) * 50 if military else 0
+            # Godot labels the broad zone "military"; the model chooses
+            # front/flank preference within those authoritative candidates.
+            front = [f.base[0], f.base[1]]
+            if f.obs.map_bounds:
+                front = [(f.obs.map_bounds["min"][i] + f.obs.map_bounds["max"][i]) * .5 for i in (0, 1)]
+            target = self.enemy_knowledge.get(self.goals["target_id"], {}).get("pos", front)
+            offset, direction = [option["pos"][i] - f.base[i] for i in (0, 1)], [target[i] - f.base[i] for i in (0, 1)]
+            cosine = sum(offset[i] * direction[i] for i in (0, 1)) / max(1, math.hypot(*offset) * math.hypot(*direction))
+            zone_penalty = (-cosine if role.plan["military_zone"] == "military_front" else abs(cosine)) * 10 if military else 0
+            components = option.get("score_components", {})
+            path = float(components.get("builder_distance", components.get("travel_distance", 0)))
+            return core_penalty + zone_penalty + (abs(dist - 28) if military else dist * .1) + path * .2 - float(option.get("score", 0)) * .2
+        return [option for option in sorted(options, key=site_score)
+                if f.entities.get(option.get("builder_id"), {}).get("order", "NONE") in ("NONE", "GATHER")
+                and not self._in_raid_zone(f, option["pos"])
+                and option.get("preserves_access") is not False and option.get("blocks_corridor") is not True]
+
+    def _construction(self, f: _DecisionFrame) -> None:
+        role = self.roles["construction"]
+        self.construction_reserve = {}
+        active = self._staff_foundations(f)
         if active >= role.plan["max_builders"]:
             self._status("construction", "running", "complete_active_foundations")
             return
         # Critical infrastructure needs a bounded savings window, not merely
         # a high priority: a 60-wood farm otherwise consumes every delivery
         # before a 100-wood camp / 175-wood age prerequisite becomes affordable.
-        def unlocked_for_saving(definition):
-            # The real catalog's `available` includes affordability. Saving
-            # must remain active while wood is below the price, otherwise
-            # cheap farms consume every delivery and the workshop never exists.
-            if definition.get("blocked_reason") == "资源不足":
-                definition = {**definition, "available": True, "blocked_reason": ""}
-            return f._unlock(definition)
 
         reservable = [(p, name, reason) for p, name, reason in self.build_requests
                       if p >= 107 and (reason in ("long_wood_delivery", "age_prerequisite", "farm_prerequisite", "staffed_food_supply", "siege_infrastructure")
                                       or reason == "opening_military_capacity" and self._food_bridge(f))
-                      and unlocked_for_saving(f.building_defs[name])
+                      and self._unlocked_for_saving(f, f.building_defs[name])
                       and not any(b.get("def_id") == name and not b.get("is_complete") for b in f.buildings)
                       and any(o.get("building_def_id") == name for o in f.context.get("construction_options", []))]
         saved = role.memory.get("purchase_reservation", {})
@@ -1567,37 +1640,7 @@ class MultiAgentRuntime:
                 cost = f.building_defs.get(name, {}).get("cost", {})
                 if any(f.budget[r] - cost.get(r, 0) < amount for r, amount in saved["cost"].items()):
                     continue
-            options = [o for o in f.context.get("construction_options", []) if o.get("building_def_id") == name and _vec(o.get("pos"))]
-            if name in ("lumber_camp", "mining_camp"):
-                options = self._sane_drop_off_sites(f, name, options)
-            def site_score(option):
-                if name == "farm":
-                    # Godot scores the delivery trip to the TC or mill serving this field.
-                    return -float(option.get("score", 0))
-                dist = _distance(option["pos"], f.base)
-                zone = option.get("zone", "")
-                military = name in MILITARY_BUILDINGS
-                core_penalty = max(0, role.plan["farm_reserve_radius"] - dist) * 50 if military else 0
-                # Godot labels the broad zone "military"; the model chooses
-                # front/flank preference within those authoritative candidates.
-                front = [f.base[0], f.base[1]]
-                if f.obs.map_bounds:
-                    front = [(f.obs.map_bounds["min"][i] + f.obs.map_bounds["max"][i]) * .5 for i in (0, 1)]
-                target = self.enemy_knowledge.get(self.goals["target_id"], {}).get("pos", front)
-                offset, direction = [option["pos"][i] - f.base[i] for i in (0, 1)], [target[i] - f.base[i] for i in (0, 1)]
-                cosine = sum(offset[i] * direction[i] for i in (0, 1)) / max(1, math.hypot(*offset) * math.hypot(*direction))
-                zone_penalty = (-cosine if role.plan["military_zone"] == "military_front" else abs(cosine)) * 10 if military else 0
-                components = option.get("score_components", {})
-                path = float(components.get("builder_distance", components.get("travel_distance", 0)))
-                return core_penalty + zone_penalty + (abs(dist - 28) if military else dist * .1) + path * .2 - float(option.get("score", 0)) * .2
-            for option in sorted(options, key=site_score):
-                worker = f.entities.get(option.get("builder_id"), {})
-                if worker.get("order", "NONE") not in ("NONE", "GATHER"):
-                    continue
-                if self._in_raid_zone(f, option["pos"]):
-                    continue
-                if option.get("preserves_access") is False or option.get("blocks_corridor") is True:
-                    continue
+            for option in self._building_sites(f, name):
                 if name == "farm" and any(b.get("def_id") == "farm" for b in f.buildings) and not any(b.get("def_id") == "barracks" for b in f.buildings):
                     remaining = f.budget["wood"] - f.building_defs[name].get("cost", {}).get("wood", 60)
                     if remaining < f.building_defs.get("barracks", {}).get("cost", {}).get("wood", 175):
@@ -1613,19 +1656,30 @@ class MultiAgentRuntime:
             self.construction_reserve = {r: min(amount, f.budget[r]) for r, amount in saved["cost"].items()}
         self._status("construction", "waiting", "budget_or_legal_site")
 
-    def _defense(self, f: _DecisionFrame) -> None:
-        """Complete a persistent gated perimeter in affordable legal batches."""
+    def _defense_scene(self, f: _DecisionFrame) -> dict | None:
+        """What the wall builders face this tick; None where the game has no wall segments."""
         role = self.roles["defense"]
         capabilities = f.obs.capabilities or f.context.get("capabilities", {})
         if not capabilities.get("wall_segments"):
             self._status("defense", "waiting", "wall_segments_unsupported")
-            return
+            return None
         workers = [u for u in f.units if u.get("def_id") == "villager"]
         enemies = [e for e in f.obs.entities if f.enemy(e) and e.get("kind") == "unit" and e.get("def_id") != "villager"]
         approaching = [e for e in enemies if _distance(e["pos"], f.base) <= 40]
         if approaching:
             role.memory["threat_until"] = self.now + 180
         fortifications = [b for b in f.buildings if b.get("def_id") in FORTIFICATION_TYPES]
+        queued = {eid for worker in workers for eid in worker.get("build_queue_ids", [])}
+        queued.update(u.get("target_id") for u in workers if u.get("order") == "BUILD")
+        unfinished = [b for b in fortifications if not b.get("is_complete")]
+        active = [u for u in workers if u.get("order") == "BUILD" or u.get("build_queue_ids")]
+        return {"capabilities": capabilities, "workers": workers, "enemies": enemies, "approaching": approaching,
+                "fortifications": fortifications, "unfinished": unfinished, "active": active, "queued": queued}
+
+    def _defense_upkeep(self, f: _DecisionFrame, scene: dict) -> bool:
+        """Set gate states and staff unfinished sections. True while sections remain unfinished."""
+        role, capabilities = self.roles["defense"], scene["capabilities"]
+        workers, enemies, approaching, fortifications, unfinished, active, queued = (scene[key] for key in ("workers", "enemies", "approaching", "fortifications", "unfinished", "active", "queued"))
         if capabilities.get("gate_control"):
             for gate in [b for b in fortifications if b.get("def_id") not in WALL_TYPES and b.get("is_complete")]:
                 gate_distance = _distance(gate["pos"], f.base)
@@ -1634,10 +1688,6 @@ class MultiAgentRuntime:
                 mode = "locked" if role.plan["gate_mode"] == "locked" and immediate_attack and not needs_passage else "auto"
                 if gate.get("gate_state", "auto") != mode:
                     self._emit(f, "defense", "set_gate_state", {"building_id": gate["id"], "gate_state": mode})
-        queued = {eid for worker in workers for eid in worker.get("build_queue_ids", [])}
-        queued.update(u.get("target_id") for u in workers if u.get("order") == "BUILD")
-        unfinished = [b for b in fortifications if not b.get("is_complete")]
-        active = [u for u in workers if u.get("order") == "BUILD" or u.get("build_queue_ids")]
         # Resume a surviving unstaffed section after a builder dies or an order
         # is interrupted, without replacing any ongoing wall-build queue.
         if unfinished:
@@ -1652,35 +1702,35 @@ class MultiAgentRuntime:
                         active.append(worker)
                         break
             self._status("defense", "running", "complete_wall_and_gate_foundations")
-            return
+            return True
+        return False
+
+    def _wall_options(self, f: _DecisionFrame, scene: dict) -> list[dict] | None:
+        """Offered wall lines worth building now; None when no wall is due, with the reason as status."""
+        role = self.roles["defense"]
+        workers, enemies, approaching, fortifications, unfinished, active, queued = (scene[key] for key in ("workers", "enemies", "approaching", "fortifications", "unfinished", "active", "queued"))
         if any(t["role"] == "defense" and t["command"]["op"] == "place_wall" for t in self.pending.values()):
             self._status("defense", "waiting", "wall_receipt_pending")
-            return
+            return None
         policy = self.doctrine.get("defense_policy", role.plan["policy"])
         threat_active = role.memory.get("threat_until", 0) > self.now
         if policy == "reactive" and not threat_active:
             self._status("defense", "waiting", "monitor_observed_base_approaches")
-            return
+            return None
         has_production = any(b.get("def_id") in MILITARY_BUILDINGS and b.get("is_complete") for b in f.buildings)
         if len(workers) < (6 if threat_active or policy == "fortify" else 8) or not has_production or not self._food_bridge(f):
             self._status("defense", "waiting", "preserve_opening_food_and_military")
-            return
+            return None
         perimeter = f.context.get("defense_plan", {})
         if perimeter.get("closed") is True:
             self._status("defense", "ready", "perimeter_closed_maintain_gates")
-            return
+            return None
         if len(fortifications) >= role.plan["max_segments"]:
             self._status("defense", "waiting", "perimeter_budget_limit_not_closure")
-            return
+            return None
         if len(active) >= self.roles["construction"].plan["max_builders"]:
             self._status("defense", "waiting", "preserve_economy_builder_capacity")
-            return
-        def line_distance(point, start, end):
-            dx, dy = end[0] - start[0], end[1] - start[1]
-            length_squared = dx * dx + dy * dy
-            fraction = max(0, min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / max(.001, length_squared)))
-            return _distance(point, [start[0] + fraction * dx, start[1] + fraction * dy])
-
+            return None
         options = []
         for option in f.context.get("defense_options", []):
             if not isinstance(option, dict) or option.get("preserves_access") is not True:
@@ -1710,33 +1760,52 @@ class MultiAgentRuntime:
             if (not worker or worker.get("order", "NONE") not in ("NONE", "GATHER")
                     or worker.get("build_queue_ids") or worker.get("gather_state") == "to_drop_off"
                     or float(worker.get("carry_amount", 0)) > .001
-                    or any(min(line_distance(enemy["pos"], start, end), _distance(worker["pos"], enemy["pos"])) < 8 for enemy in enemies)):
+                    or any(min(_line_distance(enemy["pos"], start, end), _distance(worker["pos"], enemy["pos"])) < 8 for enemy in enemies)):
                 continue
             options.append(option)
-        def score(option):
-            affordable = all(f.budget[r] >= value for r, value in option["cost"].items())
-            # A safe flank screen facing an observed raid is more useful than
-            # adding another front row. Hidden enemies never influence placement.
-            approach_distance = min((line_distance(enemy["pos"], option["start"], option["end"]) for enemy in approaching), default=0)
-            return (not affordable, not option.get("repair", False), not option.get("connected", False),
-                    -float(option.get("priority", 0)), approach_distance, not option.get("include_gate", False), option.get("zone") != "defensive_front",
-                    option["building_def_id"] != "palisade_wall",
-                    sum(option["cost"].values()))
-        for option in sorted(options, key=score):
+        return options
+
+    def _wall_score(self, f: _DecisionFrame, option: dict, scene: dict) -> tuple:
+        approaching = scene["approaching"]
+        affordable = all(f.budget[r] >= value for r, value in option["cost"].items())
+        # A safe flank screen facing an observed raid is more useful than
+        # adding another front row. Hidden enemies never influence placement.
+        approach_distance = min((_line_distance(enemy["pos"], option["start"], option["end"]) for enemy in approaching), default=0)
+        return (not affordable, not option.get("repair", False), not option.get("connected", False),
+                -float(option.get("priority", 0)), approach_distance, not option.get("include_gate", False), option.get("zone") != "defensive_front",
+                option["building_def_id"] != "palisade_wall",
+                sum(option["cost"].values()))
+
+    def _place_wall(self, f: _DecisionFrame, options: list[dict], scene: dict, wood_floor: float, food_floor: float) -> bool:
+        """Order the best affordable line that leaves the given wood and food in stock."""
+        role = self.roles["defense"]
+        for option in sorted(options, key=lambda o: self._wall_score(f, o, scene)):
             cost = option["cost"]
-            wood_floor = max(60, role.plan["reserve_wood"])
-            if f.budget["wood"] - cost.get("wood", 0) < wood_floor or f.budget["food"] - cost.get("food", 0) < 50:
+            if f.budget["wood"] - cost.get("wood", 0) < wood_floor or f.budget["food"] - cost.get("food", 0) < food_floor:
                 continue
             args = {key: option[key] for key in ("builder_id", "building_def_id", "start", "end", "include_gate") if key in option}
             if self._emit(f, "defense", "place_wall", args):
                 role.memory.pop("perimeter_scout", None)
                 role.memory["last_wall_at"] = self.now
                 self._status("defense", "running", "extend_gated_base_perimeter")
-                return
+                return True
+        return False
+
+    def _defense(self, f: _DecisionFrame) -> None:
+        """Complete a persistent gated perimeter in affordable legal batches."""
+        role = self.roles["defense"]
+        scene = self._defense_scene(f)
+        if scene is None or self._defense_upkeep(f, scene):
+            return
+        options = self._wall_options(f, scene)
+        if options is None:
+            return
+        if self._place_wall(f, options, scene, max(60, role.plan["reserve_wood"]), 50):
+            return
         if options:
-            for resource, amount in sorted(options, key=score)[0]["cost"].items():
+            for resource, amount in sorted(options, key=lambda o: self._wall_score(f, o, scene))[0]["cost"].items():
                 self.demands[resource] += amount
-        if self._defense_reveal(f, workers, enemies):
+        if self._defense_reveal(f, scene["workers"], scene["enemies"]):
             return
         self._status("defense", "waiting", "perimeter_budget_or_hidden_or_blocked_section")
 
@@ -1820,7 +1889,8 @@ class MultiAgentRuntime:
     def _in_raid_zone(self, f: _DecisionFrame, pos, margin: float = 4.0) -> bool:
         return any(_distance(pos, r["pos"]) <= self._raid_reach(r) + margin for r in self._hostile_raiders(f))
 
-    def _production(self, f: _DecisionFrame) -> None:
+    def _production_plan(self, f: _DecisionFrame) -> dict:
+        """Producers in training order and what the first force and the siege train still lack."""
         workers = [u for u in f.units if u.get("def_id") == "villager"]
         _, desired = self._worker_targets(f.age)
         soldiers = [u for u in f.units if u.get("def_id") != "villager" and u.get("def_id") not in SCOUT_TYPES]
@@ -1843,8 +1913,42 @@ class MultiAgentRuntime:
         # spending every delivery on cheaper escorts. Food remains available.
         siege_reserve = min((f.unit_defs[name].get("cost", {}) for _, name in siege_candidates),
                             key=lambda cost: sum(cost.values()), default={}) if siege_needed else {}
+        return {"workers": workers, "desired": desired, "first_force_needed": first_force_needed, "reserve": reserve, "counts": counts,
+                "siege_target": siege_target, "siege_count": siege_count, "siege_needed": siege_needed,
+                "siege_reserve": siege_reserve, "ordered": ordered}
+
+    def _military_choices(self, f: _DecisionFrame, building: dict, counts: Counter, siege_count: int, siege_target: int) -> list[str]:
+        """Units this building may train, most wanted first."""
+        candidates = [name for name in building.get("trainable", []) if name in f.unit_defs and name not in ("petard", "villager") and f._unlock(f.unit_defs[name])
+                      and (name not in DEMOLITION_UNITS or siege_count < siege_target)
+                      and (building.get("def_id") != "siege_workshop" or name in DEMOLITION_UNITS)]
+        composition = self.roles["combat"].plan.get("composition", "counter")
+        preferred_classes = COMPOSITION_CLASSES.get(composition, set())
+
+        def composition_key(name):
+            if composition == "knights":
+                return 0 if name in ("knight", "cavalier", "paladin") else 1
+            if composition == "counter":
+                return -round(self.counter_map.get(name, 0.0), 1)
+            return 0 if not preferred_classes or unit_class(name) in preferred_classes else 1
+
+        def unit_score(name):
+            siege = name in DEMOLITION_UNITS
+            anti_cavalry = name in ("spearman", "pikeman", "halberdier", "skirmisher", "elite_skirmisher")
+            # Keep a ram complement rather than rotating into friendly-fire
+            # artillery just because that type's current count is zero.
+            siege_preference = 0 if "ram" in name else 1 if name in ("trebuchet", "bombard_cannon") else 2
+            return (0 if siege and siege_count < siege_target else 1, siege_preference if siege else 0,
+                    0 if siege else composition_key(name),
+                    counts[name] + (4 if anti_cavalry else 0), -float(f.unit_defs[name].get("attack", 0)))
+        return sorted(candidates, key=unit_score)
+
+    def _production(self, f: _DecisionFrame) -> None:
+        plan = self._production_plan(f)
+        workers, desired, reserve, counts = plan["workers"], plan["desired"], plan["reserve"], plan["counts"]
+        siege_target, siege_count, siege_reserve = plan["siege_target"], plan["siege_count"], plan["siege_reserve"]
         military_purchased = False
-        for building in ordered:
+        for building in plan["ordered"]:
             if building.get("def_id") == "town_center":
                 civilian_cost = f.unit_defs.get("villager", {}).get("cost", {"food": 50})
                 preserves_military = military_purchased or all(f.budget[r] - civilian_cost.get(r, 0) >= amount for r, amount in reserve.items())
@@ -1854,29 +1958,7 @@ class MultiAgentRuntime:
                 continue
             if building.get("def_id") not in MILITARY_BUILDINGS:
                 continue
-            candidates = [name for name in building.get("trainable", []) if name in f.unit_defs and name not in ("petard", "villager") and f._unlock(f.unit_defs[name])
-                          and (name not in DEMOLITION_UNITS or siege_count < siege_target)
-                          and (building.get("def_id") != "siege_workshop" or name in DEMOLITION_UNITS)]
-            composition = self.roles["combat"].plan.get("composition", "counter")
-            preferred_classes = COMPOSITION_CLASSES.get(composition, set())
-
-            def composition_key(name):
-                if composition == "knights":
-                    return 0 if name in ("knight", "cavalier", "paladin") else 1
-                if composition == "counter":
-                    return -round(self.counter_map.get(name, 0.0), 1)
-                return 0 if not preferred_classes or unit_class(name) in preferred_classes else 1
-
-            def unit_score(name):
-                siege = name in DEMOLITION_UNITS
-                anti_cavalry = name in ("spearman", "pikeman", "halberdier", "skirmisher", "elite_skirmisher")
-                # Keep a ram complement rather than rotating into friendly-fire
-                # artillery just because that type's current count is zero.
-                siege_preference = 0 if "ram" in name else 1 if name in ("trebuchet", "bombard_cannon") else 2
-                return (0 if siege and siege_count < siege_target else 1, siege_preference if siege else 0,
-                        0 if siege else composition_key(name),
-                        counts[name] + (4 if anti_cavalry else 0), -float(f.unit_defs[name].get("attack", 0)))
-            for name in sorted(candidates, key=unit_score):
+            for name in self._military_choices(f, building, counts, siege_count, siege_target):
                 for r, amount in f.unit_defs[name].get("cost", {}).items():
                     self.demands[r] += amount
                 if name not in DEMOLITION_UNITS and siege_count < siege_target and not self.roles["commander"].memory.get("threat_ids"):
