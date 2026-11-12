@@ -641,9 +641,9 @@ class MultiAgentRuntime:
         return f
 
     def _end_match(self) -> None:
-            for role in self.roles:
-                self._status(role, "complete", self.goals["phase"])
-            self.kernel.end_match()
+        for role in self.roles:
+            self._status(role, "complete", self.goals["phase"])
+        self.kernel.end_match()
 
     def _close_frame(self, f: _DecisionFrame) -> dict:
         """This tick's response; then forget finished tasks and units that are gone."""

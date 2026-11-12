@@ -9,6 +9,10 @@ Logs and reports stay under .godot/ai-duel-*/.
 With --baseline-dir the duel compares code versions instead: the "on" arm runs
 --service-dir and the "off" arm runs the baseline directory, both with the
 intelligence layer on. Arm names stay "on"/"off" so the analysis tools apply.
+
+--runtime selects the AI runtime of the "on" arm (and of both arms without
+--baseline-dir). To set the cabinet against the seven-role runtime of the same
+code, pass --runtime cabinet --baseline-dir ai_service_python.
 """
 from __future__ import annotations
 
@@ -58,6 +62,8 @@ def main() -> int:
                         "map); the layout stays rotationally symmetric, forests move")
     parser.add_argument("--baseline-dir", default="", help="version duel: the 'off' arm runs this AI service directory "
                         "with the intelligence layer ON (the 'on' arm runs --service-dir), so only the code differs")
+    parser.add_argument("--runtime", default="", choices=["", "multi_agent", "cabinet"],
+                        help="AI runtime for the 'on' arm; with --baseline-dir the 'off' arm keeps its own default")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     (root / ".godot").mkdir(exist_ok=True)
@@ -106,6 +112,8 @@ def main() -> int:
                                   f'port = {port}\napi_token = ""\nlog_dir = {json.dumps(str(directory / "logs"))}\n\n'
                                   '[llm]\nbackend = "rules_compat"\n', encoding="utf-8")
                 command = [sys.executable, "main.py", "--config", str(config)]
+            if args.runtime and (baseline_dir is None or arm == "on"):
+                command += ["--runtime", args.runtime]
             service = launch(command, f"m{index}-service{team}", cwd, env)
             services.append(service)
             deadline = time.monotonic() + 30

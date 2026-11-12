@@ -49,6 +49,6 @@ class Premier:
         self.tiers = apply_floors(default_tiers(requests, brief), requests, brief)
         return self.tiers
 
-    def status(self) -> dict:
-        return {"status": "running", "reason": "default_ranking_rules", "source": self.source,
+    def status(self, match_over: bool = False) -> dict:
+        return {"status": "complete" if match_over else "running", "reason": "default_ranking_rules", "source": self.source,
                 "posture": self.posture, "tiers": dict(self.tiers)}

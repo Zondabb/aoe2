@@ -308,7 +308,7 @@ class MultiAgentService:
                 cmd.setdefault("expires_at_sim_time", req.metadata.time_sec + 10)
             # Schedule consumes immutable role context under this short lock, then returns.
             self._schedule(session, req)
-            result["planning"] = copy.deepcopy(session.plan_status)
+            result["planning"] = {**result.get("planning", {}), **copy.deepcopy(session.plan_status)}
             result.setdefault("debug", [])
             result["debug"].append({"category": "MULTI_AGENT", "message": json.dumps({
                 "pending_roles": sorted(session.inflight), "commands": len(result.get("commands", [])),
@@ -331,6 +331,10 @@ class MultiAgentService:
 
     def _schedule(self, session: _Session, req: ChatCompletionRequest) -> None:
         if getattr(session.runtime, "goals", {}).get("match_over"):
+            return
+        if not getattr(session.runtime, "planning_roles", ROLES):
+            # This runtime decides by rule and has no model plan to ask for.
+            session.plan_status["backend"] = "rules"
             return
         if not is_openai_backend(resolve_backend(req)):
             session.plan_status["backend"] = "deterministic"

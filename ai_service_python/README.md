@@ -45,7 +45,7 @@ num_ctx = 8192
 
 `backend="openai"` 表示兼容上游模型；要使用纯规则策略，在服务端改为 `rules_compat`。`base_url` 是模型服务的地址，游戏的 `service_url` 是本 Python 服务的地址，两者用途不同。
 
-`[ai].runtime` 选择 v3 快速通道使用的运行时：`multi_agent` 是现有的七角色运行时，`cabinet` 是首相加五部门的新架构，设计见 [cabinet_ai_design.md](../docs/cabinet_ai_design.md)。每个队伍会话在建立时读取一次，之后不再切换；名称写错时服务拒绝启动。当前阶段 `cabinet` 把全部调用委托给七角色运行时，两者下发的命令相同。
+`[ai].runtime` 选择 v3 快速通道使用的运行时：`multi_agent` 是现有的七角色运行时，`cabinet` 是首相加五部门的新架构，设计见 [cabinet_ai_design.md](../docs/cabinet_ai_design.md)。每个队伍会话在建立时读取一次，之后不再切换；名称写错时服务拒绝启动。`cabinet` 目前到阶段 2：五个部门提需求单，首相按规则排档，国库按档位拨款，暂不调用模型；`agent_status` 的键是 `premier` 和五个部门，每个部门条目带它的需求单和 `roles`（它驱动的旧角色的状态）；`planning` 里有当前档位表和情报简报。对战对比用 `tools/ai_duel_ab.py --runtime cabinet --baseline-dir ai_service_python`。
 
 私有模型或密钥可以写入 `config.local.toml`（已忽略 Git 和 Docker 构建），格式见 `config.local.example.toml`。例如远程模型：
 

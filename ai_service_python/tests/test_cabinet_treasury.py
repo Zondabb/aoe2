@@ -25,13 +25,15 @@ def total(treasury, resource):
 
 def test_tiers_are_funded_in_order_and_earmarks_never_exceed_the_stock():
     treasury = Treasury()
-    army, wall, tech = req("general-1", {"food": 300, "gold": 200}), req("defense-1", {"stone": 100, "food": 50}), req("tech-1", {"food": 200})
-    treasury.allocate(stock(food=400, gold=120, stone=500), [tech, wall, army],
+    # The premier's tier outranks the departments' own urgency.
+    army, wall = req("general-1", {"food": 300, "gold": 200}), req("defense-1", {"stone": 100, "food": 50}, urgency=2)
+    tech = req("tech-1", {"food": 200}, urgency=3)
+    treasury.allocate(stock(food=380, gold=120, stone=500), [tech, wall, army],
                       {"general-1": "now", "defense-1": "next", "tech-1": "later"})
 
     assert treasury.held("general-1") == {"food": 300, "gold": 120}
     assert treasury.held("defense-1") == {"stone": 100, "food": 50}
-    assert treasury.held("tech-1") == {"food": 50}
+    assert treasury.held("tech-1") == {"food": 30}
     assert treasury.unallocated == stock(stone=400)
     assert treasury.gap(army) == {"gold": 80} and treasury.gap(wall) == {}
     assert not treasury.covers("general-1", army.tranche) and treasury.covers("defense-1", wall.tranche)
@@ -84,6 +86,60 @@ def test_stock_spent_by_hand_is_lost_by_the_back_of_the_line_first():
     treasury.allocate(stock(wood=200), requests, tiers)   # the player built something
     assert [treasury.held(r.id).get("wood", 0) for r in requests] == [100, 100, 0]
     assert total(treasury, "wood") == 200
+
+
+def test_a_part_paid_request_that_gathers_nothing_steps_back_and_returns():
+    treasury = Treasury()
+    camp = req("economy-1", {"wood": 100}, urgency=3)
+    farm = req("economy-2", {"wood": 60}, urgency=2)
+    age = req("tech-1", {"food": 500}, urgency=2, patience=90.0)
+    tiers = {"economy-1": "next", "economy-2": "next", "tech-1": "next"}
+
+    def held_at(now, wood=60, food=400):
+        treasury.allocate(stock(wood=wood, food=food), [camp, farm, age], tiers, now)
+        return [treasury.held(r.id) for r in (camp, farm, age)], set(treasury.yielding)
+
+    assert held_at(0) == ([{"wood": 60}, {}, {"food": 400}], set())
+    assert held_at(60, wood=70)[0][0] == {"wood": 70}                       # still gaining: no reason to step back
+    assert held_at(151, wood=70) == ([{"wood": 70}, {}, {"food": 400}], {"tech-1"})   # the age-up is less patient
+    # Three minutes without a log: the camp lets the farm have the wood.
+    # The farm held nothing back from anyone, so it was never the one to yield.
+    assert held_at(241, wood=70) == ([{"wood": 10}, {"wood": 60}, {"food": 400}], {"economy-1"})
+    assert held_at(250, wood=70)[1] == {"economy-1"}
+    assert held_at(257, wood=70) == ([{"wood": 70}, {}, {"food": 400}], set())    # fifteen seconds later it saves again
+
+    # Slow but steady income never looks stalled, yet five minutes of saving is the limit.
+    patient = Treasury()
+    for now in range(0, 301, 30):
+        patient.allocate(stock(wood=10 + now // 30), [camp, farm], tiers, float(now))
+        assert not patient.yielding
+    patient.allocate(stock(wood=25), [camp, farm], tiers, 301.0)
+    assert patient.yielding == {"economy-1"}
+
+
+def test_a_paid_request_that_buys_nothing_steps_back_and_a_purchase_resets_its_clock():
+    treasury = Treasury()
+    age = req("tech-1", {"food": 500}, urgency=2, patience=90.0)        # paid in full, but the game keeps refusing it
+    villager = req("economy-1", {"food": 50}, urgency=2, rank=40)
+    tiers = {"tech-1": "next", "economy-1": "next"}
+
+    def line_at(now, food=520):
+        treasury.allocate(stock(food=food), [age, villager], tiers, now)
+        return [r.id for r in treasury.line([age, villager], tiers)], treasury.held("economy-1")
+
+    assert line_at(0) == (["tech-1", "economy-1"], {"food": 20})
+    assert line_at(90) == (["tech-1", "economy-1"], {"food": 20})
+    assert line_at(91) == (["economy-1", "tech-1"], {"food": 50})       # the villager no longer waits behind it
+    assert line_at(107) == (["tech-1", "economy-1"], {"food": 20})      # back in line after fifteen seconds
+
+    # A batch that keeps buying is never mistaken for a stuck one.
+    busy = Treasury()
+    for now in range(0, 400, 25):
+        busy.allocate(stock(food=50), [villager], tiers, float(now))
+        frame = SimpleNamespace(budget=stock(food=50))
+        with busy.purse(frame, "economy-1"):
+            frame.budget["food"] -= 50
+        assert not busy.yielding
 
 
 def test_a_department_can_spend_only_its_own_earmark():

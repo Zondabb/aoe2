@@ -4,6 +4,17 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+
+def role_status(event: dict, role: str) -> dict:
+    """A field role's status from a tick event of either runtime: the seven
+    roles report at the top level, the cabinet under the department that drives the role."""
+    statuses = event.get("agent_status", {})
+    for entry in statuses.values():
+        if isinstance(entry, dict) and role in entry.get("roles", {}):
+            return entry["roles"][role]
+    return statuses.get(role, {})
+
+
 root = Path(sys.argv[1])
 for service in sorted(p for p in root.iterdir() if p.is_dir() and p.name.startswith("m")):
     log = service / "logs" / "multi_agent.jsonl"
@@ -21,7 +32,7 @@ for service in sorted(p for p in root.iterdir() if p.is_dir() and p.name.startsw
         if phase == "retreat" and previous_phase != "retreat":
             retreats += 1
         previous_phase = phase
-        combat = event.get("agent_status", {}).get("combat", {})
+        combat = role_status(event, "combat")
         reasons[combat.get("reason")] += 1
         if combat.get("reason") == "observed_defenders_require_reinforcements":
             blocked += 1

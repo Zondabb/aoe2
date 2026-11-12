@@ -49,6 +49,7 @@ class Request:
     origin: str = ROUTINE
     floor: bool = False       # never ranked below "next", whatever the premier says
     emergency: bool = False   # answers a base under attack
+    patience: float = 180.0   # seconds it may hold money without gathering more or buying before it steps back
     created_at: float = 0.0
 
     def line(self) -> str:
@@ -76,9 +77,11 @@ class DeptReport:
     """What a department did this tick and what it is waiting for."""
 
     dept: str
-    status: str = "idle"      # running | waiting_funds | waiting_needs | idle | complete
+    status: str = "idle"      # running | waiting_funds | waiting_needs | waiting | blocked | idle | complete
     reason: str = ""
     requests: list[dict] = field(default_factory=list)
+    # The seven-role engine still moves the units; its roles' own status, by role name.
+    roles: dict[str, dict] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
-        return {"status": self.status, "reason": self.reason, "requests": list(self.requests)}
+        return {"status": self.status, "reason": self.reason, "requests": list(self.requests), "roles": dict(self.roles)}

@@ -22,6 +22,16 @@ def ticks(log: Path):
             yield event
 
 
+def role_status(event: dict, role: str) -> dict:
+    """A field role's status from a tick event of either runtime: the seven
+    roles report at the top level, the cabinet under the department that drives the role."""
+    statuses = event.get("agent_status", {})
+    for entry in statuses.values():
+        if isinstance(entry, dict) and role in entry.get("roles", {}):
+            return entry["roles"][role]
+    return statuses.get(role, {})
+
+
 def analyze(service: Path) -> dict:
     log = service / "logs" / "multi_agent.jsonl"
     villagers_ids, previous, drops, low, final = set(), None, 0, None, None
@@ -39,7 +49,7 @@ def analyze(service: Path) -> dict:
             first_drop = first_drop if first_drop is not None else event.get("sim_time")
         previous, final = count, count
         low = count if low is None else min(low, count)
-        reason = event.get("agent_status", {}).get("commander", {}).get("reason")
+        reason = role_status(event, "commander").get("reason")
         raid_ticks += reason == "visible_economy_raid"
         for command in event.get("commands", []):
             if command.get("unit_id") not in villagers_ids:
