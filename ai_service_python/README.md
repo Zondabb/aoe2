@@ -179,6 +179,7 @@ service_url="http://127.0.0.1:8765"
 | 配置 / 环境变量 | 作用 |
 |-----------------|------|
 | 服务配置 `[service].log_observation=true` / `AOE2_AI_LOG_OBSERVATION=1` | 打印 messages 长度与 entity 数量（不打满 observation） |
+| 服务配置 `[service].snapshot_seconds=60` / `AOE2_AI_SNAPSHOT_SECONDS=60` | v3 通道每 60 游戏秒、以及该队时代变化的那一轮，把完整 observation 追加到日志目录的 `observations.jsonl.gz`；默认 0 不写。`tools/ai_duel_ab.py --snapshot-seconds 60` 会给两边都打开 |
 | 服务配置 `[llm].backend="openai"` | 使用服务端模型配置规划；上游失败时继续已建立的计划 |
 | 游戏 `timeout_sec=120` | 旧版同步 HTTP 超时；与服务端模型 `timeout_sec` 分开设置 |
 

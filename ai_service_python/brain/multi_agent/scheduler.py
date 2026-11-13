@@ -10,6 +10,7 @@ from collections import Counter, OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import copy
+import gzip
 import hashlib
 import json
 import logging
@@ -107,6 +108,41 @@ def _decode_plan(first: Any, schema: dict) -> tuple[dict | None, str, str]:
         return None, output_format, "invalid_json"
 
 
+def construction_summary(req: ChatCompletionRequest) -> dict:
+    """What the builders had to work with this tick, for reading a match log afterwards.
+
+    A building that is asked for and never placed, or a wall that is never
+    finished, cannot be explained from the commands alone: this records the
+    sites the game offered, who was free to build and how each builder was doing."""
+    team, context = req.metadata.team, req.observation.decision_context
+    own = {e["id"]: e for e in req.observation.entities if e.get("team") == team and "id" in e}
+    villagers = [e for e in own.values() if e.get("def_id") == "villager"]
+    builders = []
+    for worker in villagers:
+        queue = worker.get("build_queue_ids") or []
+        if worker.get("order") != "BUILD" and not queue:
+            continue
+        target = own.get(worker.get("target_id"), {}) if worker.get("order") == "BUILD" else {}
+        row = {"id": worker["id"], "order": worker.get("order"), "target_id": target.get("id"), "target": target.get("def_id"),
+               "queue": len(queue), "stuck_frames": int(worker.get("stuck_frames", 0) or 0)}
+        if "build_progress" in target:
+            row["progress"] = round(float(target["build_progress"] or 0), 3)
+        if isinstance(worker.get("pos"), list) and isinstance(target.get("pos"), list):
+            row["distance"] = round(math.dist(worker["pos"][:2], target["pos"][:2]), 1)
+        builders.append(row)
+    plan = context.get("defense_plan") or {}
+    return {
+        "sites": dict(Counter(str(o.get("building_def_id")) for o in context.get("construction_options", []) if isinstance(o, dict))),
+        "wall_options": sum(isinstance(o, dict) for o in context.get("defense_options", [])),
+        "wall_plan": {key: plan[key] for key in ("phase", "closed", "missing_segments", "blocked_segments") if key in plan},
+        "villager_orders": dict(Counter(str(v.get("order", "NONE")) for v in villagers)),
+        "free_builders": sum(v.get("order", "NONE") in ("NONE", "GATHER") and float(v.get("carry_amount", 0) or 0) <= .001
+                             and v.get("gather_state") != "to_drop_off" for v in villagers),
+        "unfinished": dict(Counter(str(b.get("def_id")) for b in own.values() if b.get("kind") == "building" and b.get("is_complete") is False)),
+        "builders": builders[:8],
+    }
+
+
 class SessionError(ValueError):
     def __init__(self, reason: str, status_code: int = 409):
         super().__init__(reason)
@@ -145,6 +181,8 @@ class _Session:
     order_tries: dict = field(default_factory=dict)
     order_fields: dict = field(default_factory=dict)
     reported: bool = False
+    snapshot_at: float = -math.inf
+    snapshot_age: int = -1
 
 
 class MultiAgentService:
@@ -160,6 +198,7 @@ class MultiAgentService:
         self._pool = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="ai-plan")
         self._registry_lock = threading.RLock()
         self._sessions: dict[tuple[str, int], _Session] = {}
+        self._snapshot_lock = threading.Lock()
         self._ended: dict[str, float] = {}
         self._inflight_by_match: dict[str, int] = {}
         self._inflight_count = 0
@@ -176,6 +215,36 @@ class MultiAgentService:
                 if not self._log_error_reported:
                     self._log_error_reported = True
                     logging.getLogger(__name__).warning("Multi-agent event log unavailable: %s", type(exc).__name__)
+
+    def _snapshot(self, session: _Session, req: ChatCompletionRequest) -> None:
+        """Keep the whole observation every snapshot_seconds, and whenever the age changes.
+
+        Off unless that setting is above zero. The tick log says what was
+        ordered; these say what the game had put in front of the team, for
+        working out afterwards why something was never ordered."""
+        every = runtime_settings.snapshot_seconds()
+        if every <= 0:
+            return
+        now = float(req.metadata.time_sec)
+        age = req.observation.progression.age if req.observation.progression else 0
+        if now - session.snapshot_at < every and age == session.snapshot_age:
+            return
+        session.snapshot_at, session.snapshot_age = now, age
+        try:
+            line = json.dumps({"match_id": req.metadata.match_id, "team": req.metadata.team, "session_epoch": session.epoch,
+                               "observation_seq": session.last_seq, "sim_time": now,
+                               "observation": req.observation.model_dump()},
+                              ensure_ascii=False, separators=(",", ":"), default=str)
+            path = runtime_settings.log_dir() / "observations.jsonl.gz"
+            with self._snapshot_lock:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with gzip.open(path, "at", encoding="utf-8") as out:
+                    out.write(line + "\n")
+        except Exception as exc:
+            # Like the event log: a full or unwritable volume cannot stop game control.
+            if not self._log_error_reported:
+                self._log_error_reported = True
+                logging.getLogger(__name__).warning("Observation snapshot unavailable: %s", type(exc).__name__)
 
     def _new_runtime(self, profile: str):
         if self.runtime_factory:
@@ -288,6 +357,7 @@ class MultiAgentService:
                     session.served_orders.clear()
                     session.order_fields.clear()
             session.last_seq, session.last_sim_time = seq, req.metadata.time_sec
+            self._snapshot(session, req)
             summary = getattr(session.runtime, "match_summary", None)
             if isinstance(summary, dict) and not session.reported:
                 session.reported = True
@@ -325,6 +395,7 @@ class MultiAgentService:
                            "age": req.observation.progression.age if req.observation.progression else 0,
                            "own_entities": dict(Counter(e.get("def_id", "unknown") for e in req.observation.entities if e.get("team") == req.metadata.team)),
                            "town_centers": [{k: e[k] for k in ("id", "team", "hp", "max_hp") if k in e} for e in req.observation.entities if e.get("def_id") == "town_center"],
+                           "construction": construction_summary(req),
                            "victory_conditions": getattr(req.observation, "victory_conditions", {}) or req.observation.decision_context.get("victory_conditions", {})},
                        elapsed_ms=round((self.clock() - start) * 1000, 3))
             return result

@@ -125,6 +125,8 @@ flowchart LR
 
 快速统计：`ai_service_python/.venv/Scripts/python.exe ai_service_python/tools/analyze_multi_agent_log.py`，可追加多个日志路径与 `--json`。历史日志可能缺少新诊断字段，工具会保留 unknown，而不把所有 `applied` 算成策略改变。
 
+tick 事件的 `observation_summary.construction` 记录这一轮建造者手里有什么：游戏给出的各建筑可选地块数（`sites`）、城墙候选数和周界状态、村民按命令的分布、空手可派的人数（`free_builders`）、未完成的地基，以及每个建造者的目标、队列长度、地基进度、距离和 `stuck_frames`。某个建筑一直没放下、或者城墙一直没修完时，先看这里。需要还原游戏当时到底给了什么（视野、障碍、候选地块）时，把 `[service] snapshot_seconds`（或 `AOE2_AI_SNAPSHOT_SECONDS`）设为大于 0 的游戏秒数：服务按这个间隔、并在该队时代变化的那一轮，把完整观察追加到日志目录的 `observations.jsonl.gz`。默认 0 不写；对战工具用 `--snapshot-seconds` 给两边同时打开。
+
 排障先对照 `agent_status.reason`、`planning.state` 和事件拒绝原因，区分模型规划失败、资源不足、队列等待、路径无进展与目标失去视野。日志写入失败不会让快速控制停止。
 
 ## 验证方式

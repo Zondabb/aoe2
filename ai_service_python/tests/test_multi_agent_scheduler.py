@@ -570,3 +570,89 @@ def test_log_failure_does_not_interrupt_tasks_or_session_cleanup(monkeypatch):
         assert not service._sessions
     finally:
         service.shutdown()
+
+
+def test_tick_log_records_what_the_builders_had_to_work_with():
+    from brain.multi_agent.scheduler import construction_summary
+    from test_llm_commander import building, unit
+
+    logs = []
+    service = MultiAgentService(runtime_factory=Runtime, log=lambda event, data: logs.append((event, data)))
+    try:
+        req = tick_request()
+        req.observation.entities += [
+            building(300, "palisade_wall", [30, 0], complete=False, build_progress=0.25),
+            building(310, "house", [10, 0], complete=False),
+            unit(40, pos=[26, 3], order="BUILD", target_id=300, build_queue_ids=[301, 302], stuck_frames=40),
+            unit(41, order="GATHER", carry_amount=6.0),
+            unit(42, order="GATHER", gather_state="to_drop_off"),
+            unit(43, "villager", [50, 50], team=1, order="BUILD", target_id=900)]      # not ours
+        context = req.observation.decision_context
+        context["construction_options"] = [{"building_def_id": "house", "builder_id": 10, "pos": [0, 24]},
+                                           {"building_def_id": "house", "builder_id": 11, "pos": [0, 28]},
+                                           {"building_def_id": "barracks", "builder_id": 10, "pos": [24, 0]}]
+        context["defense_options"] = [{"building_def_id": "palisade_wall"}]
+        context["defense_plan"] = {"phase": "building", "closed": False, "missing_segments": 12, "blocked_segments": 1, "id": "p"}
+        expected = construction_summary(req)
+        service.tick(req)
+    finally:
+        service.shutdown()
+
+    logged = next(data for event, data in logs if event == "tick")["observation_summary"]["construction"]
+    assert logged == expected
+    assert logged["sites"] == {"house": 2, "barracks": 1} and logged["wall_options"] == 1
+    assert logged["wall_plan"] == {"phase": "building", "closed": False, "missing_segments": 12, "blocked_segments": 1}
+    assert logged["unfinished"] == {"palisade_wall": 1, "house": 1}
+    assert logged["builders"] == [{"id": 40, "order": "BUILD", "target_id": 300, "target": "palisade_wall", "queue": 2,
+                                   "stuck_frames": 40, "progress": 0.25, "distance": 5.0}]
+    orders = logged["villager_orders"]
+    assert orders["BUILD"] == 1 and orders["GATHER"] == 2
+    # Free to build: gathering or idle with empty hands, and not on the way to a drop-off.
+    assert logged["free_builders"] == sum(orders.values()) - 3
+
+
+def test_whole_observations_are_kept_only_on_request_and_at_the_asked_pace(monkeypatch, tmp_path):
+    import gzip
+    from protocol.models import Progression
+
+    def play(times, ages=()):
+        service = MultiAgentService(runtime_factory=Runtime)
+        try:
+            for seq, now in enumerate(times, 1):
+                req = tick_request(seq)
+                req.metadata = req.metadata.model_copy(update={"time_sec": now})
+                if ages:
+                    req.observation.progression = Progression(age=ages[seq - 1])
+                service.tick(req)
+        finally:
+            service.shutdown()
+
+    def kept(directory):
+        path = directory / "observations.jsonl.gz"
+        if not path.exists():
+            return []
+        with gzip.open(path, "rt", encoding="utf-8") as source:
+            return [json.loads(line) for line in source]
+
+    monkeypatch.setenv("AOE2_AI_LOG_DIR", str(tmp_path / "off"))
+    play([0, 60, 120])
+    assert kept(tmp_path / "off") == []                      # nothing unless asked for
+
+    monkeypatch.setenv("AOE2_AI_LOG_DIR", str(tmp_path / "on"))
+    monkeypatch.setenv("AOE2_AI_SNAPSHOT_SECONDS", "60")
+    play([0, 20, 59, 60, 90, 125])
+    rows = kept(tmp_path / "on")
+    assert [(row["sim_time"], row["observation_seq"]) for row in rows] == [(0.0, 1), (60.0, 4), (125.0, 6)]
+    assert rows[0]["match_id"] == "multi-test" and rows[0]["team"] == 0 and rows[0]["session_epoch"] == "epoch-a"
+    assert rows[0]["observation"]["decision_context"]["construction_options"] and rows[0]["observation"]["entities"]
+
+    # The tick an age arrives is kept whatever the pace.
+    monkeypatch.setenv("AOE2_AI_LOG_DIR", str(tmp_path / "ages"))
+    play([0, 10, 20, 30], ages=[0, 0, 1, 1])
+    assert [row["sim_time"] for row in kept(tmp_path / "ages")] == [0.0, 20.0]
+
+    # A directory that cannot be written must not stop the game being played.
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where the directory should be", encoding="utf-8")
+    monkeypatch.setenv("AOE2_AI_LOG_DIR", str(blocked))
+    play([0, 60])

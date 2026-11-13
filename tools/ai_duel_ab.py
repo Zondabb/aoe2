@@ -64,6 +64,9 @@ def main() -> int:
                         "with the intelligence layer ON (the 'on' arm runs --service-dir), so only the code differs")
     parser.add_argument("--runtime", default="", choices=["", "multi_agent", "cabinet"],
                         help="AI runtime for the 'on' arm; with --baseline-dir the 'off' arm keeps its own default")
+    parser.add_argument("--snapshot-seconds", type=float, default=0,
+                        help="keep each team's whole observation every N game seconds (and when its age changes) in "
+                             "<team>/logs/observations.jsonl.gz, for working out afterwards what the game offered")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     (root / ".godot").mkdir(exist_ok=True)
@@ -98,6 +101,9 @@ def main() -> int:
             switch = "on" if baseline_dir is not None else arm
             cwd = baseline_dir if baseline_dir is not None and arm == "off" else service_dir
             env = {**base_env, "AOE2_AI_INTELLIGENCE": switch, "AOE2_AI_STRATEGY_MEMORY": "off", "PYTHONUTF8": "1"}
+            if args.snapshot_seconds > 0:
+                # By environment, so a baseline that predates the setting simply ignores it.
+                env["AOE2_AI_SNAPSHOT_SECONDS"] = str(args.snapshot_seconds)
             if args.llm_config:
                 # Both sides plan with the same real model; only the switch differs.
                 # Use the operator's file in place (keys stay there, never copied).

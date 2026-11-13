@@ -15,7 +15,8 @@ _config_path = DEFAULT_CONFIG_PATH
 _loaded = False
 _KEYS = {
     "service": {"host": "host", "port": "port", "api_token": "ai_token",
-                "log_observation": "log_observation", "log_dir": "log_dir"},
+                "log_observation": "log_observation", "log_dir": "log_dir",
+                "snapshot_seconds": "snapshot_seconds"},
     "llm": {"backend": "backend", "model": "llm_model", "base_url": "llm_base_url",
             "token": "llm_token", "max_tokens": "llm_max_tokens", "temperature": "llm_temperature",
             "timeout_sec": "llm_timeout_sec", "num_ctx": "llm_num_ctx"},
@@ -146,6 +147,11 @@ def llm_num_ctx() -> int:
 
 def log_observation() -> bool:
     return get_value("log_observation", "AOE2_AI_LOG_OBSERVATION", default="false").lower() in {"1", "true", "yes", "on"}
+
+
+def snapshot_seconds() -> float:
+    """Game seconds between whole-observation snapshots of a team; 0 keeps none."""
+    return _bounded_number("snapshot_seconds", "AOE2_AI_SNAPSHOT_SECONDS", 0, 0, 3600)
 
 
 def log_dir() -> Path:

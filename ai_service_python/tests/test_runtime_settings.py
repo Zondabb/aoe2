@@ -232,3 +232,23 @@ def test_unknown_ai_runtime_is_refused_at_startup(monkeypatch, tmp_path: Path) -
     config.write_text('[ai]\nmodel = "x"\n', encoding="utf-8")
     with pytest.raises(ValueError, match="Unknown AI configuration option: ai.model"):
         runtime_settings.load_config(config)
+
+
+def test_snapshot_pace_is_off_by_default_and_follows_file_and_environment(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("AOE2_AI_SNAPSHOT_SECONDS", raising=False)
+    runtime_settings.clear_cli()
+    empty = tmp_path / "empty.toml"
+    empty.write_text("", encoding="utf-8")
+    runtime_settings.load_config(empty)
+    assert runtime_settings.snapshot_seconds() == 0
+
+    config = tmp_path / "config.toml"
+    config.write_text("[service]\nsnapshot_seconds = 45\n", encoding="utf-8")
+    runtime_settings.load_config(config)
+    assert runtime_settings.snapshot_seconds() == 45
+    monkeypatch.setenv("AOE2_AI_SNAPSHOT_SECONDS", "90")
+    assert runtime_settings.snapshot_seconds() == 90
+    monkeypatch.setenv("AOE2_AI_SNAPSHOT_SECONDS", "-5")
+    assert runtime_settings.snapshot_seconds() == 0
+    monkeypatch.setenv("AOE2_AI_SNAPSHOT_SECONDS", "soon")
+    assert runtime_settings.snapshot_seconds() == 0
