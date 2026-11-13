@@ -266,6 +266,78 @@ def test_wall_crew_keeps_its_builder_between_segments():
     assert not team.kernel.emit(f, "economy", "gather", {"unit_id": 10, "target_id": FOOD})
 
 
+def wall_section(eid, pos, progress=0.0):
+    return building(eid, "palisade_wall", pos, is_complete=False, build_progress=progress)
+
+
+def wall_builder(pos=(20, 0), target=60, queue=(61,)):
+    return unit(10, pos=list(pos), order="BUILD", target_id=target, build_queue_ids=list(queue))
+
+
+def test_a_builder_that_makes_no_headway_loses_the_job_and_its_sections_rest():
+    team = Team()
+    sections = [wall_section(60, [30, 0]), wall_section(61, [31, 0])]
+
+    def tick(number, now, builder):
+        return team.frame(number, entities=world(*sections, units=[builder, unit(11), unit(12)]), time=now)
+
+    held = tick(1, 0, wall_builder())
+    assert 10 in held.actors and team.kernel.leases[10]["role"] == "defense"
+    assert 10 in tick(2, 59, wall_builder()).actors and not team.kernel.at_rest(60)
+
+    freed = tick(3, 60, wall_builder())                      # a minute at the same distance, nothing built
+    assert 10 not in freed.actors and 10 not in team.kernel.leases and team.kernel.stalled_builders == {10}
+    assert team.kernel.at_rest(60) and team.kernel.at_rest(61)
+    assert team.listener.heard("note") == [("builder 10 made no headway for 60s: job released",)]
+    assert team.kernel.emit(freed, "economy", "gather", {"unit_id": 10, "target_id": WOOD})
+
+    tick(4, 61, unit(10, order="GATHER", target_id=WOOD))    # back at work: nothing left to watch
+    assert not team.kernel.stalled_builders and team.kernel.at_rest(60)
+    tick(5, 181, unit(10, order="GATHER", target_id=WOOD))
+    assert not team.kernel.at_rest(60)                        # two minutes later the section may be tried again
+
+    # A second builder stalls on the same section: it rests twice as long.
+    tick(6, 200, wall_builder(queue=()))
+    tick(7, 260, wall_builder(queue=()))
+    assert team.kernel.stalled_builders == {10} and team.kernel.at_rest(60)
+    tick(8, 499, unit(10))
+    assert team.kernel.at_rest(60)
+    tick(9, 501, unit(10))
+    assert not team.kernel.at_rest(60)
+    assert len(team.listener.heard("note")) == 2
+
+
+def test_a_builder_making_headway_keeps_the_job():
+    team = Team()
+
+    def tick(number, now, builder, *sections):
+        return team.frame(number, entities=world(*sections, units=[builder, unit(11), unit(12)]), time=now)
+
+    far, near = wall_section(60, [80, 0]), wall_section(61, [81, 0])
+    # Walking there, then building, then on to the next section: each is headway.
+    tick(1, 0, wall_builder((20, 0)), far, near)
+    tick(2, 50, wall_builder((60, 0)), far, near)
+    tick(3, 100, wall_builder((79, 0)), far, near)
+    tick(4, 150, wall_builder((79, 0)), wall_section(60, [80, 0], progress=.5), near)
+    tick(5, 200, wall_builder((79, 0), target=61, queue=()), near)
+    last = tick(6, 250, wall_builder((79, 0), target=61, queue=()), wall_section(61, [81, 0], progress=.4))
+    assert not team.kernel.stalled_builders and not team.kernel.at_rest(60) and team.listener.heard("note") == []
+
+    # A foundation that reports no progress figure gives nothing to judge by.
+    blind = Team()
+    for number, now in enumerate((0, 100, 200), 1):
+        blind.frame(number, entities=world(building(60, "house", [30, 0], is_complete=False),
+                                           units=[unit(10, pos=[20, 0], order="BUILD", target_id=60)]), time=now)
+    assert not blind.kernel.stalled_builders
+
+    # A builder working on the player's own order is the player's to manage.
+    owned = Team()
+    for number, now in enumerate((0, 100, 200), 1):
+        owned.kernel.leases[10] = {"role": "human", "until": now + 30}
+        owned.frame(number, entities=world(wall_section(60, [30, 0]), units=[wall_builder(queue=())]), time=now)
+    assert not owned.kernel.stalled_builders and not owned.kernel.at_rest(60)
+
+
 def test_route_heavy_roles_leave_command_slots_for_later_executors():
     team = Team()
     soldiers = [unit(30 + i, "militia", [0, 0]) for i in range(MAX_COMMANDS)]

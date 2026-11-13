@@ -1541,13 +1541,15 @@ class MultiAgentRuntime:
     def _staff_foundations(self, f: _DecisionFrame) -> int:
         """Send a free worker to every unstaffed foundation; returns the builders now at work."""
         role = self.roles["construction"]
+        # A builder the arbiter took off its job no longer counts as at work.
         workers = [u for u in f.units if u.get("def_id") == "villager"]
-        active = sum(u.get("order") == "BUILD" for u in workers)
-        queued = {eid for worker in workers for eid in worker.get("build_queue_ids", [])}
+        crew = [u for u in workers if u["id"] not in self.kernel.stalled_builders]
+        active = sum(u.get("order") == "BUILD" for u in crew)
+        queued = {eid for worker in crew for eid in worker.get("build_queue_ids", [])}
         for foundation in [b for b in f.buildings if not b.get("is_complete") and b.get("def_id") not in FORTIFICATION_TYPES and b["id"] not in queued]:
-            if any(u.get("order") == "BUILD" and u.get("target_id") == foundation["id"] for u in workers):
+            if any(u.get("order") == "BUILD" and u.get("target_id") == foundation["id"] for u in crew):
                 continue
-            if self._in_raid_zone(f, foundation["pos"]):
+            if self._in_raid_zone(f, foundation["pos"]) or self.kernel.at_rest(foundation["id"]):
                 continue
             available = [u for u in workers if u.get("order", "NONE") in ("NONE", "GATHER") and u.get("gather_state") != "to_drop_off" and float(u.get("carry_amount", 0)) <= .001]
             for worker in sorted(available, key=lambda u: _distance(u["pos"], foundation["pos"])):
@@ -1669,10 +1671,12 @@ class MultiAgentRuntime:
         if approaching:
             role.memory["threat_until"] = self.now + 180
         fortifications = [b for b in f.buildings if b.get("def_id") in FORTIFICATION_TYPES]
-        queued = {eid for worker in workers for eid in worker.get("build_queue_ids", [])}
-        queued.update(u.get("target_id") for u in workers if u.get("order") == "BUILD")
+        # A builder the arbiter took off its job holds neither a slot nor its sections.
+        crew = [u for u in workers if u["id"] not in self.kernel.stalled_builders]
+        queued = {eid for worker in crew for eid in worker.get("build_queue_ids", [])}
+        queued.update(u.get("target_id") for u in crew if u.get("order") == "BUILD")
         unfinished = [b for b in fortifications if not b.get("is_complete")]
-        active = [u for u in workers if u.get("order") == "BUILD" or u.get("build_queue_ids")]
+        active = [u for u in crew if u.get("order") == "BUILD" or u.get("build_queue_ids")]
         return {"capabilities": capabilities, "workers": workers, "enemies": enemies, "approaching": approaching,
                 "fortifications": fortifications, "unfinished": unfinished, "active": active, "queued": queued}
 
@@ -1692,7 +1696,7 @@ class MultiAgentRuntime:
         # is interrupted, without replacing any ongoing wall-build queue.
         if unfinished:
             for foundation in unfinished:
-                if foundation["id"] in queued or len(active) >= self.roles["construction"].plan["max_builders"]:
+                if foundation["id"] in queued or self.kernel.at_rest(foundation["id"]) or len(active) >= self.roles["construction"].plan["max_builders"]:
                     continue
                 available = [u for u in workers if u.get("order", "NONE") in ("NONE", "GATHER") and not u.get("build_queue_ids")
                              and u.get("gather_state") != "to_drop_off" and float(u.get("carry_amount", 0)) <= .001
@@ -2099,7 +2103,9 @@ class MultiAgentRuntime:
         local_food_goal = any(b.get("def_id") == "farm" for b in f.buildings) or any(name == "farm" for _, name, _ in self.build_requests)
         rebalanced = 0
         for worker in workers:
-            if worker["id"] in f.actors or worker.get("order") == "BUILD":
+            # A builder taken off its job comes back to the economy.
+            released = worker["id"] in self.kernel.stalled_builders
+            if worker["id"] in f.actors or worker.get("order") == "BUILD" and not released:
                 continue
             if self._recover_loaded_worker(f, worker, resources):
                 continue
@@ -2123,7 +2129,7 @@ class MultiAgentRuntime:
             previous_pos = _vec(previous_resource.get("pos")) or _vec(self.validator.gather_assignments.get(worker["id"], {}).get("pos"))
             remote_food_order = current == "food" and local_food_goal and previous_pos is not None and self._delivery_distance(f, {"pos": previous_pos, "resource_type": "FOOD"}) > 64
             reported = role.memory.get("reported_stalls", {}).get(worker["id"], -100)
-            stalled = worker["id"] in self.validator.stalled_workers or int(worker.get("stuck_frames", 0)) >= 12 or self.now - reported < 3
+            stalled = released or worker["id"] in self.validator.stalled_workers or int(worker.get("stuck_frames", 0)) >= 12 or self.now - reported < 3
             unnecessary_stone = current == "stone" and not self.demands["stone"]
             overstaffed = assigned.get(current, 0) > ratios.get(current, 0) * len(workers) + .5
             rebalance = worker.get("order") == "GATHER" and current != desired and rebalanced < 2 and (unnecessary_stone or overstaffed)
@@ -2145,6 +2151,9 @@ class MultiAgentRuntime:
                 continue
             if target is None and remote_food_order:
                 self._move(f, "economy", worker, f.base)
+                continue
+            if target is None and released:
+                self._emit(f, "economy", "stop", {"unit_id": worker["id"]})     # nothing to gather: at least leave the job
                 continue
             if target and self._emit(f, "economy", "gather", {"unit_id": worker["id"], "target_id": target["id"]}):
                 assigned[desired] = assigned.get(desired, 0) + 1

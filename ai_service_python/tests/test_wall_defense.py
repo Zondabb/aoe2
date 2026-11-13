@@ -360,6 +360,39 @@ def test_defense_resumes_abandoned_wall_foundation_with_its_own_task():
     assert runtime.tasks[commands[0]["command_id"]]["role"] == "defense"
 
 
+def test_a_wall_builder_that_cannot_reach_its_section_returns_to_work_and_the_section_waits():
+    runtime = executor()
+
+    def tick(number, now, **worker_state):
+        req = defense_frame(number, threat=False)
+        req.metadata.time_sec = now
+        next(e for e in req.observation.entities if e["id"] == 10).update(pos=[10, 0], **worker_state)
+        req.observation.entities.append(building(300, "palisade_wall", [18, -8], complete=False, build_progress=0.0))
+        return runtime.tick(req)
+
+    def orders_for(result, uid=10):
+        return [c["op"] for c in result["commands"] if c.get("unit_id", c.get("builder_id")) == uid]
+
+    stuck = dict(order="BUILD", target_id=300, build_queue_ids=[])
+    assert orders_for(tick(1, 100, **stuck)) == [] and orders_for(tick(2, 159, **stuck)) == []
+    freed = tick(3, 160, **stuck)                            # a minute without getting nearer or building
+    assert orders_for(freed) == ["gather"] and not issued(freed, "build")
+    assert any("builder 10 made no headway" in entry["message"] for entry in freed["debug"])
+    gathering = dict(order="GATHER", target_id=101, build_queue_ids=[])
+    assert not issued(tick(4, 200, **gathering), "build")    # the section is left alone for two minutes
+    retried = issued(tick(5, 281, **gathering), "build")
+    assert len(retried) == 1 and retried[0]["building_id"] == 300
+
+    # Should the game leave the builder walking at its section all the same,
+    # it holds neither the section nor a builder's place: someone else is sent.
+    deaf = executor()
+    runtime = deaf
+    for number, now in ((1, 100), (2, 160), (3, 200)):
+        assert not issued(tick(number, now, **stuck), "build")
+    relief = issued(tick(4, 281, **stuck), "build")
+    assert len(relief) == 1 and relief[0]["building_id"] == 300 and relief[0]["unit_id"] != 10
+
+
 def test_locked_gate_plan_keeps_exit_open_for_outside_friendly_unit():
     runtime, req = executor(), defense_frame()
     plan(runtime, "defense", gate_mode="locked")

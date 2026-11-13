@@ -170,6 +170,48 @@ def test_an_age_the_game_keeps_refusing_gives_the_town_center_back():
     assert "villager" in bought(released) and "research_age" not in bought(released)
 
 
+def test_a_builder_stuck_on_a_wall_section_does_not_hold_up_the_next_building():
+    runtime = cabinet()
+
+    def tick(number, now, house_progress):
+        entities = [building(1, "town_center"),
+                    building(300, "palisade_wall", [30, 0], complete=False, build_progress=0.0),
+                    building(310, "house", [10, 0], complete=False, build_progress=house_progress),
+                    *[unit(10 + i) for i in range(3)],
+                    unit(13, pos=[20, 0], order="BUILD", target_id=300),         # never gets there
+                    unit(14, pos=[9, 0], order="BUILD", target_id=310)]
+        return runtime.tick(stocked(frame(number, entities=entities, time=now), food=500, wood=500))
+
+    def construction(result):
+        return result["agent_status"]["economy"]["roles"]["construction"]["reason"]
+
+    waiting = tick(1, 0, .1)                                 # both builder places are taken
+    assert "barracks" not in bought(waiting) and construction(waiting) == "complete_active_foundations"
+    released = tick(2, 61, .7)
+    assert "barracks" in bought(released) and construction(released) == "build_barracks"
+    assert [c["op"] for c in released["commands"] if c.get("unit_id") == 13] in (["gather"], ["stop"])
+
+
+def test_a_foundation_that_stalled_its_builder_is_left_alone_before_another_is_sent():
+    runtime = cabinet()
+
+    def tick(number, now, builder):
+        entities = [building(1, "town_center"), building(2, "barracks"),
+                    building(310, "house", [40, 0], complete=False, build_progress=.1),
+                    *[unit(10 + i) for i in range(6)], builder]
+        return runtime.tick(stocked(frame(number, entities=entities, time=now, construction_options=[])))
+
+    def sent_to_build(result):
+        return [(c["unit_id"], c["building_id"]) for c in result["commands"] if c["op"] == "build"]
+
+    stuck = unit(20, pos=[30, 0], order="BUILD", target_id=310)
+    assert sent_to_build(tick(1, 0, stuck)) == [] and sent_to_build(tick(2, 60, stuck)) == []
+    idle = unit(20, pos=[30, 0], order="GATHER", target_id=100)
+    assert sent_to_build(tick(3, 100, idle)) == []           # released at 60: the house rests until 180
+    again = sent_to_build(tick(4, 181, idle))
+    assert len(again) == 1 and again[0][1] == 310
+
+
 def test_a_request_that_can_buy_nothing_does_not_take_a_place_from_one_that_can():
     dept = Department(SimpleNamespace(now=0.0), Treasury())
     dept.name = "economy"

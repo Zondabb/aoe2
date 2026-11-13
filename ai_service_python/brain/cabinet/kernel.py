@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 import copy
+import math
 from typing import Protocol
 
 from brain.llm_commander import LlmCommander, _DecisionFrame, _distance, _vec, RESOURCES, MAX_COMMANDS
@@ -28,6 +29,12 @@ HUMAN = "human"
 # the executors that run after them.
 ROUTE_HEAVY_ROLES = ("scout", "combat")
 RESERVED_SLOTS = 12
+# The game lets a villager walk at a foundation it cannot reach for ever, and
+# nothing else takes a builder off its job. One that makes no headway for
+# BUILDER_PATIENCE seconds loses the job; its foundations are then left alone
+# for FOUNDATION_REST seconds, doubling each time up to FOUNDATION_REST_LIMIT.
+BUILDER_PATIENCE = 60.0
+FOUNDATION_REST, FOUNDATION_REST_LIMIT = 120.0, 600.0
 
 
 class KernelListener(Protocol):
@@ -57,6 +64,9 @@ class Kernel:
         self.leases: dict[int, dict] = {}
         self.failures: dict[str, dict] = {}
         self.reports: list[dict] = []
+        self.stalled_builders: set[int] = set()
+        self._builders: dict[int, dict] = {}
+        self._resting: dict[int, dict] = {}
         self._seen_events: deque = deque(maxlen=512)
         self._last_event_seq = -1
 
@@ -252,10 +262,11 @@ class Kernel:
             uid = _actor(command)
             if uid is not None:
                 f.actors.add(uid)
+        self._watch_builders(f)
         # A wall is one continuing job across many foundations. Its queued
         # builder must not be reassigned between segments by another role.
         for worker in f.units:
-            if worker.get("build_queue_ids"):
+            if worker.get("build_queue_ids") and worker["id"] not in self.stalled_builders:
                 f.actors.add(worker["id"])
                 if self.leases.get(worker["id"], {}).get("role") != HUMAN:
                     self.leases[worker["id"]] = {"role": WALL_CREW_ROLE, "until": self.now + 15}
@@ -265,6 +276,50 @@ class Kernel:
                     f.producers.add(uid)
                 else:
                     f.actors.add(uid)
+
+    def _watch_builders(self, f: _DecisionFrame) -> None:
+        """Take the job from a builder that makes no headway, and rest its foundations.
+
+        Headway is a new section, a shorter queue, a foundation further built or
+        a builder nearer to it. Without this one blocked wall section holds its
+        builder, and every section queued behind it, for the rest of the match."""
+        watched: dict[int, dict] = {}
+        self.stalled_builders = set()
+        for worker in f.units:
+            queue = worker.get("build_queue_ids") or []
+            building = worker.get("order") == "BUILD"
+            if worker.get("def_id") != "villager" or not (building or queue):
+                continue
+            uid = worker["id"]
+            lease = self.leases.get(uid, {})
+            if lease.get("role") == HUMAN and lease["until"] > self.now:
+                continue                                    # the player's own order
+            target = f.entities.get(worker.get("target_id"), {}) if building else {}
+            if target and "build_progress" not in target:
+                continue                                    # nothing to measure headway by
+            gap = _distance(worker["pos"], target["pos"]) if _vec(target.get("pos")) else math.inf
+            done = float(target.get("build_progress") or 0)
+            seen = self._builders.get(uid)
+            if (seen is None or seen["target"] != target.get("id") or len(queue) < seen["queue"]
+                    or done > seen["done"] + 1e-6 or gap < seen["gap"] - .5):
+                seen = {"target": target.get("id"), "queue": len(queue), "done": done, "gap": gap, "since": self.now}
+            watched[uid] = seen
+            if self.now - seen["since"] < BUILDER_PATIENCE:
+                continue
+            self.stalled_builders.add(uid)
+            if not seen.get("released"):
+                seen["released"] = True
+                self.leases.pop(uid, None)
+                for foundation in [fid for fid in [target.get("id"), *queue] if fid is not None]:
+                    count = self._resting.get(foundation, {}).get("count", 0) + 1
+                    self._resting[foundation] = {"count": count, "until": self.now + min(FOUNDATION_REST_LIMIT, FOUNDATION_REST * 2 ** (count - 1))}
+                self.listener.kernel_note(f"builder {uid} made no headway for {int(BUILDER_PATIENCE)}s: job released")
+        self._builders = watched
+        self._resting = {fid: rest for fid, rest in self._resting.items() if f.entities.get(fid, {}).get("is_complete") is False}
+
+    def at_rest(self, foundation_id) -> bool:
+        """True while a foundation that stalled its builder is being left alone."""
+        return self._resting.get(foundation_id, {}).get("until", 0) > self.now
 
     def fail(self, task: dict, reason: str) -> None:
         task["status"], task["reason"] = "failed", reason
@@ -349,6 +404,7 @@ class Kernel:
                 task["status"] = "completed" if task.get("target_destroyed") else "cancelled"
         self.pending.clear()
         self.leases.clear()
+        self.stalled_builders, self._builders, self._resting = set(), {}, {}
 
     def prune(self, f: _DecisionFrame) -> None:
         """End of tick: keep lifecycle history bounded, preserving all active entries."""
