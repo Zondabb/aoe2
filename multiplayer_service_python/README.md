@@ -20,18 +20,19 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 ## 增量指令同步与观战
 
-服务使用 **协议 v4**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v3 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
+服务使用 **协议 v6**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v5 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
 
-双方玩家只提交操作。服务根据连接身份注入队伍，转交本局主机校验；主机每批执行三个固定模拟步，发布按序排列的合法操作和状态校验值。另一位玩家与观众用相同操作推进自己的模拟，不再持续接收世界快照。客端玩家返回 `ack`，主机确认校验值相同后推进下一批；观众的确认不参与对局等待。
+双方玩家按相同未来帧规则提交操作，主机提前广播输入，开局时钟校准后主机直接提交共同执行时刻，持续运行不再等待每帧接收确认往返。双方在该时刻校验并运行固定模拟，主机随后发送操作结果与摘要，观众只接收完成帧。服务只转发和校验报文，不运行游戏逻辑。双方的本地有限预测不进入确认状态，详见 [对等调度与有限预测](../docs/online_fair.md)。
 
-UTF-8 JSON 文本帧，端点 `/ws`。核心消息（示例中的校验值实际为 64 位 SHA-256 十六进制串）：
+UTF-8 JSON 文本帧，端点 `/ws`。部分核心消息（省略中间准备/提交帧，示例中的校验值实际为 64 位 SHA-256 十六进制串）：
 
 ```json
-{"type":"join_queue","protocol_version":4,"name":"玩家","civ":"chinese"}
+{"type":"join_queue","protocol_version":6,"name":"玩家","civ":"chinese"}
 {"type":"ready"}
-{"type":"command","seq":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
-{"type":"frame","tick":3,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"64位校验值"}
-{"type":"ack","tick":3,"checksum":"64位校验值"}
+{"type":"command","seq":1,"source_tick":0,"execute_tick":9,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
+{"type":"input_commit","tick":9,"execute_at_usec":1250000,"speed":2.0,"input_delay_ticks":9,"delay_from_tick":0}
+{"type":"frame","tick":9,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"64位校验值","results":[{"team":1,"seq":1,"accepted":true}]}
+{"type":"ack","tick":9,"checksum":"64位校验值"}
 {"type":"request_keyframe"}
 {"type":"keyframe","request_id":"服务分配的32位ID","tick":3,"state":{"world":{},"simulation":{}},"checksum":"64位校验值"}
 ```
@@ -112,7 +113,7 @@ docker run --rm -p 8001:8001 -v aoe2-multiplayer-data:/data aoe2-multiplayer
 - `LEADERBOARD_DB`：SQLite 文件路径，默认服务目录的 `data/leaderboard.sqlite3`；Docker 默认 `/data/leaderboard.sqlite3`。
 - `MAX_CONNECTIONS=128`、`MAX_QUEUE=128`。
 - `MAX_MESSAGE_BYTES=4194304`、`MAX_COMMAND_BYTES=16384`。
-- `MESSAGES_PER_SECOND=90`、`MESSAGE_BURST=180`、`OUTGOING_QUEUE_SIZE=64`（每个连接待发送的消息数）。
+- `MESSAGES_PER_SECOND=300`、`MESSAGE_BURST=600`、`OUTGOING_QUEUE_SIZE=64`（每个连接待发送的消息数）。
 - `BYTES_PER_SECOND=4194304`、`BYTE_BURST=8388608`。
 - `KEYFRAME_REQUEST_INTERVAL=1`、`KEYFRAME_TIMEOUT=10`（秒）；房间请求间隔还会预留至少 25% 带宽供普通指令使用。
 - `IDLE_TIMEOUT=30`、`QUEUE_TIMEOUT=120`、`READY_TIMEOUT=30`、`MATCH_TIMEOUT=10800`（秒）。
@@ -126,6 +127,6 @@ docker run --rm -p 8001:8001 -v aoe2-multiplayer-data:/data aoe2-multiplayer
 ./multiplayer_service_python/.venv/Scripts/python.exe -m pytest multiplayer_service_python/tests -q
 ```
 
-服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v4；游戏模拟和关键帧恢复的验证入口见下方联机说明。
+服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v6；游戏模拟和关键帧恢复的验证入口见下方联机说明。
 
 协议与客户端实现见 [联机说明](../docs/multiplayer.md)。

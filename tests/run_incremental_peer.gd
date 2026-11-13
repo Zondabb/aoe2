@@ -147,7 +147,8 @@ func _process(_delta: float) -> bool:
 		_write_report()
 	# Frames span physics ticks; end between frames like a real result would.
 	if runtime.is_host and runtime._frame_step == 0 and FileAccess.file_exists(finish_file):
-		runtime.match_state.set_winner(Enums.Team.AI)
+		if runtime.fair != null: runtime.fair.request_finish(Enums.Team.AI)
+		else: runtime.match_state.set_winner(Enums.Team.AI)
 	return false
 
 func _orders() -> void:

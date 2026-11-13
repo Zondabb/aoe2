@@ -8,6 +8,8 @@ import uuid
 import logging
 import sqlite3
 import secrets
+import hashlib
+import json
 from typing import Any, Callable
 
 from .protocol import FRAME_TICKS, PROTOCOL_VERSION, TICK_RATE, ProtocolError
@@ -55,6 +57,11 @@ class Room:
     host_team: int = field(default_factory=lambda: secrets.randbelow(2))
     seed: int = field(default_factory=lambda: secrets.randbelow(2_147_483_647))
     tick: int = 0
+    announced_tick: int = 0
+    committed_tick: int = 0
+    input_ack_tick: int = 0
+    input_hashes: dict[int, str] = field(default_factory=dict)
+    input_commits: dict[int, dict] = field(default_factory=dict)
     keyframe_requests: dict[str, tuple[set[str], float]] = field(default_factory=dict)
     last_keyframe_dispatch: float | None = None
 
@@ -376,17 +383,64 @@ class Matchmaker:
                 room = self._room(player, started=True)
                 if message["seq"] <= player.seq:
                     raise ProtocolError("invalid_sequence", "seq must increase during each match")
+                if message["source_tick"] > room.tick + 180 or message["execute_tick"] > room.tick + 180:
+                    raise ProtocolError("invalid_sequence", "Input is too far ahead of the match")
                 player.seq = message["seq"]
                 outgoing = dict(message)
                 outgoing["team"] = player.team
                 self._emit(room.players[room.host_team], outgoing)
+            elif kind in ("clock_probe", "clock_reply"):
+                room = self._room(player, started=True)
+                self._emit(room.players[1 - player.team], {**message, "team": player.team})
+            elif kind == "input_frame":
+                room = self._room(player, started=True)
+                if player.team != room.host_team:
+                    raise ProtocolError("forbidden", "Only the host may prepare input frames")
+                tick = message["tick"]
+                digest = hashlib.sha256(json.dumps(message, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                if tick in room.input_hashes:
+                    if room.input_hashes[tick] != digest:
+                        raise ProtocolError("invalid_sequence", "Prepared inputs are immutable")
+                elif tick != room.announced_tick + FRAME_TICKS or tick > room.tick + 180:
+                    raise ProtocolError("invalid_sequence", "Prepared frames must be consecutive and bounded")
+                else:
+                    room.announced_tick = tick
+                    room.input_hashes[tick] = digest
+                self._emit(room.players[1 - room.host_team], dict(message))
+            elif kind == "input_ack":
+                room = self._room(player, started=True)
+                if player.team == room.host_team:
+                    raise ProtocolError("forbidden", "Only the guest acknowledges prepared inputs")
+                if message["tick"] > room.announced_tick:
+                    raise ProtocolError("invalid_sequence", "Cannot acknowledge an unprepared frame")
+                room.input_ack_tick = max(room.input_ack_tick, message["tick"])
+                self._emit(room.players[room.host_team], {**message, "team": player.team})
+            elif kind == "input_commit":
+                room = self._room(player, started=True)
+                if player.team != room.host_team:
+                    raise ProtocolError("forbidden", "Only the host may commit prepared inputs")
+                tick = message["tick"]
+                if tick in room.input_commits:
+                    if room.input_commits[tick] != message:
+                        raise ProtocolError("invalid_sequence", "Committed input timing is immutable")
+                # The host's WebSocket preserves prepare/commit order. Waiting
+                # for an input_ack here adds a full relay round trip to every
+                # frame; acknowledgements are diagnostic/flow-control only.
+                elif tick != room.committed_tick + FRAME_TICKS or tick > room.announced_tick:
+                    raise ProtocolError("invalid_sequence", "Commit requires consecutive prepared input frames")
+                else:
+                    room.committed_tick = tick
+                    room.input_commits[tick] = dict(message)
+                self._emit(room.players[1 - room.host_team], dict(message))
             elif kind == "frame":
                 room = self._room(player, started=True)
                 if player.team != room.host_team:
                     raise ProtocolError("forbidden", "Only the host may send a frame")
-                if message["tick"] != room.tick + FRAME_TICKS:
+                if message["tick"] > room.committed_tick or message["tick"] != room.tick + FRAME_TICKS:
                     raise ProtocolError("invalid_sequence", "Frames must advance exactly three ticks without gaps")
                 room.tick = message["tick"]
+                room.input_hashes.pop(room.tick, None)
+                room.input_commits.pop(room.tick, None)
                 self._emit(room.players[1 - room.host_team], dict(message))
                 if room.id in self.rooms:
                     for spectator in list(room.spectators.values()):

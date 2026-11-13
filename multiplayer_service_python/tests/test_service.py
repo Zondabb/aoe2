@@ -1,3 +1,4 @@
+from multiplayer_service_python.tests.fair_helpers import prepare_socket
 import asyncio
 import json
 
@@ -10,7 +11,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 4, "name": "玩家", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 6, "name": "玩家", "civ": "chinese"}
 
 
 def pair(host, guest):
@@ -42,14 +43,15 @@ def test_match_relay_complete_and_rematch(monkeypatch, host_team):
             assert match_id != previous
             previous = match_id
             # Neither an unready client nor a one-sided ready can issue orders.
-            guest.send_json({"type": "command", "seq": 1, "command": {"op": "stop", "unit_id": 2}})
+            guest.send_json({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "unit_id": 2}})
             assert guest.receive_json()["code"] == "invalid_state"
             start(host, guest)
-            guest.send_json({"type": "command", "seq": 1, "command": {"op": "move", "unit_id": 2, "pos": [4, 5]}})
+            guest.send_json({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "move", "unit_id": 2, "pos": [4, 5]}})
             authority, replica = (host, guest) if host_team == 0 else (guest, host)
             message = authority.receive_json()
             assert message["team"] == 1 and message["seq"] == 1 and message["command"]["pos"] == [4, 5]
-            frame = {"type": "frame", "tick": 3, "commands": [], "checksum": "a" * 64}
+            frame = {"type": "frame", "results": [], "tick": 3, "commands": [], "checksum": "a" * 64}
+            prepare_socket(authority, replica, 3)
             authority.send_json(frame)
             assert replica.receive_json() == frame
             authority.send_json({"type": "finish_match", "winner": 1})
@@ -66,15 +68,15 @@ def test_role_spoofing_and_replayed_sequence_are_rejected(monkeypatch, host_team
         start(first, second)
         host, guest = (first, second) if host_team == 0 else (second, first)
         for message in [
-            {"type": "frame", "tick": 3, "commands": [], "checksum": "a" * 64},
+            {"type": "frame", "results": [], "tick": 3, "commands": [], "checksum": "a" * 64},
             {"type": "finish_match", "winner": 1},
             {"type": "keyframe", "request_id": "0" * 32, "tick": 0, "state": {"x": 1}, "checksum": "a" * 64},
         ]:
             guest.send_json(message)
             assert guest.receive_json()["code"] == "forbidden"
-        guest.send_json({"type": "command", "seq": 1, "command": {"op": "stop", "team": 0}})
+        guest.send_json({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "team": 0}})
         assert guest.receive_json()["code"] == "invalid_payload"
-        command = {"type": "command", "seq": 1, "command": {"op": "stop", "unit_id": 2}}
+        command = {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "unit_id": 2}}
         for peer, team in ((first, 0), (second, 1)):
             peer.send_json(command)
             assert host.receive_json()["team"] == team
@@ -95,7 +97,7 @@ def test_external_ai_control_relay_is_bound_to_sending_team():
         for player in players:
             while not player.outbox.empty():
                 player.outbox.get_nowait()
-        request = {"type": "command", "seq": 1, "command": {"op": "set_ai_control", "enabled": True}}
+        request = {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "set_ai_control", "enabled": True}}
         with pytest.raises(ProtocolError, match="ready"):
             await mm.handle(players[0], request)
         assert players[0].seq == 0
@@ -123,18 +125,18 @@ def test_external_ai_control_relay_is_bound_to_sending_team():
 ])
 def test_external_ai_control_rejects_ambiguous_flags_and_spoofed_identity(command):
     with pytest.raises(ProtocolError, match="AI control|identity"):
-        parse_message(json.dumps({"type": "command", "seq": 1, "command": command}), Settings())
+        parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": command}), Settings())
 
 
 def test_player_instruction_is_private_and_bounded():
     settings = Settings()
     command = {"op": "ai_instruction", "text": "增加食物采集"}
-    assert parse_message(json.dumps({"type": "command", "seq": 1, "command": command}), settings)["command"] == command
+    assert parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": command}), settings)["command"] == command
     for invalid in [dict(command, team=0), dict(command, text="  "), dict(command, text=42), dict(command, text="a" * 241)]:
         with pytest.raises(ProtocolError):
-            parse_message(json.dumps({"type": "command", "seq": 1, "command": invalid}), settings)
+            parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": invalid}), settings)
     with pytest.raises(ProtocolError, match="private"):
-        parse_message(json.dumps({"type": "frame", "tick": 3, "checksum": "0" * 64,
+        parse_message(json.dumps({"type": "frame", "results": [], "tick": 3, "checksum": "0" * 64,
                                   "commands": [{"team": 0, "command": command}]}), settings)
 
 
@@ -172,9 +174,9 @@ def test_disconnect_awards_opponent_and_removes_room():
     ('{"type":"ping","type":"leave"}', "invalid_json"),
     ('{"type":"unknown"}', "unknown_type"),
     ('{"type":"ping","team":0}', "invalid_payload"),
-    ('{"type":"command","seq":true,"command":{"op":"stop"}}', "invalid_sequence"),
-    ('{"type":"command","seq":1,"command":{"op":"stop","x":NaN}}', "invalid_json"),
-    ('{"type":"command","seq":1,"command":{"op":"stop","x":1e999}}', "invalid_payload"),
+    ('{"type":"command","source_tick":0,"execute_tick":30,"seq":true,"command":{"op":"stop"}}', "invalid_sequence"),
+    ('{"type":"command","source_tick":0,"execute_tick":30,"seq":1,"command":{"op":"stop","x":NaN}}', "invalid_json"),
+    ('{"type":"command","source_tick":0,"execute_tick":30,"seq":1,"command":{"op":"stop","x":1e999}}', "invalid_payload"),
     (json.dumps(dict(JOIN, protocol_version=1)), "protocol_mismatch"),
     (json.dumps(dict(JOIN, name="\n")), "invalid_name"),
     (json.dumps(dict(JOIN, civ="unknown")), "invalid_civ"),
@@ -191,7 +193,7 @@ def test_payload_size_and_depth_limits():
     with pytest.raises(ProtocolError, match="size limit"):
         parse_message(" " * 600, Settings(max_message_bytes=500))
     with pytest.raises(ProtocolError, match="too complex"):
-        parse_message('{"type":"command","seq":1,"command":{"op":"stop","x":' + '[' * 40 + '0' + ']' * 40 + '}}', Settings())
+        parse_message('{"type":"command","source_tick":0,"execute_tick":30,"seq":1,"command":{"op":"stop","x":' + '[' * 40 + '0' + ']' * 40 + '}}', Settings())
 
 
 def test_capacity_timeout_and_slow_consumer_cleanup():

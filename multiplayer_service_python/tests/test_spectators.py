@@ -1,3 +1,4 @@
+from multiplayer_service_python.tests.fair_helpers import publish, prepare_socket
 import asyncio
 import json
 
@@ -11,7 +12,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 4, "name": "Host", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 6, "name": "Host", "civ": "chinese"}
 
 
 def drain(player):
@@ -22,7 +23,7 @@ def drain(player):
 
 
 def frame(tick):
-    return {"type": "frame", "tick": tick, "commands": [], "checksum": "a" * 64}
+    return {"type": "frame", "results": [], "tick": tick, "commands": [], "checksum": "a" * 64}
 
 
 async def pair(mm, *, start=True, snapshot=True):
@@ -39,7 +40,7 @@ async def pair(mm, *, start=True, snapshot=True):
         drain(host)
         drain(guest)
     if snapshot:
-        await mm.handle(host, frame(3))
+        await publish(mm, host, frame(3))
         drain(guest)
     return host, guest
 
@@ -50,7 +51,7 @@ async def watch(mm, host, *, ready=True):
     joined, = drain(viewer)
     assert joined["type"] == "spectate_started" and joined["role"] == "spectator"
     assert joined["host_team"] == host.team and joined["match_id"] == host.room_id
-    assert joined["protocol_version"] == 4 and joined["tick_rate"] == 30 and joined["frame_ticks"] == 3
+    assert joined["protocol_version"] == 6 and joined["tick_rate"] == 30 and joined["frame_ticks"] == 3
     assert "team" not in joined and "state" not in joined
     if ready:
         await mm.handle(viewer, {"type": "watch_ready"})
@@ -67,7 +68,7 @@ def test_loading_spectator_does_not_accumulate_frames_and_gets_fresh_keyframe_af
         with pytest.raises(ProtocolError, match="finish loading"):
             await mm.handle(viewer, {"type": "request_keyframe"})
         for tick in range(6, 61, 3):
-            await mm.handle(host, frame(tick))
+            await publish(mm, host, frame(tick))
             drain(guest)
             assert drain(viewer) == []
         assert viewer.id in mm.players
@@ -80,7 +81,7 @@ def test_loading_spectator_does_not_accumulate_frames_and_gets_fresh_keyframe_af
         keyframe = {"type": "keyframe", "request_id": request["request_id"], "tick": 60, "state": {"tick": 60}, "checksum": "a" * 64}
         await mm.handle(host, keyframe)
         assert drain(viewer) == [keyframe] and drain(guest) == []
-        await mm.handle(host, frame(63))
+        await publish(mm, host, frame(63))
         assert drain(viewer) == drain(guest) == [frame(63)]
         await mm.handle(viewer, {"type": "ack", "tick": 63, "checksum": "a" * 64})
         assert drain(host) == []  # viewers cannot stall or acknowledge for players
@@ -125,10 +126,10 @@ def test_list_started_matches_without_full_state_and_fanout_incremental_frames()
             "elapsed_seconds": 12, "spectator_count": 0}]
         viewer = await watch(mm, host)
         assert (await mm.list_matches())["matches"][0]["spectator_count"] == 1
-        await mm.handle(host, frame(3))
+        await publish(mm, host, frame(3))
         assert drain(guest) == drain(viewer) == [frame(3)]
         assert drain(host) == []
-        await mm.handle(guest, {"type": "command", "seq": 1, "command": {"op": "stop"}})
+        await mm.handle(guest, {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop"}})
         assert drain(host)[0]["team"] == guest.team and drain(viewer) == []
         await mm.shutdown()
     asyncio.run(scenario())
@@ -136,9 +137,9 @@ def test_list_started_matches_without_full_state_and_fanout_incremental_frames()
 
 @pytest.mark.parametrize("message", [
     {"type": "ready"}, {"type": "cancel_queue"}, JOIN,
-    {"type": "command", "seq": 1, "command": {"op": "move", "unit_id": 1, "pos": [1, 2]}},
-    {"type": "command", "seq": 1, "command": {"op": "set_ai_control", "enabled": True}},
-    {"type": "frame", "tick": 999, "commands": [], "checksum": "a" * 64},
+    {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "move", "unit_id": 1, "pos": [1, 2]}},
+    {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "set_ai_control", "enabled": True}},
+    {"type": "frame", "results": [], "tick": 999, "commands": [], "checksum": "a" * 64},
     {"type": "finish_match", "winner": 1},
     {"type": "watch_match", "match_id": "0" * 32},
 ])
@@ -181,7 +182,7 @@ def test_spectator_departure_never_ends_match_or_records_a_result(ending):
             assert viewer.id not in mm.players
         else:
             for tick in range(6, 18, 3):
-                await mm.handle(host, frame(tick))
+                await publish(mm, host, frame(tick))
                 drain(guest)
             assert viewer.id not in mm.players
             assert isinstance(drain(viewer)[0], Close)
@@ -270,6 +271,7 @@ def test_http_and_websocket_spectator_lifecycle():
         guest.send_json({"type": "ready"})
         host.receive_json()
         guest.receive_json()
+        prepare_socket(host, guest, 3)
         host.send_json(frame(3))
         guest.receive_json()
         listing = client.get("/api/matches")

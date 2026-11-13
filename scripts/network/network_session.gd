@@ -15,7 +15,7 @@ const CONNECT_TIMEOUT := 12.0
 const RECEIVE_TIMEOUT := 25.0
 const READY_TIMEOUT := 40.0
 const PING_INTERVAL := 8.0
-const PROTOCOL_VERSION := 4
+const PROTOCOL_VERSION := 6
 const TICK_RATE := 30
 const FRAME_TICKS := 3
 const MAX_FRAME_COMMANDS := 64
@@ -163,19 +163,34 @@ func send_command(command: Dictionary) -> bool:
 	if spectator or _intent != "queue" or state != "playing" or team not in [0, 1] or not _valid_command(command):
 		return false
 	_command_seq += 1
-	return _send({"type": "command", "seq": _command_seq, "command": command})
+	return send_scheduled_command(command, _command_seq, 0, 30)
+
+
+func send_scheduled_command(command: Dictionary, seq: int, source: int, target: int) -> bool:
+	if spectator or _intent != "queue" or state != "playing" or not _valid_command(command): return false
+	if seq < 1 or not _valid_tick(source) or not _valid_tick(target, false) or target <= source or target > source + 180: return false
+	_command_seq = maxi(_command_seq, seq)
+	return _send({"type": "command", "seq": seq, "source_tick": source, "execute_tick": target, "command": command})
+
+func send_fair_message(message: Dictionary) -> bool:
+	if spectator or state != "playing" or team not in [0, 1]: return false
+	var kind := str(message.get("type", ""))
+	if kind in ["input_frame", "input_commit"] and not is_host(): return false
+	if kind == "input_ack" and is_host(): return false
+	if kind not in ["input_frame", "input_ack", "input_commit", "clock_probe", "clock_reply"]: return false
+	return _send(message)
 
 
 func is_host() -> bool:
 	return not spectator and team in [0, 1] and team == host_team
 
 
-func send_frame(tick: int, commands: Array, checksum: String) -> bool:
+func send_frame(tick: int, commands: Array, checksum: String, results: Array = []) -> bool:
 	if not is_host() or state != "playing" or not _valid_tick(tick, false) or not _valid_commands(commands) or not _valid_checksum(checksum):
 		return false
 	# Delta frames are ordered and indispensable. A failed send is reported to
 	# NetworkMatch; neither buffering pressure nor a newer frame may discard one.
-	return _send({"type": "frame", "tick": tick, "commands": commands, "checksum": checksum})
+	return _send({"type": "frame", "tick": tick, "commands": commands, "checksum": checksum, "results": results})
 
 
 func send_ack(tick: int, checksum: String) -> bool:
@@ -376,7 +391,7 @@ func _handle_message(message: Dictionary) -> void:
 				var code := String(message.get("code", ""))
 				var text := _connection_reason(code) if code in ["rate_limited", "slow_consumer", "idle_timeout", "send_timeout"] else String(message.get("message", "未知错误"))
 				_fail("联机服务错误：%s" % text)
-		"command", "frame", "ack", "keyframe_request", "keyframe":
+		"command", "frame", "ack", "keyframe_request", "keyframe", "input_frame", "input_ack", "input_commit", "clock_probe", "clock_reply":
 			if state not in ["playing", "watching"]: return
 			if not _valid_incremental_message(message):
 				_fail("服务器返回了无效的增量同步消息")
@@ -414,16 +429,52 @@ func _valid_match(message: Dictionary) -> bool:
 func _valid_incremental_message(message: Dictionary) -> bool:
 	match message.type:
 		"command":
-			return is_host() and _valid_wire_team(message.get("team")) and _wire_integer(message.get("seq"), 1) and _valid_command(message.get("command"))
+			return is_host() and _valid_wire_team(message.get("team")) and _wire_integer(message.get("seq"), 1) and _valid_command(message.get("command")) and _valid_tick(message.get("source_tick")) and _valid_tick(message.get("execute_tick"), false) and int(message.execute_tick) > int(message.source_tick) and int(message.execute_tick) <= int(message.source_tick) + 180
 		"frame":
-			return not is_host() and _valid_tick(message.get("tick"), false) and _valid_commands(message.get("commands")) and _valid_checksum(message.get("checksum"))
+			return not is_host() and _valid_tick(message.get("tick"), false) and _valid_commands(message.get("commands")) and _valid_checksum(message.get("checksum")) and _valid_results(message.get("results", []))
 		"ack":
 			return is_host() and _valid_wire_team(message.get("team")) and int(message.team) != host_team and _valid_tick(message.get("tick")) and _valid_checksum(message.get("checksum"))
 		"keyframe_request":
 			return is_host() and _valid_request_id(message.get("request_id"))
 		"keyframe":
 			return not is_host() and _valid_request_id(message.get("request_id")) and _valid_tick(message.get("tick")) and message.get("state") is Dictionary and not message.state.is_empty() and _valid_checksum(message.get("checksum"))
+		"input_frame":
+			return not spectator and not is_host() and _valid_tick(message.get("tick"), false) and _valid_inputs(message.get("commands"))
+		"input_ack":
+			return is_host() and _valid_tick(message.get("tick"), false) and _valid_wire_team(message.get("team")) and int(message.team) != team
+		"input_commit":
+			return not spectator and not is_host() and _valid_tick(message.get("tick"), false) and _wire_integer(message.get("execute_at_usec"), 1) and _valid_tick(message.get("delay_from_tick")) and _valid_tick(message.get("input_delay_ticks"), false) and int(message.input_delay_ticks) <= 180 and (message.get("speed") is int or message.get("speed") is float) and is_finite(float(message.speed)) and float(message.speed) >= 0.25 and float(message.speed) <= 4.0
+		"clock_probe", "clock_reply":
+			return not spectator and _valid_wire_team(message.get("team")) and int(message.team) != team and _wire_integer(message.get("nonce"), 1) and _wire_integer(message.get("sent_usec")) and (message.type == "clock_probe" or _wire_integer(message.get("received_usec")))
+
 	return false
+
+
+func _valid_results(value: Variant) -> bool:
+	if value is not Array or value.size() > 256: return false
+	var seen := {}
+	for item in value:
+		if item is not Dictionary or item.size() != 3 or not _valid_wire_team(item.get("team")) or not _wire_integer(item.get("seq"), 1) or item.get("accepted") is not bool: return false
+		var key := str(item.team) + ":" + str(item.seq)
+		if seen.has(key): return false
+		seen[key] = true
+	return true
+
+func _valid_inputs(value: Variant) -> bool:
+	if value is not Array or value.size() > 62: return false
+	var seen := {}
+	for item in value:
+		if item is not Dictionary or not _valid_wire_team(item.get("team")) or not _wire_integer(item.get("seq")) or not _valid_command(item.get("command")): return false
+		if item.command.op == "ai_instruction": return false
+		if item.has("ai"):
+			if int(item.seq) != 0 or item.ai is not Dictionary or item.ai.size() != 4: return false
+			for key in ["id", "generation", "control_generation", "expires_tick"]:
+				if not _wire_integer(item.ai.get(key), 1 if key == "id" else 0): return false
+		if int(item.seq) > 0:
+			var key := str(item.team) + ":" + str(item.seq)
+			if seen.has(key): return false
+			seen[key] = true
+	return true
 
 
 func _wire_integer(value: Variant, minimum := 0, maximum := 9007199254740991) -> bool:

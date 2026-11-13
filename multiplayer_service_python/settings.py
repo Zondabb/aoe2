@@ -17,8 +17,8 @@ class Settings:
     # Players order units one command each; a 60-unit group order is one
     # burst relayed to the host. Keep room for it before slow_consumer.
     outgoing_queue_size: int = 64
-    messages_per_second: float = 90.0
-    message_burst: float = 180.0
+    messages_per_second: float = 300.0
+    message_burst: float = 600.0
     bytes_per_second: float = 4_194_304.0
     byte_burst: float = 8_388_608.0
     idle_timeout: float = 30.0

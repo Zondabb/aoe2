@@ -412,7 +412,10 @@ func _part(actor: Node2D, source: Node2D, dynamic: bool, screen: Rect2) -> DrawP
 	var bounds := _source_bounds(source, texture)
 	if not screen.intersects(transform * bounds):
 		return null
-	return DrawPart.new(actor, source, texture, transform, dynamic, _effective_z(source), source.global_position.y, transform * bounds)
+	var world_y := source.global_position.y
+	if dynamic and actor.has_method("render_global_transform"):
+		world_y = actor.render_global_transform(source).origin.y
+	return DrawPart.new(actor, source, texture, transform, dynamic, _effective_z(source), world_y, transform * bounds)
 
 func update_mask() -> void:
 	var started := Time.get_ticks_usec()

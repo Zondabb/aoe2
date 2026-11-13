@@ -21,8 +21,13 @@ FIELDS = {
     "join_queue": {"type", "protocol_version", "name", "civ"},
     "cancel_queue": {"type"},
     "ready": {"type"},
-    "command": {"type", "seq", "command"},
-    "frame": {"type", "tick", "commands", "checksum"},
+    "command": {"type", "seq", "source_tick", "execute_tick", "command"},
+    "input_frame": {"type", "tick", "commands"},
+    "input_ack": {"type", "tick"},
+    "input_commit": {"type", "tick", "execute_at_usec", "speed", "input_delay_ticks", "delay_from_tick"},
+    "clock_probe": {"type", "nonce", "sent_usec"},
+    "clock_reply": {"type", "nonce", "sent_usec", "received_usec"},
+    "frame": {"type", "tick", "commands", "checksum", "results"},
     "ack": {"type", "tick", "checksum"},
     "request_keyframe": {"type"},
     "keyframe": {"type", "request_id", "tick", "state", "checksum"},
@@ -34,12 +39,27 @@ FIELDS = {
     "watch_ready": {"type"},
 }
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 6
 TICK_RATE = 30
 FRAME_TICKS = 3
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_FRAME_COMMANDS = 64
 MAX_FRAME_BYTES = 262_144
+MAX_INPUT_COMMANDS = 62
+MAX_INPUT_LEAD_TICKS = 180
+MAX_FRAME_RESULTS = 256
+
+
+def _safe_integer(value: Any, minimum: int = 0) -> bool:
+    return type(value) is int and minimum <= value <= MAX_SAFE_INTEGER
+
+
+def _tick(value: Any) -> bool:
+    return _safe_integer(value) and value % FRAME_TICKS == 0
+
+
+def _team(value: Any) -> bool:
+    return type(value) is int and value in (0, 1)
 
 
 def _identifier(value: Any) -> bool:
@@ -109,7 +129,7 @@ def parse_message(raw: str, settings: Settings) -> dict:
     _check_tree(data)
     if kind == "join_queue":
         if type(data["protocol_version"]) is not int or data["protocol_version"] != PROTOCOL_VERSION:
-            raise ProtocolError("protocol_mismatch", "Only protocol_version 4 (fixed-point lockstep) is supported; update the game client")
+            raise ProtocolError("protocol_mismatch", "Only protocol_version 6 (adaptive fair scheduled lockstep) is supported; update the game client")
         name = data["name"]
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 24:
             raise ProtocolError("invalid_name", "Player name must contain 1 to 24 characters")
@@ -123,16 +143,72 @@ def parse_message(raw: str, settings: Settings) -> dict:
         if not _identifier(match_id):
             raise ProtocolError("invalid_payload", "match_id must be a valid match identifier")
     elif kind == "command":
-        if type(data["seq"]) is not int or not 0 < data["seq"] <= MAX_SAFE_INTEGER:
+        if not _safe_integer(data["seq"], 1):
             raise ProtocolError("invalid_sequence", "seq must be a positive safe integer")
+        source, execute = data["source_tick"], data["execute_tick"]
+        if not _tick(source) or not _tick(execute) or not source < execute <= source + MAX_INPUT_LEAD_TICKS:
+            raise ProtocolError("invalid_sequence", "Input ticks must be frame boundaries with a bounded future execution tick")
         _command(data["command"], settings)
+    elif kind in ("input_frame", "input_ack", "input_commit"):
+        if not _tick(data["tick"]) or data["tick"] == 0:
+            raise ProtocolError("invalid_sequence", "Input tick must be a positive frame boundary")
+        if kind == "input_frame":
+            commands = data["commands"]
+            if not isinstance(commands, list) or len(commands) > MAX_INPUT_COMMANDS:
+                raise ProtocolError("invalid_payload", "An input frame may contain at most 62 commands")
+            seen = set()
+            for entry in commands:
+                if (not isinstance(entry, dict) or set(entry) not in ({"team", "seq", "command"}, {"team", "seq", "command", "ai"})
+                        or not _team(entry["team"]) or not _safe_integer(entry["seq"])):
+                    raise ProtocolError("invalid_payload", "Each input requires a team, sequence and command")
+                identity = (entry["team"], entry["seq"])
+                if entry["seq"] > 0:
+                    if identity in seen:
+                        raise ProtocolError("invalid_payload", "Input sequences may not repeat within a frame")
+                    seen.add(identity)
+                _command(entry["command"], settings)
+                if entry["command"]["op"] == "ai_instruction":
+                    raise ProtocolError("invalid_payload", "Player instructions are private to the host")
+                if "ai" in entry and (entry["seq"] != 0 or not isinstance(entry["ai"], dict)
+                                      or len(json.dumps(entry["ai"], ensure_ascii=True).encode()) > 4096):
+                    raise ProtocolError("invalid_payload", "AI metadata requires an internal input and a small object")
+            if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
+                raise ProtocolError("invalid_payload", "Input frame exceeds the size limit")
+        elif kind == "input_commit":
+            if not _safe_integer(data["execute_at_usec"], 1):
+                raise ProtocolError("invalid_sequence", "Execution time must be a positive safe integer")
+            speed, delay = data["speed"], data["input_delay_ticks"]
+            if type(speed) not in (int, float) or not 0.25 <= speed <= 4.0:
+                raise ProtocolError("invalid_payload", "Match speed must be between 0.25 and 4")
+            if not _tick(delay) or not FRAME_TICKS <= delay <= MAX_INPUT_LEAD_TICKS:
+                raise ProtocolError("invalid_payload", "Input delay must be a bounded positive frame interval")
+            if not _tick(data["delay_from_tick"]):
+                raise ProtocolError("invalid_payload", "Input delay activation must be a nonnegative safe frame boundary")
+    elif kind in ("clock_probe", "clock_reply"):
+        if not _safe_integer(data["nonce"], 1) or not _safe_integer(data["sent_usec"]):
+            raise ProtocolError("invalid_payload", "Clock probes require safe integer nonce and timestamp")
+        if kind == "clock_reply" and not _safe_integer(data["received_usec"]):
+            raise ProtocolError("invalid_payload", "Clock replies require a safe integer receive timestamp")
     elif kind in ("frame", "ack", "keyframe"):
         tick = data["tick"]
-        if type(tick) is not int or not 0 <= tick <= MAX_SAFE_INTEGER or tick % FRAME_TICKS:
+        if not _tick(tick):
             raise ProtocolError("invalid_sequence", "tick must be a nonnegative safe integer at a frame boundary")
         if not isinstance(data["checksum"], str) or re.fullmatch(r"[0-9a-f]{64}", data["checksum"]) is None:
             raise ProtocolError("invalid_payload", "checksum must be a SHA-256 hex string")
         if kind == "frame":
+            results = data["results"]
+            if not isinstance(results, list) or len(results) > MAX_FRAME_RESULTS:
+                raise ProtocolError("invalid_payload", "A frame may contain at most 256 input results")
+            seen = set()
+            for result in results:
+                if (not isinstance(result, dict) or set(result) != {"team", "seq", "accepted"}
+                        or not _team(result["team"]) or not _safe_integer(result["seq"], 1)
+                        or type(result["accepted"]) is not bool):
+                    raise ProtocolError("invalid_payload", "Each result requires a team, positive sequence and boolean acceptance")
+                identity = (result["team"], result["seq"])
+                if identity in seen:
+                    raise ProtocolError("invalid_payload", "Input results may not repeat within a frame")
+                seen.add(identity)
             commands = data["commands"]
             if not isinstance(commands, list) or len(commands) > MAX_FRAME_COMMANDS:
                 raise ProtocolError("invalid_payload", "A frame may contain at most 64 commands")

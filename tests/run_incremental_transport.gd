@@ -24,7 +24,7 @@ func check(ok: bool, message: String) -> void:
 
 func info(side := 0, host := 1) -> Dictionary:
 	return {"type": "match_found", "match_id": MATCH_ID, "team": side, "host_team": host,
-		"protocol_version": 4, "seed": 1923, "tick_rate": 30, "frame_ticks": 3,
+		"protocol_version": 6, "seed": 1923, "tick_rate": 30, "frame_ticks": 3,
 		"players": [{"team": 0, "name": "甲", "civ": "chinese"}, {"team": 1, "name": "乙", "civ": "teutons"}]}
 
 func configured(side := 0, host := 1) -> RecordingSession:
@@ -78,6 +78,15 @@ func _run() -> void:
 	var old := info()
 	old.protocol_version = 1
 	check(not session._valid_match(old), "legacy protocol rejected")
+	old.protocol_version = 5
+	check(not session._valid_match(old), "fixed-window v5 cannot join adaptive-window v6")
+	var commitment := {"type": "input_commit", "tick": 3, "execute_at_usec": 1000000, "speed": 2.0, "input_delay_ticks": 6, "delay_from_tick": 30}
+	check(session._valid_incremental_message(commitment), "v6 commit contains a future source-tick policy")
+	for invalid in [-3, 1, 3.5, "30"]:
+		commitment.delay_from_tick = invalid
+		check(not session._valid_incremental_message(commitment), "commit rejects invalid policy boundary")
+	commitment.erase("delay_from_tick")
+	check(not session._valid_incremental_message(commitment), "commit requires an explicit policy boundary")
 	var changed := info()
 	changed.seed = 999
 	check(not session._same_match_parameters(changed), "start cannot change the agreed simulation seed")

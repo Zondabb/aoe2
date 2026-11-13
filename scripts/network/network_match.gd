@@ -3,6 +3,8 @@ extends Node
 ## Host-authorized lockstep: every participant runs the same ordered fixed steps.
 ## net_id is independent of process-local EntityRegistry IDs.
 signal status_changed(message: String)
+signal command_submitted(seq: int, source_tick: int, execute_tick: int)
+signal command_resolved(seq: int, accepted: bool, execute_tick: int)
 
 const Catalog := preload("res://scripts/data/game_catalog.gd")
 const Registry := preload("res://scripts/ai_gateway/entity_registry.gd")
@@ -16,6 +18,8 @@ const PROJECTILE_VIEW := preload("res://scenes/entities/projectile_view.tscn")
 const ResourceScript := preload("res://scripts/entities/resource_node.gd")
 const TerrainScript := preload("res://scripts/entities/path_blocker.gd")
 const Simulation := preload("res://scripts/network/lockstep_simulation.gd")
+const FairLockstep := preload("res://scripts/network/fair_lockstep.gd")
+const Prediction := preload("res://scripts/network/client_prediction.gd")
 const TICK_SECONDS := 1.0 / 30.0
 const FRAME_TICKS := 3
 const FRAME_INTERVAL := TICK_SECONDS * FRAME_TICKS
@@ -129,6 +133,10 @@ var _saved_time_scale := 1.0
 var _draining := false
 var _render_frame := -1
 var _render_frame_steps := 0
+var fair: RefCounted
+var prediction: Node2D
+var _scheduled_ai := false
+var _local_input_seq := 0
 var match_speed := 1.0
 var _speed_announced_tick := -1000000
 
@@ -160,6 +168,13 @@ func setup(bootstrap: Node) -> void:
 	# ticks then occur at 30 Hz × speed, one simulation step per tick.
 	_saved_time_scale = Engine.time_scale
 	_apply_match_speed(Engine.time_scale)
+	if not spectator:
+		fair = FairLockstep.new()
+		fair.setup(self)
+		prediction = Prediction.new()
+		prediction.name = "ClientPrediction"
+		get_parent().add_child(prediction)
+		prediction.setup(self)
 	_set_status("正在载入观战关键帧…" if spectator else "等待双方载入地图…")
 	if spectator and session.get("state") == "watching":
 		_on_started()
@@ -185,6 +200,20 @@ func entity_id(entity: Node) -> int:
 func submit_command(command: Dictionary) -> bool:
 	if spectator or not synchronized or local_team not in [0, 1] or not _playing or _terminal or match_state == null or match_state.frozen:
 		return false
+	if fair != null:
+		if not COMMAND_FIELDS.has(command.get("op")): return false
+		for key in command:
+			if key not in COMMAND_FIELDS[command.op]: return false
+		_local_input_seq += 1
+		var source: int = fair.source_tick()
+		var target: int = source + fair.delay_for_source(source)
+		var accepted: bool
+		if is_host: accepted = fair.enqueue(command, local_team, _local_input_seq, source, target)
+		else: accepted = session.send_scheduled_command(command, _local_input_seq, source, target)
+		if accepted:
+			prediction.submit(_local_input_seq, command)
+			command_submitted.emit(_local_input_seq, source, target)
+		return accepted
 	if is_host:
 		return _queue_command(command, local_team)
 	if session == null:
@@ -199,7 +228,7 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 	if sender_team not in [0, 1] or command.size() > 10:
 		return false
 	_command_count += 1
-	if not _replaying and _command_count > 240:
+	if fair == null and not _replaying and _command_count > 240:
 		return false
 	if command.get("op") is not String:
 		return false
@@ -217,7 +246,7 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 			return true
 		var accepted := bool(controller.call("set_team_enabled", sender_team, command.enabled))
 		_snapshot_elapsed = SNAPSHOT_INTERVAL
-		return accepted
+		return true if fair != null else accepted
 	var required: Dictionary = {
 		"move": ["unit_id"], "stop": ["unit_id"], "gather": ["unit_id", "target_id"],
 		"build": ["unit_id", "building_id"], "attack": ["unit_id", "target_id"],
@@ -230,7 +259,7 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 		return false
 	var translated := {"op": op}
 	for key in required[op]:
-		if (_replaying or ai_context != null) and op == "place_building" and key == "builder_id": continue
+		if (_scheduled_ai or (fair == null and (_replaying or ai_context != null))) and op == "place_building" and key == "builder_id": continue
 		if not command.has(key):
 			return false
 	for key in ["unit_id", "target_id", "building_id", "builder_id"]:
@@ -320,7 +349,7 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 			var mover := _resolve(int(command.unit_id))
 			if mover.has_method("set_formation_move_speed"):
 				mover.call("set_formation_move_speed", float(command.formation_speed))
-		if ai_context == null: Registry.report_manual_command(translated, sender_team, result)
+		if ai_context == null and not _scheduled_ai: Registry.report_manual_command(translated, sender_team, result)
 	return bool(result.get("ok", false))
 
 
@@ -337,6 +366,7 @@ func _process(_delta: float) -> void:
 	if float(now - _last_snapshot_received_usec) / 1000000.0 > SNAPSHOT_TIMEOUT:
 		_abort_sync("同步确认超时，请返回大厅重新匹配")
 		return
+	if fair != null: fair.poll(now)
 	if not is_host and _awaiting_keyframe and now - _keyframe_request_usec > 4000000:
 		_request_keyframe()
 
@@ -357,7 +387,8 @@ func _physics_process(_delta: float) -> void:
 	var budget := maxi(MAX_STEPS_PER_RENDER_FRAME, ceili(MAX_STEPS_PER_RENDER_FRAME * match_speed)) - _render_frame_steps
 	var steps := 0
 	if budget > 0:
-		steps = _host_tick(wall, budget) if is_host else _replica_tick(budget)
+		if fair != null: steps = fair.advance(now, budget)
+		else: steps = _host_tick(wall, budget) if is_host else _replica_tick(budget)
 	elif is_host:
 		_sim_accumulator = minf(_sim_accumulator + wall * match_speed, TICK_SECONDS * HOST_MAX_STEPS_PER_TICK)
 	_render_frame_steps += steps
@@ -481,6 +512,7 @@ func queue_ai_command(command: Dictionary, context: CommandExecutionContext) -> 
 			if node == null: return {"ok": false, "reason": "missing_entity"}
 			wire[key] = entity_id(node)
 		else: wire[key] = command[key]
+	if fair != null: return fair.enqueue_ai(JSON.parse_string(JSON.stringify(wire, "", true, true)), context, command)
 	_pending_commands.append({"team": int(context.team), "command": JSON.parse_string(JSON.stringify(wire, "", true, true)), "ai_original": command.duplicate(true), "ai_context": context})
 	return {"ok": true, "reason": "queued_for_frame"}
 
@@ -551,14 +583,18 @@ func _finish_host_frame() -> void:
 
 func _send_keyframe(request_id: String) -> void:
 	var full: Dictionary = simulation.call("capture")
+	if fair != null: full["fair"] = {"generations": fair._generations, "controls": fair._control_generations, "input_delay_ticks": fair.delay_for_source(fair.source_tick()), "speed": match_speed, "delay_schedule": fair.delay_schedule.duplicate(true)}
 	last_checksum = str(simulation.call("frame_checksum"))
 	_checksums[tick] = last_checksum
 	if session.call("send_keyframe", request_id, tick, full, last_checksum):
 		keyframes_sent += 1
+		if fair != null: fair.resend()
+	if fair != null: fair.reset_clock_sampling()
 
 
 func _on_message(message: Dictionary) -> void:
 	if _terminal or not _playing: return
+	if fair != null and fair.receive(message): return
 	match String(message.get("type", "")):
 		"command":
 			if not is_host: return
@@ -566,7 +602,9 @@ func _on_message(message: Dictionary) -> void:
 			var seq := int(message.get("seq", -1))
 			if side not in [0, 1] or seq <= int(_command_sequences[side]): return
 			_command_sequences[side] = seq
-			if message.get("command") is Dictionary: _queue_command(message.command, side)
+			if message.get("command") is Dictionary:
+				if fair != null: fair.enqueue(message.command, side, seq, int(message.source_tick), int(message.execute_tick))
+				else: _queue_command(message.command, side)
 		"keyframe_request":
 			if not is_host or message.get("request_id") is not String: return
 			if _frame_step == 0: _send_keyframe(message.request_id)
@@ -620,6 +658,9 @@ func _begin_replica_frame(message: Dictionary) -> bool:
 				return false
 			var controller := _ai_controller()
 			if controller != null: controller.call("apply_remote_states", command.states)
+		elif command.get("op") == "match_end":
+			if int(item.team) != int(session.host_team) or not _valid_enum(command.get("winner"), 0, 1): return false
+			match_state.set_winner(int(command.winner) as Enums.Team)
 		elif command.get("op") == "match_speed":
 			# Pace only; never simulation state. Ignore anything malformed.
 			var speed: Variant = command.get("speed")
@@ -657,6 +698,10 @@ func _finish_replica_frame() -> bool:
 func _drain_frames() -> void:
 	if is_host or not synchronized or _awaiting_keyframe or _draining: return
 	_draining = true
+	if fair != null:
+		fair.drain()
+		_draining = false
+		return
 	while not _awaiting_keyframe:
 		if _frame_step == 0:
 			if _frame_queue.is_empty(): break
@@ -678,6 +723,8 @@ func _request_keyframe() -> void:
 	if _resync_attempts > 4:
 		_abort_sync("状态同步校验连续失败，请确认双方使用相同游戏版本")
 		return
+	if prediction != null: prediction.clear()
+	if fair != null: fair.reset(tick)
 	synchronized = false
 	_awaiting_keyframe = true
 	_frame_queue.clear()
@@ -691,11 +738,23 @@ func _receive_keyframe(message: Dictionary) -> void:
 	if not _awaiting_keyframe or message.get("state") is not Dictionary or not _valid_enum(message.get("tick"), 0, 2147483647): return
 	var incoming := int(message.tick)
 	if incoming % FRAME_TICKS != 0: return
+	if not _valid_fair_state(message.state.get("fair", {})):
+		_abort_sync("关键帧的调度状态无效")
+		return
 	_last_snapshot_sequence = -1 # A repaired keyframe can be at the same tick.
 	if not simulation.call("restore", message.state, incoming):
 		_abort_sync("主机关键帧无效，无法恢复对局")
 		return
 	tick = incoming
+	_apply_match_speed(float(message.state.get("fair", {}).get("speed", match_speed)))
+	if fair != null:
+		fair.reset(tick)
+		var timing: Dictionary = message.state.get("fair", {})
+		for key in timing.get("generations", {}): fair._generations[int(key)] = int(timing.generations[key])
+		for key in timing.get("controls", {}): fair._control_generations[int(key)] = int(timing.controls[key])
+		fair.input_delay_ticks = clampi(int(timing.get("input_delay_ticks", 9)), 3, 180)
+		fair.delay_schedule = timing.get("delay_schedule", [{"from_tick": 0, "ticks": fair.input_delay_ticks}]).duplicate(true)
+		_apply_match_speed(float(timing.get("speed", match_speed)))
 	_frame_step = 0
 	_frame_queue.clear()
 	_starved = true
@@ -711,6 +770,26 @@ func _receive_keyframe(message: Dictionary) -> void:
 	_last_snapshot_received_usec = Time.get_ticks_usec()
 	if not spectator: session.call("send_ack", tick, last_checksum)
 	_set_status("正在观战 · 只读 · 指令同步" if spectator else "联机对战 · 玩家 · 指令同步")
+
+
+func _valid_fair_state(value: Variant) -> bool:
+	if value is not Dictionary: return false
+	if value.is_empty(): return true # legacy test fixtures
+	if value.size() != 5 or value.get("generations") is not Dictionary or value.get("controls") is not Dictionary: return false
+	if value.generations.size() > MAX_ENTITIES or value.controls.size() != 2: return false
+	if not _valid_enum(value.get("input_delay_ticks"), 3, 180) or int(value.input_delay_ticks) % FRAME_TICKS != 0: return false
+	if not _finite_number(value.get("speed")) or float(value.speed) < MIN_MATCH_SPEED or float(value.speed) > MAX_MATCH_SPEED: return false
+	if value.get("delay_schedule") is not Array or value.delay_schedule.is_empty() or value.delay_schedule.size() > 64: return false
+	var last_source := -1
+	for policy in value.delay_schedule:
+		if policy is not Dictionary or policy.size() != 2 or not _valid_enum(policy.get("from_tick"), 0, 9007199254740991) or int(policy.from_tick) % FRAME_TICKS != 0: return false
+		if int(policy.from_tick) <= last_source or not _valid_enum(policy.get("ticks"), 3, 180) or int(policy.ticks) % FRAME_TICKS != 0: return false
+		last_source = int(policy.from_tick)
+	for key in value.generations:
+		if not str(key).is_valid_int() or int(key) < 1 or not _valid_enum(value.generations[key], 0, 9007199254740991): return false
+	for key in value.controls:
+		if str(key) not in ["0", "1"] or not _valid_enum(value.controls[key], 0, 9007199254740991): return false
+	return true
 
 
 func _abort_sync(message: String) -> void:
@@ -1164,6 +1243,8 @@ static func _vec(value: Array) -> Vector2:
 
 func _on_winner(winner: int) -> void:
 	_stop_ai_control()
+	if fair != null and not is_host:
+		_pending_winner = winner
 	if is_host and not spectator and not _terminal and session != null:
 		_pending_winner = winner
 		# Mid-frame, the result is published after that frame completes.
@@ -1178,6 +1259,7 @@ func _on_ending(_info: Dictionary) -> void:
 func _on_ended(info: Dictionary) -> void:
 	_terminal = true
 	_playing = false
+	if prediction != null: prediction.clear()
 	_stop_ai_control()
 	if match_state != null:
 		match_state.frozen = true

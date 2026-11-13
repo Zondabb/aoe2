@@ -85,6 +85,11 @@ var sim_pos: Vector2:
 ## CanvasItem exposes the physics transform, not the server's interpolated
 ## draw transform. The outline mask needs the same translation as the actor.
 var previous_physics_position := Vector2.ZERO
+## Local presentation only. The RenderingServer transform can lead the node's
+## authoritative transform while an online input awaits its execution frame.
+## Never use this offset for simulation, vision, projectiles or AI observations.
+var _prediction_presentation_active := false
+var _prediction_presentation_offset := Vector2.ZERO
 var carry_type := -1
 var carry_amount_q: int = 0
 var carry_amount: float:
@@ -349,8 +354,42 @@ func _notification(what: int) -> void:
 		_flush_billboard_frame()
 
 
+func set_prediction_presentation(world_position: Vector2) -> void:
+	_prediction_presentation_active = true
+	_prediction_presentation_offset = IsoMathScript.world_to_screen(world_position) - position
+	var drawn := transform
+	drawn.origin += _prediction_presentation_offset
+	RenderingServer.canvas_item_set_interpolated(get_canvas_item(), false)
+	RenderingServer.canvas_item_set_transform(get_canvas_item(), drawn)
+
+
+func clear_prediction_presentation() -> void:
+	if not _prediction_presentation_active: return
+	_prediction_presentation_active = false
+	_prediction_presentation_offset = Vector2.ZERO
+	# The renderer's interpolation history is reset below; the separate
+	# occlusion-mask interpolation must not expose the old position either.
+	previous_physics_position = position
+	RenderingServer.canvas_item_set_transform(get_canvas_item(), transform)
+	RenderingServer.canvas_item_set_interpolated(get_canvas_item(), is_physics_interpolated_and_enabled())
+	RenderingServer.canvas_item_reset_physics_interpolation(get_canvas_item())
+
+
+## Picking and occlusion must follow the displayed sprite without changing the
+## node transform consumed by deterministic simulation and projectile origins.
+func render_global_transform(source: Node2D) -> Transform2D:
+	var result := source.global_transform
+	if not _prediction_presentation_active or (source != self and source.is_set_as_top_level()): return result
+	var offset := _prediction_presentation_offset
+	if not is_set_as_top_level() and get_parent() is CanvasItem:
+		offset = (get_parent() as CanvasItem).get_global_transform().basis_xform(offset)
+	result.origin += offset
+	return result
+
+
 func render_canvas_transform(source: Node2D) -> Transform2D:
-	var result := source.get_global_transform_with_canvas()
+	var result := get_canvas_transform() * render_global_transform(source)
+	if _prediction_presentation_active: return result
 	if not is_physics_interpolated_and_enabled() or source.is_set_as_top_level():
 		return result
 	# Unit simulation changes translation only. Billboard scale/rotation and

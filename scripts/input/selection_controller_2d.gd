@@ -703,7 +703,7 @@ func _pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
 			if rect.has_point(canvas_pos):
 				return canvas_pos.distance_to(rect.get_center())
 			return INF
-	var distance := entity.global_position.distance_to(canvas_pos)
+	var distance := _display_transform(entity, entity).origin.distance_to(canvas_pos)
 	if distance <= CLICK_RADIUS:
 		return distance
 	return INF
@@ -727,7 +727,7 @@ func _entity_intersects_screen_box(entity: Node2D, screen_box: Rect2) -> bool:
 				get_viewport().get_canvas_transform(), canvas_rect
 			)
 			return screen_box.intersects(screen_rect)
-	var screen_pos := get_viewport().get_canvas_transform() * entity.global_position
+	var screen_pos := get_viewport().get_canvas_transform() * _display_transform(entity, entity).origin
 	return screen_box.has_point(screen_pos)
 
 func _footprint_pick_distance(entity: Node2D, canvas_pos: Vector2) -> float:
@@ -770,7 +770,11 @@ func _visual_rect_canvas(entity: Node2D) -> Rect2:
 	var local_rect := _sprite_local_rect(sprite)
 	if local_rect.size.x <= 0.0 or local_rect.size.y <= 0.0:
 		return Rect2()
-	return _transform_rect(sprite.global_transform, local_rect)
+	return _transform_rect(_display_transform(entity, sprite), local_rect)
+
+
+func _display_transform(entity: Node2D, source: Node2D) -> Transform2D:
+	return entity.render_global_transform(source) if entity.has_method("render_global_transform") else source.global_transform
 
 func _sprite_local_rect(sprite: Node2D) -> Rect2:
 	if sprite is Sprite2D:
