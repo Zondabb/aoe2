@@ -232,3 +232,17 @@ def test_local_ollama_legacy_chat_needs_no_placeholder_token(monkeypatch):
     assert response.choices[0].message.content == "ok"
     assert captured["url"] == "http://127.0.0.1:11434/v1/chat/completions"
     assert "Authorization" not in captured["headers"]
+
+
+@pytest.mark.parametrize("asked, max_tokens, expected", [
+    (None, None, 256), (512, None, 512), (64, None, 64), (1024, None, 1024),
+    (63, None, 256), (1025, None, 256), (True, None, 256), ("512", None, 256), (512.0, None, 256),   # outside what a planner may ask
+    (512, "300", 300)])                                                                              # the operator's own cap still holds
+def test_a_planner_may_ask_for_a_larger_output_budget_within_bounds(asked, max_tokens, expected, monkeypatch):
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    if max_tokens:
+        monkeypatch.setenv("AOE2_LLM_MAX_TOKENS", max_tokens)
+    req = plan_request()
+    if asked is not None:
+        req.metadata = req.metadata.model_copy(update={"plan_output_tokens": asked})
+    assert llm_proxy.build_openai_payload(req)["options"]["num_predict"] == expected

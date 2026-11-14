@@ -95,6 +95,20 @@ def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
     return f"{base}/api/chat" if base else None
 
 
+# A plan is a handful of short fields. A planner that also writes text for the
+# player (the cabinet's premier) asks the service for more through the request
+# metadata, within these bounds; the service sets that field, never the client.
+PLAN_OUTPUT_TOKENS, PLAN_OUTPUT_TOKENS_RANGE = 256, (64, 1024)
+
+
+def _plan_output_tokens(req: ChatCompletionRequest) -> int:
+    asked = getattr(getattr(req, "metadata", None), "plan_output_tokens", None)
+    low, high = PLAN_OUTPUT_TOKENS_RANGE
+    if isinstance(asked, int) and low <= asked <= high:
+        return asked
+    return PLAN_OUTPUT_TOKENS
+
+
 def _numeric_limits(schema: dict[str, Any]) -> str:
     """Ollama's format grammar enforces types and enums but not numeric bounds,
     and the native request carries no tool description the model could read."""
@@ -124,7 +138,7 @@ def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
         "options": {
             "temperature": runtime_settings.llm_temperature(),
             "num_ctx": runtime_settings.llm_num_ctx(),
-            "num_predict": min(256, runtime_settings.llm_max_tokens()),
+            "num_predict": min(_plan_output_tokens(req), runtime_settings.llm_max_tokens()),
         },
         "keep_alive": "10m",
     }

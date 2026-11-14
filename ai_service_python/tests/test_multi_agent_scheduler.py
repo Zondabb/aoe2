@@ -534,6 +534,111 @@ def test_single_team_uses_both_slots_and_inactive_waiter_does_not_reserve_them(s
         service.shutdown()
 
 
+class PlannerRuntime(Runtime):
+    """A runtime that names its own model call, as the cabinet does for its premier."""
+    planning_roles = ("chief",)
+    SCHEMA = {"type": "object", "additionalProperties": False, "properties": {"choice": {"enum": ["a", "b"]}}, "required": ["choice"]}
+
+    def __init__(self, profile):
+        super().__init__(profile)
+        self.pause, self.ready, self.takes_orders, self.briefs = 20.0, True, False, 0
+
+    def planning_interval(self, role):
+        return self.pause
+
+    def planning_brief(self, role):
+        if not self.ready:
+            return None
+        self.briefs += 1
+        return {"system": "You are the chief.", "context": {"asked": role, "open": 2}, "schema": self.SCHEMA,
+                "description": "Choose.", "player_orders": self.takes_orders, "output_tokens": 400}
+
+
+def test_a_runtime_names_its_own_model_call_and_how_often_it_is_made(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    now, sent = [0.0], []
+
+    def forward(req):
+        sent.append(req)
+        return completion('{"choice":"a"}')
+
+    def tick(seq, orders=()):
+        req = tick_request(seq, backend="openai")
+        req.observation.player_instructions = list(orders)
+        return service.tick(req)
+
+    service = MultiAgentService(forward=forward, runtime_factory=PlannerRuntime, max_workers=1, clock=lambda: now[0])
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        tick(1)
+        session = service._sessions[("multi-test", 0)]
+        runtime = session.runtime
+        assert len(service._pool.jobs) == 1 and runtime.briefs == 1
+        service._pool.finish()
+        # Its one call, in its own words: none of the seven roles is asked.
+        req = sent[0]
+        assert [m.role for m in req.messages] == ["system", "user"] and req.messages[0].content.startswith("You are the chief.")
+        assert json.loads(req.messages[1].content) == {"asked": "chief", "open": 2}
+        assert (req.tools[0].function.description, req.tools[0].function.parameters) == ("Choose.", PlannerRuntime.SCHEMA)
+        assert (req.metadata.agent, req.metadata.plan_output_tokens) == ("chief", 400)
+        assert runtime.plans == [("chief", {"choice": "a"})] and set(session.plan_status) == {"chief"}
+        assert session.plan_status["chief"]["state"] == "applied"
+
+        now[0] = 19
+        tick(2)
+        assert service._pool.jobs == [] and runtime.briefs == 1          # the brief is written only for a call that is sent
+        now[0] = 20
+        tick(3)
+        assert len(service._pool.jobs) == 1
+        service._pool.finish()
+
+        # Nothing to ask: no call, no slot held, and the wait does not start over.
+        now[0], runtime.ready = 40, False
+        tick(4)
+        assert service._pool.jobs == [] and service._inflight_count == 0 and not session.inflight
+        runtime.ready = True
+        tick(5)
+        assert len(service._pool.jobs) == 1
+        service._pool.finish()
+        now[0], runtime.pause = 500, float("inf")
+        tick(6)
+        assert service._pool.jobs == []
+
+        # Player orders go to a planner only if it asks for them.
+        now[0], runtime.pause = 600, 20.0
+        tick(7, orders=["多造骑士"])
+        service._pool.finish()
+        assert len(sent[-1].messages) == 2 and "Player orders" not in sent[-1].messages[0].content
+        now[0], runtime.takes_orders = 700, True
+        tick(8, orders=["多造骑士"])
+        service._pool.finish()
+        assert sent[-1].messages[2].content.endswith("1. [new] 多造骑士")
+    finally:
+        service.shutdown()
+
+
+def test_the_output_budget_of_a_model_call_is_never_the_clients_to_set(schemas, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    sent = []
+
+    def forward(req):
+        sent.append(req)
+        return completion()
+
+    service = MultiAgentService(forward=forward, runtime_factory=Runtime, max_workers=1)
+    service._pool.shutdown()
+    service._pool = ControlledPool()
+    try:
+        req = tick_request(backend="openai")
+        req.metadata = req.metadata.model_copy(update={"plan_output_tokens": 1000})
+        service.tick(req)
+        service._pool.finish()
+    finally:
+        service.shutdown()
+    assert sent and all(plan_req.metadata.plan_output_tokens is None for plan_req in sent)
+
+
 def test_v3_http_contract_auth_and_session_end(monkeypatch):
     import main
     service = MultiAgentService(runtime_factory=Runtime)
