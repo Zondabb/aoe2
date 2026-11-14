@@ -17,6 +17,7 @@ class TechDept(Department):
         super().__init__(field, treasury)
         self.age: dict | None = None
         self.upgrade: tuple[dict, dict] | None = None
+        self.saved: tuple[int, dict] = (-1, {})      # the age being saved for and what is put by so far
 
     def update(self, f, mandates, brief) -> None:
         for mandate in self.mine(mandates):
@@ -38,18 +39,29 @@ class TechDept(Department):
         if age["eligible"] and age["tcs"] and ready and not any(tc.get("is_researching") for tc in age["tcs"]):
             saving = True
             # An age the stock nearly covers goes ahead of everything routine and
-            # gets a town center with an empty queue. One still far off takes
-            # what villagers and the first army leave.
-            # A saving that has stalled steps back (see the treasury) and
-            # releases the town center with it.
+            # gets a town center with an empty queue. One still far off puts by
+            # the technology plan's share of what comes in, and no more: the
+            # rest keeps the army growing. Taking all of it left every unit
+            # request short for minutes, above all on the way to the last age.
+            # A saving that has stalled steps back (see the treasury), starts
+            # again from nothing and releases the town center with it.
+            cost = age["cost"]
             stalled = ("age", f.age + 1) in self.book and self.book[("age", f.age + 1)].id in self.treasury.yielding
-            in_reach = not stalled and all(f.budget[r] >= amount * TC_WINDOW_SHARE for r, amount in age["cost"].items())
+            in_reach = not stalled and all(f.budget[r] >= amount * TC_WINDOW_SHARE for r, amount in cost.items())
             if in_reach:
                 engine.roles["technology"].memory["tc_window_until"] = engine.now + TC_WINDOW_SECONDS
-            self.want(("age", f.age + 1), f"age_{f.age + 1}", age["cost"], urgency=2,
-                      rank=AGE_READY_RANK if in_reach else AGE_SAVING_RANK, patience=AGE_PATIENCE)
+            share = engine._technology_targets()[1]
+            put_by = self.saved[1] if self.saved[0] == f.age and not stalled else {}
+            put_by = {r: min(float(amount), f.budget[r], min(put_by.get(r, 0.0), f.budget[r]) + max(0.0, f.budget[r] - put_by.get(r, 0.0)) * share)
+                      for r, amount in cost.items()}
+            self.saved = (f.age, {} if stalled else put_by)
+            self.want(("age", f.age + 1), f"age_{f.age + 1}", cost, urgency=2,
+                      rank=AGE_READY_RANK if in_reach else AGE_SAVING_RANK, patience=AGE_PATIENCE,
+                      instalment=None if in_reach else self.saved[1])
             for resource, amount in age["cost"].items():
                 engine.demands[resource] += max(0, amount - f.budget[resource])
+        else:
+            self.saved = (-1, {})
         # While the age is being paid for, nothing else may occupy a town center.
         # Routine upgrades are bought from plenty only: the stock must cover the
         # price several times over, as the technology plan's budget share says.

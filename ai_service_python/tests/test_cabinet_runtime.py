@@ -132,7 +132,7 @@ def test_villagers_below_the_floor_go_first_then_the_first_army_before_more_vill
     assert requests(enough, "economy")["villager"]["gap"] == {"food": 50.0}
 
 
-def test_an_age_within_reach_takes_the_town_center_and_one_far_off_takes_what_is_left():
+def test_an_age_within_reach_takes_the_town_center_and_one_far_off_comes_after_the_first_army():
     def age_up(food, reason):
         req = stocked(frame(entities=town(8, building(3, "mill"), tc={"age_upgrade_reason": reason})), food=food, gold=100)
         req.observation.decision_context["catalog"]["age_upgrade"] = {
@@ -147,8 +147,35 @@ def test_an_age_within_reach_takes_the_town_center_and_one_far_off_takes_what_is
     assert "villager" not in requests(nearly, "economy")
 
     far = age_up(200, "资源不足")
-    assert bought(far) == ["militia", "villager"]            # army and growth continue; the age banks the remainder
+    assert bought(far) == ["militia", "villager"]            # the first army and growth come before its saving
     assert requests(far, "tech")["age_1"]["held"] == {"food": 90.0}
+
+
+def test_an_age_still_far_off_puts_by_its_share_and_the_army_keeps_growing():
+    runtime = cabinet()
+
+    def tick(number, food):
+        entities = town(16, building(3, "mill"), *army(6), tc={"age_upgrade_reason": "资源不足"})
+        req = stocked(frame(number, entities=entities, time=number * 10), food=food, gold=100)
+        req.observation.decision_context["catalog"]["age_upgrade"] = {
+            "cost": {"food": 500}, "buildings": ["barracks", "mill", "lumber_camp"], "required_distinct_buildings": 2}
+        return runtime.tick(req)
+
+    def age(result):
+        return requests(result, "tech")["age_1"]
+
+    first = tick(1, 300)                                     # the first army is out: militia now are reinforcements
+    assert requests(first, "general")["militia"]["tier"] == "later" and age(first)["tier"] == "next"
+    assert age(first)["held"] == {"food": 150.0} and age(first)["price"] == {"food": 500.0}       # half of what is there
+    assert bought(first) == ["militia"]
+    second = tick(2, 340)                                    # what was put by, and half of what came in since
+    assert age(second)["held"] == {"food": 245.0}
+    assert requests(second, "general")["militia"]["gap"] == {}
+    third = tick(3, 390)
+    assert age(third)["held"] == {"food": 317.5} and bought(third) == ["militia"]
+    close = tick(4, 420)                                     # within reach: now it takes everything
+    assert age(close)["held"] == {"food": 420.0} and requests(close, "general")["militia"]["gap"] == {"food": 60.0}
+    assert bought(close) == []
 
 
 def test_an_age_the_game_keeps_refusing_gives_the_town_center_back():

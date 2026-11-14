@@ -71,6 +71,7 @@ class Department:
             rows.append({"id": request.id, "item": request.line(), "tier": self.treasury.tiers.get(request.id, "later"),
                          "urgency": request.urgency, "origin": request.origin, "needs": list(request.needs),
                          "yielding": request.id in self.treasury.yielding,
+                         "price": {r: round(v, 1) for r, v in request.remaining.items()},
                          "held": {r: round(v, 1) for r, v in self.treasury.granted.get(request.id, {}).items() if v},
                          "spent": {r: round(v, 1) for r, v in self.treasury.spent(request.id).items()},
                          "gap": {r: round(v, 1) for r, v in gap.items()}, "eta_sec": self.treasury.eta(request)})
@@ -106,8 +107,12 @@ class Department:
 
     def want(self, key: tuple, item: str, price: dict, *, count: int = 1, capacity: int = 1, total: dict | None = None,
              pop: int = 0, needs: tuple = (), urgency: int = 1, rank: int = 50, origin: str = ROUTINE,
-             floor: bool = False, emergency: bool = False, patience: float | None = None) -> Request:
-        """File or refresh the request for `count` purchases at `price` each, `capacity` of them possible now."""
+             floor: bool = False, emergency: bool = False, patience: float | None = None,
+             instalment: dict | None = None) -> Request:
+        """File or refresh the request for `count` purchases at `price` each, `capacity` of them possible now.
+
+        `instalment` caps what a purchase being saved for may set aside this
+        tick, so that it takes a share of the income and not all of it."""
         request = self.book.get(key)
         if request is None:
             self._serial += 1
@@ -118,6 +123,8 @@ class Department:
         request.count, request.pop, request.needs = count, pop, tuple(needs)
         request.remaining = dict(total) if total is not None else {r: a * count for r, a in price.items()}
         request.tranche = {} if needs else {r: a * min(count, capacity) for r, a in price.items() if min(count, capacity) > 0}
+        if instalment is not None:
+            request.tranche = {r: min(a, float(instalment.get(r, 0))) for r, a in request.tranche.items() if instalment.get(r, 0) > 0}
         request.urgency, request.rank, request.origin = max(0, min(3, urgency)), rank, origin
         request.floor, request.emergency = floor, emergency
         if patience is not None:
