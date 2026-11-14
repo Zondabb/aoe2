@@ -45,7 +45,7 @@ num_ctx = 8192
 
 `backend="openai"` 表示兼容上游模型；要使用纯规则策略，在服务端改为 `rules_compat`。`base_url` 是模型服务的地址，游戏的 `service_url` 是本 Python 服务的地址，两者用途不同。
 
-`[ai].runtime` 选择 v3 快速通道使用的运行时：`multi_agent` 是现有的七角色运行时，`cabinet` 是首相加五部门的新架构，设计见 [cabinet_ai_design.md](../docs/cabinet_ai_design.md)。每个队伍会话在建立时读取一次，之后不再切换；名称写错时服务拒绝启动。`cabinet` 目前到阶段 2：五个部门提需求单，首相按规则排档，国库按档位拨款，暂不调用模型；`agent_status` 的键是 `premier` 和五个部门，每个部门条目带它的需求单和 `roles`（它驱动的旧角色的状态）；`planning` 里有当前档位表和情报简报。对战对比用 `tools/ai_duel_ab.py --runtime cabinet --baseline-dir ai_service_python`。
+`[ai].runtime` 选择 v3 快速通道使用的运行时：`multi_agent` 是现有的七角色运行时，`cabinet` 是首相加五部门的新架构，设计见 [cabinet_ai_design.md](../docs/cabinet_ai_design.md)。每个队伍会话在建立时读取一次，之后不再切换；名称写错时服务拒绝启动。`cabinet` 目前到阶段 3：五个部门提需求单，首相给需求单排档，国库按档位拨款。后端不是规则模式时，首相的排档由模型在后台决定，每次调用给全部未结需求单定档并写两段给玩家看的中文（`thinking`、`decision`），输出上限 512 token；模型没有回答、回答非法或超过 180 游戏秒没有续期时按规则排档。玩家指令要到阶段 4 才生效。`tools/premier_replay.py` 把同一个请求发给配置里的模型，统计可用回答的比例，换模型前先跑一遍；`agent_status` 的键是 `premier` 和五个部门，每个部门条目带它的需求单和 `roles`（它驱动的旧角色的状态）；`planning` 里有当前档位表和情报简报。对战对比用 `tools/ai_duel_ab.py --runtime cabinet --baseline-dir ai_service_python`。
 
 私有模型或密钥可以写入 `config.local.toml`（已忽略 Git 和 Docker 构建），格式见 `config.local.example.toml`。例如远程模型：
 
@@ -85,7 +85,7 @@ cd ai_service_python
 .\start_qwen3_proxy.ps1
 ```
 
-七角色规划自动使用 Ollama 原生 `/api/chat`：JSON Schema 约束、`think=false`、默认 8192 上下文、最多 256 输出 token；启动脚本限制单个 GPU 同时一个请求。这样避免兼容接口忽略 `tool_choice`、思考耗尽输出预算和长观察被截断。调整配置的 `num_ctx`，或显式传 `-NumCtx 16384` 覆盖；启动脚本会读取服务配置中的模型和上游地址。其他兼容服务继续走原接口。详细排查与实测见[Qwen3 决策排查](../docs/qwen3_decision_diagnosis.md)。
+七角色规划自动使用 Ollama 原生 `/api/chat`：JSON Schema 约束、`think=false`、默认 8192 上下文、最多 256 输出 token（`cabinet` 运行时的首相是 512）；启动脚本限制单个 GPU 同时一个请求。这样避免兼容接口忽略 `tool_choice`、思考耗尽输出预算和长观察被截断。调整配置的 `num_ctx`，或显式传 `-NumCtx 16384` 覆盖；启动脚本会读取服务配置中的模型和上游地址。其他兼容服务继续走原接口。详细排查与实测见[Qwen3 决策排查](../docs/qwen3_decision_diagnosis.md)。
 
 直接启动会自动加载服务配置：
 

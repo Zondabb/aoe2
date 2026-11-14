@@ -119,6 +119,8 @@ flowchart LR
 
 角色最短重规划间隔为：战略/建设/科技 45 墙钟秒，经济 30 秒，侦察/战斗 20 秒；总预算和并发限制优先。队伍与对局之间按等待顺序轮转分配空闲槽位，避免先请求的一队持续占满并发。没有按 tick 无界排队模型请求。上游响应超过 180 游戏秒时被丢弃；战略/侦察/作战还检查目标版本，经济/建设/科技参数不会仅因发现敌 TC 失效。终局停止启动新规划。
 
+后台规划对运行时是可插拔的。运行时可以用 `planning_roles` 报出自己要的后台调用，用 `planning_interval(role)` 给出间隔，用 `planning_brief(role)` 写出一次调用的提示词、上下文、输出 schema 和输出上限，用 `take_journal()` 交出要写进对局日志的条目；没有这些方法的运行时按本文的七个角色调度。`cabinet` 运行时用它们发起首相的排档调用，见 [cabinet_ai_design.md](cabinet_ai_design.md) 的“阶段 3 的实现记录”。输出上限由服务写进请求 metadata 的 `plan_output_tokens`（64 到 1024），七个角色不设，仍是 256。
+
 新通道写入 `ai_service_python/logs/multi_agent.jsonl`，单文件 20 MB，保留 3 个轮转备份。日志包含 match/team/epoch、观察序号、角色、命令、状态、耗时、上游 `finish_reason` 和实际返回的 usage。没有 usage 时不估算 token 数。`model_request` 默认不重复记录完整提示，`llm_io` 记录实际发送体和原始返回；旧 `llm.log` 继续服务旧版 v2。
 
 `model_result.parse_state` 独立表示输出是否通过校验，`state` 表示是否提交，避免格式错误被过期原因掩盖。`changed_fields` / `plan_changed` / `plan_version_before/after` / `applied_observation_seq` 显示参数是否真的改变及提交时的观察序号。`agent_status` 包含当前 `plan`、`plan_source`、`model_updates`；相同计划也会记录来源为 `llm`，但不增加计划版本。不同参数产生不同实际命令已有经济人数、施工人数和战略姿态的行为对照测试。
