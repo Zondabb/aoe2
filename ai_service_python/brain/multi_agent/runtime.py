@@ -1538,6 +1538,13 @@ class MultiAgentRuntime:
         if "gold" in known and len(workers) >= 8:
             self._request_building(f, "mining_camp", 58, "gold_delivery")
 
+    def _foundation_under_way(self, f: _DecisionFrame, name: str) -> bool:
+        """One foundation of a kind at a time; one that builders cannot reach does not count.
+
+        Farms run out and must be replaced all match: a single field laid
+        where nobody could get to it otherwise ended farming for good."""
+        return any(b.get("def_id") == name and not b.get("is_complete") and not self.kernel.at_rest(b["id"]) for b in f.buildings)
+
     def _staff_foundations(self, f: _DecisionFrame) -> int:
         """Send a free worker to every unstaffed foundation; returns the builders now at work."""
         role = self.roles["construction"]
@@ -1551,7 +1558,8 @@ class MultiAgentRuntime:
                 continue
             if self._in_raid_zone(f, foundation["pos"]) or self.kernel.at_rest(foundation["id"]):
                 continue
-            available = [u for u in workers if u.get("order", "NONE") in ("NONE", "GATHER") and u.get("gather_state") != "to_drop_off" and float(u.get("carry_amount", 0)) <= .001]
+            available = [u for u in workers if u.get("order", "NONE") in ("NONE", "GATHER") and u.get("gather_state") != "to_drop_off"
+                         and float(u.get("carry_amount", 0)) <= .001 and not self.kernel.benched(u["id"])]
             for worker in sorted(available, key=lambda u: _distance(u["pos"], foundation["pos"])):
                 if active < role.plan["max_builders"] and self._emit(f, "construction", "build", {"unit_id": worker["id"], "building_id": foundation["id"]}):
                     active += 1
@@ -1595,6 +1603,7 @@ class MultiAgentRuntime:
             return core_penalty + zone_penalty + (abs(dist - 28) if military else dist * .1) + path * .2 - float(option.get("score", 0)) * .2
         return [option for option in sorted(options, key=site_score)
                 if f.entities.get(option.get("builder_id"), {}).get("order", "NONE") in ("NONE", "GATHER")
+                and not self.kernel.benched(option.get("builder_id"))
                 and not self._in_raid_zone(f, option["pos"])
                 and option.get("preserves_access") is not False and option.get("blocks_corridor") is not True]
 
@@ -1613,7 +1622,7 @@ class MultiAgentRuntime:
                       if p >= 107 and (reason in ("long_wood_delivery", "age_prerequisite", "farm_prerequisite", "staffed_food_supply", "siege_infrastructure")
                                       or reason == "opening_military_capacity" and self._food_bridge(f))
                       and self._unlocked_for_saving(f, f.building_defs[name])
-                      and not any(b.get("def_id") == name and not b.get("is_complete") for b in f.buildings)
+                      and not self._foundation_under_way(f, name)
                       and any(o.get("building_def_id") == name for o in f.context.get("construction_options", []))]
         saved = role.memory.get("purchase_reservation", {})
         if saved:
@@ -1636,7 +1645,7 @@ class MultiAgentRuntime:
             saved = {}
             role.memory.pop("purchase_reservation", None)
         for priority, name, reason in sorted(self.build_requests, reverse=True):
-            if any(b.get("def_id") == name and not b.get("is_complete") for b in f.buildings):
+            if self._foundation_under_way(f, name):
                 continue
             if saved and name != saved["name"] and priority <= saved["priority"]:
                 cost = f.building_defs.get(name, {}).get("cost", {})
@@ -1700,6 +1709,7 @@ class MultiAgentRuntime:
                     continue
                 available = [u for u in workers if u.get("order", "NONE") in ("NONE", "GATHER") and not u.get("build_queue_ids")
                              and u.get("gather_state") != "to_drop_off" and float(u.get("carry_amount", 0)) <= .001
+                             and not self.kernel.benched(u["id"])
                              and all(min(_distance(u["pos"], enemy["pos"]), _distance(foundation["pos"], enemy["pos"])) >= 8 for enemy in enemies)]
                 for worker in sorted(available, key=lambda u: _distance(u["pos"], foundation["pos"])):
                     if self._emit(f, "defense", "build", {"unit_id": worker["id"], "building_id": foundation["id"]}):
@@ -1761,7 +1771,7 @@ class MultiAgentRuntime:
             if not f._unlock(definition):
                 continue
             worker = f.entities.get(option.get("builder_id"), {})
-            if (not worker or worker.get("order", "NONE") not in ("NONE", "GATHER")
+            if (not worker or worker.get("order", "NONE") not in ("NONE", "GATHER") or self.kernel.benched(worker["id"])
                     or worker.get("build_queue_ids") or worker.get("gather_state") == "to_drop_off"
                     or float(worker.get("carry_amount", 0)) > .001
                     or any(min(_line_distance(enemy["pos"], start, end), _distance(worker["pos"], enemy["pos"])) < 8 for enemy in enemies)):

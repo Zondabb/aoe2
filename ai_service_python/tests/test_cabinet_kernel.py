@@ -274,37 +274,76 @@ def wall_builder(pos=(20, 0), target=60, queue=(61,)):
     return unit(10, pos=list(pos), order="BUILD", target_id=target, build_queue_ids=list(queue))
 
 
-def test_a_builder_that_makes_no_headway_loses_the_job_and_its_sections_rest():
+def test_a_builder_that_makes_no_headway_loses_the_job_and_is_kept_off_building():
     team = Team()
     sections = [wall_section(60, [30, 0]), wall_section(61, [31, 0])]
 
-    def tick(number, now, builder):
-        return team.frame(number, entities=world(*sections, units=[builder, unit(11), unit(12)]), time=now)
+    def tick(number, now, *builders):
+        return team.frame(number, entities=world(*sections, units=[*builders, unit(12)]), time=now)
 
-    held = tick(1, 0, wall_builder())
+    held = tick(1, 0, wall_builder(), unit(11))
     assert 10 in held.actors and team.kernel.leases[10]["role"] == "defense"
-    assert 10 in tick(2, 59, wall_builder()).actors and not team.kernel.at_rest(60)
+    assert 10 in tick(2, 59, wall_builder(), unit(11)).actors and not team.kernel.benched(10)
 
-    freed = tick(3, 60, wall_builder())                      # a minute at the same distance, nothing built
+    freed = tick(3, 60, wall_builder(), unit(11))            # a minute at the same distance, nothing built
     assert 10 not in freed.actors and 10 not in team.kernel.leases and team.kernel.stalled_builders == {10}
-    assert team.kernel.at_rest(60) and team.kernel.at_rest(61)
+    again = tick(4, 60.5, wall_builder(), unit(11))          # still standing there: released once, not once a tick
+    assert 10 not in again.actors and team.kernel.stalled_builders == {10}
     assert team.listener.heard("note") == [("builder 10 made no headway for 60s: job released",)]
+    freed = again
     assert team.kernel.emit(freed, "economy", "gather", {"unit_id": 10, "target_id": WOOD})
+    # The villager is the suspect, not the section: someone else may take it at once.
+    assert team.kernel.benched(10) and not team.kernel.benched(11)
+    assert not team.kernel.at_rest(60) and not team.kernel.at_rest(61)
 
-    tick(4, 61, unit(10, order="GATHER", target_id=WOOD))    # back at work: nothing left to watch
-    assert not team.kernel.stalled_builders and team.kernel.at_rest(60)
-    tick(5, 181, unit(10, order="GATHER", target_id=WOOD))
-    assert not team.kernel.at_rest(60)                        # two minutes later the section may be tried again
+    gathering = unit(10, order="GATHER", target_id=WOOD)
+    tick(5, 61, gathering, unit(11))                         # back at work: nothing left to watch
+    assert not team.kernel.stalled_builders and team.kernel.benched(10)
+    tick(6, 239, gathering, unit(11))
+    assert team.kernel.benched(10)
+    tick(7, 241, gathering, unit(11))
+    assert not team.kernel.benched(10)                       # three minutes on, it may build again
 
-    # A second builder stalls on the same section: it rests twice as long.
-    tick(6, 200, wall_builder(queue=()))
-    tick(7, 260, wall_builder(queue=()))
-    assert team.kernel.stalled_builders == {10} and team.kernel.at_rest(60)
-    tick(8, 499, unit(10))
+    # A second villager fails at the same section: now the section is left alone, two minutes.
+    other = unit(11, pos=[20, 0], order="BUILD", target_id=60, build_queue_ids=[61])
+    tick(8, 300, gathering, other)
+    tick(9, 360, gathering, other)
+    assert team.kernel.stalled_builders == {11} and team.kernel.benched(11) and team.kernel.at_rest(60)
+    assert not team.kernel.at_rest(61)                       # the section queued behind it was never tried
+    tick(10, 479, gathering, unit(11))
     assert team.kernel.at_rest(60)
-    tick(9, 501, unit(10))
+    tick(11, 481, gathering, unit(11))
     assert not team.kernel.at_rest(60)
-    assert len(team.listener.heard("note")) == 2
+
+    # The first villager fails again: it sits out twice as long, and so does the section it shares.
+    tick(12, 500, wall_builder(queue=()), unit(11))
+    tick(13, 560, wall_builder(queue=()), unit(11))
+    assert team.kernel.benched(10) and team.kernel.at_rest(60)
+    tick(14, 679, gathering, unit(11))
+    assert team.kernel.at_rest(60)                           # the same two villagers: two minutes again
+    tick(15, 681, gathering, unit(11))
+    assert not team.kernel.at_rest(60) and team.kernel.benched(10)
+    tick(16, 919, gathering, unit(11))
+    assert team.kernel.benched(10)
+    tick(17, 921, gathering, unit(11))
+    assert not team.kernel.benched(10)                       # six minutes after its second failure
+    assert len(team.listener.heard("note")) == 3
+
+
+def test_a_builder_the_game_reports_stuck_is_given_up_on_sooner():
+    team = Team()
+    section = wall_section(60, [30, 0])
+
+    def tick(number, now, stuck_frames):
+        builder = unit(10, pos=[27, 0], order="BUILD", target_id=60, stuck_frames=stuck_frames)
+        return team.frame(number, entities=world(section, units=[builder, unit(11)]), time=now)
+
+    tick(1, 0, 0)
+    tick(2, 19, 30)
+    assert not team.kernel.stalled_builders
+    tick(3, 20, 30)                                          # twenty seconds, and the game says it cannot move
+    assert team.kernel.stalled_builders == {10} and team.kernel.benched(10)
+    assert team.listener.heard("note") == [("builder 10 made no headway for 20s: job released",)]
 
 
 def test_a_builder_making_headway_keeps_the_job():
@@ -319,8 +358,9 @@ def test_a_builder_making_headway_keeps_the_job():
     tick(2, 50, wall_builder((60, 0)), far, near)
     tick(3, 100, wall_builder((79, 0)), far, near)
     tick(4, 150, wall_builder((79, 0)), wall_section(60, [80, 0], progress=.5), near)
-    tick(5, 200, wall_builder((79, 0), target=61, queue=()), near)
-    last = tick(6, 250, wall_builder((79, 0), target=61, queue=()), wall_section(61, [81, 0], progress=.4))
+    tick(5, 215, wall_builder((79, 0)), wall_section(60, [80, 0], progress=.9), near)    # over a minute on the spot, building
+    tick(6, 265, wall_builder((79, 0), target=61, queue=()), near)
+    last = tick(7, 315, wall_builder((79, 0), target=61, queue=()), wall_section(61, [81, 0], progress=.4))
     assert not team.kernel.stalled_builders and not team.kernel.at_rest(60) and team.listener.heard("note") == []
 
     # A foundation that reports no progress figure gives nothing to judge by.

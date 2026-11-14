@@ -192,24 +192,65 @@ def test_a_builder_stuck_on_a_wall_section_does_not_hold_up_the_next_building():
     assert [c["op"] for c in released["commands"] if c.get("unit_id") == 13] in (["gather"], ["stop"])
 
 
-def test_a_foundation_that_stalled_its_builder_is_left_alone_before_another_is_sent():
+def test_a_farm_nobody_can_reach_does_not_end_farming():
     runtime = cabinet()
+    site = {"building_def_id": "farm", "builder_id": 16, "pos": [24, 24]}
 
-    def tick(number, now, builder):
-        entities = [building(1, "town_center"), building(2, "barracks"),
-                    building(310, "house", [40, 0], complete=False, build_progress=.1),
-                    *[unit(10 + i) for i in range(6)], builder]
-        return runtime.tick(stocked(frame(number, entities=entities, time=now, construction_options=[])))
+    def tick(number, now, **builders):
+        # A farm foundation in a place its builders cannot get to.
+        field = building(4, "farm", [40, 40], complete=False, build_progress=0.0, amount=300, resource_type="FOOD")
+        entities = town(8, building(3, "mill"), field)
+        for uid, state in builders.items():
+            next(e for e in entities if e["id"] == int(uid[1:])).update(**state)
+        return runtime.tick(stocked(frame(number, entities=entities, time=now, construction_options=[site]), food=20, wood=400))
 
     def sent_to_build(result):
-        return [(c["unit_id"], c["building_id"]) for c in result["commands"] if c["op"] == "build"]
+        return [c["unit_id"] for c in result["commands"] if c["op"] == "build" and c["building_id"] == 4]
 
+    stuck = dict(pos=[38, 38], order="BUILD", target_id=4)
+    tick(1, 0, u10=stuck)
+    relieved = tick(2, 60, u10=stuck)                        # the villager next to the field gave up on it
+    first_relief = sent_to_build(relieved)
+    assert len(first_relief) == 1 and first_relief[0] != 10
+    # One farm at a time still holds: someone is on the way to this one.
+    assert "farm" not in requests(relieved, "economy")
+    # The relief never set off, and the villager kept off building is the nearest free hand: it is not sent back.
+    idle_beside_it = dict(pos=[38, 38], order="GATHER", target_id=100)
+    resent = sent_to_build(tick(3, 75, u10=idle_beside_it))  # the economy's own short hold on it has run out by now
+    assert len(resent) == 1 and resent[0] != 10
+
+    second = {f"u{first_relief[0]}": dict(pos=[37, 37], order="BUILD", target_id=4)}
+    tick(4, 76, **second)
+    given_up = tick(5, 136, **second)                        # the second builder failed there too
+    assert sent_to_build(given_up) == []
+    # The field is set aside, and no longer stands in for the farm the economy needs.
+    assert "farm" in bought(given_up) and requests(given_up, "economy")["farm"]["spent"] == {"wood": 60.0}
+
+
+def test_a_site_paired_with_a_villager_kept_off_building_is_passed_over():
+    runtime = cabinet()
+
+    def tick(number, now, builder, sites, finished=False):
+        entities = [building(1, "town_center"), building(310, "house", [40, 0], complete=finished, build_progress=.1),
+                    *[unit(10 + i) for i in range(4)], builder]
+        return runtime.tick(stocked(frame(number, entities=entities, time=now, construction_options=sites), food=500, wood=500))
+
+    near = {"building_def_id": "barracks", "builder_id": 20, "pos": [24, 0]}
+    far = {"building_def_id": "barracks", "builder_id": 11, "pos": [0, 24]}
     stuck = unit(20, pos=[30, 0], order="BUILD", target_id=310)
-    assert sent_to_build(tick(1, 0, stuck)) == [] and sent_to_build(tick(2, 60, stuck)) == []
+    tick(1, 0, stuck, [near])
+    tick(2, 60, stuck, [near])                               # villager 20 is relieved and kept off building
     idle = unit(20, pos=[30, 0], order="GATHER", target_id=100)
-    assert sent_to_build(tick(3, 100, idle)) == []           # released at 60: the house rests until 180
-    again = sent_to_build(tick(4, 181, idle))
-    assert len(again) == 1 and again[0][1] == 310
+    only_its_site = tick(3, 80, idle, [near], finished=True)  # long after the economy's own hold on it ran out
+    assert "barracks" not in bought(only_its_site)
+    other_site = tick(4, 81, idle, [near, far], finished=True)
+    placed = [c for c in other_site["commands"] if c["op"] == "place_building"]
+    assert [(c["building_def_id"], c["builder_id"]) for c in placed] == [("barracks", 11)]
+
+    # With no villager kept off building, the nearer site is the one taken.
+    runtime = cabinet()
+    fresh = tick(1, 81, idle, [near, far], finished=True)
+    assert [c["builder_id"] for c in fresh["commands"] if c["op"] == "place_building"] == [20]
 
 
 def test_a_request_that_can_buy_nothing_does_not_take_a_place_from_one_that_can():

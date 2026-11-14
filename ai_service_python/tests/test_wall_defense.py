@@ -360,14 +360,17 @@ def test_defense_resumes_abandoned_wall_foundation_with_its_own_task():
     assert runtime.tasks[commands[0]["command_id"]]["role"] == "defense"
 
 
-def test_a_wall_builder_that_cannot_reach_its_section_returns_to_work_and_the_section_waits():
+def test_a_wall_builder_that_cannot_reach_its_section_is_relieved_by_another_villager():
     runtime = executor()
 
-    def tick(number, now, **worker_state):
+    def tick(number, now, relief=None, **worker_state):
         req = defense_frame(number, threat=False)
         req.metadata.time_sec = now
-        next(e for e in req.observation.entities if e["id"] == 10).update(pos=[10, 0], **worker_state)
-        req.observation.entities.append(building(300, "palisade_wall", [18, -8], complete=False, build_progress=0.0))
+        entities = req.observation.entities
+        next(e for e in entities if e["id"] == 10).update(pos=[17, -7], **worker_state)      # right beside the section
+        if relief:
+            next(e for e in entities if e["id"] == relief[0]).update(**relief[1])
+        entities.append(building(300, "palisade_wall", [18, -8], complete=False, build_progress=0.0))
         return runtime.tick(req)
 
     def orders_for(result, uid=10):
@@ -376,21 +379,67 @@ def test_a_wall_builder_that_cannot_reach_its_section_returns_to_work_and_the_se
     stuck = dict(order="BUILD", target_id=300, build_queue_ids=[])
     assert orders_for(tick(1, 100, **stuck)) == [] and orders_for(tick(2, 159, **stuck)) == []
     freed = tick(3, 160, **stuck)                            # a minute without getting nearer or building
-    assert orders_for(freed) == ["gather"] and not issued(freed, "build")
+    assert orders_for(freed) == ["gather"]
     assert any("builder 10 made no headway" in entry["message"] for entry in freed["debug"])
-    gathering = dict(order="GATHER", target_id=101, build_queue_ids=[])
-    assert not issued(tick(4, 200, **gathering), "build")    # the section is left alone for two minutes
-    retried = issued(tick(5, 281, **gathering), "build")
-    assert len(retried) == 1 and retried[0]["building_id"] == 300
+    # Someone else is sent at once, though the villager just relieved is the nearest by far.
+    relieved = issued(freed, "build")
+    assert len(relieved) == 1 and relieved[0]["building_id"] == 300 and relieved[0]["unit_id"] != 10
+    second = relieved[0]["unit_id"]
 
-    # Should the game leave the builder walking at its section all the same,
-    # it holds neither the section nor a builder's place: someone else is sent.
-    deaf = executor()
-    runtime = deaf
-    for number, now in ((1, 100), (2, 160), (3, 200)):
-        assert not issued(tick(number, now, **stuck), "build")
-    relief = issued(tick(4, 281, **stuck), "build")
-    assert len(relief) == 1 and relief[0]["building_id"] == 300 and relief[0]["unit_id"] != 10
+    # The second villager fails too: now the section itself waits two minutes.
+    gathering = dict(order="GATHER", target_id=101, build_queue_ids=[])
+    failing = (second, dict(pos=[16, -6], order="BUILD", target_id=300, build_queue_ids=[]))
+    assert not issued(tick(4, 161, relief=failing, **gathering), "build")
+    given_up = tick(5, 221, relief=failing, **gathering)
+    assert orders_for(given_up, second) == ["gather"] and not issued(given_up, "build")
+    back = (second, dict(order="GATHER", target_id=101, build_queue_ids=[]))
+    assert not issued(tick(6, 340, relief=back, **gathering), "build")
+    third = issued(tick(7, 342, relief=back, **gathering), "build")
+    # By then the first villager's three minutes are up; the second still sits out.
+    assert len(third) == 1 and third[0]["building_id"] == 300 and third[0]["unit_id"] == 10
+
+
+def test_a_villager_kept_off_building_is_not_sent_back_to_a_wall_section():
+    runtime = executor()
+
+    def tick(number, now, **worker_state):
+        req = defense_frame(number, threat=False)
+        req.metadata.time_sec = now
+        entities = req.observation.entities
+        next(e for e in entities if e["id"] == 10).update(pos=[17, -7], **worker_state)      # right beside the section
+        entities.append(building(300, "palisade_wall", [18, -8], complete=False, build_progress=0.0))
+        return runtime.tick(req)
+
+    stuck = dict(order="BUILD", target_id=300, build_queue_ids=[])
+    tick(1, 100, **stuck)
+    tick(2, 160, **stuck)
+    # The relief never set off. The section is free again and the villager just relieved stands next to it.
+    resent = issued(tick(3, 170, order="GATHER", target_id=101, build_queue_ids=[]), "build")
+    assert len(resent) == 1 and resent[0]["building_id"] == 300 and resent[0]["unit_id"] != 10
+
+
+def test_a_villager_kept_off_building_is_not_given_the_next_wall_line_either():
+    runtime = executor()
+
+    def tick(number, now, **worker_state):
+        req = defense_frame(number)
+        req.metadata.time_sec = now
+        entities = req.observation.entities
+        next(e for e in entities if e["id"] == 10).update(pos=[17, -7], **worker_state)
+        if worker_state.get("order") == "BUILD":
+            entities.append(building(300, "house", [18, -8], complete=False, build_progress=0.0))
+        return runtime.tick(req)
+
+    stuck = dict(order="BUILD", target_id=300, build_queue_ids=[])
+    tick(1, 100, **stuck)
+    tick(2, 160, **stuck)                                    # relieved, and kept off building for three minutes
+    idle = dict(order="GATHER", target_id=101, build_queue_ids=[])
+    assert not issued(tick(3, 200, **idle), "place_wall")    # the only wall line on offer is the one paired with it
+    assert issued(tick(4, 341, **idle), "place_wall")[0]["builder_id"] == 10
+
+    # The same frames with a villager that never stalled: the line goes down at once.
+    runtime = executor()
+    assert issued(tick(1, 200, **idle), "place_wall")[0]["builder_id"] == 10
 
 
 def test_locked_gate_plan_keeps_exit_open_for_outside_friendly_unit():

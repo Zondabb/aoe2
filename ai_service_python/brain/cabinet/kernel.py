@@ -31,9 +31,14 @@ ROUTE_HEAVY_ROLES = ("scout", "combat")
 RESERVED_SLOTS = 12
 # The game lets a villager walk at a foundation it cannot reach for ever, and
 # nothing else takes a builder off its job. One that makes no headway for
-# BUILDER_PATIENCE seconds loses the job; its foundations are then left alone
-# for FOUNDATION_REST seconds, doubling each time up to FOUNDATION_REST_LIMIT.
-BUILDER_PATIENCE = 60.0
+# BUILDER_PATIENCE seconds (STUCK_PATIENCE once the game itself counts it
+# stuck) loses the job and is kept off building for BUILDER_BENCH seconds,
+# doubling each time: a villager walled into a corner fails at every job it is
+# given, and is the nearest free hand to most of them. Only when a second
+# builder fails at the same foundation is the foundation itself left alone,
+# for FOUNDATION_REST seconds, doubling likewise.
+BUILDER_PATIENCE, STUCK_PATIENCE, STUCK_FRAMES = 60.0, 20.0, 12
+BUILDER_BENCH, BUILDER_BENCH_LIMIT = 180.0, 900.0
 FOUNDATION_REST, FOUNDATION_REST_LIMIT = 120.0, 600.0
 
 
@@ -66,6 +71,7 @@ class Kernel:
         self.reports: list[dict] = []
         self.stalled_builders: set[int] = set()
         self._builders: dict[int, dict] = {}
+        self._benched: dict[int, dict] = {}
         self._resting: dict[int, dict] = {}
         self._seen_events: deque = deque(maxlen=512)
         self._last_event_seq = -1
@@ -278,7 +284,7 @@ class Kernel:
                     f.actors.add(uid)
 
     def _watch_builders(self, f: _DecisionFrame) -> None:
-        """Take the job from a builder that makes no headway, and rest its foundations.
+        """Take the job from a builder that makes no headway, and keep it off building a while.
 
         Headway is a new section, a shorter queue, a foundation further built or
         a builder nearer to it. Without this one blocked wall section holds its
@@ -304,21 +310,31 @@ class Kernel:
                     or done > seen["done"] + 1e-6 or gap < seen["gap"] - .5):
                 seen = {"target": target.get("id"), "queue": len(queue), "done": done, "gap": gap, "since": self.now}
             watched[uid] = seen
-            if self.now - seen["since"] < BUILDER_PATIENCE:
+            patience = STUCK_PATIENCE if int(worker.get("stuck_frames", 0) or 0) >= STUCK_FRAMES else BUILDER_PATIENCE
+            if self.now - seen["since"] < patience:
                 continue
             self.stalled_builders.add(uid)
             if not seen.get("released"):
                 seen["released"] = True
                 self.leases.pop(uid, None)
-                for foundation in [fid for fid in [target.get("id"), *queue] if fid is not None]:
-                    count = self._resting.get(foundation, {}).get("count", 0) + 1
-                    self._resting[foundation] = {"count": count, "until": self.now + min(FOUNDATION_REST_LIMIT, FOUNDATION_REST * 2 ** (count - 1))}
-                self.listener.kernel_note(f"builder {uid} made no headway for {int(BUILDER_PATIENCE)}s: job released")
+                times = self._benched.get(uid, {}).get("times", 0) + 1
+                self._benched[uid] = {"times": times, "until": self.now + min(BUILDER_BENCH_LIMIT, BUILDER_BENCH * 2 ** (times - 1))}
+                if target:
+                    rest = self._resting.setdefault(target["id"], {"builders": set(), "until": 0.0})
+                    rest["builders"].add(uid)
+                    if len(rest["builders"]) >= 2:
+                        rest["until"] = self.now + min(FOUNDATION_REST_LIMIT, FOUNDATION_REST * 2 ** (len(rest["builders"]) - 2))
+                self.listener.kernel_note(f"builder {uid} made no headway for {int(self.now - seen['since'])}s: job released")
         self._builders = watched
+        self._benched = {uid: bench for uid, bench in self._benched.items() if uid in f.entities}
         self._resting = {fid: rest for fid, rest in self._resting.items() if f.entities.get(fid, {}).get("is_complete") is False}
 
+    def benched(self, uid) -> bool:
+        """True while a villager that stalled at a building job is kept off building."""
+        return self._benched.get(uid, {}).get("until", 0) > self.now
+
     def at_rest(self, foundation_id) -> bool:
-        """True while a foundation that stalled its builder is being left alone."""
+        """True while a foundation that stalled two builders or more is being left alone."""
         return self._resting.get(foundation_id, {}).get("until", 0) > self.now
 
     def fail(self, task: dict, reason: str) -> None:
@@ -404,7 +420,7 @@ class Kernel:
                 task["status"] = "completed" if task.get("target_destroyed") else "cancelled"
         self.pending.clear()
         self.leases.clear()
-        self.stalled_builders, self._builders, self._resting = set(), {}, {}
+        self.stalled_builders, self._builders, self._benched, self._resting = set(), {}, {}, {}
 
     def prune(self, f: _DecisionFrame) -> None:
         """End of tick: keep lifecycle history bounded, preserving all active entries."""

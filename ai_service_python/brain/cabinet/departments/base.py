@@ -139,7 +139,7 @@ class Department:
             if BUILDING_OWNER.get(reason, DEFAULT_OWNER) != self.name:
                 continue
             # One foundation of a kind at a time, as the builders always worked.
-            if any(b.get("def_id") == name and not b.get("is_complete") for b in f.buildings):
+            if engine._foundation_under_way(f, name):
                 continue
             definition = f.building_defs[name]
             locked = not engine._unlocked_for_saving(f, definition)
