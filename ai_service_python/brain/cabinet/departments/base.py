@@ -41,6 +41,9 @@ class Department:
         self.field, self.treasury = field, treasury
         self.book: dict[tuple, Request] = {}
         self.notes: list[str] = []
+        # Requests filed and closed since the runtime last wrote them to the match log.
+        self.opened: list[Request] = []
+        self.closed: list[Request] = []
         self._wanted: set[tuple] = set()
         self._serial = 0
 
@@ -119,6 +122,7 @@ class Department:
             request = self.book[key] = Request(id=f"{self.name}-{self._serial}", dept=self.name, key=key, item=item,
                                                created_at=self.field.now)
             self.notes.append(f"request {request.id} opened: {item}")
+            self.opened.append(request)
         price = {r: float(a) for r, a in price.items() if a}
         request.count, request.pop, request.needs = count, pop, tuple(needs)
         request.remaining = dict(total) if total is not None else {r: a * count for r, a in price.items()}
@@ -135,7 +139,9 @@ class Department:
     def settle(self) -> None:
         """Close every request nobody asked for again this tick."""
         for key in [k for k in self.book if k not in self._wanted]:
-            self.notes.append(f"request {self.book.pop(key).id} closed")
+            request = self.book.pop(key)
+            self.notes.append(f"request {request.id} closed")
+            self.closed.append(request)
 
     def building_wishes(self, f) -> None:
         """File a request for each building the field engine asked for on this department's behalf."""

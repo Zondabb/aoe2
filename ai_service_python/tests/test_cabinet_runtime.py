@@ -429,19 +429,20 @@ def test_factory_follows_the_runtime_setting_for_each_new_session(monkeypatch):
 
 def test_service_runs_the_cabinet_by_rule_without_calling_a_model(monkeypatch):
     monkeypatch.setenv("AOE2_AI_RUNTIME", "cabinet")
-    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    monkeypatch.setenv("AOE2_AI_BACKEND", "rules_compat")
     calls = []
     service = MultiAgentService(runtime_factory=create_runtime, forward=lambda req: calls.append(req))
     try:
         results = []
         for seq in (1, 2, 3):
-            results.append(service.tick(tick_request(seq, backend="openai")))
+            results.append(service.tick(tick_request(seq)))
             wait_idle(service)
     finally:
         service.shutdown()
 
-    assert calls == []                                       # the premier has no model yet
+    assert calls == []                                       # the rules backend never asks the premier's model
     assert "villager" in bought(results[0]) and set(results[0]["agent_status"]) == DEPARTMENTS
     planning = results[-1]["planning"]
-    assert planning["backend"] == "rules" and planning["premier"]["source"] == "rules" and "tiers" in planning
+    assert planning["backend"] == "deterministic" and planning["premier"] == {"source": "rules", "posture": "balanced"}
+    assert "tiers" in planning
     assert all(c["session_epoch"] == "epoch-a" for result in results for c in result["commands"])
