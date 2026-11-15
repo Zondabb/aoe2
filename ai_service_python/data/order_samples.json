@@ -1,0 +1,36 @@
+{
+ "about": "Orders a player might type, for tools/order_replay.py. accept lists the outcomes that count as carried out: each outcome is a list of mandates [kind, subject, amount] that must all be in force after the catalog check; null stands for any value. An empty accept means the order must lead to no mandate at all.",
+ "samples": [
+  {"grade": "exact", "civ": "teutons", "age": 2, "text": "囤积50个游侠", "accept": [[["stockpile", "paladin", 50]]]},
+  {"grade": "exact", "civ": "teutons", "age": 1, "text": "村民补到40个", "accept": [[["worker_target", null, 40]]]},
+  {"grade": "exact", "civ": "chinese", "age": 1, "text": "加速食物采集", "accept": [[["boost_resource", "food", null]]]},
+  {"grade": "exact", "civ": "teutons", "age": 2, "text": "尽快升帝王时代", "accept": [[["advance_age", null, 3]]]},
+  {"grade": "exact", "civ": "teutons", "age": 2, "text": "研究重装骑士", "accept": [[["research", "cavalier", null]]]},
+  {"grade": "exact", "civ": "chinese", "age": 1, "text": "加速城墙建造", "accept": [[["fortify", null, null]]]},
+  {"grade": "exact", "civ": "teutons", "age": 2, "text": "进攻", "accept": [[["attack", null, null]]]},
+  {"grade": "exact", "civ": "teutons", "age": 2, "text": "按兵不动", "accept": [[["hold", null, null]]]},
+  {"grade": "exact", "civ": "chinese", "age": 1, "text": "查清敌人兵力", "accept": [[["scout", null, null]]]},
+  {"grade": "exact", "civ": "chinese", "age": 2, "text": "造20个诸葛弩", "accept": [[["stockpile", "chu_ko_nu", 20]]]},
+  {"grade": "exact", "civ": "teutons", "age": 1, "text": "村民补到40个，多采黄金，加紧修墙",
+   "accept": [[["worker_target", null, 40], ["boost_resource", "gold", null], ["fortify", null, null]]]},
+
+  {"grade": "approx", "civ": "teutons", "age": 2, "text": "囤积50个游侠骑士", "accept": [[["stockpile", "paladin", 50]]]},
+  {"grade": "approx", "civ": "teutons", "age": 2, "text": "来30个圣骑士", "accept": [[["stockpile", "paladin", 30]]]},
+  {"grade": "approx", "civ": "chinese", "age": 2, "text": "囤积50个游侠", "accept": [[["stockpile", "cavalier", 50]], [["stockpile", "knight", 50]]]},
+  {"grade": "approx", "civ": "teutons", "age": 2, "text": "囤积5000个骑士", "accept": [[["stockpile", "knight", 60]]]},
+  {"grade": "approx", "civ": "chinese", "age": 2, "text": "研究游侠", "accept": [[["research", "cavalier", null]]]},
+  {"grade": "approx", "civ": "teutons", "age": 1, "text": "村民补到500个", "accept": [[["worker_target", null, 60]]]},
+  {"grade": "approx", "civ": "teutons", "age": 2, "text": "造12个劲弩手", "accept": [[["stockpile", "crossbowman", 12]]]},
+
+  {"grade": "guess", "civ": "teutons", "age": 2, "text": "多造点兵", "accept": [[["stockpile", null, null]]]},
+  {"grade": "guess", "civ": "chinese", "age": 1, "text": "多搞点金子", "accept": [[["boost_resource", "gold", null]]]},
+  {"grade": "guess", "civ": "chinese", "age": 1, "text": "把家守住", "accept": [[["fortify", null, null]], [["hold", null, null]]]},
+  {"grade": "guess", "civ": "teutons", "age": 2, "text": "打过去", "accept": [[["attack", null, null]]]},
+  {"grade": "guess", "civ": "teutons", "age": 1, "text": "快点升级", "accept": [[["advance_age", null, null]]]},
+  {"grade": "guess", "civ": "chinese", "age": 1, "text": "看看对面在干什么", "accept": [[["scout", null, null]]]},
+
+  {"grade": "none", "civ": "teutons", "age": 2, "text": "造10艘航母", "accept": []},
+  {"grade": "none", "civ": "chinese", "age": 1, "text": "今天天气怎么样", "accept": []},
+  {"grade": "none", "civ": "teutons", "age": 2, "text": "帮我写一首诗", "accept": []}
+ ]
+}
