@@ -4,6 +4,8 @@ from __future__ import annotations
 from .base import Department
 
 VILLAGER_RANK = 104
+# How much a resource the head of state asked for adds to what the gatherers aim at.
+BOOST, BOOST_RUSH = 600.0, 1500.0
 
 
 def idle_producer(building: dict) -> bool:
@@ -17,9 +19,13 @@ class EconomyDept(Department):
     field_roles = ("economy", "construction")
 
     def update(self, f, mandates, brief) -> None:
+        self.boosts: dict[str, float] = {}
         for mandate in self.mine(mandates):
             if mandate.kind == "worker_target" and mandate.amount:
                 self.tune("economy", worker_target=max(8, min(60, int(mandate.amount))))
+                self.serve(("unit", "villager"), mandate)
+            elif mandate.kind == "boost_resource" and mandate.subject in self.field.demands:
+                self.boosts[mandate.subject] = BOOST_RUSH if mandate.urgency == "rush" else BOOST
         self.field._economy_requirements(f)
 
     def draft(self, f) -> None:
@@ -54,5 +60,7 @@ class EconomyDept(Department):
         return ordered
 
     def act(self, f) -> None:
-        """Gathering costs nothing: staff the resources the open requests are short of."""
+        """Gathering costs nothing: staff the resources the open requests are short of, and the one an order asked for."""
+        for resource, amount in self.boosts.items():
+            self.field.demands[resource] += amount
         self.field._economy(f)

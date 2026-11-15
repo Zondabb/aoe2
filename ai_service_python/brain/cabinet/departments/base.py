@@ -25,6 +25,7 @@ BUILDING_OWNER = {
 }
 DEFAULT_OWNER = "economy"  # a reason not listed above must not leave its building unrequested
 POPULATION_CAPPED = 120   # the engine's priority for a house when no population is free
+ORDERED_BUILDING_PRIORITY = 104   # a building an order needs: urgency 2, ahead of routine construction
 
 
 def urgency_of(priority: int) -> int:
@@ -46,6 +47,9 @@ class Department:
         self.closed: list[Request] = []
         self._wanted: set[tuple] = set()
         self._serial = 0
+        # Request keys that serve an order or the policy script this tick.
+        self.served: dict[tuple, Mandate] = {}
+        self._lent: dict[tuple, dict] = {}
 
     # ------------------------------------------------------------ the tick, in order
     def update(self, f, mandates: list[Mandate], brief) -> None:
@@ -94,7 +98,19 @@ class Department:
 
     # ------------------------------------------------------------ helpers
     def mine(self, mandates: list[Mandate]) -> list[Mandate]:
+        """This tick's mandates for this department. Reading them starts the tick: what served last tick's is forgotten."""
+        self.served = {}
         return [m for m in mandates if m.dept == self.name]
+
+    def serve(self, key: tuple, mandate: Mandate) -> None:
+        """The request filed under `key` this tick is what this mandate asked for: it carries the mandate's origin."""
+        if mandate.origin != ROUTINE:
+            self.served[key] = mandate
+
+    def build_for(self, f, mandate: Mandate, reason: str) -> None:
+        """A building some order needs before it can be carried out."""
+        self.field._request_building(f, mandate.subject, ORDERED_BUILDING_PRIORITY, reason)
+        self.serve(("building", mandate.subject), mandate)
 
     def tune(self, role: str, **values) -> None:
         """Set field parameters a mandate fixes; counts as a new plan only when something changed."""
@@ -104,6 +120,15 @@ class Department:
             state.plan.update(changed)
             state.version += 1
             state.plan_source, state.reason = "mandate", "mandate_applied"
+
+    def tune_while(self, role: str, wanted: bool, **values) -> None:
+        """Hold field parameters at `values` for as long as an order asks for it, then give back what was there."""
+        plan, key = self.field.roles[role].plan, (role, *sorted(values))
+        if wanted:
+            self._lent.setdefault(key, {name: plan[name] for name in values})
+            self.tune(role, **values)
+        elif key in self._lent:
+            self.tune(role, **self._lent.pop(key))
 
     def begin(self) -> None:
         self._wanted = set()
@@ -116,6 +141,9 @@ class Department:
 
         `instalment` caps what a purchase being saved for may set aside this
         tick, so that it takes a share of the income and not all of it."""
+        served = self.served.get(key)
+        if served is not None:
+            origin, urgency = served.origin, max(urgency, 2) + (served.urgency == "rush")
         request = self.book.get(key)
         if request is None:
             self._serial += 1

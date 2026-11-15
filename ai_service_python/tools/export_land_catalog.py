@@ -35,10 +35,32 @@ def project_combat_catalog(source: dict) -> dict:
                           for name, record in source["buildings"].items()}}
 
 
+def project_name_catalog(source: dict) -> dict:
+    """What the cabinet's premier needs to match a player's wording to catalog ids:
+    the Chinese and English names, and for technologies where they sit in an upgrade line."""
+    def english(name: str, record: dict) -> str:
+        return record.get("display_name_en") or name.replace("_", " ").title()
+
+    result = {"source_sha256": source["source"]["sha256"],
+              "civilizations": {name: record.get("display_name", name) for name, record in source["civilizations"].items()}}
+    for section in ("units", "buildings"):
+        result[section] = {name: {"zh": record.get("display_name", name), "en": english(name, record)}
+                           for name, record in source[section].items()}
+    result["technologies"] = {
+        name: {"zh": record.get("display_name", name), "en": english(name, record),
+               "upgrades": [[step["from"], step["to"]] for step in record.get("upgrades", [])],
+               "research_at": record.get("research_at", ""), "required_age": int(record.get("required_age", 0)),
+               "civilizations": list(record.get("civilizations", [])),
+               "prerequisite_technology": record.get("prerequisite_technology", "")}
+        for name, record in source["techs"].items()}
+    return result
+
+
 if __name__ == "__main__":
     service = Path(__file__).resolve().parents[1]
     source = json.loads((service.parent / "data/civilization_catalog.json").read_text(encoding="utf-8"))
-    for name, projected in (("land_catalog.json", project_catalog(source)), ("combat_catalog.json", project_combat_catalog(source))):
+    for name, projected in (("land_catalog.json", project_catalog(source)), ("combat_catalog.json", project_combat_catalog(source)),
+                            ("name_catalog.json", project_name_catalog(source))):
         output = service / "data" / name
         output.write_text(json.dumps(projected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(output)

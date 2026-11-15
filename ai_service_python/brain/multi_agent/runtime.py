@@ -171,6 +171,8 @@ class MultiAgentRuntime:
         self.frame: _DecisionFrame | None = None
         self.build_requests: list[tuple[int, str, str]] = []
         self.demands = {r: 0.0 for r in RESOURCES}
+        # Set by a runtime whose head of state has ordered the army to stay home.
+        self.hold_army = False
         self.goals = {"objective": "destroy_enemy_town_center", "phase": "opening", "goal_version": 1,
                       "sortie_target": target, "sortie_started": None, "sortie_departed": None,
                       "target_id": None, "needs_siege": False, "victory_confirmed": False}
@@ -1105,7 +1107,7 @@ class MultiAgentRuntime:
             unsafe = self._local_forecast(f, ready, enemies_at_objective).decisive_loss
         minimum_timed_force = 4 if objective else 2
         defense_window = stance == "defend" and elapsed < min(30, timeout)
-        if self.goals["sortie_departed"] is None and not unsafe and not defense_window and (len(ready) >= sortie_target or elapsed >= timeout and len(ready) >= minimum_timed_force):
+        if self.goals["sortie_departed"] is None and not unsafe and not defense_window and not self.hold_army and (len(ready) >= sortie_target or elapsed >= timeout and len(ready) >= minimum_timed_force):
             self.goals["sortie_departed"] = self.now
             self.goals["phase"] = "march"
             role.memory["initial_force"] = [u["id"] for u in ready]

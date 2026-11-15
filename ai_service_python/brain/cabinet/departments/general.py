@@ -7,10 +7,13 @@ from brain.llm_commander import MILITARY_BUILDINGS, SCOUT_TYPES
 from brain.multi_agent.runtime import DEMOLITION_UNITS
 
 from ..models import from_order
+from ..orders import BUILD, UNITS, needs_of
 from .base import Department
 from .economy import idle_producer
 
 EMERGENCY_RANK, SIEGE_RANK, FIRST_FORCE_RANK, REINFORCEMENT_RANK = 118, 107, 106, 60
+ATTACK_NOW_FORCE = 2      # an order to attack leaves with as few as this many ready soldiers
+RECALL_SECONDS = 20
 
 
 class GeneralDept(Department):
@@ -21,11 +24,17 @@ class GeneralDept(Department):
     def __init__(self, field, treasury) -> None:
         super().__init__(field, treasury)
         self.stockpiles: list = []
+        self.stance: str | None = None      # "attack" or "hold" while such an order stands
         self.lineup: dict[int, str] = {}    # producer id -> the unit it should train next
 
     def update(self, f, mandates, brief) -> None:
         engine = self.field
-        self.stockpiles = [m for m in self.mine(mandates) if m.kind == "stockpile" and m.amount]
+        mine = self.mine(mandates)
+        self.stockpiles = [m for m in mine if m.kind == "stockpile" and m.amount]
+        for mandate in mine:
+            if mandate.kind == BUILD:
+                self.build_for(f, mandate, "military_plan_capacity")
+        self._stand(next((m.kind for m in mine if m.kind in ("attack", "hold")), None))
         for mandate in self.stockpiles:
             if mandate.subject is None:
                 size = max(2, min(24, int(mandate.amount)))
@@ -39,6 +48,18 @@ class GeneralDept(Department):
                     engine.next_sortie_target = size
         # Moving and fighting cost nothing; this also says which producers the army lacks.
         engine._combat(f)
+
+    def _stand(self, stance: str | None) -> None:
+        """An order to attack sends what is ready; an order to hold keeps the army home and calls a sortie back."""
+        engine, self.stance = self.field, stance
+        engine.hold_army = stance == "hold"
+        departed = engine.goals["sortie_departed"] is not None
+        if stance == "hold" and departed:
+            # The engine's own retreat: fall back to the rally point, then muster again.
+            engine.goals["phase"] = "retreat"
+            engine.roles["combat"].memory["retreat_until"] = engine.now + RECALL_SECONDS
+        elif stance == "attack" and not departed:
+            engine.goals["sortie_target"] = min(engine.goals["sortie_target"], ATTACK_NOW_FORCE)
 
     def draft(self, f) -> None:
         engine = self.field
@@ -93,6 +114,17 @@ class GeneralDept(Department):
             self.want(("unit", name), name, definition.get("cost", {}), count=count, capacity=max(1, entry["free"]),
                       pop=int(definition.get("population", 1)) * count, urgency=urgency, rank=rank, origin=origin,
                       emergency=under_attack)
+        # A unit the head of state asked for that nothing can train yet stays on the books, blocked,
+        # so the premier and the player see what it is waiting for. The mandates derived from it do the work.
+        for mandate in self.stockpiles:
+            name = mandate.subject
+            if name in wanted or name not in UNITS or mandate.origin == "routine" or plan["counts"][name] >= mandate.amount:
+                continue
+            blocked = needs_of(mandate, f)
+            if blocked:
+                self.want(("unit", name), name, UNITS[name].get("cost", {}), count=mandate.amount - plan["counts"][name],
+                          capacity=0, needs=blocked, urgency=2 + (mandate.urgency == "rush"), rank=FIRST_FORCE_RANK,
+                          origin=mandate.origin)
         self.building_wishes(f)
         self.settle()
 

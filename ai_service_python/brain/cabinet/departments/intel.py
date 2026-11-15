@@ -18,6 +18,8 @@ class IntelDept(Department):
 
     def update(self, f, mandates, brief=None) -> IntelBrief:
         engine = self.field
+        # An order to scout: the widest search the scouting plan allows, revisited as often as it allows.
+        self.tune_while("scout", any(m.kind == "scout" for m in self.mine(mandates)), scout_count=2, revisit_seconds=30)
         engine._scout(f)
         commander = engine.roles["commander"].memory
         army = engine.intel.estimated_army()

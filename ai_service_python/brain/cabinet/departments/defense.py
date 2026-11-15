@@ -18,9 +18,10 @@ class DefenseDept(Department):
         self.spare: list[dict] = []     # options the stock can pay for without touching the wall reserve
 
     def update(self, f, mandates, brief) -> None:
-        for mandate in self.mine(mandates):
-            if mandate.kind == "fortify":
-                self.tune("defense", policy="fortify")
+        fortify = next((m for m in self.mine(mandates) if m.kind == "fortify"), None)
+        self.tune_while("defense", fortify is not None, policy="fortify")
+        if fortify is not None:
+            self.serve(("wall",), fortify)
         engine = self.field
         self.scene, self.options = engine._defense_scene(f), None
         if self.scene is not None and not self.scene["unfinished"]:

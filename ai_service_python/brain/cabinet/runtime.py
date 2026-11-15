@@ -26,17 +26,19 @@ from .departments.economy import EconomyDept
 from .departments.general import GeneralDept
 from .departments.intel import IntelDept
 from .departments.tech import TechDept
-from .models import IntelBrief, Mandate, Request
-from .orders import default_mandates
-from .premier import OUTPUT_TOKENS, RANK_PROMPT, ROLE as PREMIER, Premier, rank_context, rank_schema
+from .ledger import NEW, OrderLedger
+from .models import IntelBrief, Mandate, Request, order_origin
+from .orders import default_mandates, derive, ground_reading, load_policy, policy_entries, progress, slot
+from .premier import (INTERPRET_PROMPT, ORDER_RETRY_LIMIT, ORDER_RETRY_PAUSE, ORDERS_ROLE, OUTPUT_TOKENS, RANK_PROMPT, ROLE as PREMIER, Premier,
+                      interpret_context, interpret_schema, rank_context, rank_schema, reading)
 from .treasury import Treasury
 
 GRANT_LOG_SPACING = 10.0   # game seconds between two grant summaries in the match log
 
 
 class CabinetRuntime:
-    # The one background model call this runtime asks the service for.
-    planning_roles: tuple[str, ...] = (PREMIER,)
+    # The background model calls this runtime asks the service for: ranking the requests, and reading a new order.
+    planning_roles: tuple[str, ...] = (PREMIER, ORDERS_ROLE)
 
     def __init__(self, profile_id: str = "default") -> None:
         self.field = MultiAgentRuntime(profile_id)
@@ -56,6 +58,13 @@ class CabinetRuntime:
         self.requests: list[Request] = []
         self.cached: dict | None = None
         self.stock: dict[str, float] = {r: 0.0 for r in RESOURCES}
+        # The head of state: a player's orders in the ledger, or the profile's policy script.
+        self.ledger = OrderLedger()
+        self.policy: list[dict] | None = None
+        self.policy_done: set[int] = set()
+        self.policy_since: dict[int, float] = {}
+        self.in_force: list[Mandate] = []      # this tick's mandates, with what they need first
+        self._reading: int | None = None       # the order the model was last asked to read
         # Entries for the match log, taken by the service after each tick.
         self.journal: list[tuple[str, dict]] = []
         self._logged: dict = {"decision": None, "source": None, "grants": None, "grants_at": -GRANT_LOG_SPACING}
@@ -78,8 +87,12 @@ class CabinetRuntime:
         if req.metadata.tick < engine.last_tick or req.observation is None:
             return {"commands": [], "debug": [], "agent_status": self._statuses(), "goals": copy.deepcopy(engine.goals)}
         f = engine._open_frame(req)
-        if self.mandates is None:
-            self.mandates = default_mandates(engine.validator.profile)
+        if self.policy is None:
+            profile = engine.validator.profile
+            self.policy = load_policy(list(profile.national_policy), profile.civ_id)
+            if self.mandates is None:
+                # The profile's old targets stand in where no policy script was written.
+                self.mandates = [] if self.policy else default_mandates(profile)
         self.stock = {r: float(getattr(f.obs.economy, r)) for r in RESOURCES}
         self.treasury.observe(engine.now, self.stock)
         if not engine.goals.get("match_over", False):
@@ -92,26 +105,31 @@ class CabinetRuntime:
         result["planning"] = {"premier": {key: premier[key] for key in ("source", "posture", "thinking", "decision", "decided_at")
                                           if key in premier},
                               "tiers": dict(self.premier.tiers), "treasury": self.treasury.summary(),
-                              "intel": self.brief.as_dict()}
+                              "intel": self.brief.as_dict(), "orders": self.ledger.rows()}
         self.cached = result
         return copy.deepcopy(result)
 
     def _govern(self, f) -> None:
         engine = self.field
+        # 0. The head of state: new orders into the ledger, progress on the open ones, this tick's mandates.
+        self.ledger.intake(f.obs.player_instructions, engine.now)
+        self.ledger.note_unread(engine.now)
+        self.in_force = self._mandates(f)
         # 1. Intelligence: threats, scouting, the brief everyone else reads.
         engine._commander(f)
-        self.brief = self.intel.update(f, self.mandates)
+        self.brief = self.intel.update(f, self.in_force)
         # 2. Departments read their mandates and the field, then file requests.
         for dept in (self.general, self.tech, self.economy, self.defense):
-            dept.update(f, self.mandates, self.brief)
+            dept.update(f, self.in_force, self.brief)
         for dept in (self.tech, self.economy, self.general, self.defense):
             dept.draft(f)
         self.requests = [request for dept in self.departments for request in dept.requests()]
         # 3. The premier ranks, the treasury sets the stock aside.
         previous = dict(self.premier.tiers)
         tiers = self.premier.rank(self.requests, self.brief, engine.now)
-        # The posture is the premier's; the commander's stance carries it into the field.
-        self.intel.tune("commander", stance=self.premier.posture)
+        # The posture is the premier's, unless the head of state has ordered an attack or a halt;
+        # the commander's stance carries it into the field.
+        self.intel.tune("commander", stance={"attack": "pressure", "hold": "defend"}.get(self.general.stance, self.premier.posture))
         self.treasury.allocate(f.budget, self.requests, tiers, engine.now)
         self._note_changes(previous, tiers)
         # 4. Orders, each paid from its own request's earmark. Units and
@@ -159,6 +177,7 @@ class CabinetRuntime:
                                                  "tier": tiers.get(request.id)}))
         for rid, (old, new) in moved.items():
             self.journal.append(("request", {"change": "retiered", "id": rid, "from": old, "to": new, "by": premier.source}))
+        self.journal.extend(("order", event) for event in self.ledger.take_events())
         for dept in self.departments:
             for request in dept.closed:
                 self.journal.append(("request", {"change": "closed", "id": request.id, "dept": request.dept, "item": request.line()}))
@@ -182,9 +201,64 @@ class CabinetRuntime:
         entries, self.journal = self.journal, []
         return entries
 
-    # ------------------------------------------------------------------ the premier's model call
+    # ------------------------------------------------------------------ the head of state's mandates
+    def _mandates(self, f) -> list[Mandate]:
+        """This tick's mandates: the standing ones and the policy script, a player's orders over both, and what each needs first."""
+        engine, ledger = self.field, self.ledger
+        for order in ledger.active():
+            for mandate in order.mandates:
+                if slot(mandate) not in order.done:
+                    ledger.record(order, mandate, *progress(mandate, f, engine, order.received_at))
+        ledger.prune()
+        scripted = []
+        for entry in policy_entries(self.policy or [], f.age, self.policy_done):
+            since = self.policy_since.setdefault(entry["number"], engine.now)
+            if progress(entry["mandate"], f, engine, since)[0]:
+                self.policy_done.add(entry["number"])
+            else:
+                scripted.append(entry["mandate"])
+        ordered = ledger.mandates()
+        taken = {slot(m) for m in ordered}
+        return derive([*[m for m in [*(self.mandates or []), *scripted] if slot(m) not in taken], *ordered], f)
+
+    def _order_brief(self) -> dict | None:
+        """One call that reads the oldest order nobody has read yet."""
+        order = self.ledger.pending()
+        if order is None:
+            return None
+        engine = self.field
+        previous = {"mandates": order.refused, "problem": order.problem} if order.problem else None
+        context = interpret_context(order.text, [o.row() for o in self.ledger.active()], engine.validator.profile.civ_id,
+                                    self._age(), previous)
+        self._reading = order.number
+        order.asked += 1
+        return {"system": INTERPRET_PROMPT, "context": context, "schema": interpret_schema(),
+                "description": "Read the head of state's order into mandates for the departments.",
+                "player_orders": False, "output_tokens": OUTPUT_TOKENS}
+
+    def _read_order(self, plan: dict) -> bool:
+        """Take the model's reading of the order it was asked about; False when it has to be asked again."""
+        order = self.ledger.find(self._reading) if self._reading is not None else None
+        read = reading(plan)
+        if order is None or order.status != NEW or read is None:
+            return False
+        grasp, thinking, decision, raw = read
+        grounding = ground_reading(grasp, raw, self.field.validator.profile.civ_id, self._age(), order_origin(order.number))
+        return self.ledger.accept(order, grasp, thinking, decision, grounding, raw) != "retry"
+
+    def _age(self) -> int:
+        last = self.field.last_req
+        return last.observation.progression.age if last and last.observation and last.observation.progression else 0
+
+    # ------------------------------------------------------------------ the premier's model calls
     def planning_interval(self, role: str) -> float:
         """Wall seconds the service waits between two calls: shorter once the picture has changed."""
+        if role == ORDERS_ROLE:
+            # A new order is read at once; the pause only spaces out repeated tries, longer each time.
+            order = self.ledger.pending()
+            if order is None:
+                return math.inf
+            return min(ORDER_RETRY_LIMIT, ORDER_RETRY_PAUSE * 2 ** (order.asked - 1)) if order.asked else 0.0
         if not self.requests:
             return math.inf                                  # nothing to rank
         return self.premier.interval(self._picture())
@@ -194,15 +268,17 @@ class CabinetRuntime:
 
         The service asks for this only when it is about to send the call, so
         what is asked here counts as seen by the model."""
-        if role != PREMIER or not self.requests or self.field.goals.get("match_over"):
+        if self.field.goals.get("match_over"):
+            return None
+        if role == ORDERS_ROLE:
+            return self._order_brief()
+        if role != PREMIER or not self.requests:
             return None
         requests = self.treasury.line(self.requests, self.premier.tiers)
         requests += [r for r in self.requests if r not in requests]             # those on hold are ranked too
-        engine = self.field
-        age = engine.last_req.observation.progression.age if engine.last_req and engine.last_req.observation.progression else 0
         context = rank_context(requests, self.premier.tiers, self.brief, self.stock,
                                {r: v * 60 for r, v in self.treasury.income().items()}, self.premier.posture,
-                               {r.id: self.treasury.gap(r) for r in requests}, age=age)
+                               {r.id: self.treasury.gap(r) for r in requests}, self.ledger.rows(), self._age())
         self.premier.asked = self._picture()
         return {"system": RANK_PROMPT, "context": context, "schema": rank_schema([row["id"] for row in context["requests"]]),
                 "description": "Rank the departments' open requests and set the posture.",
@@ -210,23 +286,29 @@ class CabinetRuntime:
 
     def planning_context(self, role: str) -> dict:
         """What the service checks a returning answer against."""
-        if role != PREMIER:
+        if role not in self.planning_roles:
             raise ValueError("unknown role")
         engine = self.field
+        if role == ORDERS_ROLE:
+            return {"role": role, "plan": {}, "plan_version": self.ledger.revision, "goal_version": engine.goal_version,
+                    "goals": copy.deepcopy(engine.goals)}
         return {"role": role, "plan": self.premier.plan(engine.now), "plan_version": self.premier.version,
                 "goal_version": engine.goal_version, "goals": copy.deepcopy(engine.goals)}
 
     def apply_plan(self, role: str, plan: dict) -> bool:
         """Take the model's ranking; it shows in the tiers from the next tick."""
-        if role != PREMIER or self.field.goals.get("match_over"):
+        if self.field.goals.get("match_over"):
             return False
-        return self.premier.decide(plan, self.requests, self.field.now)
+        if role == ORDERS_ROLE:
+            return self._read_order(plan)
+        return role == PREMIER and self.premier.decide(plan, self.requests, self.field.now)
 
     def _picture(self) -> tuple:
-        return self.premier.picture(self.requests, self.brief, len(self.mandates or ()))
+        return self.premier.picture(self.requests, self.brief, (len(self.in_force), self.ledger.revision))
 
     def _statuses(self) -> dict:
-        statuses = {"premier": self.premier.status(bool(self.field.goals.get("match_over")), self.field.now)}
+        statuses = {"premier": {**self.premier.status(bool(self.field.goals.get("match_over")), self.field.now),
+                               "orders": self.ledger.details()}}
         for dept in self.departments:
             statuses[dept.name] = dept.report().as_dict()
         return statuses

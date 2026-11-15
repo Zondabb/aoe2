@@ -211,7 +211,7 @@ def test_the_villager_floor_holds_against_the_model():
 
 def test_the_runtime_writes_one_ranking_call_and_takes_only_its_own_answer():
     runtime = cabinet()
-    assert runtime.planning_roles == ("premier",)
+    assert runtime.planning_roles[0] == "premier"
     assert runtime.planning_interval("premier") == math.inf and runtime.planning_brief("premier") is None    # nothing filed yet
     tick = contested(runtime)
     rid = ids(tick(1))

@@ -22,6 +22,8 @@ class CivAiProfile:
     unique_unit_priority: bool = True
     opening_seconds: float = 120.0
     defend_radius: float = 20.0
+    # The cabinet runtime's script for a team without a player: mandates with a `when` (docs/cabinet_ai_design.md).
+    national_policy: tuple = ()
 
     def villagers_for_age(self, age: int) -> int:
         return max(8, self.villager_target) + max(0, age) * 4
@@ -59,6 +61,7 @@ def profile_for_id(profile_id: str) -> CivAiProfile:
         unique_unit_priority=bool(payload.get("unique_unit_priority", True)),
         opening_seconds=float(payload.get("opening_seconds", 120.0)),
         defend_radius=float(payload.get("defend_radius", 20.0)),
+        national_policy=tuple(payload.get("national_policy", ())),
     )
     _CACHE[key] = profile
     return profile

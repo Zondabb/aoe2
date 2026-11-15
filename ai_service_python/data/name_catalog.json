@@ -1,0 +1,736 @@
+{
+  "source_sha256": "28b50786d62cc956679bf56b42b272ec04eb93642268e997484dbc63bb24e6cb",
+  "civilizations": {
+    "chinese": "中国",
+    "teutons": "条顿"
+  },
+  "units": {
+    "militia": {
+      "zh": "民兵",
+      "en": "Militia"
+    },
+    "villager": {
+      "zh": "村民",
+      "en": "Villager"
+    },
+    "archer": {
+      "zh": "步弓手",
+      "en": "Archer"
+    },
+    "spearman": {
+      "zh": "长矛兵",
+      "en": "Spearman"
+    },
+    "scout_cavalry": {
+      "zh": "斥候骑兵",
+      "en": "Scout Cavalry"
+    },
+    "trade_cart": {
+      "zh": "贸易车",
+      "en": "Trade Cart"
+    },
+    "skirmisher": {
+      "zh": "掷矛手",
+      "en": "Skirmisher"
+    },
+    "man_at_arms": {
+      "zh": "剑士",
+      "en": "Man-at-Arms"
+    },
+    "battering_ram": {
+      "zh": "轻型冲车",
+      "en": "Battering Ram"
+    },
+    "chu_ko_nu": {
+      "zh": "诸葛弩",
+      "en": "Chu Ko Nu"
+    },
+    "camel": {
+      "zh": "骆驼兵",
+      "en": "Camel"
+    },
+    "cavalry_archer": {
+      "zh": "骑射手",
+      "en": "Cavalry Archer"
+    },
+    "knight": {
+      "zh": "骑士",
+      "en": "Knight"
+    },
+    "mangonel": {
+      "zh": "轻型投石车",
+      "en": "Mangonel"
+    },
+    "monk": {
+      "zh": "僧侣",
+      "en": "Monk"
+    },
+    "petard": {
+      "zh": "爆破兵",
+      "en": "Petard"
+    },
+    "scorpion": {
+      "zh": "弩炮",
+      "en": "Scorpion"
+    },
+    "teutonic_knight": {
+      "zh": "条顿武士",
+      "en": "Teutonic Knight"
+    },
+    "crossbowman": {
+      "zh": "弩手",
+      "en": "Crossbowman"
+    },
+    "elite_skirmisher": {
+      "zh": "精锐掷矛手",
+      "en": "Elite Skirmisher"
+    },
+    "pikeman": {
+      "zh": "长枪兵",
+      "en": "Pikeman"
+    },
+    "light_cavalry": {
+      "zh": "轻骑兵",
+      "en": "Light Cavalry"
+    },
+    "long_swordsman": {
+      "zh": "长剑士",
+      "en": "Long Swordsman"
+    },
+    "bombard_cannon": {
+      "zh": "手推炮",
+      "en": "Bombard Cannon"
+    },
+    "hand_cannoneer": {
+      "zh": "火枪手",
+      "en": "Hand Cannoneer"
+    },
+    "trebuchet": {
+      "zh": "巨型投石机",
+      "en": "Trebuchet (Packed)"
+    },
+    "arbalest": {
+      "zh": "劲弩手",
+      "en": "Arbalest"
+    },
+    "capped_ram": {
+      "zh": "中型冲车",
+      "en": "Capped Ram"
+    },
+    "heavy_camel": {
+      "zh": "重装骆驼兵",
+      "en": "Heavy Camel"
+    },
+    "heavy_cavalry_archer": {
+      "zh": "重装骑射手",
+      "en": "Heavy Cavalry Archer"
+    },
+    "paladin": {
+      "zh": "游侠",
+      "en": "Paladin"
+    },
+    "champion": {
+      "zh": "冠军剑士",
+      "en": "Champion"
+    },
+    "halberdier": {
+      "zh": "长戟兵",
+      "en": "Halberdier"
+    },
+    "two_handed_swordsman": {
+      "zh": "双手剑士",
+      "en": "Two-Handed Swordsman"
+    },
+    "heavy_scorpion": {
+      "zh": "重型弩炮",
+      "en": "Heavy Scorpion"
+    },
+    "onager": {
+      "zh": "中型投石车",
+      "en": "Onager"
+    },
+    "cavalier": {
+      "zh": "重装骑士",
+      "en": "Cavalier"
+    },
+    "siege_ram": {
+      "zh": "重型冲车",
+      "en": "Siege Ram"
+    },
+    "siege_onager": {
+      "zh": "重型投石车",
+      "en": "Siege Onager"
+    },
+    "elite_chu_ko_nu": {
+      "zh": "精锐诸葛弩",
+      "en": "Elite Chu Ko Nu"
+    },
+    "elite_teutonic_knight": {
+      "zh": "精锐条顿武士",
+      "en": "Elite Teutonic Knight"
+    }
+  },
+  "buildings": {
+    "barracks": {
+      "zh": "兵营",
+      "en": "Barracks"
+    },
+    "farm": {
+      "zh": "农田",
+      "en": "Farm"
+    },
+    "house": {
+      "zh": "房屋",
+      "en": "House"
+    },
+    "mill": {
+      "zh": "磨坊",
+      "en": "Mill"
+    },
+    "mining_camp": {
+      "zh": "采矿场",
+      "en": "Mining Camp"
+    },
+    "town_center": {
+      "zh": "城镇中心",
+      "en": "Town Center"
+    },
+    "lumber_camp": {
+      "zh": "伐木场",
+      "en": "Lumber Camp"
+    },
+    "palisade_wall": {
+      "zh": "木栅栏",
+      "en": "Palisade Wall"
+    },
+    "outpost": {
+      "zh": "哨站",
+      "en": "Outpost"
+    },
+    "archery_range": {
+      "zh": "靶场",
+      "en": "Archery Range"
+    },
+    "blacksmith": {
+      "zh": "铁匠铺",
+      "en": "Blacksmith"
+    },
+    "gate": {
+      "zh": "城门",
+      "en": "Gate"
+    },
+    "market": {
+      "zh": "市场",
+      "en": "Market"
+    },
+    "stable": {
+      "zh": "马厩",
+      "en": "Stable"
+    },
+    "stone_wall": {
+      "zh": "石墙",
+      "en": "Stone Wall"
+    },
+    "watch_tower": {
+      "zh": "瞭望箭塔",
+      "en": "Watch Tower"
+    },
+    "monastery": {
+      "zh": "修道院",
+      "en": "Monastery"
+    },
+    "castle": {
+      "zh": "城堡",
+      "en": "Castle"
+    },
+    "siege_workshop": {
+      "zh": "攻城武器厂",
+      "en": "Siege Workshop"
+    },
+    "university": {
+      "zh": "大学",
+      "en": "University"
+    },
+    "fortified_wall": {
+      "zh": "垛墙",
+      "en": "Fortified Wall"
+    },
+    "guard_tower": {
+      "zh": "警戒箭塔",
+      "en": "Guard Tower"
+    },
+    "keep": {
+      "zh": "大型箭塔",
+      "en": "Keep"
+    },
+    "bombard_tower": {
+      "zh": "炮塔",
+      "en": "Bombard Tower"
+    },
+    "wonder": {
+      "zh": "世界奇观",
+      "en": "Wonder"
+    }
+  },
+  "technologies": {
+    "chemistry": {
+      "zh": "化学",
+      "en": "Chemistry",
+      "upgrades": [],
+      "research_at": "university",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "keep": {
+      "zh": "大型箭塔",
+      "en": "Keep",
+      "upgrades": [
+        [
+          "watch_tower",
+          "keep"
+        ]
+      ],
+      "research_at": "university",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": "guard_tower"
+    },
+    "bombard_tower": {
+      "zh": "炮塔",
+      "en": "Bombard Tower",
+      "upgrades": [],
+      "research_at": "university",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": "chemistry"
+    },
+    "capped_ram": {
+      "zh": "中型冲车",
+      "en": "Capped Ram",
+      "upgrades": [
+        [
+          "battering_ram",
+          "capped_ram"
+        ]
+      ],
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "elite_skirmisher": {
+      "zh": "精锐掷矛手",
+      "en": "Elite Skirmisher",
+      "upgrades": [
+        [
+          "skirmisher",
+          "elite_skirmisher"
+        ]
+      ],
+      "research_at": "archery_range",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "crossbowman": {
+      "zh": "弩手",
+      "en": "Crossbowman",
+      "upgrades": [
+        [
+          "archer",
+          "crossbowman"
+        ]
+      ],
+      "research_at": "archery_range",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "guard_tower": {
+      "zh": "警戒箭塔",
+      "en": "Guard Tower",
+      "upgrades": [
+        [
+          "watch_tower",
+          "guard_tower"
+        ]
+      ],
+      "research_at": "university",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "fortified_wall": {
+      "zh": "垛墙",
+      "en": "Fortified Wall",
+      "upgrades": [
+        [
+          "stone_wall",
+          "fortified_wall"
+        ]
+      ],
+      "research_at": "university",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "pikeman": {
+      "zh": "长枪兵",
+      "en": "Pikeman",
+      "upgrades": [
+        [
+          "spearman",
+          "pikeman"
+        ]
+      ],
+      "research_at": "barracks",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "long_swordsman": {
+      "zh": "长剑士",
+      "en": "Long Swordsman",
+      "upgrades": [
+        [
+          "militia",
+          "long_swordsman"
+        ],
+        [
+          "man_at_arms",
+          "long_swordsman"
+        ]
+      ],
+      "research_at": "barracks",
+      "required_age": 2,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": "man_at_arms"
+    },
+    "cavalier": {
+      "zh": "重装骑士",
+      "en": "Cavalier",
+      "upgrades": [
+        [
+          "knight",
+          "cavalier"
+        ]
+      ],
+      "research_at": "stable",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "two_handed_swordsman": {
+      "zh": "双手剑士",
+      "en": "Two Handed Swordsman",
+      "upgrades": [
+        [
+          "militia",
+          "two_handed_swordsman"
+        ],
+        [
+          "man_at_arms",
+          "two_handed_swordsman"
+        ],
+        [
+          "long_swordsman",
+          "two_handed_swordsman"
+        ]
+      ],
+      "research_at": "barracks",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": "long_swordsman"
+    },
+    "heavy_cav_archer": {
+      "zh": "重装骑射手",
+      "en": "Heavy Cav Archer",
+      "upgrades": [
+        [
+          "cavalry_archer",
+          "heavy_cavalry_archer"
+        ]
+      ],
+      "research_at": "archery_range",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "prerequisite_technology": ""
+    },
+    "man_at_arms": {
+      "zh": "剑士",
+      "en": "Man At Arms",
+      "upgrades": [
+        [
+          "militia",
+          "man_at_arms"
+        ]
+      ],
+      "research_at": "barracks",
+      "required_age": 1,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "heavy_camel": {
+      "zh": "重装骆驼兵",
+      "en": "Heavy Camel",
+      "upgrades": [
+        [
+          "camel",
+          "heavy_camel"
+        ]
+      ],
+      "research_at": "stable",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "prerequisite_technology": ""
+    },
+    "arbalest": {
+      "zh": "劲弩手",
+      "en": "Arbalest",
+      "upgrades": [
+        [
+          "archer",
+          "arbalest"
+        ],
+        [
+          "crossbowman",
+          "arbalest"
+        ]
+      ],
+      "research_at": "archery_range",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "prerequisite_technology": "crossbowman"
+    },
+    "heavy_scorpion": {
+      "zh": "重型弩炮",
+      "en": "Heavy Scorpion",
+      "upgrades": [
+        [
+          "scorpion",
+          "heavy_scorpion"
+        ]
+      ],
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "light_cavalry": {
+      "zh": "轻骑兵",
+      "en": "Light Cavalry",
+      "upgrades": [
+        [
+          "scout_cavalry",
+          "light_cavalry"
+        ]
+      ],
+      "research_at": "stable",
+      "required_age": 2,
+      "civilizations": [
+        "chinese"
+      ],
+      "prerequisite_technology": ""
+    },
+    "siege_ram": {
+      "zh": "重型冲车",
+      "en": "Siege Ram",
+      "upgrades": [
+        [
+          "battering_ram",
+          "siege_ram"
+        ],
+        [
+          "capped_ram",
+          "siege_ram"
+        ]
+      ],
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "prerequisite_technology": "capped_ram"
+    },
+    "onager": {
+      "zh": "中型投石车",
+      "en": "Onager",
+      "upgrades": [
+        [
+          "mangonel",
+          "onager"
+        ]
+      ],
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "champion": {
+      "zh": "冠军剑士",
+      "en": "Champion",
+      "upgrades": [
+        [
+          "militia",
+          "champion"
+        ],
+        [
+          "man_at_arms",
+          "champion"
+        ],
+        [
+          "two_handed_swordsman",
+          "champion"
+        ],
+        [
+          "long_swordsman",
+          "champion"
+        ]
+      ],
+      "research_at": "barracks",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": "two_handed_swordsman"
+    },
+    "paladin": {
+      "zh": "游侠",
+      "en": "Paladin",
+      "upgrades": [
+        [
+          "knight",
+          "paladin"
+        ]
+      ],
+      "research_at": "stable",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "prerequisite_technology": "cavalier"
+    },
+    "siege_onager": {
+      "zh": "重型投石车",
+      "en": "Siege Onager",
+      "upgrades": [
+        [
+          "mangonel",
+          "siege_onager"
+        ],
+        [
+          "onager",
+          "siege_onager"
+        ]
+      ],
+      "research_at": "siege_workshop",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "prerequisite_technology": "onager"
+    },
+    "elite_chu_ko_nu": {
+      "zh": "精锐诸葛弩",
+      "en": "Elite Chu Ko Nu",
+      "upgrades": [
+        [
+          "chu_ko_nu",
+          "elite_chu_ko_nu"
+        ]
+      ],
+      "research_at": "castle",
+      "required_age": 3,
+      "civilizations": [
+        "chinese"
+      ],
+      "prerequisite_technology": ""
+    },
+    "elite_teutonic_knight": {
+      "zh": "精锐条顿武士",
+      "en": "Elite Teutonic Knight",
+      "upgrades": [
+        [
+          "teutonic_knight",
+          "elite_teutonic_knight"
+        ]
+      ],
+      "research_at": "castle",
+      "required_age": 3,
+      "civilizations": [
+        "teutons"
+      ],
+      "prerequisite_technology": ""
+    },
+    "halberdier": {
+      "zh": "长戟兵",
+      "en": "Halberdier",
+      "upgrades": [
+        [
+          "spearman",
+          "halberdier"
+        ]
+      ],
+      "research_at": "barracks",
+      "required_age": 3,
+      "civilizations": [
+        "chinese",
+        "teutons"
+      ],
+      "prerequisite_technology": "pikeman"
+    }
+  }
+}

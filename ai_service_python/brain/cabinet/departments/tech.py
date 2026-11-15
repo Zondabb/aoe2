@@ -1,9 +1,10 @@
 """Technology: the next age, upgrades, and the buildings an age requires."""
 from __future__ import annotations
 
+from ..orders import BUILD
 from .base import Department
 
-AGE_READY_RANK, AGE_SAVING_RANK, UPGRADE_RANK = 109, 103, 50
+AGE_READY_RANK, AGE_SAVING_RANK, UPGRADE_RANK, ORDERED_UPGRADE_RANK = 109, 103, 50, 105
 TC_WINDOW_SHARE, TC_WINDOW_SECONDS = .8, 10
 AGE_PATIENCE = 90.0      # an idle town center is costly: a stalled age saving steps back sooner
 
@@ -18,11 +19,24 @@ class TechDept(Department):
         self.age: dict | None = None
         self.upgrade: tuple[dict, dict] | None = None
         self.saved: tuple[int, dict] = (-1, {})      # the age being saved for and what is put by so far
+        self.ordered: list = []                      # research the head of state asked for
 
     def update(self, f, mandates, brief) -> None:
+        self.ordered = []
         for mandate in self.mine(mandates):
             if mandate.kind == "advance_age" and mandate.amount is not None:
-                self.tune("technology", target_age=max(0, min(3, int(mandate.amount))))
+                target = max(0, min(3, int(mandate.amount)))
+                if mandate.origin == "routine":
+                    self.tune("technology", target_age=target)
+                else:
+                    # An order asks for an age sooner; it never lowers how far the plan means to go.
+                    self.tune("technology", target_age=max(target, self.field.roles["technology"].plan["target_age"]))
+                    if f.age < target:
+                        self.serve(("age", f.age + 1), mandate)
+            elif mandate.kind == "research":
+                self.ordered.append(mandate)
+            elif mandate.kind == BUILD:
+                self.build_for(f, mandate, "age_prerequisite")
         # Also asks for the buildings the next age still requires.
         self.age = self.field._age_plan(f) if f.progression_enabled else None
 
@@ -57,7 +71,7 @@ class TechDept(Department):
             self.saved = (f.age, {} if stalled else put_by)
             self.want(("age", f.age + 1), f"age_{f.age + 1}", cost, urgency=2,
                       rank=AGE_READY_RANK if in_reach else AGE_SAVING_RANK, patience=AGE_PATIENCE,
-                      instalment=None if in_reach else self.saved[1])
+                      instalment=None if in_reach or ("age", f.age + 1) in self.served else self.saved[1])
             for resource, amount in age["cost"].items():
                 engine.demands[resource] += max(0, amount - f.budget[resource])
         else:
@@ -66,7 +80,19 @@ class TechDept(Department):
         # Routine upgrades are bought from plenty only: the stock must cover the
         # price several times over, as the technology plan's budget share says.
         share = max(.1, engine._technology_targets()[1])
-        for building, option in engine._tech_options(f):
+        # Research the head of state asked for goes first and is not held to the rule of plenty.
+        open_now = {t["id"]: (b, t) for b in f.buildings for t in b.get("technologies", [])
+                    if t.get("reason") == "" and t.get("id") in f.tech_defs}
+        for mandate in self.ordered:
+            building, option = open_now.get(mandate.subject, (None, None))
+            if option is None or saving and building.get("def_id") == "town_center":
+                continue
+            self.upgrade = (building, option)
+            self.serve(("tech", option["id"]), mandate)
+            self.want(("tech", option["id"]), option["id"], f.tech_defs[option["id"]].get("cost", {}), urgency=2,
+                      rank=ORDERED_UPGRADE_RANK)
+            break
+        for building, option in engine._tech_options(f) if self.upgrade is None else ():
             cost = f.tech_defs[option["id"]].get("cost", {})
             if saving and building.get("def_id") == "town_center" or any(f.budget[r] < amount / share for r, amount in cost.items()):
                 continue
