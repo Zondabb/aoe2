@@ -45,7 +45,7 @@ num_ctx = 8192
 
 `backend="openai"` 表示兼容上游模型；要使用纯规则策略，在服务端改为 `rules_compat`。`base_url` 是模型服务的地址，游戏的 `service_url` 是本 Python 服务的地址，两者用途不同。
 
-`[ai].runtime` 选择 v3 快速通道使用的运行时：`multi_agent` 是现有的七角色运行时，`cabinet` 是首相加五部门的新架构，设计见 [cabinet_ai_design.md](../docs/cabinet_ai_design.md)。每个队伍会话在建立时读取一次，之后不再切换；名称写错时服务拒绝启动。`cabinet` 目前到阶段 3：五个部门提需求单，首相给需求单排档，国库按档位拨款。后端不是规则模式时，首相的排档由模型在后台决定，每次调用给全部未结需求单定档并写两段给玩家看的中文（`thinking`、`decision`），输出上限 512 token；模型没有回答、回答非法或超过 180 游戏秒没有续期时按规则排档。玩家指令要到阶段 4 才生效。`tools/premier_replay.py` 把同一个请求发给配置里的模型，统计可用回答的比例，换模型前先跑一遍；`agent_status` 的键是 `premier` 和五个部门，每个部门条目带它的需求单和 `roles`（它驱动的旧角色的状态）；`planning` 里有当前档位表和情报简报。对战对比用 `tools/ai_duel_ab.py --runtime cabinet --baseline-dir ai_service_python`。
+`[ai].runtime` 选择 v3 快速通道使用的运行时：`multi_agent` 是现有的七角色运行时，`cabinet` 是首相加五部门的新架构，设计见 [cabinet_ai_design.md](../docs/cabinet_ai_design.md)。每个队伍会话在建立时读取一次，之后不再切换；名称写错时服务拒绝启动。`cabinet` 目前到阶段 4：五个部门提需求单，首相给需求单排档，国库按档位拨款，玩家的指令由首相解读成任务书交给部门。后端不是规则模式时，首相的排档由模型在后台决定，每次调用给全部未结需求单定档并写两段给玩家看的中文（`thinking`、`decision`），输出上限 512 token；模型没有回答、回答非法或超过 180 游戏秒没有续期时按规则排档。玩家指令（`observation.player_instructions`）每条触发一次解读调用 `premier_orders`，回答经目录校验后变成最多 3 条任务书；解读没有规则兜底，后端是规则模式或模型不可用时指令只会停在“新下达”。没有玩家的队伍可以在 `data/ai/profile_*.json` 里写 `national_policy` 国策脚本，格式见设计文档。`tools/premier_replay.py` 和 `tools/order_replay.py` 分别把排档和解读的请求发给配置里的模型，统计回答可用和读对的比例，换模型前先跑一遍；`agent_status` 的键是 `premier` 和五个部门，每个部门条目带它的需求单和 `roles`（它驱动的旧角色的状态）；`planning` 里有当前档位表、情报简报和未结指令（`orders`），`agent_status.premier.orders` 是每条指令的理解、任务书和进度。对战对比用 `tools/ai_duel_ab.py --runtime cabinet --baseline-dir ai_service_python`。
 
 私有模型或密钥可以写入 `config.local.toml`（已忽略 Git 和 Docker 构建），格式见 `config.local.example.toml`。例如远程模型：
 
