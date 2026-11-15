@@ -1,6 +1,10 @@
 class_name AiGateway
 extends Node
 
+## The premier's words for one team, from planning.broadcasts of a tick response:
+## lines of {id, seq, kind, text, trigger, priority, ...}. Each line is emitted once.
+signal premier_spoke(team: int, lines: Array)
+
 const DEFAULT_TICK_INTERVAL := 0.5
 
 const AiConfigScript := preload("res://scripts/ai_gateway/ai_config.gd")
@@ -52,6 +56,8 @@ var _remote_session_ended := false
 var agent_status: Dictionary = {}
 var planning_status: Dictionary = {}
 var goals: Dictionary = {}
+var _premier_lines_seen: Dictionary = {}
+const MAX_PREMIER_LINES_SEEN := 512
 
 
 func setup(
@@ -76,6 +82,7 @@ func setup(
 	agent_status.clear()
 	planning_status.clear()
 	goals.clear()
+	_premier_lines_seen.clear()
 	_pending_responses.clear()
 	_exec_contexts.clear()
 	match_state = state
@@ -399,8 +406,29 @@ func _request_multi_agent_for_team(team_entry: Dictionary, current_tick: int, ev
 	agent_status = response.get("agent_status", {})
 	planning_status = response.get("planning", {})
 	goals = response.get("goals", {})
+	_relay_premier_lines(team, planning_status)
 	# v3 is already a fast deterministic command batch; no extra 10-second tick.
 	_apply_response(response)
+
+
+## Presentation only: subtitles and speech for the team's own player. Nothing here reaches the simulation.
+func _relay_premier_lines(team: int, planning: Dictionary) -> void:
+	var raw: Variant = planning.get("broadcasts", [])
+	if not (raw is Array):
+		return
+	var fresh: Array = []
+	for line: Variant in raw:
+		if not (line is Dictionary):
+			continue
+		var key := "%s#%d" % [String(line.get("id", "")), int(line.get("seq", 0))]
+		if String(line.get("text", "")).strip_edges().is_empty() or _premier_lines_seen.has(key):
+			continue
+		if _premier_lines_seen.size() >= MAX_PREMIER_LINES_SEEN:
+			_premier_lines_seen.clear()
+		_premier_lines_seen[key] = true
+		fresh.append(line)
+	if not fresh.is_empty():
+		premier_spoke.emit(team, fresh)
 
 
 func _valid_multi_agent_response(response: Dictionary, expected_team: int = -1, expected_seq: int = -1) -> bool:

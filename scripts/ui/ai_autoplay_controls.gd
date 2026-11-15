@@ -1,7 +1,12 @@
 extends Control
 
+const PREMIER_PANEL_PATH := "res://scripts/ui/premier_panel.gd"
+
 ## The control belongs to the local player; the match controller owns authority.
 var _controller: Node
+## Subtitles and speech for what this player's premier says while the AI plays for them.
+## Stays null when the panel's script cannot be loaded; everything else here works without it.
+var _premier: Control
 var _panel: PanelContainer
 var _check: CheckBox
 var _follow: CheckBox
@@ -79,6 +84,7 @@ func _ready() -> void:
 	row.add_child(_service_button)
 	_build_instruction_panel(style)
 	_build_service_panel(style)
+	_build_premier_panel(style)
 	resized.connect(_sync_layout)
 	_sync_layout()
 	call_deferred("_bind_controller")
@@ -104,6 +110,35 @@ func _build_instruction_panel(style: StyleBoxFlat) -> void:
 	_send.pressed.connect(func(): _submit_instruction(_instruction.text))
 	_instruction.text_changed.connect(func(value: String): _send.disabled = value.strip_edges().is_empty())
 	row.add_child(_send)
+
+func _build_premier_panel(style: StyleBoxFlat) -> void:
+	# Loaded by path when the controls are built, not preloaded: a fault in the
+	# subtitle panel must not take the managed-play controls down with it.
+	var panel_script := load(PREMIER_PANEL_PATH) as GDScript
+	if panel_script == null or not panel_script.can_instantiate():
+		push_warning("首相播报面板加载失败，托管控件照常工作。")
+		return
+	var panel: Variant = panel_script.new()
+	if not (panel is Control):
+		return
+	_premier = panel
+	_premier.name = "PremierPanel"
+	var frame: StyleBoxFlat = style.duplicate()
+	frame.content_margin_top = 4
+	frame.content_margin_bottom = 6
+	_premier.add_theme_stylebox_override("panel", frame)
+	_premier.hide()
+	add_child(_premier)
+
+
+func _on_premier_spoke(team: int, lines: Array) -> void:
+	# A player sees and hears only their own premier.
+	var local: Variant = _controller.get("local_team") if is_instance_valid(_controller) else null
+	if _premier == null or local == null or team != int(local) or not _premier.visible:
+		return
+	_premier.call("receive", lines)
+	call_deferred("_sync_layout")
+
 
 func _submit_instruction(value: String) -> void:
 	if not _instruction_panel.is_visible_in_tree() or value.strip_edges().is_empty(): return
@@ -249,6 +284,8 @@ func _bind_controller() -> void:
 		return
 	if _controller.has_signal("state_changed") and not _controller.is_connected("state_changed", _sync_state):
 		_controller.connect("state_changed", _sync_state)
+	if _controller.has_signal("premier_spoke") and not _controller.is_connected("premier_spoke", _on_premier_spoke):
+		_controller.connect("premier_spoke", _on_premier_spoke)
 	_sync_state()
 	set_process(false)
 
@@ -267,6 +304,12 @@ func _sync_state() -> void:
 		_send.disabled = true
 		_instruction.placeholder_text = INSTRUCTION_HINT
 		_instruction.tooltip_text = ""
+	if _premier != null:
+		# The premier speaks only while the AI plays for this player.
+		var hosted := enabled and status == "active" and _controller.has_signal("premier_spoke")
+		if _premier.visible and not hosted:
+			_premier.call("clear")
+		_premier.visible = hosted
 	_follow.visible = enabled and status == "active" and has_node("../../Camera2D/BroadcastDirector")
 	_check.set_pressed_no_signal(enabled)
 	# Connecting can be cancelled immediately. Only an unacknowledged online
@@ -315,3 +358,9 @@ func _sync_layout() -> void:
 	if _service_panel != null:
 		_service_panel.position = Vector2(16, _instruction_panel.position.y + _instruction_panel.size.y + 4 if _instruction_panel.visible else 74.0)
 		_service_panel.size = Vector2(_panel.size.x, 0)
+	if _premier != null:
+		var top := _instruction_panel.position.y + _instruction_panel.size.y + 4 if _instruction_panel.visible else 74.0
+		if _service_panel != null and _service_panel.visible:
+			top = _service_panel.position.y + _service_panel.size.y + 4
+		_premier.position = Vector2(16, top)
+		_premier.size = Vector2(_panel.size.x, 0)

@@ -20,6 +20,10 @@ run/main_scene="res://scenes/civ_select.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
+[audio]
+
+general/text_to_speech=true
+
 [autoload]
 
 GameSession="*res://scripts/core/game_session.gd"

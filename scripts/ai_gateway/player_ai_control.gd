@@ -2,6 +2,8 @@ extends Node
 
 ## Player opt-in control. Only the host simulates AI in an online match.
 signal state_changed
+## Lines the premier of `team` has just said (see AiGateway.premier_spoke). A player is shown only their own team's.
+signal premier_spoke(team: int, lines: Array)
 
 const Gateway := preload("res://scripts/ai_gateway/ai_gateway.gd")
 const Config := preload("res://scripts/ai_gateway/ai_config.gd")
@@ -96,6 +98,7 @@ func set_team_enabled(team: int, value: bool) -> bool:
 	var gateway := Gateway.new()
 	# Unique nodes prevent a cancelled, queued-for-deletion instance from being reused.
 	add_child(gateway)
+	gateway.premier_spoke.connect(_on_premier_spoke)
 	_gateways[team] = gateway
 	_set_state(team, true, "connecting", "正在连接 Python LLM…")
 	gateway.setup(match_state, entities, [{
@@ -244,6 +247,10 @@ func _available() -> bool:
 		var network := Commands.runtime(self)
 		return network != null and bool(network.get("_playing")) and bool(network.get("synchronized")) and not bool(network.get("_terminal"))
 	return true
+
+
+func _on_premier_spoke(team: int, lines: Array) -> void:
+	premier_spoke.emit(team, lines)
 
 
 func _remove_gateway(team: int) -> void:

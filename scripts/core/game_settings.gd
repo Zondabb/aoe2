@@ -31,6 +31,14 @@ const DEFAULT_AI := {
 	"fast_timeout_sec": 3.0,
 }
 
+## The premier's broadcasts: subtitles, reading aloud, which system voice and how fast.
+## The in-game switches are remembered in their own file, so that they do not
+## shadow the rest of user://game_settings.cfg.
+const PREMIER_USER_PATH := "user://premier_settings.cfg"
+const DEFAULT_PREMIER := {"subtitles": true, "voice": true, "voice_id": "", "voice_rate": 1.0}
+const MIN_VOICE_RATE := 0.5
+const MAX_VOICE_RATE := 2.0
+
 const MIN_TIMEOUT_SEC := 0.5
 const MAX_TIMEOUT_SEC := 120.0
 const MIN_TICK_INTERVAL_SEC := 0.05
@@ -255,6 +263,33 @@ static func apply_multiplayer_to_game_session() -> Dictionary:
 	var multiplayer := load_multiplayer_settings()
 	GameSession.online_server_url = multiplayer_server_url(multiplayer)
 	return multiplayer
+
+
+## Read [premier]: packaged defaults, then the user override, then what the in-game switches saved.
+static func load_premier_settings(paths: Array = [RES_PATH, USER_PATH, PREMIER_USER_PATH]) -> Dictionary:
+	var result: Dictionary = DEFAULT_PREMIER.duplicate()
+	for path: Variant in paths:
+		var cfg := ConfigFile.new()
+		if cfg.load(String(path)) != OK:
+			continue
+		for key: String in ["subtitles", "voice"]:
+			var flag: Variant = cfg.get_value("premier", key, result[key])
+			if flag is bool:
+				result[key] = flag
+		var chosen: Variant = cfg.get_value("premier", "voice_id", result["voice_id"])
+		if chosen is String:
+			result["voice_id"] = chosen
+		var rate: Variant = cfg.get_value("premier", "voice_rate", result["voice_rate"])
+		if (rate is float or rate is int) and is_finite(float(rate)):
+			result["voice_rate"] = clampf(float(rate), MIN_VOICE_RATE, MAX_VOICE_RATE)
+	return result
+
+
+static func save_premier_settings(settings: Dictionary, path: String = PREMIER_USER_PATH) -> void:
+	var cfg := ConfigFile.new()
+	for key: String in DEFAULT_PREMIER:
+		cfg.set_value("premier", key, settings.get(key, DEFAULT_PREMIER[key]))
+	cfg.save(path)
 
 
 static func _load_config_file() -> ConfigFile:
