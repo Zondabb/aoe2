@@ -20,6 +20,7 @@ from brain.llm_commander import MILITARY_BUILDINGS, RESOURCES
 from brain.multi_agent.runtime import MultiAgentRuntime
 from protocol.models import ChatCompletionRequest
 
+from .broadcast import CHANGE, DONE as CARRIED_OUT, ORDER, THREAT, Broadcaster, joined
 from .construction import ConstructionCrew
 from .departments.defense import DefenseDept
 from .departments.economy import EconomyDept
@@ -65,6 +66,14 @@ class CabinetRuntime:
         self.policy_since: dict[int, float] = {}
         self.in_force: list[Mandate] = []      # this tick's mandates, with what they need first
         self._reading: int | None = None       # the order the model was last asked to read
+        # What the premier says to the player (planning.broadcasts), and what the player has heard so far:
+        # the model ranking last weighed for a broadcast, and the danger they have been told about.
+        self.voice = Broadcaster()
+        self._heard: dict = {"version": 0, "threat": 0, "level": 0, "rose_at": 0.0}
+        self._asked_threat = 0                           # the danger in the picture the ranking call in flight was shown
+        self._decision_threat: dict[int, int] = {}       # model ranking version -> the danger its model saw
+        self._order_wall: dict[int, float] = {}          # order number -> wall clock when it arrived
+        self._waiting_said: dict[int, str] = {}          # order number -> the reason for waiting already read out
         # Entries for the match log, taken by the service after each tick.
         self.journal: list[tuple[str, dict]] = []
         self._logged: dict = {"decision": None, "source": None, "grants": None, "grants_at": -GRANT_LOG_SPACING}
@@ -100,19 +109,25 @@ class CabinetRuntime:
         else:
             engine._end_match()
         result = engine._close_frame(f)
+        lines = self.voice.take(engine.now)
+        self.journal.extend(("broadcast", event) for event in self.voice.take_events())
         result["agent_status"] = self._statuses()
         premier = self.premier.status(now=engine.now)
         result["planning"] = {"premier": {key: premier[key] for key in ("source", "posture", "thinking", "decision", "decided_at")
                                           if key in premier},
                               "tiers": dict(self.premier.tiers), "treasury": self.treasury.summary(),
                               "intel": self.brief.as_dict(), "orders": self.ledger.rows()}
+        if lines:
+            # Each line travels with this one response; the game shows it and reads it aloud.
+            result["planning"]["broadcasts"] = lines
         self.cached = result
         return copy.deepcopy(result)
 
     def _govern(self, f) -> None:
         engine = self.field
         # 0. The head of state: new orders into the ledger, progress on the open ones, this tick's mandates.
-        self.ledger.intake(f.obs.player_instructions, engine.now)
+        for order in self.ledger.intake(f.obs.player_instructions, engine.now):
+            self._order_wall[order.number] = self.voice.clock()
         self.ledger.note_unread(engine.now)
         self.in_force = self._mandates(f)
         # 1. Intelligence: threats, scouting, the brief everyone else reads.
@@ -125,13 +140,13 @@ class CabinetRuntime:
             dept.draft(f)
         self.requests = [request for dept in self.departments for request in dept.requests()]
         # 3. The premier ranks, the treasury sets the stock aside.
-        previous = dict(self.premier.tiers)
+        previous, posture = dict(self.premier.tiers), self.premier.posture
         tiers = self.premier.rank(self.requests, self.brief, engine.now)
         # The posture is the premier's, unless the head of state has ordered an attack or a halt;
         # the commander's stance carries it into the field.
         self.intel.tune("commander", stance={"attack": "pressure", "hold": "defend"}.get(self.general.stance, self.premier.posture))
         self.treasury.allocate(f.budget, self.requests, tiers, engine.now)
-        self._note_changes(previous, tiers)
+        self._note_changes(previous, tiers, posture)
         # 4. Orders, each paid from its own request's earmark. Units and
         # builders are claimed in the order the seven roles claimed them.
         self.tech.act(f)
@@ -144,18 +159,59 @@ class CabinetRuntime:
         self.defense.act(f)
         self.economy.act(f)
 
-    def _note_changes(self, previous: dict, tiers: dict) -> None:
+    def _note_changes(self, previous: dict, tiers: dict, posture: str) -> None:
         moved = {rid: [previous[rid], tier] for rid, tier in tiers.items() if rid in previous and previous[rid] != tier}
+        events = self.ledger.take_events()
+        self._speak(moved, posture, events)
         notes = [note for dept in self.departments for note in dept.notes]
         notes += [f"{rid} moved from {old} to {new}" for rid, (old, new) in moved.items()]
         self.field.debug.extend({"category": "MULTI_AGENT", "message": f"cabinet: {note}"} for note in notes)
-        self._write_journal(moved, tiers)
+        self._write_journal(moved, tiers, events)
         for dept in self.departments:
             dept.notes.clear()
             dept.opened.clear()
             dept.closed.clear()
 
-    def _write_journal(self, moved: dict, tiers: dict) -> None:
+    def _speak(self, moved: dict, posture: str, events: list[dict]) -> None:
+        """What this tick gives the premier to say: answers to orders, and a model ranking that changed something."""
+        now, voice, ledger, heard = self.field.now, self.voice, self.ledger, self._heard
+        self._order_wall = {number: at for number, at in self._order_wall.items() if ledger.find(number) is not None}
+        self._waiting_said = {number: said for number, said in self._waiting_said.items() if ledger.find(number) is not None}
+        for event in events:
+            order = ledger.find(event["id"])
+            if order is None:
+                continue
+            about = {"order": order.number, "about": order.text}
+            if event["change"] in ("interpreted", "impossible"):
+                # The answer to an order is always read out: how it was understood, what will be done, what was changed.
+                voice.say(ORDER, order.thinking, joined(order.decision, *order.notes), now, since=order.received_at,
+                          since_wall=self._order_wall.get(order.number), **about)
+            elif event["change"] == "done":
+                voice.say(CARRIED_OUT, "", f"“{order.text}”已经办完。", now, **about)
+        for order in ledger.orders:
+            # An order no model has read says why once, so the player is not left waiting for an answer that will not come.
+            if order.status == NEW and order.waiting and self._waiting_said.get(order.number) != order.waiting:
+                self._waiting_said[order.number] = order.waiting
+                voice.say(ORDER, "", order.waiting, now, since=order.received_at, since_wall=self._order_wall.get(order.number),
+                          order=order.number, about=order.text)
+        level = self.brief.threat_level
+        if level > heard["level"]:
+            heard["rose_at"] = now
+        heard["level"] = level
+        heard["threat"] = min(heard["threat"], level)    # the danger passed: when it comes back it is news again
+        decision = self.premier.in_force(now)
+        if decision is not None and decision["version"] != heard["version"]:
+            heard["version"] = decision["version"]
+            seen = self._decision_threat.get(decision["version"], level)
+            if seen > heard["threat"]:
+                # The model ranked with a danger in view that the player has not been told about.
+                voice.say(THREAT, decision["thinking"], decision["decision"], now, since=heard["rose_at"])
+            elif moved or self.premier.posture != posture:
+                voice.say(CHANGE, decision["thinking"], decision["decision"], now, since=decision["at"])
+            # Otherwise a routine re-ranking that changed nothing: planning.premier carries its time, nothing is said.
+            heard["threat"] = max(heard["threat"], seen)
+
+    def _write_journal(self, moved: dict, tiers: dict, events: list[dict]) -> None:
         """The match log's view of this tick: who decided the ranking, requests filed, moved and closed, and who got money."""
         premier, now, logged = self.premier, self.field.now, self._logged
         decision = premier.in_force(now)
@@ -177,7 +233,7 @@ class CabinetRuntime:
                                                  "tier": tiers.get(request.id)}))
         for rid, (old, new) in moved.items():
             self.journal.append(("request", {"change": "retiered", "id": rid, "from": old, "to": new, "by": premier.source}))
-        self.journal.extend(("order", event) for event in self.ledger.take_events())
+        self.journal.extend(("order", event) for event in events)
         for dept in self.departments:
             for request in dept.closed:
                 self.journal.append(("request", {"change": "closed", "id": request.id, "dept": request.dept, "item": request.line()}))
@@ -280,6 +336,7 @@ class CabinetRuntime:
                                {r: v * 60 for r, v in self.treasury.income().items()}, self.premier.posture,
                                {r.id: self.treasury.gap(r) for r in requests}, self.ledger.rows(), self._age())
         self.premier.asked = self._picture()
+        self._asked_threat = self.brief.threat_level
         return {"system": RANK_PROMPT, "context": context, "schema": rank_schema([row["id"] for row in context["requests"]]),
                 "description": "Rank the departments' open requests and set the posture.",
                 "player_orders": False, "output_tokens": OUTPUT_TOKENS}
@@ -301,7 +358,10 @@ class CabinetRuntime:
             return False
         if role == ORDERS_ROLE:
             return self._read_order(plan)
-        return role == PREMIER and self.premier.decide(plan, self.requests, self.field.now)
+        if role != PREMIER or not self.premier.decide(plan, self.requests, self.field.now):
+            return False
+        self._decision_threat = {self.premier.version: self._asked_threat}
+        return True
 
     def _picture(self) -> tuple:
         return self.premier.picture(self.requests, self.brief, (len(self.in_force), self.ledger.revision))

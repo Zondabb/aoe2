@@ -288,13 +288,17 @@ def test_the_match_log_gets_rankings_requests_and_grants():
 
     runtime.apply_plan("premier", decision({rid["villager"]: "later", rid["farm"]: "now", "tech-9": "now"}))
     tick(3, 2)
-    assert runtime.take_journal() == [
+    *ranked, (kind, said) = runtime.take_journal()
+    assert ranked == [
         ("premier_decision", {"source": "model", "reason": "model_ranking", "posture": "balanced", "requests": 2, "threat_level": 0,
                               "moved": {rid["villager"]: ["next", "later"], rid["farm"]: ["next", "now"]},
                               "thinking": SAID["thinking"], "decision": SAID["decision"], "ignored": ["tech-9"], "version": 1,
                               "decided_at": 1.0}),
         ("request", {"change": "retiered", "id": rid["villager"], "from": "next", "to": "later", "by": "model"}),
         ("request", {"change": "retiered", "id": rid["farm"], "from": "next", "to": "now", "by": "model"})]
+    # The ranking moved two requests, so the premier told the player; that goes in the log too.
+    assert kind == "broadcast" and (said["trigger"], said["lines"], said["thinking"], said["decision"], said["after_game_sec"]) == (
+        "change", 2, SAID["thinking"], SAID["decision"], 1.0)
 
     # Twenty food arrives: the villagers are now paid in part, but the last summary is only five seconds old.
     tick(4, 5, food=20)

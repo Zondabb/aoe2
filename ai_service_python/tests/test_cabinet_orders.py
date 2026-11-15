@@ -723,6 +723,8 @@ def test_the_service_has_the_model_read_an_order_while_the_ranking_goes_on(monke
         assert waiting["planning"]["premier_orders"]["state"] == "planning"
         service._pool.finish()
         taken = tick(3, ["村民补到40个"])
+        retried = tick(3, ["村民补到40个"])
+        after = tick(4, ["村民补到40个"])
     finally:
         service.shutdown()
 
@@ -737,3 +739,10 @@ def test_the_service_has_the_model_read_an_order_while_the_ranking_goes_on(monke
     assert changes == ["received", "interpreted"]
     result = next(data for event, data in logs if event == "model_result" and data["agent"] == "premier_orders")
     assert result["state"] == "applied" and result["plan"]["grasp"] == "exact"
+    # The premier's answer travels to the game with the response that follows the reading, and only with that one.
+    answer = [line for line in taken["planning"]["broadcasts"] if line["trigger"] == "order"]
+    assert [(line["kind"], line["text"], line["order"], line["about"]) for line in answer] == [
+        ("thinking", SAID["thinking"], 1, "村民补到40个"), ("decision", SAID["decision"], 1, "村民补到40个")]
+    assert retried["planning"]["broadcasts"] == taken["planning"]["broadcasts"] and "broadcasts" not in after["planning"]
+    said = [data for event, data in logs if event == "broadcast" and data["trigger"] == "order"]
+    assert len(said) == 1 and said[0]["order"] == 1 and said[0]["after_wall_sec"] >= 0 and said[0]["lines"] == 2
