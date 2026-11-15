@@ -5,49 +5,20 @@ extends SceneTree
 ##
 ##   godot --headless --path . --script res://tests/run_premier_broadcast.gd
 
-const Settings := preload("res://scripts/core/game_settings.gd")
-const Gateway := preload("res://scripts/ai_gateway/ai_gateway.gd")
-const PlayerControl := preload("res://scripts/ai_gateway/player_ai_control.gd")
-const PremierVoice := preload("res://scripts/audio/premier_voice.gd")
-const PremierPanel := preload("res://scripts/ui/premier_panel.gd")
-const Controls := preload("res://scripts/ui/ai_autoplay_controls.gd")
+## The game scripts are loaded with load() once the autoloads exist, never
+## preloaded: a script given with --script is compiled before the autoloads are
+## registered, and so is everything it preloads. game_settings.gd and the AI
+## gateway use GameSession by name and would not compile that early.
+const SETTINGS_SCRIPT := "res://scripts/core/game_settings.gd"
+const GATEWAY_SCRIPT := "res://scripts/ai_gateway/ai_gateway.gd"
+const PLAYER_CONTROL_SCRIPT := "res://scripts/ai_gateway/player_ai_control.gd"
+const VOICE_SCRIPT := "res://scripts/audio/premier_voice.gd"
+const PANEL_SCRIPT := "res://scripts/ui/premier_panel.gd"
+const CONTROLS_SCRIPT := "res://scripts/ui/ai_autoplay_controls.gd"
+const FAKE_VOICE_SCRIPT := "res://tests/fixtures/fake_premier_voice.gd"
+const PACKAGED_SETTINGS := "res://data/game_settings.cfg"
+const PREVIEW_TEXT := "首相播报试听。"
 const TEST_SETTINGS := "user://premier_settings_test.cfg"
-
-
-## A speech engine that records what it is asked to read.
-class FakeVoice extends "res://scripts/audio/premier_voice.gd":
-	var problem := ""
-	var installed: Array = [
-		{"id": "zh-1", "name": "Huihui", "language": "zh-CN"},
-		{"id": "en-1", "name": "Zira", "language": "en-US"},
-		{"id": "zh-2", "name": "Yaoyao", "language": "zh_CN"},
-	]
-	var spoken: Array = []
-	var speaking := false
-	var stops := 0
-
-	func _engine_problem() -> String:
-		return problem
-
-	func _engine_voices() -> Array:
-		return installed
-
-	func _engine_speak(text: String, voice: String, volume: int, speed: float, utterance: int, interrupt: bool) -> void:
-		spoken.append({"text": text, "voice": voice, "volume": volume, "speed": speed, "utterance": utterance, "interrupt": interrupt})
-		speaking = true
-
-	func _engine_speaking() -> bool:
-		return speaking
-
-	func _engine_stop() -> void:
-		stops += 1
-		speaking = false
-
-	## The engine has finished reading and the start-up grace is long over.
-	func fall_silent() -> void:
-		speaking = false
-		_started_msec = -100000
-		_process(0.0)
 
 
 class MockController extends Node:
@@ -68,6 +39,13 @@ class MockController extends Node:
 
 var _failures := 0
 var _checks := 0
+var _settings: GDScript
+var _gateway: GDScript
+var _player_control: GDScript
+var _voice_script: GDScript
+var _panel_script: GDScript
+var _controls_script: GDScript
+var _fake_voice_script: GDScript
 
 
 func _initialize() -> void:
@@ -89,13 +67,36 @@ func _line(id: String, seq: int, kind: String, text: String, trigger: String, pr
 	return line
 
 
-func _fake_voice() -> FakeVoice:
-	var voice := FakeVoice.new()
+func _fake_voice() -> Variant:
+	var voice: Variant = _fake_voice_script.new()
 	voice.settings_path = TEST_SETTINGS
 	return voice
 
 
+func _load(path: String) -> GDScript:
+	var loaded := load(path) as GDScript
+	_check(loaded != null and loaded.can_instantiate(), "脚本能加载并编译：" + path)
+	return loaded
+
+
+## False when any script failed to compile: everything after that would only fail in its wake.
+func _load_scripts() -> bool:
+	var before := _failures
+	_settings = _load(SETTINGS_SCRIPT)
+	_gateway = _load(GATEWAY_SCRIPT)
+	_player_control = _load(PLAYER_CONTROL_SCRIPT)
+	_voice_script = _load(VOICE_SCRIPT)
+	_panel_script = _load(PANEL_SCRIPT)
+	_controls_script = _load(CONTROLS_SCRIPT)
+	_fake_voice_script = _load(FAKE_VOICE_SCRIPT)
+	return _failures == before
+
+
 func _run() -> void:
+	if not _load_scripts():
+		print("Premier broadcast: %d checks, %d failures (scripts did not compile)" % [_checks, _failures])
+		quit(1)
+		return
 	DirAccess.remove_absolute(TEST_SETTINGS)
 	var audio: Variant = root.get_node("GameAudio")
 	var was_muted: bool = audio.muted
@@ -122,23 +123,23 @@ func _run() -> void:
 
 func _check_settings() -> void:
 	var defaults := {"subtitles": true, "voice": true, "voice_id": "", "voice_rate": 1.0}
-	_check(Settings.load_premier_settings(["user://no_such_premier_file.cfg"]) == defaults, "没有配置文件时用默认值")
-	_check(Settings.load_premier_settings([Settings.RES_PATH]) == defaults, "随游戏发布的配置等于默认值")
+	_check(_settings.load_premier_settings(["user://no_such_premier_file.cfg"]) == defaults, "没有配置文件时用默认值")
+	_check(_settings.load_premier_settings([PACKAGED_SETTINGS]) == defaults, "随游戏发布的配置等于默认值")
 	_check(bool(ProjectSettings.get_setting("audio/general/text_to_speech", false)), "项目设置里打开了 Text to Speech")
-	Settings.save_premier_settings({"subtitles": false, "voice": false, "voice_id": "zh-2", "voice_rate": 9.0}, TEST_SETTINGS)
-	var saved: Dictionary = Settings.load_premier_settings([Settings.RES_PATH, TEST_SETTINGS])
+	_settings.save_premier_settings({"subtitles": false, "voice": false, "voice_id": "zh-2", "voice_rate": 9.0}, TEST_SETTINGS)
+	var saved: Dictionary = _settings.load_premier_settings([PACKAGED_SETTINGS, TEST_SETTINGS])
 	_check(saved == {"subtitles": false, "voice": false, "voice_id": "zh-2", "voice_rate": 2.0}, "游戏内开关保存后能读回，语速限制在 0.5 到 2.0")
 	var wrong := ConfigFile.new()
 	wrong.set_value("premier", "subtitles", "yes")
 	wrong.set_value("premier", "voice_rate", "fast")
 	wrong.set_value("premier", "voice_id", 7)
 	wrong.save(TEST_SETTINGS)
-	_check(Settings.load_premier_settings([TEST_SETTINGS]) == defaults, "类型不对的配置项被忽略")
+	_check(_settings.load_premier_settings([TEST_SETTINGS]) == defaults, "类型不对的配置项被忽略")
 	DirAccess.remove_absolute(TEST_SETTINGS)
 
 
 func _check_gateway(answer: Array) -> void:
-	var gateway := Gateway.new()
+	var gateway: Variant = _gateway.new()
 	var heard: Array = []
 	gateway.premier_spoke.connect(func(team: int, lines: Array) -> void: heard.append([team, lines]))
 	gateway._relay_premier_lines(1, {"broadcasts": answer})
@@ -153,7 +154,7 @@ func _check_gateway(answer: Array) -> void:
 		_check(heard[1][1] == [later], "重复的句子、空句子和格式不对的条目被丢掉")
 	gateway.free()
 
-	var control := PlayerControl.new()
+	var control: Variant = _player_control.new()
 	var relayed: Array = []
 	control.premier_spoke.connect(func(team: int, lines: Array) -> void: relayed.append([team, lines]))
 	control._on_premier_spoke(1, answer)
@@ -162,13 +163,13 @@ func _check_gateway(answer: Array) -> void:
 
 
 func _check_voice(audio: Variant, answer: Array) -> void:
-	var voice := _fake_voice()
+	var voice: Variant = _fake_voice()
 	root.add_child(voice)
 	voice.subtitles = true
 	voice.voice_enabled = true
 	voice.voice_id = ""
 	voice.rate = 1.0
-	var chinese := voice.chinese_voices()
+	var chinese: Array = voice.chinese_voices()
 	_check(chinese.size() == 2 and chinese[0]["id"] == "zh-1" and chinese[1]["name"] == "Yaoyao", "只列出系统里的中文语音")
 	_check(voice.resolve_voice() == "zh-1" and voice.notice.is_empty(), "默认用第一个中文语音")
 
@@ -205,7 +206,7 @@ func _check_voice(audio: Variant, answer: Array) -> void:
 	_check(voice.stops == 1 and not voice.is_reading(), "读到一半静音，立刻停下")
 
 	voice.installed = [{"id": "en-1", "name": "Zira", "language": "en-US"}]
-	var before := voice.spoken.size()
+	var before: int = voice.spoken.size()
 	voice.say({"id": "b-9", "priority": 2, "texts": ["没有中文语音。"]})
 	_check(voice.spoken.size() == before and voice.notice.contains("没有中文语音"), "没有中文语音时不读，并说明原因")
 	voice.problem = "这台设备不支持语音朗读，只显示字幕。"
@@ -218,7 +219,7 @@ func _check_voice(audio: Variant, answer: Array) -> void:
 	voice.say({"id": "b-10", "priority": 0, "texts": ["换了声音。"]})
 	var last: Dictionary = voice.spoken[voice.spoken.size() - 1]
 	_check(voice.rate == 2.0 and last["voice"] == "zh-2" and last["speed"] == 2.0 and voice.notice.is_empty(), "选中的语音和语速生效，语速有上限")
-	var again := _fake_voice()
+	var again: Variant = _fake_voice()
 	root.add_child(again)
 	_check(again.voice_id == "zh-2" and again.rate == 2.0 and again.voice_enabled and again.subtitles, "开关、语音和语速下次还在")
 	again.set_voice_id("uninstalled")
@@ -228,18 +229,18 @@ func _check_voice(audio: Variant, answer: Array) -> void:
 	again.queue_free()
 
 	# What this machine's own speech engine offers. Nothing is read aloud here.
-	var real := PremierVoice.new()
+	var real: Variant = _voice_script.new()
 	real.settings_path = TEST_SETTINGS
 	root.add_child(real)
-	var chosen := real.resolve_voice()
+	var chosen: String = real.resolve_voice()
 	print("Speech on this machine: ", ("voice " + chosen) if not chosen.is_empty() else real.notice)
 	_check(chosen.is_empty() != real.notice.is_empty(), "要么找到中文语音，要么给出不能朗读的原因")
 	real.queue_free()
 
 
 func _check_panel(answer: Array) -> void:
-	var panel := PremierPanel.new()
-	var voice := _fake_voice()
+	var panel: Variant = _panel_script.new()
+	var voice: Variant = _fake_voice()
 	panel.voice = voice
 	panel.add_child(voice)
 	root.add_child(panel)
@@ -252,7 +253,7 @@ func _check_panel(answer: Array) -> void:
 	_check(pick.item_count == 2 and not pick.disabled and pick.selected >= 0 and pick.get_item_metadata(pick.selected) == "zh-2", "语音下拉框列出中文语音并选中保存的那个")
 
 	panel.receive(answer)
-	var rows := panel.shown()
+	var rows: Array = panel.shown()
 	_check(rows.size() == 1 and voice.spoken.size() == 2, "收到播报后显示字幕并朗读")
 	if rows.size() == 1:
 		_check(rows[0]["heading"] == "回应指令：囤积50个游侠" and rows[0]["thinking"] == "游侠要先升时代。" and rows[0]["decision"] == "先攒钱。", "字幕分成思考和选择，标题带上元首的原话")
@@ -272,7 +273,7 @@ func _check_panel(answer: Array) -> void:
 	var subtitles := panel.get_node("Column/Header/Subtitles") as CheckBox
 	subtitles.button_pressed = false
 	voice.stop()
-	var before := voice.spoken.size()
+	var before: int = voice.spoken.size()
 	panel.receive([_line("b-5", 0, "decision", "关掉字幕后仍然朗读。", "change", 0)])
 	_check(not voice.subtitles and not lines_box.visible and panel.shown().size() == 3 and voice.spoken.size() == before + 1, "关掉字幕只隐藏文字，朗读照常")
 	subtitles.button_pressed = true
@@ -294,7 +295,7 @@ func _check_panel(answer: Array) -> void:
 	rate.value = 1.5
 	_check(is_equal_approx(voice.rate, 1.5), "滑块改变语速")
 	(panel.get_node("Column/Settings/Preview") as Button).pressed.emit()
-	_check(voice.spoken[voice.spoken.size() - 1]["text"] == PremierVoice.PREVIEW_TEXT and is_equal_approx(voice.spoken[voice.spoken.size() - 1]["speed"], 1.5), "试听按当前语音和语速读一句")
+	_check(voice.spoken[voice.spoken.size() - 1]["text"] == PREVIEW_TEXT and is_equal_approx(voice.spoken[voice.spoken.size() - 1]["speed"], 1.5), "试听按当前语音和语速读一句")
 
 	var notice := panel.get_node("Column/Notice") as Label
 	_check(not notice.visible, "能朗读时不显示提示")
@@ -313,7 +314,7 @@ func _check_controls(answer: Array) -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "UILayer"
 	match_root.add_child(layer)
-	var controls := Controls.new()
+	var controls: Control = _controls_script.new()
 	controls.name = "AiAutoplayControls"
 	controls.size = Vector2(1280, 720)
 	layer.add_child(controls)
