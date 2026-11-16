@@ -2,7 +2,6 @@ extends SceneTree
 const Runtime := preload("res://scripts/network/network_match.gd")
 const Simulation := preload("res://scripts/network/lockstep_simulation.gd")
 const Fair := preload("res://scripts/network/fair_lockstep.gd")
-const Prediction := preload("res://scripts/network/client_prediction.gd")
 var checks := 0
 var failures: Array[String] = []
 
@@ -48,6 +47,7 @@ func _run() -> void:
 	net.map_bounds = bootstrap.map_bounds
 	net._civs = {0: bootstrap.player_civ, 1: bootstrap.ai_civ}
 	net.local_team = 0
+	net.match_speed = 2.0
 	net.is_host = true
 	net._playing = true
 	net.synchronized = true
@@ -57,10 +57,6 @@ func _run() -> void:
 	net.simulation.setup(net)
 	net.fair = Fair.new()
 	net.fair.setup(net)
-	net.prediction = Prediction.new()
-	scene.add_child(net.prediction)
-	net.prediction.setup(net)
-	net.prediction.set_process(false)
 	var unit: UnitAgent
 	var enemy: UnitAgent
 	for entity in net.entities.get_children():
@@ -73,33 +69,11 @@ func _run() -> void:
 	var target := origin + Vector2(1, 0)
 	var move := {"op": "move", "unit_id": id, "pos": [target.x, target.y]}
 	var before: String = net.simulation.checksum()
-	check(net.prediction.submit(1, move), "own movement predicts immediately")
-	# Avoid terrain layout dependency here; the live E2E retains navigation.
-	net.prediction._nav = null
-	net.prediction.advance(0.1)
-	check(unit.sim_pos == origin and net.simulation.checksum() == before, "prediction cannot mutate position or any simulation field")
-	check(unit.render_global_transform(unit).origin != unit.global_position, "visual transform advances independently")
-	check(net.prediction.submit(2, {"op": "stop", "unit_id": id}), "later stop replaces movement preview")
-	net.prediction.resolve(1, true)
-	check(net.prediction.pending.has(2) and not net.prediction._motions[id].returning, "old confirmation cannot clear latest command")
-	net.prediction.resolve(2, false)
-	for i in 40: net.prediction.advance(0.05)
-	check(not unit._prediction_presentation_active and net.prediction.pending.is_empty(), "rejection smoothly reconciles to actual position")
-	check(not net.prediction.submit(3, {"op": "move", "unit_id": net.entity_id(enemy), "pos": [0, 0]}), "enemy cannot be predicted")
-	net.spectator = true
-	check(not net.prediction.submit(4, move), "spectators cannot predict")
-	net.spectator = false
-	check(net.prediction.submit(5, move), "prediction resumes for active player")
-	net.prediction.advance(4.0)
-	check(net.prediction.pending.is_empty(), "lost confirmations expire bounded previews")
-	net.prediction.clear()
-	check(net.simulation.checksum() == before, "timeout and correction preserve the full authoritative state")
-
 	var delay: int = net.fair.input_delay_ticks
 	check(net.fair.enqueue(move, 0, 1, 0, delay), "host schedules future input")
 	check(net.fair.enqueue({"op": "stop", "unit_id": net.entity_id(enemy)}, 1, 1, 0, delay), "guest receives identical future tick rule")
-	check(not net.fair.enqueue(move, 1, 99, 0, 3), "guest cannot request a shorter input window")
-	check(not net.fair.enqueue(move, 0, 99, 0, 3), "host obeys the same minimum input window")
+	check(not net.fair.enqueue(move, 1, 99, 0, 1), "guest cannot request a shorter input window")
+	check(not net.fair.enqueue(move, 0, 99, 0, 1), "host obeys the same minimum input window")
 	check(not net.fair.enqueue(move, 0, 2, 0, 0), "past execution rejected for host")
 	check(not net.fair.enqueue(move, 1, 2, 0, 0), "past execution rejected for guest")
 	net.fair._prepare()
@@ -119,6 +93,10 @@ func _run() -> void:
 	# Prepared AI commands retain their own lineage and cannot overwrite an
 	# intervening human order. They must not be reported as manual commands.
 	net._frame_step = 0
+	# The three-tick mode already executed the earlier manual order. Reset its
+	# takeover hold before testing independent fresh AI command lineage.
+	unit.set_meta("manual_command_revision", 0)
+	unit.set_meta("manual_control_until_sim_time", -1.0)
 	var context := CommandExecutionContext.new()
 	context.match_state = net.match_state
 	context.entities = net.entities
@@ -169,39 +147,16 @@ func _run() -> void:
 	pipeline._prepare()
 	pipeline._commit(now + 50000)
 	check(pipeline.committed_tick > first_commit and pipeline.ready_tick == first_commit, "steady state commits without another round trip")
-	# A shared future policy changes both sides' source-tick rule atomically.
-	net.tick = 0
-	var adaptive := Fair.new()
-	adaptive.setup(net)
-	check(adaptive.input_delay_ticks == 9, "2x startup input window is 150ms rather than 600ms")
-	adaptive.rtt_usec = 1000
-	adaptive._clock_samples = [{"rtt": 1000}, {"rtt": 1000}]
-	adaptive._maybe_update_policy(1000000)
-	check(adaptive.delay_schedule.size() == 1, "shrinking the input window requires stable samples")
-	adaptive._maybe_update_policy(2000000)
-	var policy: Dictionary = adaptive.delay_schedule.back()
-	check(int(policy.ticks) == 6 and int(policy.from_tick) > adaptive.planned_tick, "low latency shrinks both sides to 100ms with advance notice")
-	var replica := Fair.new()
-	replica.setup(net)
-	check(replica._receive_policy(int(policy.from_tick), int(policy.ticks)), "guest receives the future delay policy")
-	for source in [int(policy.from_tick) - 3, int(policy.from_tick), int(policy.from_tick) + 3]:
-		check(adaptive.delay_for_source(source) == replica.delay_for_source(source), "host and guest use the same source-tick policy")
-	check(replica._receive_policy(int(policy.from_tick), int(policy.ticks)), "identical repeated policy is idempotent")
-	check(not replica._receive_policy(int(policy.from_tick), 12), "an announced policy cannot be rewritten")
-	check(not replica._receive_policy(3, 12), "out-of-order policy is rejected")
-	var gradual := Fair.new()
-	gradual.setup(net)
-	gradual.input_delay_ticks = 18
-	gradual.delay_schedule = [{"from_tick": 0, "ticks": 18}]
-	gradual.rtt_usec = 1000
-	gradual._clock_samples = [{"rtt": 1000}, {"rtt": 1000}]
-	gradual._maybe_update_policy(1000000)
-	gradual._maybe_update_policy(2000000)
-	var boundary := int(gradual.delay_schedule.back().from_tick)
-	check(gradual.delay_for_source(boundary) == 15, "each decrease is limited to one command frame")
-	check(boundary + gradual.delay_for_source(boundary) >= boundary - 3 + gradual.delay_for_source(boundary - 3), "shorter delay cannot reverse successive command execution order")
-	# Keep the old rule for packets still in flight, including when newer inputs
-	# have a lower delay and therefore an earlier execution target.
+	# The same real-time budget scales ticks with the configured game speed.
+	for speed in [1.0, 2.0, 3.0, 4.0]:
+		net.match_speed = speed
+		var fixed := Fair.new()
+		fixed.setup(net)
+		fixed.rtt_usec = 400000
+		check(fixed.input_delay_ticks == int(3 * speed) and fixed.delay_for_source(900) == int(3 * speed), "100ms input delay scales with game speed, independent of RTT")
+		check(is_equal_approx(float(fixed.input_delay_ticks) / (30.0 * speed), 0.1), "1x/2x/3x/4x all retain the same real-time input budget")
+	net.match_speed = 2.0
+	# Source rules still validate older packets even with independent lookahead.
 	net.tick = 84
 	var transition := Fair.new()
 	transition.setup(net)
@@ -209,7 +164,7 @@ func _run() -> void:
 	transition.delay_schedule = [{"from_tick": 0, "ticks": 18}, {"from_tick": 90, "ticks": 6}]
 	transition.input_delay_ticks = 18
 	transition._prepare()
-	check(transition.planned_tick == 87, "decrease does not prematurely seal the upcoming shorter window")
+	check(transition.planned_tick == 90, "transport lookahead is independent of a shorter input window")
 	check(transition.enqueue(move, 0, 100, 84, 102), "old in-flight host input keeps its source rule")
 	check(transition.enqueue(move, 1, 100, 84, 102), "old in-flight guest input keeps the same source rule")
 	check(transition.enqueue(move, 1, 101, 90, 96), "new input uses the announced shorter window")
@@ -219,6 +174,41 @@ func _run() -> void:
 	check(net._valid_fair_state(timing), "keyframes preserve old and future timing policies")
 	timing.delay_schedule[1].from_tick = 0
 	check(not net._valid_fair_state(timing), "keyframes reject ambiguous policy history")
+	var short_window := Fair.new()
+	short_window.setup(net)
+	short_window.rtt_usec = 400000
+	short_window._clock_samples = [{"rtt": 400000}, {"rtt": 400000}]
+	check(short_window.delay_for_source(1000) == 6, "high RTT cannot enlarge the 100ms input budget")
+	short_window.planned_tick = 108
+	for side in [0, 1]:
+		check(short_window.enqueue(move, side, 201, 90, 96), "both teams defer a late valid command instead of dropping it")
+		check(int(short_window.pending.back().target) == 111, "late command goes to the first open frame")
+		check(short_window.enqueue(move, side, 202, 93, 99), "subsequent command remains ordered")
+		check(int(short_window.pending.back().target) >= int(short_window.pending[-2].target), "late commands cannot invert sequence order")
+	short_window.planned_tick = 300
+	check(not short_window.enqueue(move, 1, 203, 90, 96), "extremely stale input remains bounded")
+	# At 2x, keep 60 simulation steps/sec even across a 160ms RTT link.
+	net.tick = 0
+	var paced := Fair.new()
+	paced.setup(net)
+	paced.rtt_usec = 160000
+	paced._prepare()
+	check(paced.planned_tick >= 9 and paced.input_delay_ticks == 6, "network buffers enough frames without enlarging the input rule")
+	paced.ready_tick = paced.planned_tick
+	var wall := 1000000
+	paced._commit(wall)
+	var initial_deadline := int(paced.commits[3].execute_at_usec)
+	for frame in range(1, 41):
+		var target_tick := frame * 3
+		var due := initial_deadline + (frame - 1) * 50000
+		check(int(paced.commits[target_tick].execute_at_usec) == due, "committed cadence stays at 50ms regardless of RTT")
+		net.tick = target_tick
+		paced._prepare()
+		paced._commit(due + 40000)
+	var immutable: Dictionary = paced.plans[paced.planned_tick].duplicate(true)
+	var sampled_source: int = net.tick
+	check(paced.enqueue(move, 1, 300, sampled_source, sampled_source + 6), "input arriving behind transport lookahead is preserved")
+	check(paced.plans[paced.planned_tick] == immutable and int(paced.pending.back().target) > paced.planned_tick, "late input cannot overwrite an already published frame")
 	var clocks := Fair.new()
 	clocks.setup(net)
 	net._guest_ack_tick = -1
@@ -243,6 +233,10 @@ func _run() -> void:
 	clocks._probes[8] = real_sent
 	clocks.receive({"type": "clock_reply", "nonce": 8, "sent_usec": real_sent, "received_usec": real_sent + 400000})
 	check(clocks._clock_samples.size() == 1 and clocks.rtt_usec >= 800000, "genuine high RTT after loading is still measured without a hard cap")
+	var unchanged_position := unit.position
+	var unchanged_state: String = net.simulation.checksum()
+	check(net.submit_command(move), "runtime accepts a delayed order for a future execution frame")
+	check(unit.position == unchanged_position and net.simulation.checksum() == unchanged_state, "submitting in delay-only mode changes no gameplay state or presentation")
 	scene.queue_free()
 	await process_frame
 	print("ONLINE FAIR: %d checks, %d failures" % [checks, failures.size()])

@@ -22,19 +22,19 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 服务使用 **协议 v6**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v5 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
 
-双方玩家按相同未来帧规则提交操作，主机提前广播输入，开局时钟校准后主机直接提交共同执行时刻，持续运行不再等待每帧接收确认往返。双方在该时刻校验并运行固定模拟，主机随后发送操作结果与摘要，观众只接收完成帧。服务只转发和校验报文，不运行游戏逻辑。双方的本地有限预测不进入确认状态，详见 [对等调度与有限预测](../docs/online_fair.md)。
+双方玩家按相同未来帧规则提交操作，主机提前广播输入，开局时钟校准后主机直接提交共同执行时刻，持续运行不再等待每帧接收确认往返。双方在该时刻校验并运行固定模拟，主机随后发送操作结果与摘要，观众只接收完成帧。服务只转发和校验报文，不运行游戏逻辑。当前游戏已移除本地预测实现，按现实时间 100ms 输入预算安排指令（1 倍速 3 ticks，2 倍速 6 ticks），详见 [对等调度与延后执行](../docs/online_fair.md)。
 
 UTF-8 JSON 文本帧，端点 `/ws`。部分核心消息（省略中间准备/提交帧，示例中的校验值实际为 64 位 SHA-256 十六进制串）：
 
 ```json
 {"type":"join_queue","protocol_version":6,"name":"玩家","civ":"chinese"}
 {"type":"ready"}
-{"type":"command","seq":1,"source_tick":0,"execute_tick":9,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
-{"type":"input_commit","tick":9,"execute_at_usec":1250000,"speed":2.0,"input_delay_ticks":9,"delay_from_tick":0}
-{"type":"frame","tick":9,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"64位校验值","results":[{"team":1,"seq":1,"accepted":true}]}
-{"type":"ack","tick":9,"checksum":"64位校验值"}
+{"type":"command","seq":1,"source_tick":0,"execute_tick":6,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
+{"type":"input_commit","tick":6,"execute_at_usec":1250000,"speed":2.0,"input_delay_ticks":6,"delay_from_tick":0}
+{"type":"frame","tick":6,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"64位校验值","results":[{"team":1,"seq":1,"accepted":true}]}
+{"type":"ack","tick":6,"checksum":"64位校验值"}
 {"type":"request_keyframe"}
-{"type":"keyframe","request_id":"服务分配的32位ID","tick":3,"state":{"world":{},"simulation":{}},"checksum":"64位校验值"}
+{"type":"keyframe","request_id":"服务分配的32位ID","tick":6,"state":{"world":{},"simulation":{}},"checksum":"64位校验值"}
 ```
 
 `command.seq` 是每位玩家独立递增序号。`frame.tick` 必须从 3 开始，每次增加 3，重复或缺帧拒绝；只有主机能发送 `frame`、`keyframe` 或 `finish_match`。空操作帧仍传递时钟和校验值。每批最多 64 个操作、256 KiB，每条操作最多 16 KiB；完整关键帧最多 4 MiB。Python 只检查协议和身份，游戏规则及状态校验由游戏主机/客端执行。

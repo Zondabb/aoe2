@@ -1,10 +1,11 @@
 extends RefCounted
 
-## A small, bounded input pipeline. Only confirmed input is simulated; visual
-## prediction lives in ClientPrediction and never enters a digest or keyframe.
+## A bounded input pipeline. Both peers simulate commands only at their
+## committed execution frame and render normal physics interpolation.
 const FRAME := 3
 const RATE := 30.0
 const MAX_PENDING := 256
+const INPUT_DELAY_SECONDS := 0.1 # Real seconds, independent of match speed.
 var network: Node
 var plans: Dictionary = {}
 var commits: Dictionary = {}
@@ -15,10 +16,9 @@ var rejected: Array = []
 var planned_tick := 0
 var committed_tick := 0
 var ready_tick := 0
-var input_delay_ticks := 9
+var input_delay_ticks := FRAME
+var _last_manual_target := {0: 0, 1: 0}
 var delay_schedule: Array = []
-var _next_policy_check_usec := 0
-var _lower_delay_checks := 0
 var clock_offset_usec := 0.0
 var rtt_usec := 40000.0
 var clock_ready := false
@@ -43,11 +43,14 @@ func setup(runtime: Node) -> void:
 	planned_tick = network.tick
 	committed_tick = network.tick
 	clock_ready = network.is_host
-	input_delay_ticks = maxi(FRAME * 2, _ticks_for(0.15))
+	input_delay_ticks = configured_input_delay_ticks()
 	delay_schedule = [{"from_tick": 0, "ticks": input_delay_ticks}]
 
 func _ticks_for(seconds: float) -> int:
 	return clampi(ceili(seconds * RATE * network.match_speed / FRAME) * FRAME, FRAME, 180)
+
+func configured_input_delay_ticks() -> int:
+	return _ticks_for(INPUT_DELAY_SECONDS)
 
 func source_tick() -> int:
 	var source := int(network.tick) + (FRAME if network._frame_step > 0 else 0)
@@ -64,32 +67,11 @@ func delay_for_source(source: int) -> int:
 func _delivery_usec() -> int:
 	return maxi(12000, ceili(rtt_usec * 0.5) + 10000)
 
-func _upload_ticks() -> int:
-	return _ticks_for((float(_delivery_usec()) + 1000000.0 / RATE / network.match_speed) / 1000000.0)
-
 func _pipeline_ticks() -> int:
 	# A frame completes two physics steps after its scheduled start. Prepare
-	# far enough ahead for the next frame to arrive without slowing simulation.
-	return _ticks_for((float(_delivery_usec()) + (FRAME - 1) * 1000000.0 / RATE / network.match_speed) / 1000000.0)
-
-func _maybe_update_policy(now: int) -> void:
-	if _clock_samples.size() < 2 or now < _next_policy_check_usec: return
-	_next_policy_check_usec = now + 1000000
-	var source := source_tick()
-	if int(delay_schedule.back().from_tick) > source: return
-	var current := delay_for_source(source)
-	var desired := clampi(_pipeline_ticks() + _upload_ticks(), FRAME * 2, 180)
-	if desired < current:
-		_lower_delay_checks += 1
-		if _lower_delay_checks < 2: return
-		desired = maxi(desired, current - FRAME)
-	else: _lower_delay_checks = 0
-	if desired == current: return
-	# Announce a new rule well before it applies to sampled input. Existing
-	# commands keep the rule belonging to their source tick, even in flight.
-	var from_tick := maxi(planned_tick + FRAME, source + maxi(current, desired) + _ticks_for((rtt_usec * 1.5 + 50000.0) / 1000000.0) + FRAME)
-	delay_schedule.append({"from_tick": from_tick, "ticks": desired})
-	_lower_delay_checks = 0
+	# far enough ahead for delivery plus a poll/physics-step margin. This is
+	# transport buffering, independent of the real-time input budget.
+	return _ticks_for((float(_delivery_usec()) + FRAME * 1000000.0 / RATE / network.match_speed) / 1000000.0)
 
 func _receive_policy(from_tick: int, ticks: int) -> bool:
 	for policy in delay_schedule:
@@ -107,9 +89,18 @@ func _prune_policies() -> void:
 
 func enqueue(command: Dictionary, team: int, seq: int, source: int, target: int, ai: Dictionary = {}) -> bool:
 	if not network.is_host or team not in [0, 1]: return false
-	if pending.size() >= MAX_PENDING or target <= planned_tick or target != source + delay_for_source(source) or target > source + 180 or target % FRAME != 0 or source % FRAME != 0:
+	if pending.size() >= MAX_PENDING or target != source + delay_for_source(source) or target > source + 180 or target % FRAME != 0 or source % FRAME != 0:
 		if seq > 0 and rejected.size() < MAX_PENDING: rejected.append({"team": team, "seq": seq, "accepted": false})
 		return false
+	# The short input budget cannot cover every link. Never edit an already
+	# published frame: defer late orders to the next open frame on both sides.
+	# Preserve sequence order even across a changing delay policy.
+	target = maxi(target, planned_tick + FRAME)
+	if seq > 0: target = maxi(target, int(_last_manual_target[team]))
+	if target > source + 180:
+		if seq > 0 and rejected.size() < MAX_PENDING: rejected.append({"team": team, "seq": seq, "accepted": false})
+		return false
+	if seq > 0: _last_manual_target[team] = target
 	var item := {"team": team, "seq": seq, "command": command.duplicate(true), "target": target}
 	if not ai.is_empty(): item["ai"] = ai
 	pending.append(item)
@@ -145,7 +136,6 @@ func reset_clock_sampling() -> void:
 	_clock_samples.clear()
 	_clock_resume_usec = Time.get_ticks_usec() + 200000
 	_probe_at = _clock_resume_usec
-	_lower_delay_checks = 0
 
 func _can_sample_clock(now: int) -> bool:
 	return network.synchronized and not network._awaiting_keyframe and now >= _clock_resume_usec and (not network.is_host or network._guest_ack_tick >= 0)
@@ -161,7 +151,6 @@ func poll(now: int) -> void:
 		_probe_at = now + (200000 if _clock_samples.size() < 3 else 1000000)
 	if not network.synchronized: return
 	if network.is_host and network._guest_ack_tick >= 0 and network._pending_winner < 0:
-		_maybe_update_policy(now)
 		_prepare()
 		_commit(now)
 
@@ -241,17 +230,11 @@ func _ack_plans() -> void:
 		network.session.send_fair_message({"type": "input_ack", "tick": planned_tick})
 
 func _prepare() -> void:
-	# Keep preparation behind the common input horizon. No game state is read
-	# for command acceptance here; validation happens at the execution tick.
-	var upload := _upload_ticks()
+	# Keep multiple committed frames in flight when the link needs it. Limiting
+	# this to the short input delay makes every frame wait another delivery
+	# interval, slowing the entire match. Late inputs already use the next open
+	# frame, so publishing ahead never mutates or drops their commands.
 	var horizon := _pipeline_ticks()
-	# Protect in-flight old-rule inputs and the first new-rule inputs during a
-	# decrease; using only today's delay would seal their target too early.
-	var oldest_source := maxi(0, int(network.tick) - upload - FRAME)
-	var shortest := delay_for_source(oldest_source)
-	for policy in delay_schedule:
-		if int(policy.from_tick) >= oldest_source: shortest = mini(shortest, int(policy.ticks))
-	horizon = maxi(FRAME, mini(horizon, shortest - upload))
 	while planned_tick < network.tick + horizon:
 		var target := planned_tick + FRAME
 		var groups := {0: [], 1: []}
@@ -430,7 +413,6 @@ func _confirm() -> void:
 func _resolve(results: Array, at_tick: int) -> void:
 	for result in results:
 		if int(result.team) == network.local_team:
-			if network.prediction != null: network.prediction.resolve(int(result.seq), bool(result.accepted))
 			network.command_resolved.emit(int(result.seq), bool(result.accepted), at_tick)
 
 func reset(at_tick: int) -> void:

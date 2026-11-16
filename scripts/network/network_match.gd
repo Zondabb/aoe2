@@ -19,7 +19,6 @@ const ResourceScript := preload("res://scripts/entities/resource_node.gd")
 const TerrainScript := preload("res://scripts/entities/path_blocker.gd")
 const Simulation := preload("res://scripts/network/lockstep_simulation.gd")
 const FairLockstep := preload("res://scripts/network/fair_lockstep.gd")
-const Prediction := preload("res://scripts/network/client_prediction.gd")
 const TICK_SECONDS := 1.0 / 30.0
 const FRAME_TICKS := 3
 const FRAME_INTERVAL := TICK_SECONDS * FRAME_TICKS
@@ -134,7 +133,6 @@ var _draining := false
 var _render_frame := -1
 var _render_frame_steps := 0
 var fair: RefCounted
-var prediction: Node2D
 var _scheduled_ai := false
 var _local_input_seq := 0
 var match_speed := 1.0
@@ -171,10 +169,6 @@ func setup(bootstrap: Node) -> void:
 	if not spectator:
 		fair = FairLockstep.new()
 		fair.setup(self)
-		prediction = Prediction.new()
-		prediction.name = "ClientPrediction"
-		get_parent().add_child(prediction)
-		prediction.setup(self)
 	_set_status("正在载入观战关键帧…" if spectator else "等待双方载入地图…")
 	if spectator and session.get("state") == "watching":
 		_on_started()
@@ -211,7 +205,6 @@ func submit_command(command: Dictionary) -> bool:
 		if is_host: accepted = fair.enqueue(command, local_team, _local_input_seq, source, target)
 		else: accepted = session.send_scheduled_command(command, _local_input_seq, source, target)
 		if accepted:
-			prediction.submit(_local_input_seq, command)
 			command_submitted.emit(_local_input_seq, source, target)
 		return accepted
 	if is_host:
@@ -723,7 +716,6 @@ func _request_keyframe() -> void:
 	if _resync_attempts > 4:
 		_abort_sync("状态同步校验连续失败，请确认双方使用相同游戏版本")
 		return
-	if prediction != null: prediction.clear()
 	if fair != null: fair.reset(tick)
 	synchronized = false
 	_awaiting_keyframe = true
@@ -752,7 +744,7 @@ func _receive_keyframe(message: Dictionary) -> void:
 		var timing: Dictionary = message.state.get("fair", {})
 		for key in timing.get("generations", {}): fair._generations[int(key)] = int(timing.generations[key])
 		for key in timing.get("controls", {}): fair._control_generations[int(key)] = int(timing.controls[key])
-		fair.input_delay_ticks = clampi(int(timing.get("input_delay_ticks", 9)), 3, 180)
+		fair.input_delay_ticks = clampi(int(timing.get("input_delay_ticks", fair.configured_input_delay_ticks())), 3, 180)
 		fair.delay_schedule = timing.get("delay_schedule", [{"from_tick": 0, "ticks": fair.input_delay_ticks}]).duplicate(true)
 		_apply_match_speed(float(timing.get("speed", match_speed)))
 	_frame_step = 0
@@ -1259,7 +1251,6 @@ func _on_ending(_info: Dictionary) -> void:
 func _on_ended(info: Dictionary) -> void:
 	_terminal = true
 	_playing = false
-	if prediction != null: prediction.clear()
 	_stop_ai_control()
 	if match_state != null:
 		match_state.frozen = true

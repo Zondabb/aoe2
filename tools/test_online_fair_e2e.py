@@ -1,4 +1,4 @@
-"""Real fair-lockstep peers: delay, clock alignment, and movement reconciliation.
+"""Real fair-lockstep peers: fixed 100ms input delay and authoritative movement.
 
 Each player's TCP proxy adds --delay-ms and 0..--jitter-ms per direction. The
 peer-to-peer round trip therefore crosses four delayed legs. Use both zero
@@ -7,6 +7,7 @@ the steady-state movement latency target. Run once with each --host-team.
 """
 from __future__ import annotations
 import argparse
+import math
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,8 @@ def main() -> None:
                         help="optional ceiling for the final shared input window, including on the default map")
     parser.add_argument("--max-retreat-px", type=float, default=1.0,
                         help="maximum accepted straight-move visual retreat after confirmation")
+    parser.add_argument("--min-speed-ratio", type=float, default=0.9,
+                        help="minimum steady simulation throughput / configured speed")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     logs = Path(tempfile.mkdtemp(prefix="online-fair-e2e-", dir=root / ".godot"))
@@ -117,16 +120,29 @@ def main() -> None:
             if args.max_final_window_ms:
                 assert report["input_delay_ticks"] * 1000 / (30 * report["match_speed"]) <= args.max_final_window_ms, (
                     "loading/recovery inflated the final input window", report["role"], report["input_delay_ticks"])
-            assert report["predicted"] >= 6 and report["prediction_invariants"] >= 8, report
-            assert report["pending_predictions"] == 0, report
+            assert report["submission_invariants"] >= 8, report
+            assert report["early_motion_frames"] == 0, report
+            expected_delay = max(3, math.ceil(report["match_speed"] - 1e-9) * 3)
+            assert report["input_delay_ticks"] == expected_delay, report
+            steady = [(tick, ms) for tick, ms in report["timeline"] if 300 <= tick <= 435]
+            assert len(steady) >= 30, report
+            elapsed = (steady[-1][1] - steady[0][1]) / 1000
+            rate = (steady[-1][0] - steady[0][0]) / elapsed
+            report["steady_ticks_per_second"] = rate
+            report["speed_ratio"] = rate / (30 * report["match_speed"])
+            assert report["speed_ratio"] >= args.min_speed_ratio, (
+                "network buffering slowed the match", report["role"], report["speed_ratio"], rate)
             assert any(not r["accepted"] for r in report["resolved"]), report
             submitted = {r["seq"]: r for r in report["submitted"]}
             assert set(submitted) == {r["seq"] for r in report["resolved"]}, report
-            assert all(r["tick"] == submitted[r["seq"]]["target"] for r in report["resolved"] if r["accepted"]), report
+            assert all(submitted[r["seq"]]["target"] <= r["tick"] <= submitted[r["seq"]]["source"] + 180 for r in report["resolved"] if r["accepted"]), report
+            accepted = [r for r in report["resolved"] if r["accepted"]]
+            assert [r["seq"] for r in accepted] == sorted(r["seq"] for r in accepted), report
             if not args.default_map:
                 motion = report["movement_probe"]
                 assert motion["accepted"] and motion["resolved"] and motion["samples"] >= 10, motion
-                assert 0 <= motion["visual_ms"] < motion["authority_ms"], motion
+                assert 0 <= motion["authority_ms"] <= motion["visual_ms"], motion
+                assert motion["delay_ticks"] == expected_delay, motion
                 assert motion["maximum_projection"] > 5, motion
                 assert motion["max_retreat_after_confirmation_px"] <= args.max_retreat_px, (
                     "accepted movement visibly retreated after confirmation", report["role"], motion)
@@ -163,6 +179,7 @@ def main() -> None:
         print(json.dumps(reports, indent=2))
         print(f"FAIR TIMELINE: p95 absolute skew {p95:.1f} ms over {len(gaps)} shared frames")
         for report in players:
+            print(f"SIMULATION SPEED {report['role']}: {report['steady_ticks_per_second']:.2f} ticks/s, {report['speed_ratio']:.1%} of configured speed")
             if report.get("movement_probe"):
                 motion = report["movement_probe"]
                 print(f"INPUT LATENCY {'host' if report['team'] == report['host_team'] else 'guest'}: "

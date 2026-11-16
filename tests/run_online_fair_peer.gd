@@ -4,7 +4,6 @@ var submitted: Array = []
 var resolved: Array = []
 var timeline: Array = []
 var timing_samples: Array = []
-var predicted := 0
 var invariant_checks := 0
 var hooked := false
 var last_sample_tick := -1
@@ -12,6 +11,7 @@ var movement_probe: Dictionary = {}
 var movement_samples: Array = []
 var probe_unit: UnitAgent
 var probe_started := false
+var early_motion_frames := 0
 
 class MotionSampler extends Node:
 	var test: SceneTree
@@ -21,7 +21,7 @@ class MotionSampler extends Node:
 func _map() -> Dictionary:
 	var data := super._map()
 	# Keep a separate worker away from construction, combat and other walkers.
-	# This straight unobstructed path distinguishes reconciliation regressions
+	# This straight unobstructed path distinguishes movement regressions
 	# from a legitimate route reversal around an obstacle.
 	for side in [0, 1]:
 		var direction := -1 if side == 0 else 1
@@ -75,7 +75,7 @@ func _start_motion_probe() -> void:
 		_fail("isolated movement probe missing")
 		return
 	var target := probe_unit.sim_pos + Vector2(5, 0)
-	var origin := probe_unit.render_global_transform(probe_unit).origin
+	var origin := probe_unit.global_position
 	var screen_goal: Vector2 = runtime.entities.to_global(preload("res://scripts/presentation/iso_math.gd").world_to_screen(target))
 	movement_probe = {"seq": runtime._local_input_seq + 1, "wall_usec": Time.get_ticks_usec(), "origin": origin, "direction": (screen_goal - origin).normalized(),
 		"sim_origin": probe_unit.sim_pos, "visual_ms": -1.0, "authority_ms": -1.0, "confirmation_ms": -1.0, "resolved": false, "accepted": false,
@@ -91,13 +91,14 @@ func _start_motion_probe() -> void:
 func _sample_motion() -> void:
 	if done or movement_probe.is_empty() or not is_instance_valid(probe_unit): return
 	var age := float(Time.get_ticks_usec() - int(movement_probe.wall_usec)) / 1000.0
-	# Sample through confirmation and catch-up, before the intentional keyframe
-	# corruption at tick 210. Recovery deliberately clears all previews.
+	# Sample through confirmation, before intentional keyframe corruption
+	# at tick 210 changes the unit position for the recovery test.
 	if runtime.tick >= 195: return
-	var drawn := probe_unit.render_global_transform(probe_unit).origin
+	var drawn := probe_unit.global_position
 	var projection := (drawn - (movement_probe.origin as Vector2)).dot(movement_probe.direction)
 	var previous := float(movement_probe.previous_projection)
 	var backwards := maxf(0.0, previous - projection)
+	if probe_unit.sim_pos.distance_to(movement_probe.sim_origin) <= 0.001 and absf(projection) > 0.1: early_motion_frames += 1
 	if float(movement_probe.visual_ms) < 0.0 and projection > 0.1: movement_probe.visual_ms = age
 	if float(movement_probe.authority_ms) < 0.0 and probe_unit.sim_pos.distance_to(movement_probe.sim_origin) > 0.001: movement_probe.authority_ms = age
 	movement_probe.max_backward_px = maxf(float(movement_probe.max_backward_px), backwards)
@@ -107,17 +108,12 @@ func _sample_motion() -> void:
 	movement_probe.maximum_projection = maxf(float(movement_probe.maximum_projection), projection)
 	movement_probe.previous_projection = projection
 	movement_probe.samples += 1
-	movement_samples.append([age, projection, probe_unit.sim_pos.x, probe_unit.sim_pos.y, bool(movement_probe.resolved), probe_unit._prediction_presentation_active])
+	movement_samples.append([age, projection, probe_unit.sim_pos.x, probe_unit.sim_pos.y, bool(movement_probe.resolved)])
 
 func _send(command: Dictionary) -> void:
 	var before: String = runtime.simulation.checksum()
 	super._send(command)
-	if runtime.prediction != null:
-		if runtime.prediction.pending.has(runtime._local_input_seq): predicted += 1
-		# The real render loop advances prediction. Do not inject artificial
-		# time here, which would distort input-to-feedback measurements.
-		runtime.prediction.advance(0.0)
-	if before != runtime.simulation.checksum(): _fail("local prediction changed authoritative simulation")
+	if before != runtime.simulation.checksum(): _fail("input submission changed simulation before its execution frame")
 	invariant_checks += 1
 
 func _build() -> void:
@@ -138,9 +134,8 @@ func _write_report() -> void:
 	report["resolved"] = resolved
 	report["timeline"] = timeline
 	report["timing_samples"] = timing_samples
-	report["predicted"] = predicted
-	report["prediction_invariants"] = invariant_checks
-	report["pending_predictions"] = runtime.prediction.pending.size() if runtime.prediction != null else 0
+	report["early_motion_frames"] = early_motion_frames
+	report["submission_invariants"] = invariant_checks
 	var motion := movement_probe.duplicate(true)
 	for key in ["origin", "direction", "sim_origin"]: motion.erase(key)
 	report["movement_probe"] = motion
