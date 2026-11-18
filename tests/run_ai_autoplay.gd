@@ -112,7 +112,9 @@ func _run() -> void:
 	session.ai_service_timeout_sec = 0.5
 	session.ai_fast_timeout_sec = 0.5
 	checkbox.button_pressed = true
-	check(await wait_for(func(): return control.local_state().status == "error"), "offline Python service produces clear error")
+	# Startup probes use the control timeout even when decision timeouts are short.
+	var probe_window: float = load("res://scripts/ai_gateway/http_ai_client.gd").CONTROL_TIMEOUT_SEC + 5.0
+	check(await wait_for(func(): return control.local_state().status == "error", probe_window), "offline Python service produces clear error")
 	check(not checkbox.button_pressed and not checkbox.disabled and control._gateways.is_empty(), "connection failure restores manual control and allows retry")
 	session.ai_service_url = args[0]
 	session.ai_service_timeout_sec = 10.0

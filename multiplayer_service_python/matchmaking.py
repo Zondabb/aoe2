@@ -202,7 +202,8 @@ class Matchmaker:
                 if room.id not in self.rooms:
                     break
                 self._emit(player, {"type": "match_found", "match_id": room.id,
-                                    "team": team, "players": roster, **self._simulation_info(room)})
+                                    "team": team, "players": roster, "premier_broadcasts": True,
+                                    **self._simulation_info(room)})
 
     def _room(self, player: Player, *, started: bool = False) -> Room:
         if player.spectating:
@@ -380,6 +381,13 @@ class Matchmaker:
                 outgoing = dict(message)
                 outgoing["team"] = player.team
                 self._emit(room.players[room.host_team], outgoing)
+            elif kind == "premier_broadcast":
+                room = self._room(player, started=True)
+                if player.team != room.host_team or message["match_id"] != room.id or message["team"] != 1 - room.host_team:
+                    raise ProtocolError("forbidden", "Only the host may forward its guest's premier broadcast")
+                guest = room.players[message["team"]]
+                if not guest.outbox.full():
+                    self._emit(guest, message)
             elif kind == "frame":
                 room = self._room(player, started=True)
                 if player.team != room.host_team:

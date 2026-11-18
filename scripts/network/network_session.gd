@@ -170,6 +170,40 @@ func is_host() -> bool:
 	return not spectator and team in [0, 1] and team == host_team
 
 
+## Cabinet v3 emits at most four thinking and four decision sentences per broadcast.
+## Preserve each broadcast as a unit for the guest's speech priority queue.
+func send_premier_broadcast(side: int, lines: Array) -> void:
+	if not is_host() or state != "playing" or side != 1 - team or match_info.get("premier_broadcasts") != true:
+		return
+	var batch: Array = []
+	for line: Variant in lines:
+		if not _valid_premier_line(line):
+			continue
+		if not batch.is_empty() and (batch[0].id != line.id or batch.size() == 8):
+			_send({"type": "premier_broadcast", "match_id": match_info.match_id, "team": side, "lines": batch})
+			batch = []
+		# JSON from the AI service represents integers as floats in Godot.
+		var wire: Dictionary = line.duplicate()
+		for key in ["seq", "priority", "order"]:
+			if wire.has(key): wire[key] = int(wire[key])
+		batch.append(wire)
+	if not batch.is_empty():
+		_send({"type": "premier_broadcast", "match_id": match_info.match_id, "team": side, "lines": batch})
+
+
+func _valid_premier_line(line: Variant) -> bool:
+	if line is not Dictionary: return false
+	for key in line:
+		if key not in ["id", "seq", "kind", "text", "trigger", "priority", "order", "about", "final"]: return false
+	return (line.get("id") is String and not line.id.is_empty() and line.id.length() <= 64
+		and _wire_integer(line.get("seq"), 0, 7) and line.get("kind") in ["thinking", "decision"]
+		and line.get("text") is String and not line.text.strip_edges().is_empty() and line.text.length() <= 1024
+		and line.get("trigger") in ["order", "change", "threat", "done"] and _wire_integer(line.get("priority"), 0, 2)
+		and (not line.has("order") or _wire_integer(line.order))
+		and (not line.has("about") or (line.about is String and line.about.length() <= 240))
+		and (not line.has("final") or line.final is bool))
+
+
 func send_frame(tick: int, commands: Array, checksum: String) -> bool:
 	if not is_host() or state != "playing" or not _valid_tick(tick, false) or not _valid_commands(commands) or not _valid_checksum(checksum):
 		return false
@@ -376,6 +410,14 @@ func _handle_message(message: Dictionary) -> void:
 				var code := String(message.get("code", ""))
 				var text := _connection_reason(code) if code in ["rate_limited", "slow_consumer", "idle_timeout", "send_timeout"] else String(message.get("message", "未知错误"))
 				_fail("联机服务错误：%s" % text)
+		"premier_broadcast":
+			if state != "playing" or spectator or is_host() or not _valid_wire_team(message.get("team")) or message.team != team:
+				return
+			if message.get("match_id") != match_info.get("match_id") or message.get("lines") is not Array:
+				return
+			if message.lines.is_empty() or message.lines.size() > 8 or not message.lines.all(_valid_premier_line):
+				return
+			message_received.emit(message)
 		"command", "frame", "ack", "keyframe_request", "keyframe":
 			if state not in ["playing", "watching"]: return
 			if not _valid_incremental_message(message):
@@ -452,6 +494,7 @@ func _valid_hex(value: Variant, length: int) -> bool:
 func _valid_command(value: Variant) -> bool:
 	if value is not Dictionary or value.is_empty() or value.size() > 10 or value.get("op") is not String: return false
 	if value.op.is_empty() or value.op.length() > 64: return false
+	if value.op == "premier_broadcast": return false
 	for key in ["team", "player_id", "match_id", "host_team"]:
 		if value.has(key): return false
 	if value.op == "set_ai_control" and (value.size() != 2 or value.get("enabled") is not bool): return false
@@ -480,7 +523,7 @@ func _connection_reason(code: String) -> String:
 
 func _send(message: Dictionary) -> bool:
 	if message.get("type") == "snapshot": return false
-	if (spectator or _intent == "watch") and message.get("type") in ["command", "frame", "keyframe", "ready", "finish_match", "join_queue"]:
+	if (spectator or _intent == "watch") and message.get("type") in ["command", "frame", "keyframe", "ready", "finish_match", "join_queue", "premier_broadcast"]:
 		return false
 	if _peer == null or _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return false

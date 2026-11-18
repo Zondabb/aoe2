@@ -81,6 +81,18 @@ func _summary(state: MatchState, entities: Node2D) -> Array:
 		teams.append(record)
 	return teams
 
+func _create_client(address: String) -> Node:
+	var client: Node = load("res://scripts/ai_gateway/http_ai_client.gd").new()
+	root.add_child(client)
+	var config: RefCounted = load("res://scripts/ai_gateway/ai_config.gd").new()
+	config.use_local_embedded = false
+	config.service_url = address
+	config.backend = "openai"
+	config.timeout_sec = 10.0
+	config.fast_timeout_sec = 10.0
+	client.configure(config)
+	return client
+
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() < 6:
@@ -112,15 +124,7 @@ func _run() -> void:
 	var subscribers: Array = []
 	var stats: Array = []
 	for team in 2:
-		var client: Node = load("res://scripts/ai_gateway/http_ai_client.gd").new()
-		root.add_child(client)
-		var config: RefCounted = load("res://scripts/ai_gateway/ai_config.gd").new()
-		config.use_local_embedded = false
-		config.service_url = args[team]
-		config.backend = "openai"
-		config.timeout_sec = 10.0
-		config.fast_timeout_sec = 10.0
-		client.configure(config)
+		var client := _create_client(args[team])
 		var started: Dictionary = await client.post_match_start({"match_id": match_id, "teams": [{"team": team}]})
 		if started.get("ok") != true:
 			push_error("AI DUEL: service for team %d did not start: %s" % [team, client.last_error])

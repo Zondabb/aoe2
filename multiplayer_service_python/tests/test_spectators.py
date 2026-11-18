@@ -285,6 +285,15 @@ def test_http_and_websocket_spectator_lifecycle():
         keyframe = {"type": "keyframe", "request_id": request["request_id"], "tick": 3, "state": {"x": 1}, "checksum": "a" * 64}
         host.send_json(keyframe)
         assert viewer.receive_json() == keyframe
+        assert found["premier_broadcasts"] is True
+        speech = {"type": "premier_broadcast", "match_id": found["match_id"], "team": 1 - found["host_team"],
+                  "lines": [{"id": "b-1", "seq": 0, "kind": "decision", "priority": 1, "trigger": "order",
+                             "text": "开始采金。", "final": True}]}
+        host.send_json(speech)
+        assert guest.receive_json() == speech
+        for peer in (viewer, host):
+            peer.send_json({"type": "ping"})
+            assert peer.receive_json() == {"type": "pong"}
         viewer.send_json({"type": "finish_match", "winner": 0})
         assert viewer.receive_json()["code"] == "forbidden"
         host.send_json({"type": "finish_match", "winner": 1})

@@ -28,12 +28,28 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
+def premier_reply(payload: dict) -> dict:
+    context = json.loads(planning_context(payload)["content"])
+    if "order" in context:
+        plan = {"grasp": "exact", "thinking": f"收到{context['order']}。", "decision": "调配村民采集食物。",
+                "mandates": [{"kind": "boost_resource", "subject": "food", "amount": 0, "urgency": "normal"}]}
+    else:
+        plan = {"tiers": {row["id"]: row["tier"] for row in context["requests"]}, "posture": context["posture"],
+                "thinking": "已核对各部需求。", "decision": "维持安排。"}
+    return {"id": "test-premier", "model": payload["model"], "choices": [{"index": 0,
+            "finish_reason": "tool_calls", "message": {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "plan", "type": "function", "function": {"name": "propose_plan", "arguments": json.dumps(plan)}}]}}]}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", required=True)
     parser.add_argument("--protocol", choices=("v3", "v2"), default="v3",
                         help="v3 specialist planning (default), or legacy v2 commander regression")
+    parser.add_argument("--cabinet", action="store_true", help="Check private premier subtitles and speech on two online peers")
     args = parser.parse_args()
+    if args.cabinet and args.protocol != "v3":
+        parser.error("--cabinet requires v3")
     root = Path(__file__).resolve().parents[1]
     logs = Path(tempfile.mkdtemp(prefix="ai-autoplay-e2e-", dir=root / ".godot"))
     mock = MockStrategist()
@@ -52,7 +68,9 @@ def main() -> int:
             # Ensure cancellation occurs while a real upstream HTTP call is pending.
             time.sleep(0.25)
             with mock_lock:
-                if args.protocol == "v3":
+                if args.cabinet:
+                    result = premier_reply(payload)
+                elif args.protocol == "v3":
                     tools = [tool.get("function", {}).get("name") for tool in payload.get("tools", [])]
                     if "propose_plan" not in tools:
                         self.send_error(400, "v3 must offer propose_plan")
@@ -93,6 +111,9 @@ def main() -> int:
     config, env = mock_service_settings(logs, f"http://127.0.0.1:{upstream.server_port}/v1",
                                         "mock-role-planner" if args.protocol == "v3" else "mock-strategist")
     env.update(AOE2_AI_URL=f"http://127.0.0.1:{ai_port}", AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(relay_port))
+    env.update(AOE2_MP_LEADERBOARD_DB=str(logs / "leaderboard.sqlite3"), AOE2_AI_LOG_DIR=str(logs / "ai-logs"))
+    if args.cabinet:
+        env["AOE2_AI_RUNTIME"] = "cabinet"
     # The game URL override would defeat the explicit dead-endpoint test.
     game_env = dict(env)
     game_env.pop("AOE2_AI_URL", None)
@@ -113,17 +134,18 @@ def main() -> int:
 
     def wait_health(url: str, process: subprocess.Popen) -> None:
         deadline = time.monotonic() + 15
+        last_error = None
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RuntimeError("temporary service exited")
+                raise RuntimeError(f"service for {url} exited with code {process.returncode}")
             try:
                 with urlopen(url, timeout=0.5) as response:
                     if response.status == 200:
                         return
-            except OSError:
-                pass
+            except OSError as error:
+                last_error = error
             time.sleep(0.1)
-        raise RuntimeError("temporary service startup timed out")
+        raise RuntimeError(f"health check timed out for {url}: {last_error}")
 
     def wait_clients(clients: list[subprocess.Popen], labels: list[str], marker: str) -> None:
         deadline = time.monotonic() + 120
@@ -154,13 +176,17 @@ def main() -> int:
         wait_health(f"http://127.0.0.1:{ai_port}/health", service)
         wait_health(f"http://127.0.0.1:{relay_port}/healthz", relay)
         ai_url = f"http://127.0.0.1:{ai_port}"
-        single = godot("run_ai_autoplay.gd", "single", [ai_url, f"http://127.0.0.1:{dead_port}", args.protocol])
-        wait_clients([single], ["single"], "AI AUTOPLAY SINGLE:")
-        if not saw_instructions.is_set():
-            raise RuntimeError("Player instructions did not reach the upstream model")
+        if not args.cabinet:
+            single = godot("run_ai_autoplay.gd", "single", [ai_url, f"http://127.0.0.1:{dead_port}", args.protocol])
+            wait_clients([single], ["single"], "AI AUTOPLAY SINGLE:")
+            if not saw_instructions.is_set():
+                raise RuntimeError("Player instructions did not reach the upstream model")
         peers = [godot("run_ai_autoplay_peer.gd", f"peer-{side}",
-                       [f"ws://127.0.0.1:{relay_port}/ws", ai_url, args.protocol]) for side in range(2)]
+                       [f"ws://127.0.0.1:{relay_port}/ws", ai_url, "cabinet" if args.cabinet else args.protocol]) for side in range(2)]
         wait_clients(peers, ["peer-0", "peer-1"], "AI AUTOPLAY PEER:")
+        if args.cabinet:
+            print(f"PREMIER BROADCAST E2E PASSED; logs: {logs}")
+            return 0
         if online_instructions != {0, 1}:
             raise RuntimeError(f"Both online teams' instructions must reach separate model contexts: {online_instructions}")
         if args.protocol == "v3":

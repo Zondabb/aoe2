@@ -33,7 +33,11 @@ def mock_service_settings(logs: Path, upstream_url: str, model: str) -> tuple[Pa
     # Empty environment values do not override config.local.toml. Select the
     # isolated config explicitly and remove all inherited provider overrides.
     env = {key: value for key, value in os.environ.items()
-           if not key.startswith(("AOE2_AI_", "AOE2_LLM_"))}
+           if not key.startswith(("AOE2_AI_", "AOE2_LLM_")) and key.lower() not in ("all_proxy", "no_proxy")}
+    # All mock requests are local HTTP. httpx otherwise initializes an
+    # inherited catch-all SOCKS transport even for an exempt loopback URL.
+    previous_bypass = os.environ.get("no_proxy") or os.environ.get("NO_PROXY", "")
+    env["NO_PROXY"] = ",".join(filter(None, (previous_bypass, "127.0.0.1", "localhost")))
     # All seven roles must be observable within short opt-in/cancel tests.
     # Keep the harness quota bounded and independent of the operator's quota.
     env["AOE2_AI_MODEL_CALLS_PER_MINUTE"] = "12"

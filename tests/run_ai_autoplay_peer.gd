@@ -13,6 +13,9 @@ var failures: Array[String] = []
 var guest_resumed := false
 var manual_unit: Node
 var instruction_sent_at := 0.0
+var cabinet := false
+var premier: Node
+var checked_reply := false
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -26,6 +29,9 @@ func check(ok: bool, label: String) -> void:
 func _run() -> void:
 	Engine.time_scale = 1.0
 	var args := OS.get_cmdline_user_args()
+	cabinet = args.size() > 2 and args[2] == "cabinet"
+	if cabinet:
+		node_added.connect(_install_recording_voice)
 	network = root.get_node("NetworkSession")
 	session = root.get_node("GameSession")
 	session.ai_service_url = args[1]
@@ -46,6 +52,33 @@ func _run() -> void:
 		if message.get("type") == "command" and message.get("command", {}).get("op") == "stop":
 			guest_resumed = true)
 	check(network.join_queue(args[0], "Autoplay test", "chinese") == OK, "join real relay")
+
+func _install_recording_voice(node: Node) -> void:
+	if node.name != "PremierPanel": return
+	premier = node
+	premier.voice = load("res://tests/fixtures/fake_premier_voice.gd").new()
+	premier.add_child(premier.voice)
+
+func _check_private_reply() -> bool:
+	var own := "队伍%d：增加食物采集" % network.team
+	var enemy := "队伍%d：" % (1 - int(network.team))
+	var expected := "收到%s。" % own
+	var shown := false
+	for row: Dictionary in premier.shown():
+		check(not str(row).contains(enemy), "subtitles contain no opposing order")
+		if row.heading == "回应指令：" + own and row.thinking == expected and row.decision == "调配村民采集食物。":
+			shown = true
+	var spoken := 0
+	var decision_spoken := false
+	for utterance: Dictionary in premier.voice.spoken:
+		check(not utterance.text.contains(enemy), "speech contains no opposing order")
+		if utterance.text == expected: spoken += 1
+		if utterance.text == "调配村民采集食物。": decision_spoken = true
+	if not shown or spoken == 0 or not decision_spoken: return false
+	check(spoken == 1, "own private reply spoken exactly once")
+	checked_reply = true
+	print("Premier team=", network.team, " host=", network.is_host(), " subtitle and speech=", expected)
+	return true
 
 func _matched(info: Dictionary) -> void:
 	session.online_active = true
@@ -69,6 +102,12 @@ func _process(delta: float) -> bool:
 	checkbox = world.get_node("UILayer/AiAutoplayControls/Panel/Row/AutoplayCheck")
 	playing_elapsed += delta
 	if phase == 0:
+		if cabinet:
+			premier.voice.voice_enabled = true
+			premier.voice.subtitles = true
+			root.get_node("GameAudio").muted = false
+			control.premier_spoke.connect(func(side: int, _lines: Array):
+				check(side == network.team, "only local broadcasts reach the UI signal"))
 		check(not checkbox.button_pressed and not checkbox.disabled, "online starts with an available manual checkbox")
 		if not network.is_host():
 			check(not control.set_team_enabled(network.host_team, true), "guest cannot directly control host")
@@ -97,11 +136,13 @@ func _process(delta: float) -> bool:
 		check(true, "external Python orders are simulated and replicated for own team")
 		phase = 3
 	elif phase == 3:
+		if cabinet and premier.voice.is_reading(): premier.voice.fall_silent()
 		var cancel_at := instruction_sent_at + (12.0 if network.is_host() else 14.0)
 		if playing_elapsed < cancel_at: return false
 		if not network.is_host():
 			if control.capture_states()[str(network.host_team)].enabled: return false
 			check(not control.capture_states()[str(network.host_team)].enabled and control.capture_states()[str(session.online_team)].enabled, "host cancellation leaves guest AI running")
+		if cabinet and not _check_private_reply(): return false
 		checkbox.button_pressed = false
 		phase = 4
 	elif phase == 4:
@@ -137,5 +178,6 @@ func _has_orders(team: int) -> bool:
 	return false
 
 func _finish() -> void:
+	if cabinet: check(checked_reply, "verified private subtitles and speech before leaving")
 	print("AI AUTOPLAY PEER: team=%d %d checks, %d failures" % [session.online_team, checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)

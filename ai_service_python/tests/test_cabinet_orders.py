@@ -134,8 +134,8 @@ def test_an_interpretation_is_checked_against_the_catalog_and_repaired(civ, age,
     ("teutons", [m("worker_target")], "worker_target 需要 amount：村民总数"),
     ("teutons", [m("stockpile", "camel", 5)], "条顿造不了 camel，也没有相近的兵种"),
     ("teutons", [m("research", "elite_chu_ko_nu")], "条顿不能研究 elite_chu_ko_nu，这条升级线上也没有能研究的"),
-    ("teutons", [m("conquer")], "kind 'conquer' 不在允许的九种里"),
-    ("teutons", ["attack"], "kind 'attack' 不在允许的九种里"),
+    ("teutons", [m("conquer")], "kind 'conquer' 不在允许的任务类型里"),
+    ("teutons", ["attack"], "kind 'attack' 不在允许的任务类型里"),
 ])
 def test_what_cannot_be_repaired_is_named_for_the_model(civ, said, problem):
     grounded = ground(said, civ, 2)

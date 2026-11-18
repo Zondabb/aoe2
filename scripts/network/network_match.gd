@@ -557,9 +557,19 @@ func _send_keyframe(request_id: String) -> void:
 		keyframes_sent += 1
 
 
+func forward_premier_broadcast(side: int, lines: Array) -> void:
+	if is_host and _playing and not _terminal and session != null and side == 1 - local_team:
+		session.send_premier_broadcast(side, lines)
+
+
 func _on_message(message: Dictionary) -> void:
 	if _terminal or not _playing: return
 	match String(message.get("type", "")):
+		"premier_broadcast":
+			if not is_host and not spectator and message.team == local_team:
+				var controller := _ai_controller()
+				if controller != null:
+					controller.premier_spoke.emit(local_team, message.lines)
 		"command":
 			if not is_host: return
 			var side := int(message.get("team", -1))

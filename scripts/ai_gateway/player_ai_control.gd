@@ -250,6 +250,12 @@ func _available() -> bool:
 
 
 func _on_premier_spoke(team: int, lines: Array) -> void:
+	if _ended: return
+	if online and team != local_team:
+		var network := Commands.runtime(self)
+		if network != null:
+			network.forward_premier_broadcast(team, lines)
+		return
 	premier_spoke.emit(team, lines)
 
 

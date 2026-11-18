@@ -54,6 +54,8 @@ def can_plan_settlement(
     definitions: dict[str, dict] = BUILDINGS,
     resources: list[dict[str, Any]] | None = None,
     map_bounds: tuple[float, float, float, float] | None = None,
+    *,
+    lane_width: float = SETTLEMENT_LANE_WIDTH,
 ) -> bool:
     """Leave visual clearance and worker lanes without changing build legality.
 
@@ -77,7 +79,7 @@ def can_plan_settlement(
         name = str(existing.get("def_id", ""))
         other_fp = definitions.get(name, {}).get("footprint", (1.0, 1.0))
         other_half = tuple(side * 0.5 for side in planning_size(name, other_fp))
-        if _boxes_overlap(center, half, existing.get("pos", (0.0, 0.0)), other_half):
+        if _boxes_overlap(center, half, existing.get("pos", (0.0, 0.0)), other_half, lane_width):
             return False
     resource_footprints = {"FOOD": 0.8, "WOOD": 1.2, "GOLD": 2.0, "STONE": 2.0}
     for resource in resources or []:
@@ -85,15 +87,15 @@ def can_plan_settlement(
             continue
         side = resource_footprints.get(str(resource.get("resource_type", "")).upper(), 0.0)
         other_half = (side * SETTLEMENT_FOOTPRINT_SCALE * 0.5,) * 2
-        if _boxes_overlap(center, half, resource.get("pos", (0.0, 0.0)), other_half):
+        if _boxes_overlap(center, half, resource.get("pos", (0.0, 0.0)), other_half, lane_width):
             return False
     return True
 
 
-def _boxes_overlap(center: tuple, half: tuple, other_center: tuple | list, other_half: tuple) -> bool:
+def _boxes_overlap(center: tuple, half: tuple, other_center: tuple | list, other_half: tuple, lane_width: float) -> bool:
     return all(
         abs(float(center[axis]) - float(other_center[axis]))
-        < half[axis] + other_half[axis] + SETTLEMENT_LANE_WIDTH
+        < half[axis] + other_half[axis] + lane_width
         for axis in (0, 1)
     )
 

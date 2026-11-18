@@ -1,7 +1,11 @@
-"""Defense: the wall around the base and its gates. Towers arrive in phase 7."""
+"""Defense: walls and gates around the base, and towers ordered by the premier."""
 from __future__ import annotations
 
-from .base import Department
+from brain.land_progression import CATALOG
+
+from ..orders import TOWER_LINE, needs_of
+from ..towers import site_options, tower_type
+from .base import Department, ORDERED_BUILDING_PRIORITY
 
 URGENT_RANK, ROUTINE_RANK = 90, 55
 
@@ -16,9 +20,12 @@ class DefenseDept(Department):
         self.scene: dict | None = None
         self.options: list[dict] | None = None
         self.spare: list[dict] = []     # options the stock can pay for without touching the wall reserve
+        self.tower_order = None
 
     def update(self, f, mandates, brief) -> None:
-        fortify = next((m for m in self.mine(mandates) if m.kind == "fortify"), None)
+        mine = self.mine(mandates)
+        fortify = next((m for m in mine if m.kind == "fortify"), None)
+        self.tower_order = next((m for m in mine if m.kind == "towers" and m.amount), None)
         self.tune_while("defense", fortify is not None, policy="fortify")
         if fortify is not None:
             self.serve(("wall",), fortify)
@@ -33,6 +40,8 @@ class DefenseDept(Department):
     def draft(self, f) -> None:
         engine = self.field
         self.begin()
+        if self.tower_order is not None:
+            self._draft_towers(f)
         role = engine.roles["defense"]
         # Routine walls are built from surplus: the stock keeps the plan's wood
         # reserve and a little food once the line is paid for.
@@ -46,6 +55,43 @@ class DefenseDept(Department):
             self.want(("wall",), best["building_def_id"], best["cost"], count=int(best["segment_count"]), total=best["cost"],
                       urgency=2 if urgent else 1, rank=URGENT_RANK if urgent else ROUTINE_RANK)
         self.settle()
+
+    def _draft_towers(self, f) -> None:
+        engine, mandate = self.field, self.tower_order
+        towers = [b for b in f.buildings if b.get("def_id") in TOWER_LINE and b.get("hp", 1) > 0]
+        remaining = mandate.amount - len(towers)
+        if remaining <= 0:
+            return
+        # A receipt can precede the foundation in the observation.
+        if any(t["command"].get("op") == "place_building" and t["command"].get("building_def_id") in TOWER_LINE
+               and t["status"] in ("dispatched", "accepted") for t in engine.tasks.values()):
+            return
+        name = tower_type(f)
+        definition = {**CATALOG["buildings"][name], **f.building_defs.get(name, {})}
+        f.building_defs = {**f.building_defs, name: definition}
+        unlocked = engine._unlocked_for_saving(f, definition)
+        if unlocked:
+            # Gather for the next tower while the crew finishes the current one.
+            for resource, amount in definition["cost"].items():
+                engine.demands[resource] += amount
+        if any(not b.get("is_complete") for b in towers):
+            return
+        needs = needs_of(mandate, f)
+        if not unlocked:
+            needs = needs or (definition.get("blocked_reason") or "tower_locked",)
+        else:
+            # Only this cabinet frame sees these candidates. The ordinary crew,
+            # validator, treasury and game executor still handle the purchase.
+            offered = f.context.get("construction_options", [])
+            if not any(o.get("building_def_id") == name for o in offered):
+                options = site_options(f, engine, name, towers)
+                if options:
+                    f.context = {**f.context, "construction_options": [*offered, *options]}
+                else:
+                    needs = ("visible_tower_site_and_builder",)
+        key = ("building", name)
+        self.serve(key, mandate)
+        self.want(key, name, definition["cost"], count=remaining, needs=needs, rank=ORDERED_BUILDING_PRIORITY)
 
     def act(self, f) -> None:
         engine = self.field

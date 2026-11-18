@@ -7,6 +7,7 @@ var _controller: Node
 ## Subtitles and speech for what this player's premier says while the AI plays for them.
 ## Stays null when the panel's script cannot be loaded; everything else here works without it.
 var _premier: Control
+var _starting_broadcasts: Array[Array] = []
 var _panel: PanelContainer
 var _check: CheckBox
 var _follow: CheckBox
@@ -134,7 +135,15 @@ func _build_premier_panel(style: StyleBoxFlat) -> void:
 func _on_premier_spoke(team: int, lines: Array) -> void:
 	# A player sees and hears only their own premier.
 	var local: Variant = _controller.get("local_team") if is_instance_valid(_controller) else null
-	if _premier == null or local == null or team != int(local) or not _premier.visible:
+	if not is_inside_tree() or _premier == null or local == null or team != int(local):
+		return
+	if not _premier.visible:
+		# A private message can arrive before the replica applies the AI-enable frame.
+		var state: Dictionary = _controller.local_state()
+		if state.enabled and state.status in ["pending", "connecting"]:
+			if _starting_broadcasts.size() == _premier.KEPT:
+				_starting_broadcasts.pop_front()
+			_starting_broadcasts.append(lines)
 		return
 	_premier.call("receive", lines)
 	call_deferred("_sync_layout")
@@ -291,7 +300,7 @@ func _bind_controller() -> void:
 
 
 func _sync_state() -> void:
-	if not is_instance_valid(_controller):
+	if not is_inside_tree() or not is_instance_valid(_controller):
 		return
 	var state: Dictionary = _controller.call("local_state")
 	var enabled := bool(state.get("enabled", false))
@@ -310,6 +319,12 @@ func _sync_state() -> void:
 		if _premier.visible and not hosted:
 			_premier.call("clear")
 		_premier.visible = hosted
+		if hosted:
+			for lines in _starting_broadcasts:
+				_premier.call("receive", lines)
+			_starting_broadcasts.clear()
+		elif not enabled or status not in ["pending", "connecting"]:
+			_starting_broadcasts.clear()
 	_follow.visible = enabled and status == "active" and has_node("../../Camera2D/BroadcastDirector")
 	_check.set_pressed_no_signal(enabled)
 	# Connecting can be cancelled immediately. Only an unacknowledged online

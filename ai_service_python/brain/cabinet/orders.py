@@ -37,7 +37,8 @@ GRASPS = ("exact", "approx", "guess", "none")
 URGENCIES = ("normal", "rush")
 # The kinds an order may be interpreted into, and the department each belongs to.
 KIND_DEPT = {"boost_resource": "economy", "worker_target": "economy", "stockpile": "general", "attack": "general", "hold": "general",
-             "fortify": "defense", "advance_age": "tech", "research": "tech", "scout": "intel"}
+             "fortify": "defense", "towers": "defense", "advance_age": "tech", "research": "tech", "scout": "intel"}
+TOWER_LINE = ("watch_tower", "guard_tower", "keep")
 # Derived only, never asked of the model: a building some other mandate needs.
 BUILD = "build"
 AGE_NAMES = ("黑暗时代", "封建时代", "城堡时代", "帝王时代")
@@ -143,7 +144,7 @@ def ground(raw: list, civ: str, age: int, origin: str = ROUTINE) -> Grounding:
     chosen: dict[tuple, Mandate] = {}
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict) or item.get("kind") not in KIND_DEPT:
-            result.problems.append(f"kind {item.get('kind') if isinstance(item, dict) else item!r} 不在允许的九种里")
+            result.problems.append(f"kind {item.get('kind') if isinstance(item, dict) else item!r} 不在允许的任务类型里")
             continue
         kind, subject = item["kind"], str(item.get("subject") or "")
         amount = item.get("amount") if isinstance(item.get("amount"), int) and not isinstance(item.get("amount"), bool) else None
@@ -182,6 +183,11 @@ def ground(raw: list, civ: str, age: int, origin: str = ROUTINE) -> Grounding:
             elif amount > STOCKPILE_CAP:
                 result.notes.append(f"{amount} 个超过一次指令的上限，按 {STOCKPILE_CAP} 个执行")
                 amount = STOCKPILE_CAP
+        elif kind == "towers":
+            subject = ""
+            if amount is None:
+                amount = 1
+                result.notes.append("没有说箭塔数量，先按 1 座执行")
         elif kind == "research":
             if subject not in TECHS:
                 result.problems.append(f"research 的 subject 必须是 names.techs 里的 id，不能是 {subject or '空'}")
@@ -252,6 +258,10 @@ def prerequisites(mandate: Mandate, f) -> list[Mandate]:
         producer = record.get("train_at")
         if producer and not _owned(f, producer):
             child(builder(producer), BUILD, producer)
+    elif mandate.kind == "towers":
+        required_age = CATALOG["buildings"]["watch_tower"]["required_age"]
+        if f.progression_enabled and f.age < required_age:
+            child("tech", "advance_age", amount=required_age)
     elif mandate.kind == "research" and mandate.subject in TECHS:
         record = TECHS[mandate.subject]
         if record["required_age"] > f.age:
@@ -352,6 +362,9 @@ def progress(mandate: Mandate, f, engine, since: float = 0.0) -> tuple[bool, str
         return have >= mandate.amount, f"{have}/{mandate.amount}"
     if mandate.kind == "worker_target" and mandate.amount:
         have = sum(u.get("def_id") == "villager" for u in f.units)
+        return have >= mandate.amount, f"{have}/{mandate.amount}"
+    if mandate.kind == "towers" and mandate.amount:
+        have = sum(1 for b in f.buildings if b.get("def_id") in TOWER_LINE and b.get("is_complete") and b.get("hp", 1) > 0)
         return have >= mandate.amount, f"{have}/{mandate.amount}"
     if mandate.kind == "advance_age" and mandate.amount is not None:
         return f.age >= mandate.amount, AGE_NAMES[min(3, f.age)]

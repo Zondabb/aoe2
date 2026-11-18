@@ -22,6 +22,7 @@ FIELDS = {
     "cancel_queue": {"type"},
     "ready": {"type"},
     "command": {"type", "seq", "command"},
+    "premier_broadcast": {"type", "match_id", "team", "lines"},
     "frame": {"type", "tick", "commands", "checksum"},
     "ack": {"type", "tick", "checksum"},
     "request_keyframe": {"type"},
@@ -46,11 +47,27 @@ def _identifier(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value) is not None
 
 
+def _premier_line(line: Any) -> bool:
+    required = {"id", "seq", "kind", "text", "trigger", "priority"}
+    return (isinstance(line, dict) and required <= line.keys() <= required | {"order", "about", "final"}
+            and isinstance(line["id"], str) and 0 < len(line["id"]) <= 64
+            and type(line["seq"]) is int and 0 <= line["seq"] < 8
+            and line["kind"] in ("thinking", "decision")
+            and isinstance(line["text"], str) and bool(line["text"].strip()) and len(line["text"]) <= 1024
+            and line["trigger"] in ("order", "change", "threat", "done")
+            and type(line["priority"]) is int and 0 <= line["priority"] <= 2
+            and ("order" not in line or type(line["order"]) is int and 0 <= line["order"] <= MAX_SAFE_INTEGER)
+            and ("about" not in line or isinstance(line["about"], str) and len(line["about"]) <= 240)
+            and ("final" not in line or type(line["final"]) is bool))
+
+
 def _command(command: Any, settings: Settings) -> None:
     if not isinstance(command, dict) or not isinstance(command.get("op"), str) or not command["op"]:
         raise ProtocolError("invalid_payload", "command must contain a string op")
     if any(key in command for key in ("team", "player_id", "match_id", "host_team")):
         raise ProtocolError("invalid_payload", "Command identity is assigned by the service")
+    if command["op"] == "premier_broadcast":
+        raise ProtocolError("invalid_payload", "Premier broadcasts require the private presentation channel")
     if command.get("op") == "ai_instruction":
         text = command.get("text")
         if set(command) != {"op", "text"} or not isinstance(text, str) or not text.strip() or len(text) > 240:
@@ -122,6 +139,11 @@ def parse_message(raw: str, settings: Settings) -> dict:
         match_id = data["match_id"]
         if not _identifier(match_id):
             raise ProtocolError("invalid_payload", "match_id must be a valid match identifier")
+    elif kind == "premier_broadcast":
+        if (not _identifier(data["match_id"]) or type(data["team"]) is not int or data["team"] not in (0, 1)
+                or not isinstance(data["lines"], list) or not 1 <= len(data["lines"]) <= 8
+                or not all(_premier_line(line) for line in data["lines"])):
+            raise ProtocolError("invalid_payload", "Invalid premier broadcast")
     elif kind == "command":
         if type(data["seq"]) is not int or not 0 < data["seq"] <= MAX_SAFE_INTEGER:
             raise ProtocolError("invalid_sequence", "seq must be a positive safe integer")

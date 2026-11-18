@@ -52,6 +52,48 @@ def keyframe(request, tick=0):
             "state": {"world": {"entities": []}, "simulation": {"next_id": 1}}, "checksum": HASH}
 
 
+PREMIER_LINE = {"id": "b-1", "seq": 0, "kind": "decision", "text": "守住本队城镇中心。", "trigger": "order",
+                "priority": 1, "order": 1, "about": "先防守", "final": True}
+
+
+@pytest.mark.parametrize("host_team", [0, 1])
+def test_premier_broadcast_only_reaches_its_player(monkeypatch, host_team):
+    monkeypatch.setattr("multiplayer_service_python.matchmaking.secrets.randbelow", lambda n: host_team if n == 2 else 123)
+
+    async def scenario():
+        mm = Matchmaker(Settings())
+        room, host, guest = await started(mm)
+        viewer = await spectator(mm, room)
+        packet = {"type": "premier_broadcast", "match_id": room.id, "team": guest.team, "lines": [PREMIER_LINE]}
+        await mm.handle(host, parse_message(json.dumps(packet), mm.settings))
+        assert drain(guest) == [packet] and not drain(host) and not drain(viewer)
+        for sender, message in [(guest, packet), (viewer, packet), (host, {**packet, "team": host.team}),
+                                (host, {**packet, "match_id": "0" * 32})]:
+            with pytest.raises(ProtocolError):
+                await mm.handle(sender, message)
+        assert not drain(guest) and not drain(host) and not drain(viewer)
+        await mm.handle(host, frame(3))
+        assert drain(guest) == drain(viewer) == [frame(3)]
+        await mm.handle(host, {"type": "finish_match", "winner": 0})
+        with pytest.raises(ProtocolError):
+            await mm.handle(host, packet)
+        await mm.shutdown()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("fields", [
+    {"lines": []}, {"lines": [PREMIER_LINE] * 9}, {"team": True}, {"match_id": ""},
+    {"lines": [{**PREMIER_LINE, "text": " "}]}, {"lines": [{**PREMIER_LINE, "about": "x" * 241}]},
+    {"lines": [{**PREMIER_LINE, "seq": 0.5}]}, {"lines": [{**PREMIER_LINE, "priority": False}]},
+    {"lines": [{**PREMIER_LINE, "debug": {}}]},
+])
+def test_premier_broadcast_wire_rejects_invalid_payloads(fields):
+    packet = {"type": "premier_broadcast", "match_id": "a" * 32, "team": 0, "lines": [PREMIER_LINE], **fields}
+    with pytest.raises(ProtocolError):
+        parse_message(json.dumps(packet), Settings())
+
+
 @pytest.mark.parametrize("host_team", [0, 1])
 def test_incremental_timeline_and_targeted_recovery(monkeypatch, host_team):
     monkeypatch.setattr("multiplayer_service_python.matchmaking.secrets.randbelow", lambda n: host_team if n == 2 else 123)
@@ -163,6 +205,7 @@ def test_timed_out_and_cancelled_keyframe_responses_are_harmless():
     {"type": "frame", "tick": 2, "commands": [], "checksum": HASH},
     {"type": "frame", "tick": 3, "commands": [], "checksum": "bad"},
     {"type": "frame", "tick": 3, "commands": [{"team": True, "command": {"op": "stop"}}], "checksum": HASH},
+    {"type": "frame", "tick": 3, "commands": [{"team": 1, "command": {"op": "premier_broadcast"}}], "checksum": HASH},
     {"type": "frame", "tick": 3, "commands": [{"team": 0, "command": {"op": "stop", "team": 1}}], "checksum": HASH},
     {"type": "frame", "tick": 3, "commands": [{"team": 0, "command": {"op": "stop"}}] * 65, "checksum": HASH},
     {"type": "ack", "tick": -3, "checksum": HASH},
