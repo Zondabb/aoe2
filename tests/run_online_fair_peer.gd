@@ -116,6 +116,20 @@ func _send(command: Dictionary) -> void:
 	if before != runtime.simulation.checksum(): _fail("input submission changed simulation before its execution frame")
 	invariant_checks += 1
 
+func _orders() -> void:
+	super._orders()
+	var batch: Array = []
+	for unit in runtime.entities.get_children():
+		if unit is UnitAgent and unit.team == runtime.local_team and unit.def.id == &"archer":
+			batch.append({"op": "move", "unit_id": runtime.entity_id(unit), "pos": [unit.sim_pos.x, unit.sim_pos.y + 3]})
+			batch.append({"op": "stop", "unit_id": runtime.entity_id(unit)})
+	if batch.is_empty(): return
+	var before: String = runtime.simulation.checksum()
+	if not runtime.submit_commands(batch): _fail("group orders were not queued")
+	if before != runtime.simulation.checksum(): _fail("batch submission executed early")
+	invariant_checks += 1
+	commands_sent += batch.size()
+
 func _build() -> void:
 	super._build()
 	for unit in runtime.entities.get_children():

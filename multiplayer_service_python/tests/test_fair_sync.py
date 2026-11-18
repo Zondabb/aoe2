@@ -158,3 +158,72 @@ def test_pending_frame_memory_is_bounded():
         assert len(room.input_hashes) == 60
         await mm.shutdown()
     asyncio.run(scenario())
+
+
+def step(tick, **extra):
+    return {"type": "input_step", "tick": tick, "execute_at_usec": tick * 100000, "commands": [], **extra}
+
+
+@pytest.mark.parametrize("host_team", [0, 1])
+def test_combined_steps_preserve_permissions_order_recovery_and_bounded_memory(monkeypatch, host_team):
+    monkeypatch.setattr("multiplayer_service_python.matchmaking.secrets.randbelow", lambda n: host_team if n == 2 else 123)
+
+    async def scenario():
+        mm = Matchmaker(Settings())
+        room, host, guest = await started(mm)
+        viewer = await spectator(mm, room)
+        first = step(3, timing={"speed": 2.0, "input_delay_ticks": 6, "delay_from_tick": 0})
+        assert parse_message(json.dumps(first), Settings()) == first
+        for sender in (guest, viewer):
+            with pytest.raises(ProtocolError):
+                await mm.handle(sender, first)
+        with pytest.raises(ProtocolError):
+            await mm.handle(host, step(6))
+        await mm.handle(host, first)
+        await mm.handle(host, first)
+        assert drain(guest) == [first, first] and not drain(viewer)
+        for changed in (dict(first, commands=[{"team": 0, "seq": 1, "command": {"op": "stop"}}]),
+                        dict(first, execute_at_usec=1), step(3),
+                        dict(first, timing={"speed": 3.0, "input_delay_ticks": 9, "delay_from_tick": 0})):
+            with pytest.raises(ProtocolError, match="immutable"):
+                await mm.handle(host, changed)
+        with pytest.raises(ProtocolError):
+            await mm.handle(host, commit(3))
+        for tick in range(6, 181, 3):
+            packet = step(tick)
+            assert parse_message(json.dumps(packet), Settings()) == packet
+            await mm.handle(host, packet)
+            assert drain(guest) == [packet]
+        assert room.committed_tick == room.announced_tick == 180 and room.input_ack_tick == 0
+        assert len(room.input_hashes) == len(room.input_commits) == 60
+        assert all("commands" not in v for v in room.input_commits.values())
+        with pytest.raises(ProtocolError):
+            await mm.handle(host, step(183))
+        for tick in range(3, 181, 3):
+            await mm.handle(host, frame(tick))
+            assert drain(guest) == drain(viewer) == [frame(tick)]
+        assert not room.input_hashes and not room.input_commits
+        with pytest.raises(ProtocolError):
+            await mm.handle(host, first)
+        await mm.shutdown()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("packet", [
+    step(0), step(1), step(3, execute_at_usec=True), step(3, execute_at_usec=0),
+    step(3, execute_at_usec=2**54), step(3, timing={}), step(3, timing=None),
+    step(3, timing={"speed": True, "input_delay_ticks": 6, "delay_from_tick": 0}),
+    step(3, timing={"speed": 2.0, "input_delay_ticks": 4, "delay_from_tick": 0}),
+    step(3, timing={"speed": 2.0, "input_delay_ticks": 6, "delay_from_tick": -3}),
+    step(3, commands=[{"team": 0, "seq": 1, "command": {"op": "stop"}}] * 63),
+    step(3, commands=[{"team": 0, "seq": 1, "command": {"op": "ai_instruction", "text": "private"}}]),
+    step(3, unexpected=True),
+])
+def test_invalid_compact_step(packet):
+    with pytest.raises(ProtocolError):
+        parse_message(json.dumps(packet), Settings())
+
+
+def test_v6_clients_are_rejected_before_matching():
+    with pytest.raises(ProtocolError, match="protocol_version 8"):
+        parse_message(json.dumps({"type": "join_queue", "protocol_version": 6, "name": "old", "civ": "chinese"}), Settings())

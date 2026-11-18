@@ -9,7 +9,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 6, "name": "Player", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 8, "name": "Player", "civ": "chinese"}
 HASH = "a" * 64
 
 
@@ -29,7 +29,7 @@ async def started(mm):
         found = drain(player)[-1]
         assert found["host_team"] == room.host_team
         assert found["seed"] == room.seed
-        assert found["protocol_version"] == 6
+        assert found["protocol_version"] == 8
         await mm.handle(player, {"type": "ready"})
     for player in players:
         assert drain(player)[-1]["type"] == "start"

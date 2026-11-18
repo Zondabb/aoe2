@@ -16,6 +16,10 @@ var rejected: Array = []
 var planned_tick := 0
 var committed_tick := 0
 var ready_tick := 0
+var _startup_plan_tick := 0
+var _needs_plan_ack := true
+var _last_sent_timing: Dictionary = {}
+var _last_frame_speed := -1.0
 var input_delay_ticks := FRAME
 var _last_manual_target := {0: 0, 1: 0}
 var delay_schedule: Array = []
@@ -197,6 +201,29 @@ func receive(message: Dictionary) -> bool:
 			planned_tick = incoming
 			_ack_plans()
 			return true
+		"input_step":
+			if network.is_host or not network.synchronized: return true
+			var incoming := int(message.tick)
+			if incoming <= network.tick: return true
+			var plan := {"type": "input_frame", "tick": incoming, "commands": message.commands}
+			if commits.has(incoming):
+				if commits[incoming] != message or plans.get(incoming) != plan: network._request_keyframe()
+				return true
+			if incoming != committed_tick + FRAME or incoming != planned_tick + FRAME:
+				network._request_keyframe()
+				return true
+			if message.has("timing"):
+				var timing: Dictionary = message.timing
+				if not _receive_policy(int(timing.delay_from_tick), int(timing.input_delay_ticks)):
+					network._request_keyframe()
+					return true
+				network._apply_match_speed(float(timing.speed))
+			plans[incoming] = plan.duplicate(true)
+			commits[incoming] = message.duplicate(true)
+			planned_tick = incoming
+			committed_tick = incoming
+			_ack_plans()
+			return true
 		"input_ack":
 			if network.is_host: ready_tick = maxi(ready_tick, mini(int(message.tick), planned_tick))
 			return true
@@ -226,8 +253,8 @@ func receive(message: Dictionary) -> bool:
 	return false
 
 func _ack_plans() -> void:
-	if not network.is_host and clock_ready and network.synchronized and planned_tick > network.tick:
-		network.session.send_fair_message({"type": "input_ack", "tick": planned_tick})
+	if _needs_plan_ack and not network.is_host and clock_ready and network.synchronized and planned_tick > network.tick:
+		if network.session.send_fair_message({"type": "input_ack", "tick": planned_tick}): _needs_plan_ack = false
 
 func _prepare() -> void:
 	# Keep multiple committed frames in flight when the link needs it. Limiting
@@ -269,19 +296,26 @@ func _prepare() -> void:
 		var plan := {"type": "input_frame", "tick": target, "commands": commands}
 		plans[target] = plan
 		planned_tick = target
-		if not network.session.send_fair_message(plan): network._abort_sync("提前指令帧发送失败"); return
+		if committed_tick == 0:
+			_startup_plan_tick = target
+			if not network.session.send_fair_message(plan): network._abort_sync("提前指令帧发送失败"); return
 
 func _commit(now: int) -> void:
 	var spacing := roundi(1000000.0 * FRAME / RATE / network.match_speed)
 	var guard := _delivery_usec()
-	# Only startup waits for the guest's clock-calibrated receipt. Thereafter
-	# prepare and commit travel together on the same ordered connection.
+	# Only startup waits for a clock-calibrated receipt. Steady-state plans
+	# and deadlines are sent in one packet immediately, without batch waiting.
 	if committed_tick == 0 and ready_tick == 0: return
 	while committed_tick < planned_tick:
 		var target := committed_tick + FRAME
 		if not plans.has(target): break
 		var start := maxi(_last_commit_at + spacing, now + guard)
 		var message := {"type": "input_commit", "tick": target, "execute_at_usec": start, "speed": network.match_speed, "input_delay_ticks": int(delay_schedule.back().ticks), "delay_from_tick": int(delay_schedule.back().from_tick)}
+		var timing := {"speed": network.match_speed, "input_delay_ticks": int(delay_schedule.back().ticks), "delay_from_tick": int(delay_schedule.back().from_tick)}
+		if target > _startup_plan_tick:
+			message = {"type": "input_step", "tick": target, "execute_at_usec": start, "commands": plans[target].commands}
+			if timing != _last_sent_timing: message["timing"] = timing.duplicate(true)
+		_last_sent_timing = timing
 		commits[target] = message
 		committed_tick = target
 		_last_commit_at = start
@@ -372,8 +406,10 @@ func _finish(target: int) -> void:
 			if states != network._last_ai_states:
 				network._last_ai_states = states.duplicate(true)
 				_frame_accepted.append({"team": network.local_team, "command": {"op": "ai_control_state", "states": states}})
-		if target - network._speed_announced_tick >= network.SPEED_ANNOUNCE_FRAMES * FRAME:
-			network._speed_announced_tick = target
+		# Late spectators restore speed from their keyframe. Repeat it only
+		# when changed, not periodically in otherwise empty completed frames.
+		if network.match_speed != _last_frame_speed:
+			_last_frame_speed = network.match_speed
 			_frame_accepted.append({"team": network.local_team, "command": {"op": "match_speed", "speed": network.match_speed}})
 		if not network.session.send_frame(target, _frame_accepted, network.last_checksum, results): network._abort_sync("执行确认发送失败"); return
 		_resolve(results, target)
@@ -417,6 +453,7 @@ func _resolve(results: Array, at_tick: int) -> void:
 
 func reset(at_tick: int) -> void:
 	reset_clock_sampling()
+	_needs_plan_ack = true
 	plans.clear()
 	commits.clear()
 	completed.clear()
@@ -430,8 +467,11 @@ func resend() -> void:
 	# The relay allows immutable resends of uncompleted prepared frames.
 	for target in plans:
 		if int(target) <= network.tick: continue
-		network.session.send_fair_message(plans[target])
-		if commits.has(target): network.session.send_fair_message(commits[target])
+		if commits.has(target) and commits[target].type == "input_step":
+			network.session.send_fair_message(commits[target])
+		else:
+			network.session.send_fair_message(plans[target])
+			if commits.has(target): network.session.send_fair_message(commits[target])
 
 func drain() -> void:
 	# Match-ended follows the final completed frame. Drain only confirmed ticks,

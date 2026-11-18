@@ -379,19 +379,38 @@ class Matchmaker:
                         if room.id not in self.rooms:
                             break
                         self._emit(member, {"type": "start", "match_id": room.id, **self._simulation_info(room)})
-            elif kind == "command":
+            elif kind in ("command", "command_batch"):
                 room = self._room(player, started=True)
                 if message["seq"] <= player.seq:
                     raise ProtocolError("invalid_sequence", "seq must increase during each match")
                 if message["source_tick"] > room.tick + 180 or message["execute_tick"] > room.tick + 180:
                     raise ProtocolError("invalid_sequence", "Input is too far ahead of the match")
-                player.seq = message["seq"]
+                player.seq = message["seq"] + (len(message["commands"]) - 1 if kind == "command_batch" else 0)
                 outgoing = dict(message)
                 outgoing["team"] = player.team
                 self._emit(room.players[room.host_team], outgoing)
             elif kind in ("clock_probe", "clock_reply"):
                 room = self._room(player, started=True)
                 self._emit(room.players[1 - player.team], {**message, "team": player.team})
+            elif kind == "input_step":
+                room = self._room(player, started=True)
+                if player.team != room.host_team:
+                    raise ProtocolError("forbidden", "Only the host may schedule input steps")
+                tick = message["tick"]
+                digest = hashlib.sha256(json.dumps(message, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                if tick in room.input_commits:
+                    if room.input_commits[tick]["type"] != "input_step" or room.input_hashes[tick] != digest:
+                        raise ProtocolError("invalid_sequence", "Scheduled inputs and deadlines are immutable")
+                elif (tick != room.announced_tick + FRAME_TICKS or tick != room.committed_tick + FRAME_TICKS
+                      or tick > room.tick + 180):
+                    raise ProtocolError("invalid_sequence", "Scheduled steps must be consecutive and bounded")
+                else:
+                    room.announced_tick = room.committed_tick = tick
+                    room.input_hashes[tick] = digest
+                    # Keep only identity/timing, never a second copy of the commands.
+                    room.input_commits[tick] = {"type": "input_step", "tick": tick,
+                                               "execute_at_usec": message["execute_at_usec"]}
+                self._emit(room.players[1 - room.host_team], dict(message))
             elif kind == "input_frame":
                 room = self._room(player, started=True)
                 if player.team != room.host_team:
@@ -441,7 +460,11 @@ class Matchmaker:
                 room.tick = message["tick"]
                 room.input_hashes.pop(room.tick, None)
                 room.input_commits.pop(room.tick, None)
-                self._emit(room.players[1 - room.host_team], dict(message))
+                # Players already executed the prepared commands. Only host-only
+                # control updates still need delivery here; spectators replay all.
+                player_frame = {**message, "commands": [entry for entry in message["commands"]
+                                if entry["command"].get("op") in ("ai_control_state", "match_speed")]}
+                self._emit(room.players[1 - room.host_team], player_frame)
                 if room.id in self.rooms:
                     for spectator in list(room.spectators.values()):
                         if spectator.spectator_ready:

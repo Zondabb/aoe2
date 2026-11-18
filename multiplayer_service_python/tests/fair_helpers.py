@@ -1,4 +1,4 @@
-"""Publish v6 prepare/commit packets before an execution report."""
+"""Publish startup prepare/commit packets before an execution report."""
 
 def commit(tick):
     return {"type": "input_commit", "tick": tick, "execute_at_usec": tick * 100000,

@@ -12,6 +12,11 @@ var state: MatchState
 
 class NetworkStub extends Node:
 	var commands: Array[Dictionary] = []
+	var batches := 0
+	func submit_commands(batch: Array) -> bool:
+		batches += 1
+		for command in batch: commands.append(command)
+		return true
 	func entity_id(entity: Node2D) -> int: return entity.get_instance_id()
 	func submit_command(command: Dictionary) -> bool:
 		commands.append(command)
@@ -161,6 +166,7 @@ func _run() -> void:
 	world.add_child(network)
 	world.set_meta("online_match", true)
 	selection._issue_move(Vector2(10, 10))
+	check(network.batches == 1, "online formation uses one batch submission")
 	check(network.commands.size() == 2 and network.commands[0].pos != network.commands[1].pos, "online formation sends distinct per-unit positions to host")
 	check(network.commands[0].formation_speed == minf(a.def.move_speed, c.def.move_speed), "online group order carries the shared marching speed")
 	world.remove_meta("online_match")
@@ -302,7 +308,7 @@ func _test_input_dispatch(a: UnitAgent, c: UnitAgent, hud: Node) -> void:
 	var target := Vector2(1000, 180)
 	push_mouse(target, MOUSE_BUTTON_RIGHT, true)
 	push_mouse(target, MOUSE_BUTTON_RIGHT, false)
-	check(a.order == Enums.OrderType.MOVE and a._requested_move_target.is_equal_approx(selection._canvas_to_logical(target)), "real right-click sends a move to the ground point")
+	check(a.order == Enums.OrderType.MOVE and a._requested_move_target == preload("res://scripts/core/sim_fixed.gd").quantize_vector(selection._canvas_to_logical(target)), "real right-click sends a move to the ground point")
 	var destination := a._requested_move_target
 	push_mouse(Vector2(30, 55), MOUSE_BUTTON_RIGHT, true)
 	push_mouse(Vector2(30, 55), MOUSE_BUTTON_RIGHT, false)

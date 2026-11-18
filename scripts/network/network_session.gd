@@ -15,7 +15,8 @@ const CONNECT_TIMEOUT := 12.0
 const RECEIVE_TIMEOUT := 25.0
 const READY_TIMEOUT := 40.0
 const PING_INTERVAL := 8.0
-const PROTOCOL_VERSION := 6
+const PROTOCOL_VERSION := 8
+const SnapshotCodec := preload("res://scripts/network/snapshot_codec.gd")
 const TICK_RATE := 30
 const FRAME_TICKS := 3
 const MAX_FRAME_COMMANDS := 64
@@ -172,12 +173,20 @@ func send_scheduled_command(command: Dictionary, seq: int, source: int, target: 
 	_command_seq = maxi(_command_seq, seq)
 	return _send({"type": "command", "seq": seq, "source_tick": source, "execute_tick": target, "command": command})
 
+func send_command_batch(commands: Array, seq: int, source: int, target: int) -> bool:
+	if spectator or _intent != "queue" or state != "playing" or not _valid_batch(commands): return false
+	if not _wire_integer(seq, 1) or not _wire_integer(seq + commands.size() - 1, 1) or not _valid_tick(source) or not _valid_tick(target, false) or target <= source or target > source + 180: return false
+	var message := {"type": "command_batch", "seq": seq, "source_tick": source, "execute_tick": target, "commands": commands}
+	if JSON.stringify(message, "", true, true).to_utf8_buffer().size() > 262144: return false
+	_command_seq = maxi(_command_seq, seq + commands.size() - 1)
+	return _send(message)
+
 func send_fair_message(message: Dictionary) -> bool:
 	if spectator or state != "playing" or team not in [0, 1]: return false
 	var kind := str(message.get("type", ""))
-	if kind in ["input_frame", "input_commit"] and not is_host(): return false
+	if kind in ["input_frame", "input_commit", "input_step"] and not is_host(): return false
 	if kind == "input_ack" and is_host(): return false
-	if kind not in ["input_frame", "input_ack", "input_commit", "clock_probe", "clock_reply"]: return false
+	if kind not in ["input_frame", "input_ack", "input_commit", "input_step", "clock_probe", "clock_reply"]: return false
 	return _send(message)
 
 
@@ -208,7 +217,11 @@ func request_keyframe() -> bool:
 func send_keyframe(request_id: String, tick: int, full_state: Dictionary, checksum: String) -> bool:
 	if not is_host() or state != "playing" or not _valid_request_id(request_id) or not _valid_tick(tick) or full_state.is_empty() or not _valid_checksum(checksum):
 		return false
-	return _send({"type": "keyframe", "request_id": request_id, "tick": tick, "state": full_state, "checksum": checksum})
+	var message := {"type": "keyframe", "request_id": request_id, "tick": tick, "checksum": checksum}
+	var compressed := SnapshotCodec.encode(full_state)
+	if compressed.is_empty(): return false
+	message.merge(compressed)
+	return _send(message)
 
 
 func send_snapshot(_snapshot: Dictionary) -> void:
@@ -391,8 +404,14 @@ func _handle_message(message: Dictionary) -> void:
 				var code := String(message.get("code", ""))
 				var text := _connection_reason(code) if code in ["rate_limited", "slow_consumer", "idle_timeout", "send_timeout"] else String(message.get("message", "未知错误"))
 				_fail("联机服务错误：%s" % text)
-		"command", "frame", "ack", "keyframe_request", "keyframe", "input_frame", "input_ack", "input_commit", "clock_probe", "clock_reply":
+		"command", "command_batch", "frame", "ack", "keyframe_request", "keyframe", "input_frame", "input_ack", "input_commit", "input_step", "clock_probe", "clock_reply":
 			if state not in ["playing", "watching"]: return
+			if message.type == "keyframe" and message.has("codec"):
+				var decoded := SnapshotCodec.decode(message)
+				if decoded.is_empty():
+					_fail("服务器返回了无效的压缩关键帧")
+					return
+				message = {"type": "keyframe", "request_id": message.get("request_id"), "tick": message.get("tick"), "checksum": message.get("checksum"), "state": decoded}
 			if not _valid_incremental_message(message):
 				_fail("服务器返回了无效的增量同步消息")
 				return
@@ -430,6 +449,8 @@ func _valid_incremental_message(message: Dictionary) -> bool:
 	match message.type:
 		"command":
 			return is_host() and _valid_wire_team(message.get("team")) and _wire_integer(message.get("seq"), 1) and _valid_command(message.get("command")) and _valid_tick(message.get("source_tick")) and _valid_tick(message.get("execute_tick"), false) and int(message.execute_tick) > int(message.source_tick) and int(message.execute_tick) <= int(message.source_tick) + 180
+		"command_batch":
+			return is_host() and _valid_wire_team(message.get("team")) and _wire_integer(message.get("seq"), 1) and _valid_batch(message.get("commands")) and _wire_integer(message.seq + message.commands.size() - 1, 1) and _valid_tick(message.get("source_tick")) and _valid_tick(message.get("execute_tick"), false) and int(message.execute_tick) > int(message.source_tick) and int(message.execute_tick) <= int(message.source_tick) + 180
 		"frame":
 			return not is_host() and _valid_tick(message.get("tick"), false) and _valid_commands(message.get("commands")) and _valid_checksum(message.get("checksum")) and _valid_results(message.get("results", []))
 		"ack":
@@ -440,15 +461,29 @@ func _valid_incremental_message(message: Dictionary) -> bool:
 			return not is_host() and _valid_request_id(message.get("request_id")) and _valid_tick(message.get("tick")) and message.get("state") is Dictionary and not message.state.is_empty() and _valid_checksum(message.get("checksum"))
 		"input_frame":
 			return not spectator and not is_host() and _valid_tick(message.get("tick"), false) and _valid_inputs(message.get("commands"))
+		"input_step":
+			if spectator or is_host() or not _valid_tick(message.get("tick"), false) or not _wire_integer(message.get("execute_at_usec"), 1) or not _valid_inputs(message.get("commands")): return false
+			if not message.has("timing"): return true
+			var timing: Variant = message.timing
+			return timing is Dictionary and timing.size() == 3 and _valid_timing(timing)
 		"input_ack":
 			return is_host() and _valid_tick(message.get("tick"), false) and _valid_wire_team(message.get("team")) and int(message.team) != team
 		"input_commit":
-			return not spectator and not is_host() and _valid_tick(message.get("tick"), false) and _wire_integer(message.get("execute_at_usec"), 1) and _valid_tick(message.get("delay_from_tick")) and _valid_tick(message.get("input_delay_ticks"), false) and int(message.input_delay_ticks) <= 180 and (message.get("speed") is int or message.get("speed") is float) and is_finite(float(message.speed)) and float(message.speed) >= 0.25 and float(message.speed) <= 4.0
+			return not spectator and not is_host() and _valid_tick(message.get("tick"), false) and _wire_integer(message.get("execute_at_usec"), 1) and _valid_timing(message)
 		"clock_probe", "clock_reply":
 			return not spectator and _valid_wire_team(message.get("team")) and int(message.team) != team and _wire_integer(message.get("nonce"), 1) and _wire_integer(message.get("sent_usec")) and (message.type == "clock_probe" or _wire_integer(message.get("received_usec")))
 
 	return false
 
+
+func _valid_timing(value: Dictionary) -> bool:
+	return _valid_tick(value.get("delay_from_tick")) and _valid_tick(value.get("input_delay_ticks"), false) and int(value.input_delay_ticks) <= 180 and (value.get("speed") is int or value.get("speed") is float) and is_finite(float(value.speed)) and float(value.speed) >= 0.25 and float(value.speed) <= 4.0
+
+func _valid_batch(value: Variant) -> bool:
+	if value is not Array or value.is_empty() or value.size() > 64: return false
+	for command in value:
+		if not _valid_command(command): return false
+	return true
 
 func _valid_results(value: Variant) -> bool:
 	if value is not Array or value.size() > 256: return false
@@ -531,7 +566,7 @@ func _connection_reason(code: String) -> String:
 
 func _send(message: Dictionary) -> bool:
 	if message.get("type") == "snapshot": return false
-	if (spectator or _intent == "watch") and message.get("type") in ["command", "frame", "keyframe", "ready", "finish_match", "join_queue"]:
+	if (spectator or _intent == "watch") and message.get("type") in ["command", "command_batch", "frame", "keyframe", "ready", "finish_match", "join_queue"]:
 		return false
 	if _peer == null or _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return false

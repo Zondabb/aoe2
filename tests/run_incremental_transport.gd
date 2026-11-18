@@ -1,5 +1,5 @@
 extends SceneTree
-## Protocol v4 transport contracts, independent of gameplay simulation.
+## Protocol v8 transport contracts, independent of gameplay simulation.
 const Session := preload("res://scripts/network/network_session.gd")
 const HASH := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 const MATCH_ID := "0123456789abcdef0123456789abcdef"
@@ -24,7 +24,7 @@ func check(ok: bool, message: String) -> void:
 
 func info(side := 0, host := 1) -> Dictionary:
 	return {"type": "match_found", "match_id": MATCH_ID, "team": side, "host_team": host,
-		"protocol_version": 6, "seed": 1923, "tick_rate": 30, "frame_ticks": 3,
+		"protocol_version": 8, "seed": 1923, "tick_rate": 30, "frame_ticks": 3,
 		"players": [{"team": 0, "name": "甲", "civ": "chinese"}, {"team": 1, "name": "乙", "civ": "teutons"}]}
 
 func configured(side := 0, host := 1) -> RecordingSession:
@@ -79,14 +79,53 @@ func _run() -> void:
 	old.protocol_version = 1
 	check(not session._valid_match(old), "legacy protocol rejected")
 	old.protocol_version = 5
-	check(not session._valid_match(old), "fixed-window v5 cannot join adaptive-window v6")
+	check(not session._valid_match(old), "v5 cannot join compact v8")
 	var commitment := {"type": "input_commit", "tick": 3, "execute_at_usec": 1000000, "speed": 2.0, "input_delay_ticks": 6, "delay_from_tick": 30}
-	check(session._valid_incremental_message(commitment), "v6 commit contains a future source-tick policy")
+	check(session._valid_incremental_message(commitment), "startup commit contains a future source-tick policy")
 	for invalid in [-3, 1, 3.5, "30"]:
 		commitment.delay_from_tick = invalid
 		check(not session._valid_incremental_message(commitment), "commit rejects invalid policy boundary")
 	commitment.erase("delay_from_tick")
 	check(not session._valid_incremental_message(commitment), "commit requires an explicit policy boundary")
+	old.protocol_version = 6
+	check(not session._valid_match(old), "v6 cannot join compact v8")
+	var step := {"type": "input_step", "tick": 6, "execute_at_usec": 1100000, "commands": []}
+	check(session._valid_incremental_message(step), "compact step needs no repeated timing policy")
+	step.timing = {"speed": 3.0, "input_delay_ticks": 9, "delay_from_tick": 0}
+	check(session._valid_incremental_message(step), "compact step can announce changed timing")
+	step.timing.speed = true
+	check(not session._valid_incremental_message(step), "compact timing rejects booleans")
+	step.erase("timing")
+	step.execute_at_usec = 1.5
+	check(not session._valid_incremental_message(step), "compact deadline requires an integer")
+	old.protocol_version = 7
+	check(not session._valid_match(old), "v7 cannot join v8")
+	var batch: Array = []
+	for i in 50: batch.append({"op": "move", "unit_id": i + 1, "pos": [float(i), 2.0], "formation_speed": 4.0})
+	var batch_before := session.sent.size()
+	check(session.send_command_batch(batch, 100, 0, 6), "50-unit formation can use one transport message")
+	check(session.sent.size() == batch_before + 1 and session.sent.back().commands == batch and session._command_seq == 149, "batch preserves targets and reserves consecutive sequence numbers")
+	check(not session.send_command_batch([], 150, 0, 6), "empty batch rejected")
+	batch.append({"op": "stop", "team": 1, "unit_id": 1})
+	check(not session.send_command_batch(batch, 150, 0, 6), "spoofed member rejects entire transport batch")
+	var snapshot := {"world": {"name": "压缩测试", "entities": []}, "simulation": {"positions": [1.125, -2.25], "counter": 123456}}
+	for i in 100: snapshot.world.entities.append({"id": i, "kind": "villager", "position": [i, i]})
+	var expected_snapshot: Dictionary = JSON.parse_string(JSON.stringify(snapshot, "", true, true))
+	var packed := Session.SnapshotCodec.encode(snapshot)
+	check(Session.SnapshotCodec.decode(packed) == expected_snapshot, "compressed keyframe preserves Unicode and numeric state")
+	check(JSON.stringify(packed).length() < JSON.stringify(snapshot).length(), "repeated world state shrinks after base64 encoding")
+	for invalid_size in [0, -1, 1.5, true, Session.SnapshotCodec.MAX_RAW_BYTES + 1]:
+		var bad := packed.duplicate(true)
+		bad.raw_size = invalid_size
+		check(Session.SnapshotCodec.decode(bad).is_empty(), "snapshot expanded size is strictly bounded")
+	var invalid_codec := packed.duplicate(true)
+	invalid_codec.codec = "unknown"
+	check(Session.SnapshotCodec.decode(invalid_codec).is_empty(), "unknown compression rejected")
+	var envelope := {"type": "keyframe", "request_id": MATCH_ID, "tick": 0, "checksum": HASH}
+	envelope.merge(packed)
+	session.message_received.connect(func(message: Dictionary): received.append(message))
+	session._handle_message(envelope)
+	check(received.back().get("state") == expected_snapshot and not received.back().has("data"), "runtime receives decoded keyframe through normal validation path")
 	var changed := info()
 	changed.seed = 999
 	check(not session._same_match_parameters(changed), "start cannot change the agreed simulation seed")

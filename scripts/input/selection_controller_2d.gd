@@ -236,7 +236,7 @@ func _issue_move(target: Vector2, show_marker := true) -> void:
 	if not is_finite(group_speed) or movers.size() <= 1: group_speed = 0.0
 	for index in movers.size():
 		movers[index].set_meta("manual_formation", formation_mode)
-		PlayerCommands.unit_order(self, movers[index], "move", destinations[index], group_speed)
+	PlayerCommands.move_group(self, movers, destinations, group_speed)
 	if show_marker:
 		_show_move_marker(target)
 

@@ -24,6 +24,8 @@ def main() -> None:
     parser.add_argument("--godot", required=True)
     parser.add_argument("--default-map", action="store_true")
     parser.add_argument("--host-team", type=int, choices=(0, 1))
+    parser.add_argument("--traffic-report", action="store_true",
+                        help="record relay JSON bytes by message type, separately from keyframe bursts")
     parser.add_argument("--delay-ms", type=float, default=25)
     parser.add_argument("--jitter-ms", type=float, default=10)
     parser.add_argument("--max-input-ms", type=float, default=0,
@@ -71,6 +73,11 @@ def main() -> None:
                     f"p=patch('multiplayer_service_python.matchmaking.secrets.randbelow',side_effect=lambda n:{args.host_team} if n==2 else original(n)); "
                     "p.start(); runpy.run_module('multiplayer_service_python.main',run_name='__main__')")
             server_command = [sys.executable, "-c", code]
+        if args.traffic_report:
+            server_command = [sys.executable, "-m", "tools.trace_multiplayer_traffic", "serve",
+                              str(logs / "traffic.jsonl")]
+            if args.host_team is not None:
+                server_command += ["--host-team", str(args.host_team)]
         launch("server", server_command)
         deadline = time.monotonic() + 15
         while True:
@@ -115,6 +122,19 @@ def main() -> None:
                 assert report["frame_bytes"] / report["frames"] < 4096, report
                 assert report["commands"] > 0, report
         assert len({(r["tick"], r["checksum"]) for r in reports}) == 1, reports
+        if args.traffic_report:
+            from trace_multiplayer_traffic import summarize
+            traffic = summarize(logs / "traffic.jsonl")
+            (logs / "traffic-summary.json").write_text(json.dumps(traffic, indent=2), encoding="utf-8")
+            assert any(r["type"] == "input_step" for r in traffic["steady"]), traffic
+            assert not any(r["type"] in ("input_frame", "input_commit", "input_ack") for r in traffic["steady"]), traffic
+            assert not any(traffic["steady_duplicate_preparations"].values()), traffic
+            assert traffic["steady_timing_updates"] == 0, traffic
+            assert traffic["guest_repeated_game_commands"] == 0, traffic
+            assert all(r["codec"] == "zlib" and r["bytes"] < r["raw_size"] for r in traffic["keyframes"]), traffic
+            if not args.default_map:
+                assert traffic["batches"] and all(r["commands"] >= 2 for r in traffic["batches"]), traffic
+            print(f"TRAFFIC REPORT: {logs / 'traffic-summary.json'}")
         players = [r for r in reports if r["team"] in (0, 1)]
         for report in players:
             if args.max_final_window_ms:

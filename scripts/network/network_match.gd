@@ -214,6 +214,36 @@ func submit_command(command: Dictionary) -> bool:
 	return bool(session.call("send_command", command))
 
 
+## One input action keeps a common source/target frame and consecutive sequences.
+## Split only transport envelopes; per-unit validation and fair queue limits stay.
+func submit_commands(commands: Array) -> bool:
+	if commands.is_empty() or spectator or not synchronized or local_team not in [0, 1] or not _playing or _terminal or match_state == null or match_state.frozen: return false
+	for command in commands:
+		if command is not Dictionary or not COMMAND_FIELDS.has(command.get("op")): return false
+		for key in command:
+			if key not in COMMAND_FIELDS[command.op]: return false
+	if fair == null:
+		var accepted := true
+		for command in commands:
+			if not submit_command(command): accepted = false
+		return accepted
+	var source: int = fair.source_tick()
+	var target: int = source + fair.delay_for_source(source)
+	var accepted := true
+	for offset in range(0, commands.size(), 64):
+		var batch: Array = commands.slice(offset, offset + 64)
+		var first_seq := _local_input_seq + 1
+		_local_input_seq += batch.size()
+		if is_host:
+			for i in batch.size():
+				if fair.enqueue(batch[i], local_team, first_seq + i, source, target): command_submitted.emit(first_seq + i, source, target)
+				else: accepted = false
+		elif session.send_command_batch(batch, first_seq, source, target):
+			for i in batch.size(): command_submitted.emit(first_seq + i, source, target)
+		else: accepted = false
+	return accepted
+
+
 ## Validate wire types before calling the shared gameplay validator/executor.
 func execute_team_command(command: Dictionary, sender_team: int, ai_context: CommandExecutionContext = null, ai_original: Dictionary = {}) -> bool:
 	if (not is_host and not _replaying) or not _playing or _terminal or match_state == null or match_state.frozen:
@@ -589,6 +619,11 @@ func _on_message(message: Dictionary) -> void:
 	if _terminal or not _playing: return
 	if fair != null and fair.receive(message): return
 	match String(message.get("type", "")):
+		"command_batch":
+			if not is_host: return
+			for i in message.commands.size():
+				_on_message({"type": "command", "team": message.team, "seq": int(message.seq) + i,
+					"source_tick": message.source_tick, "execute_tick": message.execute_tick, "command": message.commands[i]})
 		"command":
 			if not is_host: return
 			var side := int(message.get("team", -1))

@@ -11,6 +11,9 @@ class Transport extends Node:
 	func send_fair_message(message: Dictionary) -> bool:
 		sent.append(message.duplicate(true))
 		return true
+	func send_command_batch(commands: Array, seq: int, source: int, target: int) -> bool:
+		sent.append({"type": "command_batch", "seq": seq, "source_tick": source, "execute_tick": target, "commands": commands.duplicate(true)})
+		return true
 	func leave() -> void: pass
 	func send_frame(_tick: int, _commands: Array, _hash: String, _results: Array = []) -> bool: return true
 	func finish_match(_winner: int) -> void: pass
@@ -147,6 +150,46 @@ func _run() -> void:
 	pipeline._prepare()
 	pipeline._commit(now + 50000)
 	check(pipeline.committed_tick > first_commit and pipeline.ready_tick == first_commit, "steady state commits without another round trip")
+	check(net.session.sent.back().type == "input_step" and not net.session.sent.back().has("timing"), "steady frame combines commands and deadline without repeating settings")
+	var sent_step: Dictionary = net.session.sent.back().duplicate(true)
+	var sent_before: int = net.session.sent.size()
+	pipeline.resend()
+	var replays: Array = net.session.sent.slice(sent_before)
+	check(sent_step in replays, "recovery replays immutable combined packets")
+	# Guest consumption, one receipt per synchronization, and snapshot recovery.
+	net.is_host = false
+	net.tick = int(sent_step.tick) - 3
+	var compact := Fair.new()
+	compact.setup(net)
+	compact.clock_ready = true
+	var before_step: String = net.simulation.checksum()
+	compact.receive(sent_step)
+	check(compact.committed_tick == sent_step.tick and compact.plans.has(int(sent_step.tick)), "combined frame installs plan and deadline atomically")
+	check(net.simulation.checksum() == before_step, "receiving combined frame does not execute it")
+	var after_first_receipt: int = net.session.sent.size()
+	compact.receive(sent_step)
+	compact._ack_plans()
+	check(net.session.sent.size() == after_first_receipt, "duplicate frames and clock samples do not repeat preparation ACKs")
+	var next_step := {"type": "input_step", "tick": int(sent_step.tick) + 3, "execute_at_usec": int(sent_step.execute_at_usec) + 50000, "commands": []}
+	compact.receive(next_step)
+	check(net.session.sent.size() == after_first_receipt, "steady frame emits no preparation ACK")
+	compact.reset(int(sent_step.tick))
+	compact.receive(next_step)
+	check(net.session.sent.size() == after_first_receipt + 1 and compact.committed_tick == next_step.tick, "recovery accepts combined replay and acknowledges once")
+	net.is_host = true
+	# Changing the timing policy is announced once, while unchanged policies
+	# stay absent from subsequent frames; the snapshot carries the full history.
+	net.tick = int(next_step.tick)
+	pipeline.delay_schedule.append({"from_tick": net.tick + 30, "ticks": 9})
+	var before_policy: int = net.session.sent.size()
+	pipeline._prepare()
+	pipeline._commit(now + 150000)
+	var announcements: Array = net.session.sent.slice(before_policy).filter(func(packet: Dictionary): return packet.has("timing"))
+	check(announcements.size() == 1 and announcements[0].timing.input_delay_ticks == 9, "changed timing is included once in the combined frame")
+	net.tick += 3
+	pipeline._prepare()
+	pipeline._commit(now + 200000)
+	check(not net.session.sent.back().has("timing"), "unchanged timing is omitted again after announcement")
 	# The same real-time budget scales ticks with the configured game speed.
 	for speed in [1.0, 2.0, 3.0, 4.0]:
 		net.match_speed = speed
@@ -237,6 +280,25 @@ func _run() -> void:
 	var unchanged_state: String = net.simulation.checksum()
 	check(net.submit_command(move), "runtime accepts a delayed order for a future execution frame")
 	check(unit.position == unchanged_position and net.simulation.checksum() == unchanged_state, "submitting in delay-only mode changes no gameplay state or presentation")
+	net.is_host = false
+	var batch: Array = []
+	for i in 65: batch.append({"op": "move", "unit_id": id, "pos": [target.x + i, target.y]})
+	var before_batch: int = net.session.sent.size()
+	var before_seq: int = net._local_input_seq
+	check(net.submit_commands(batch), "large group splits into bounded batches")
+	var packets: Array = net.session.sent.slice(before_batch)
+	check(packets.size() == 2 and packets[0].commands.size() == 64 and packets[1].commands.size() == 1, "65 orders use two envelopes")
+	check(packets[0].seq == before_seq + 1 and packets[1].seq == before_seq + 65 and packets[0].source_tick == packets[1].source_tick, "chunks keep common source and contiguous sequence order")
+	check(net.simulation.checksum() == unchanged_state, "batch submission never executes early")
+	net.is_host = true
+	net.fair = Fair.new()
+	net.fair.setup(net)
+	var routed: Dictionary = packets[0].duplicate(true)
+	routed.team = 1
+	net._on_message(routed)
+	check(net.fair.pending.size() == 64 and net._command_sequences[1] == before_seq + 64, "host expands batch into individually ordered pending commands")
+	net._on_message(routed)
+	check(net.fair.pending.size() == 64, "replayed batch cannot enqueue duplicates")
 	scene.queue_free()
 	await process_frame
 	print("ONLINE FAIR: %d checks, %d failures" % [checks, failures.size()])

@@ -11,7 +11,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 6, "name": "玩家", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 8, "name": "玩家", "civ": "chinese"}
 
 
 def pair(host, guest):
