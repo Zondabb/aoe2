@@ -1,6 +1,6 @@
 extends Node
 
-## Player opt-in control. Only the host simulates AI in an online match.
+## Player opt-in control. Each player connects their own external service.
 signal state_changed
 
 const Gateway := preload("res://scripts/ai_gateway/ai_gateway.gd")
@@ -18,9 +18,6 @@ var _states: Dictionary = {
 	"0": {"enabled": false, "status": "off", "message": "手动操作"},
 	"1": {"enabled": false, "status": "off", "message": "手动操作"},
 }
-var _pending := false
-var _pending_enabled := false
-var _pending_since := 0
 var _elapsed := 0.0
 var _ended := false
 var _last_available := false
@@ -39,26 +36,10 @@ func setup(bootstrap: Node) -> void:
 func local_state() -> Dictionary:
 	var result: Dictionary = _states[str(local_team)].duplicate(true)
 	result["available"] = _available()
-	if _pending:
-		result["enabled"] = _pending_enabled
-		result["status"] = "pending"
-		result["message"] = "等待主机确认…"
 	return result
 
 
 func request_local_enabled(value: bool) -> bool:
-	if _pending or (value and not _available()):
-		state_changed.emit()
-		return false
-	var network := Commands.runtime(self)
-	if online:
-		if network == null or not network.submit_command({"op": "set_ai_control", "enabled": value}):
-			return false
-		_pending = true
-		_pending_enabled = value
-		_pending_since = Time.get_ticks_msec()
-		state_changed.emit()
-		return true
 	return set_team_enabled(local_team, value)
 
 
@@ -67,25 +48,18 @@ func request_local_instruction(message: String) -> bool:
 	if not state.available or not state.enabled or state.status != "active": return false
 	var instruction := message.strip_edges()
 	if instruction.is_empty() or message.length() > AiProtocol.MAX_PLAYER_INSTRUCTION_LENGTH: return false
-	if online and not has_authority():
-		return Commands.runtime(self).submit_command({"op": "ai_instruction", "text": instruction})
 	return accept_instruction(local_team, instruction)
 
 func accept_instruction(team: int, message: String) -> bool:
-	if not has_authority() or not _available() or not _gateways.has(team): return false
+	if team != local_team or not _available() or not _gateways.has(team): return false
 	var gateway: AiGateway = _gateways[team]
 	return gateway.add_player_instruction(team, message)
 
 func set_team_enabled(team: int, value: bool) -> bool:
-	# Online guests never instantiate a Gateway or execute AI orders locally.
-	if team not in [0, 1] or not has_authority():
-		return false
-	if not online and team != local_team:
+	if team not in [0, 1] or team != local_team:
 		return false
 	if value and not _available():
 		return false
-	if team == local_team and _pending and _pending_enabled == value:
-		_pending = false
 	if not value:
 		_remove_gateway(team)
 		_set_state(team, false, "ended" if _ended else "off", "对局已结束" if _ended else "手动操作")
@@ -132,17 +106,12 @@ static func external_config(team: int = -1) -> AiConfig:
 func team_service_url(team: int) -> String:
 	if team not in [0, 1]:
 		return ""
-	if online and not has_authority():
-		return str(_states[str(team)].get("service_url", ""))
+	if online and team != local_team: return ""
 	return external_config(team).service_url
 
 
 func request_team_service_url(team: int, url: String) -> bool:
-	# A guest cannot turn the host into an HTTP proxy, even for its own team.
-	if team not in [0, 1] or _ended or not has_authority():
-		return false
-	if not online and team != local_team:
-		return false
+	if team not in [0, 1] or team != local_team or _ended: return false
 	var normalized := Settings.normalize_ai_service_url(url)
 	if normalized.is_empty():
 		return false
@@ -160,43 +129,8 @@ func request_team_service_url(team: int, url: String) -> bool:
 	return true
 
 
-func capture_states() -> Dictionary:
-	var result := _states.duplicate(true)
-	for team in [0, 1]:
-		result[str(team)]["service_url"] = team_service_url(team)
-	return result
-
-
-func apply_remote_states(states: Dictionary) -> void:
-	if not online or has_authority() or _ended:
-		return
-	for team in ["0", "1"]:
-		var value: Variant = states.get(team)
-		if value is not Dictionary or value.get("enabled") is not bool or value.get("status") not in ["off", "connecting", "active", "error", "ended"] or value.get("message") is not String:
-			return
-	_states = states.duplicate(true)
-	if _pending and bool(_states[str(local_team)].enabled) == _pending_enabled:
-		_pending = false
-	state_changed.emit()
-
-
-## Replayed enable commands affect the guest's UI only. NetworkMatch alone
-## decides when the host creates or stops the actual external AI gateway.
-func apply_remote_team_enabled(team: int, value: bool) -> bool:
-	if not online or has_authority() or team not in [0, 1] or _ended: return false
-	_set_state(team, value, "connecting" if value else "off", "等待主机 AI 服务…" if value else "手动操作")
-	return true
-
-
-func has_authority() -> bool:
-	if not online: return true
-	var network := Commands.runtime(self)
-	return network != null and network.get("is_host") == true
-
-
 func stop_all() -> void:
 	_ended = true
-	_pending = false
 	for team in _gateways.keys():
 		_remove_gateway(team)
 	for team in [0, 1]:
@@ -221,9 +155,6 @@ func _process(delta: float) -> void:
 	if match_state.winner != -1:
 		stop_all()
 		return
-	if _pending and Time.get_ticks_msec() - _pending_since >= 5000:
-		_pending = false
-		state_changed.emit()
 	for team in _gateways.keys():
 		var gateway: AiGateway = _gateways[team]
 		if not gateway.enabled:
@@ -242,7 +173,7 @@ func _available() -> bool:
 		return false
 	if online:
 		var network := Commands.runtime(self)
-		return network != null and bool(network.get("_playing")) and bool(network.get("synchronized")) and not bool(network.get("_terminal"))
+		return network != null and not bool(network.get("spectator")) and bool(network.get("_playing")) and bool(network.get("synchronized")) and not bool(network.get("_terminal"))
 	return true
 
 
@@ -256,8 +187,6 @@ func _remove_gateway(team: int) -> void:
 
 func _set_state(team: int, enabled: bool, status: String, message: String) -> void:
 	var value := {"enabled": enabled, "status": status, "message": message}
-	if team == local_team and _pending and enabled == _pending_enabled:
-		_pending = false
 	if _states[str(team)] == value:
 		return
 	_states[str(team)] = value

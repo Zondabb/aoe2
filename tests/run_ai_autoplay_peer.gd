@@ -74,18 +74,11 @@ func _process(delta: float) -> bool:
 			check(not control.set_team_enabled(network.host_team, true), "guest cannot directly control host")
 		checkbox.button_pressed = true
 		check(control.local_state().enabled, "own checkbox requests AI control")
-		if not network.is_host():
-			check(control.local_state().status == "pending" and checkbox.disabled, "guest waits for host acknowledgement")
 		phase = 1
 	elif phase == 1:
-		var states: Dictionary = control.capture_states()
-		if not states["0"].enabled or not states["1"].enabled or states[str(session.online_team)].status != "active": return false
-		check(checkbox.button_pressed and not checkbox.disabled, "authoritative active state returns to checkbox")
-		if network.is_host():
-			check(control._gateways.size() == 2, "host owns separate external AI gateways for both teams")
-			check(control._gateways[0].config.uses_multi_agent_protocol() == session.ai_multi_agent_enabled and control._gateways[1].config.uses_multi_agent_protocol() == session.ai_multi_agent_enabled, "both authoritative gateways honor v3 or explicit legacy mode")
-		else:
-			check(control._gateways.is_empty(), "guest never creates or executes local AI")
+		if control.local_state().status != "active": return false
+		check(checkbox.button_pressed and not checkbox.disabled, "local state drives checkbox")
+		check(control._gateways.size() == 1 and control._gateways.has(session.online_team), "one local gateway regardless of host")
 		var input: LineEdit = world.get_node("UILayer/AiAutoplayControls")._instruction
 		input.text = "队伍%d：增加食物采集" % session.online_team
 		input.text_submitted.emit(input.text)
@@ -99,9 +92,6 @@ func _process(delta: float) -> bool:
 	elif phase == 3:
 		var cancel_at := instruction_sent_at + (12.0 if network.is_host() else 14.0)
 		if playing_elapsed < cancel_at: return false
-		if not network.is_host():
-			if control.capture_states()[str(network.host_team)].enabled: return false
-			check(not control.capture_states()[str(network.host_team)].enabled and control.capture_states()[str(session.online_team)].enabled, "host cancellation leaves guest AI running")
 		checkbox.button_pressed = false
 		phase = 4
 	elif phase == 4:

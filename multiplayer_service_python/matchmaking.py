@@ -463,7 +463,7 @@ class Matchmaker:
                 # Players already executed the prepared commands. Only host-only
                 # control updates still need delivery here; spectators replay all.
                 player_frame = {**message, "commands": [entry for entry in message["commands"]
-                                if entry["command"].get("op") in ("ai_control_state", "match_speed")]}
+                                if entry["command"].get("op") == "match_speed"]}
                 self._emit(room.players[1 - room.host_team], player_frame)
                 if room.id in self.rooms:
                     for spectator in list(room.spectators.values()):

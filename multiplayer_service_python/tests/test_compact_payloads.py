@@ -43,8 +43,7 @@ def test_batched_sequence_identity_and_player_frame_deduplication(monkeypatch, h
         with pytest.raises(ProtocolError):
             await mm.handle(viewer, batch())
         move = {"team": guest.team, "command": {"op": "move", "unit_id": 1, "pos": [1, 4]}}
-        updates = [{"team": host.team, "command": {"op": "match_speed", "speed": 2.0}},
-                   {"team": host.team, "command": {"op": "ai_control_state", "states": {}}}]
+        updates = [{"team": host.team, "command": {"op": "match_speed", "speed": 2.0}}]
         outcome = {"team": guest.team, "seq": 1, "accepted": True}
         completed = dict(frame(3), commands=[move, *updates], results=[outcome])
         await publish(mm, host, completed)
@@ -100,3 +99,17 @@ def test_compressed_keyframe_remains_compressed_in_targeted_relay():
         await mm.shutdown()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("packet", [
+    batch(commands=[{"op": "set_ai_control", "enabled": True}]),
+    batch(commands=[{"op": "move", "unit_id": 1, "pos": [1, 2], "service_url": "private"}]),
+    dict(frame(3), commands=[{"team": 0, "command": {"op": "ai_control_state", "states": {}}}]),
+    {"type": "input_step", "tick": 3, "execute_at_usec": 1000,
+     "commands": [{"team": 0, "seq": 0, "command": {"op": "stop", "unit_id": 1}, "ai": {}}]},
+    compressed(b'{"world":{"ai_control":{"0":{"service_url":"private"}}}}'),
+    compressed(b'{"fair":{"generations":{},"controls":{}}}'),
+])
+def test_private_controller_data_is_rejected_on_gameplay_routes(packet):
+    with pytest.raises(ProtocolError):
+        parse_message(json.dumps(packet), Settings())

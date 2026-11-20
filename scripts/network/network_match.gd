@@ -47,7 +47,7 @@ const MAX_QUEUED_FRAMES := 60
 const MIN_MATCH_SPEED := 0.25
 const MAX_MATCH_SPEED := 4.0
 const SPEED_ANNOUNCE_FRAMES := 30
-## Two pseudo-operations (AI states, match speed) share the 64-entry frame.
+## Reserve room for frame control updates.
 const MAX_FRAME_PLAYER_COMMANDS := 62
 const SNAPSHOT_INTERVAL := FRAME_INTERVAL # Legacy profiling constant, no periodic snapshots.
 const SNAPSHOT_TIMEOUT := 20.0
@@ -62,8 +62,7 @@ const COMMAND_FIELDS := {
 	"research_age": ["op", "building_id"], "cancel_research_age": ["op", "building_id"],
 	"research_technology": ["op", "building_id", "technology_id"], "cancel_technology": ["op", "building_id", "technology_id"],
 	"place_wall": ["op", "builder_id", "building_def_id", "start", "end", "include_gate", "append_queue"],
-	"set_gate_state": ["op", "building_id", "gate_state"], "set_ai_control": ["op", "enabled"],
-	"ai_instruction": ["op", "text"],
+	"set_gate_state": ["op", "building_id", "gate_state"],
 }
 
 
@@ -114,7 +113,9 @@ var _replaying := false
 var _frame_running := false
 var _pending_winner := -1
 var _resync_attempts := 0
-var _last_ai_states: Dictionary = {}
+## Private observation metadata indexed by this player's input sequence.
+var _local_order_notes: Dictionary = {}
+var _pending_manual_actors: Dictionary = {}
 ## Steps already executed of the frame in progress (0 = at a frame boundary).
 var _frame_step := 0
 var _frame_tick := 0
@@ -133,7 +134,7 @@ var _draining := false
 var _render_frame := -1
 var _render_frame_steps := 0
 var fair: RefCounted
-var _scheduled_ai := false
+
 var _local_input_seq := 0
 var match_speed := 1.0
 var _speed_announced_tick := -1000000
@@ -205,13 +206,25 @@ func submit_command(command: Dictionary) -> bool:
 		if is_host: accepted = fair.enqueue(command, local_team, _local_input_seq, source, target)
 		else: accepted = session.send_scheduled_command(command, _local_input_seq, source, target)
 		if accepted:
-			command_submitted.emit(_local_input_seq, source, target)
+			_submitted(command, _local_input_seq, source, target)
 		return accepted
 	if is_host:
 		return _queue_command(command, local_team)
 	if session == null:
 		return false
 	return bool(session.call("send_command", command))
+
+
+func _submitted(command: Dictionary, seq: int, source: int, target: int) -> void:
+	var actor := int(command.get("unit_id", command.get("builder_id", command.get("building_id", -1))))
+	if actor > 0: _pending_manual_actors[seq] = actor
+	command_submitted.emit(seq, source, target)
+
+
+func resolve_local_input(seq: int, accepted: bool, at_tick: int) -> void:
+	_local_order_notes.erase(seq)
+	_pending_manual_actors.erase(seq)
+	command_resolved.emit(seq, accepted, at_tick)
 
 
 ## One input action keeps a common source/target frame and consecutive sequences.
@@ -236,16 +249,16 @@ func submit_commands(commands: Array) -> bool:
 		_local_input_seq += batch.size()
 		if is_host:
 			for i in batch.size():
-				if fair.enqueue(batch[i], local_team, first_seq + i, source, target): command_submitted.emit(first_seq + i, source, target)
+				if fair.enqueue(batch[i], local_team, first_seq + i, source, target): _submitted(batch[i], first_seq + i, source, target)
 				else: accepted = false
 		elif session.send_command_batch(batch, first_seq, source, target):
-			for i in batch.size(): command_submitted.emit(first_seq + i, source, target)
+			for i in batch.size(): _submitted(batch[i], first_seq + i, source, target)
 		else: accepted = false
 	return accepted
 
 
 ## Validate wire types before calling the shared gameplay validator/executor.
-func execute_team_command(command: Dictionary, sender_team: int, ai_context: CommandExecutionContext = null, ai_original: Dictionary = {}) -> bool:
+func execute_team_command(command: Dictionary, sender_team: int, seq: int = 0) -> bool:
 	if (not is_host and not _replaying) or not _playing or _terminal or match_state == null or match_state.frozen:
 		return false
 	if sender_team not in [0, 1] or command.size() > 10:
@@ -256,20 +269,6 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 	if command.get("op") is not String:
 		return false
 	var op := String(command.op)
-	if op == "set_ai_control":
-		# The relay owns sender_team; a peer cannot select another player's team.
-		if command.size() != 2 or command.get("enabled") is not bool:
-			return false
-		var controller := _ai_controller()
-		if _replaying and controller == null: return true
-		if controller == null or not controller.has_method("set_team_enabled"):
-			return false
-		if _replaying:
-			controller.call("apply_remote_team_enabled", sender_team, command.enabled)
-			return true
-		var accepted := bool(controller.call("set_team_enabled", sender_team, command.enabled))
-		_snapshot_elapsed = SNAPSHOT_INTERVAL
-		return true if fair != null else accepted
 	var required: Dictionary = {
 		"move": ["unit_id"], "stop": ["unit_id"], "gather": ["unit_id", "target_id"],
 		"build": ["unit_id", "building_id"], "attack": ["unit_id", "target_id"],
@@ -282,7 +281,6 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 		return false
 	var translated := {"op": op}
 	for key in required[op]:
-		if (_scheduled_ai or (fair == null and (_replaying or ai_context != null))) and op == "place_building" and key == "builder_id": continue
 		if not command.has(key):
 			return false
 	for key in ["unit_id", "target_id", "building_id", "builder_id"]:
@@ -357,14 +355,11 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 		if command.get("technology_id") is not String or String(command.technology_id).length() > 128:
 			return false
 		translated["technology_id"] = command.technology_id
-	var context := ai_context if ai_context != null else Context.new()
+	var context := Context.new()
 	context.match_state = match_state
 	context.entities = entities
 	context.team = sender_team as Enums.Team
 	context.civ = _civs.get(sender_team) as CivDef
-	if ai_context != null:
-		for key in ["command_id", "task_id", "session_epoch", "expires_at_sim_time"]:
-			if ai_original.has(key): translated[key] = ai_original[key]
 	var result := Executor.execute(translated, context)
 	if result.get("reason") == "duplicate_skipped": return false
 	if bool(result.get("ok", false)):
@@ -372,7 +367,14 @@ func execute_team_command(command: Dictionary, sender_team: int, ai_context: Com
 			var mover := _resolve(int(command.unit_id))
 			if mover.has_method("set_formation_move_speed"):
 				mover.call("set_formation_move_speed", float(command.formation_speed))
-		if ai_context == null and not _scheduled_ai: Registry.report_manual_command(translated, sender_team, result)
+		if sender_team == local_team and _local_order_notes.has(seq):
+			var note: Dictionary = _local_order_notes[seq]
+			var actor := Registry.resolve(int(translated.get("unit_id", translated.get("builder_id", translated.get("building_id", -1)))))
+			if actor != null and not note.is_empty():
+				if actor.get("def") is UnitDef: note["order_signature"] = Registry.order_signature(actor)
+				actor.set_meta("ai_command_lineage", note)
+		elif sender_team == local_team:
+			Registry.report_manual_command(translated, sender_team, result)
 	return bool(result.get("ok", false))
 
 
@@ -521,22 +523,46 @@ func _queue_command(command: Dictionary, side: int) -> bool:
 	return true
 
 
-## AI decisions use the host's existing validator but wait for the same frame
-## boundary as manual input. Only primitive gameplay fields cross the wire.
+## Translate local controller IDs and submit through the player's ordinary input path.
 func queue_ai_command(command: Dictionary, context: CommandExecutionContext) -> Dictionary:
-	if not is_host or not synchronized or _terminal or _pending_commands.size() >= 256:
+	if context.team != local_team or spectator or not synchronized or _terminal:
 		return {"ok": false, "reason": "network_not_ready"}
 	if command.get("op") == "noop": return {"ok": true, "reason": ""}
 	var wire := {}
-	for key in ["op", "unit_id", "target_id", "building_id", "builder_id", "pos", "formation_speed", "orientation", "building_def_id", "start", "end", "include_gate", "append_queue", "gate_state", "unit_def_id", "queue_id", "technology_id"]:
+	if not COMMAND_FIELDS.has(command.get("op")): return {"ok": false, "reason": "unsupported_op"}
+	for key in COMMAND_FIELDS[command.op]:
 		if not command.has(key): continue
 		if key in ["unit_id", "target_id", "building_id", "builder_id"]:
 			var node := Registry.resolve(int(command[key]))
 			if node == null: return {"ok": false, "reason": "missing_entity"}
 			wire[key] = entity_id(node)
 		else: wire[key] = command[key]
-	if fair != null: return fair.enqueue_ai(JSON.parse_string(JSON.stringify(wire, "", true, true)), context, command)
-	_pending_commands.append({"team": int(context.team), "command": JSON.parse_string(JSON.stringify(wire, "", true, true)), "ai_original": command.duplicate(true), "ai_context": context})
+	if wire.op == "place_building" and not wire.has("builder_id"):
+		var nearest: UnitAgent
+		var best := INF
+		for entity in entities.get_children():
+			if entity is UnitAgent and entity.team == local_team and entity.def.id == &"villager" and entity.hp > 0 and not entity.is_queued_for_deletion():
+				var distance: float = entity.sim_pos.distance_squared_to(_vec(wire.pos))
+				if distance < best:
+					best = distance
+					nearest = entity
+		if nearest == null: return {"ok": false, "reason": "missing_builder"}
+		wire.builder_id = entity_id(nearest)
+	var actor := int(wire.get("unit_id", wire.get("builder_id", wire.get("building_id", -1))))
+	if actor > 0 and _pending_manual_actors.values().has(actor):
+		return {"ok": false, "reason": "manual_control_hold"}
+	var command_id := str(command.get("command_id", ""))
+	if not submit_command(wire): return {"ok": false, "reason": "network_not_ready"}
+	var seq := _local_input_seq
+	_pending_manual_actors.erase(seq)
+	if fair == null and is_host:
+		_local_input_seq += 1
+		seq = _local_input_seq
+		_pending_commands.back()["seq"] = seq
+	_local_order_notes[seq] = {}
+	if not command_id.is_empty():
+		context.executed_command_ids[command_id] = true
+		_local_order_notes[seq] = {"command_id": command_id, "task_id": str(command.get("task_id", "")), "session_epoch": context.session_epoch, "issued_at_sim_time": context.sim_time}
 	return {"ok": true, "reason": "queued_for_frame"}
 
 
@@ -555,27 +581,12 @@ func _begin_host_frame() -> void:
 	var batch := _pending_commands.slice(0, MAX_FRAME_PLAYER_COMMANDS)
 	_pending_commands = _pending_commands.slice(batch.size())
 	for item in batch:
-		# The text belongs only to this player's host-side gateway. The resulting
-		# validated gameplay orders go into subsequent lockstep frames as usual.
-		if item.command.get("op") == "ai_instruction":
-			var ai := _ai_controller()
-			if ai != null and item.command.get("text") is String:
-				ai.accept_instruction(int(item.team), item.command.text)
-			continue
-		var ok := false
-		if item.has("ai_context"):
-			ok = execute_team_command(item.command, int(item.team), item.ai_context, item.ai_original)
-		else:
-			ok = execute_team_command(item.command, int(item.team))
+		var seq := int(item.get("seq", 0))
+		var ok := execute_team_command(item.command, int(item.team), seq)
+		if int(item.team) == local_team: _local_order_notes.erase(seq)
 		if ok:
 			_index_host_entities()
 			accepted.append({"team": int(item.team), "command": item.command})
-	var controller := _ai_controller()
-	if controller != null:
-		var states: Dictionary = controller.call("capture_states")
-		if states != _last_ai_states:
-			_last_ai_states = states.duplicate(true)
-			accepted.append({"team": local_team, "command": {"op": "ai_control_state", "states": states}})
 	if tick - _speed_announced_tick >= SPEED_ANNOUNCE_FRAMES * FRAME_TICKS:
 		_speed_announced_tick = tick
 		accepted.append({"team": local_team, "command": {"op": "match_speed", "speed": match_speed}})
@@ -606,7 +617,7 @@ func _finish_host_frame() -> void:
 
 func _send_keyframe(request_id: String) -> void:
 	var full: Dictionary = simulation.call("capture")
-	if fair != null: full["fair"] = {"generations": fair._generations, "controls": fair._control_generations, "input_delay_ticks": fair.delay_for_source(fair.source_tick()), "speed": match_speed, "delay_schedule": fair.delay_schedule.duplicate(true)}
+	if fair != null: full["fair"] = {"input_delay_ticks": fair.delay_for_source(fair.source_tick()), "speed": match_speed, "delay_schedule": fair.delay_schedule.duplicate(true)}
 	last_checksum = str(simulation.call("frame_checksum"))
 	_checksums[tick] = last_checksum
 	if session.call("send_keyframe", request_id, tick, full, last_checksum):
@@ -679,14 +690,7 @@ func _begin_replica_frame(message: Dictionary) -> bool:
 			_request_keyframe()
 			return false
 		var command: Dictionary = item.command
-		if command.get("op") == "ai_control_state":
-			if int(item.team) != int(session.host_team) or not _valid_ai_control(command.get("states")):
-				_replaying = false
-				_request_keyframe()
-				return false
-			var controller := _ai_controller()
-			if controller != null: controller.call("apply_remote_states", command.states)
-		elif command.get("op") == "match_end":
+		if command.get("op") == "match_end":
 			if int(item.team) != int(session.host_team) or not _valid_enum(command.get("winner"), 0, 1): return false
 			match_state.set_winner(int(command.winner) as Enums.Team)
 		elif command.get("op") == "match_speed":
@@ -751,7 +755,10 @@ func _request_keyframe() -> void:
 	if _resync_attempts > 4:
 		_abort_sync("状态同步校验连续失败，请确认双方使用相同游戏版本")
 		return
-	if fair != null: fair.reset(tick)
+	if fair != null:
+		_local_order_notes.clear()
+		_pending_manual_actors.clear()
+		fair.reset(tick)
 	synchronized = false
 	_awaiting_keyframe = true
 	_frame_queue.clear()
@@ -775,10 +782,10 @@ func _receive_keyframe(message: Dictionary) -> void:
 	tick = incoming
 	_apply_match_speed(float(message.state.get("fair", {}).get("speed", match_speed)))
 	if fair != null:
+		_local_order_notes.clear()
+		_pending_manual_actors.clear()
 		fair.reset(tick)
 		var timing: Dictionary = message.state.get("fair", {})
-		for key in timing.get("generations", {}): fair._generations[int(key)] = int(timing.generations[key])
-		for key in timing.get("controls", {}): fair._control_generations[int(key)] = int(timing.controls[key])
 		fair.input_delay_ticks = clampi(int(timing.get("input_delay_ticks", fair.configured_input_delay_ticks())), 3, 180)
 		fair.delay_schedule = timing.get("delay_schedule", [{"from_tick": 0, "ticks": fair.input_delay_ticks}]).duplicate(true)
 		_apply_match_speed(float(timing.get("speed", match_speed)))
@@ -802,8 +809,7 @@ func _receive_keyframe(message: Dictionary) -> void:
 func _valid_fair_state(value: Variant) -> bool:
 	if value is not Dictionary: return false
 	if value.is_empty(): return true # legacy test fixtures
-	if value.size() != 5 or value.get("generations") is not Dictionary or value.get("controls") is not Dictionary: return false
-	if value.generations.size() > MAX_ENTITIES or value.controls.size() != 2: return false
+	if value.size() != 3: return false
 	if not _valid_enum(value.get("input_delay_ticks"), 3, 180) or int(value.input_delay_ticks) % FRAME_TICKS != 0: return false
 	if not _finite_number(value.get("speed")) or float(value.speed) < MIN_MATCH_SPEED or float(value.speed) > MAX_MATCH_SPEED: return false
 	if value.get("delay_schedule") is not Array or value.delay_schedule.is_empty() or value.delay_schedule.size() > 64: return false
@@ -812,10 +818,6 @@ func _valid_fair_state(value: Variant) -> bool:
 		if policy is not Dictionary or policy.size() != 2 or not _valid_enum(policy.get("from_tick"), 0, 9007199254740991) or int(policy.from_tick) % FRAME_TICKS != 0: return false
 		if int(policy.from_tick) <= last_source or not _valid_enum(policy.get("ticks"), 3, 180) or int(policy.ticks) % FRAME_TICKS != 0: return false
 		last_source = int(policy.from_tick)
-	for key in value.generations:
-		if not str(key).is_valid_int() or int(key) < 1 or not _valid_enum(value.generations[key], 0, 9007199254740991): return false
-	for key in value.controls:
-		if str(key) not in ["0", "1"] or not _valid_enum(value.controls[key], 0, 9007199254740991): return false
 	return true
 
 
@@ -884,9 +886,6 @@ func capture_snapshot() -> Dictionary:
 		var masks: Array = []
 		for side in [0, 1]: masks.append(Marshalls.raw_to_base64(match_state.fog.explored[side]))
 		snapshot["fog_explored"] = masks
-	var controller := _ai_controller()
-	if controller != null and controller.has_method("capture_states"):
-		snapshot["ai_control"] = controller.call("capture_states")
 	return snapshot
 
 
@@ -909,8 +908,6 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 	if not _valid_enum(snapshot.get("winner", -1), -1, 1):
 		return false
 	if snapshot.has("progression") and not _valid_progression(snapshot.progression):
-		return false
-	if snapshot.has("ai_control") and not _valid_ai_control(snapshot.ai_control):
 		return false
 	if snapshot.has("fog_explored") and not _valid_fog_explored(snapshot.fog_explored):
 		return false
@@ -970,10 +967,6 @@ func apply_snapshot(snapshot: Dictionary, sequence: int) -> bool:
 			match_state.age_progression.apply_network_state(progression.research)
 		if match_state.technology_progression != null:
 			match_state.technology_progression.apply_network_state(progression.technology_research)
-	if snapshot.has("ai_control"):
-		var controller := _ai_controller()
-		if controller != null and controller.has_method("apply_remote_states"):
-			controller.call("apply_remote_states", snapshot.ai_control)
 	_last_snapshot_sequence = sequence
 	_snapshot_wait = 0.0
 	_last_snapshot_received_usec = Time.get_ticks_usec()
@@ -1354,32 +1347,6 @@ func _stop_ai_control() -> void:
 	var controller := _ai_controller()
 	if controller != null and controller.has_method("stop_all"):
 		controller.call("stop_all")
-
-
-func _valid_ai_control(value: Variant) -> bool:
-	if value is not Dictionary or value.size() != 2 or not value.has("0") or not value.has("1"):
-		return false
-	# Load at validation time to avoid an autoload initialization cycle through
-	# GameSettings -> GameSession when this network script is preloaded.
-	var settings: Script = load("res://scripts/core/game_settings.gd")
-	for team_key in ["0", "1"]:
-		var state: Variant = value[team_key]
-		if state is not Dictionary or state.size() not in [3, 4] or state.get("enabled") is not bool:
-			return false
-		# New hosts advertise only a public service URL, never credentials. Keep
-		# older three-field ownership snapshots compatible.
-		if state.size() == 4 and not state.has("service_url"):
-			return false
-		if state.has("service_url"):
-			if state.service_url is not String or String(state.service_url).length() > 2048:
-				return false
-			if not String(state.service_url).is_empty() and str(settings.normalize_ai_service_url(state.service_url)).is_empty():
-				return false
-		if state.get("status") is not String or String(state.status).length() > 64:
-			return false
-		if state.get("message") is not String or String(state.message).length() > 256:
-			return false
-	return true
 
 
 func _valid_progression(value: Variant) -> bool:

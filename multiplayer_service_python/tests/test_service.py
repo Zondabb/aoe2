@@ -11,7 +11,7 @@ from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
 
 
-JOIN = {"type": "join_queue", "protocol_version": 8, "name": "玩家", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 9, "name": "玩家", "civ": "chinese"}
 
 
 def pair(host, guest):
@@ -86,7 +86,7 @@ def test_role_spoofing_and_replayed_sequence_are_rejected(monkeypatch, host_team
         assert guest.receive_json() == {"type": "pong"}
 
 
-def test_external_ai_control_relay_is_bound_to_sending_team():
+def test_player_order_relay_is_bound_to_sending_team():
     async def scenario():
         mm = Matchmaker(Settings())
         players = [await mm.register(), await mm.register()]
@@ -97,7 +97,7 @@ def test_external_ai_control_relay_is_bound_to_sending_team():
         for player in players:
             while not player.outbox.empty():
                 player.outbox.get_nowait()
-        request = {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "set_ai_control", "enabled": True}}
+        request = {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "unit_id": 3}}
         with pytest.raises(ProtocolError, match="ready"):
             await mm.handle(players[0], request)
         assert players[0].seq == 0
@@ -124,18 +124,19 @@ def test_external_ai_control_relay_is_bound_to_sending_team():
     {"op": "set_ai_control", "enabled": True, "unit_id": 5},
 ])
 def test_external_ai_control_rejects_ambiguous_flags_and_spoofed_identity(command):
-    with pytest.raises(ProtocolError, match="AI control|identity"):
+    with pytest.raises(ProtocolError, match="gameplay|identity"):
         parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": command}), Settings())
 
 
 def test_player_instruction_is_private_and_bounded():
     settings = Settings()
     command = {"op": "ai_instruction", "text": "增加食物采集"}
-    assert parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": command}), settings)["command"] == command
+    with pytest.raises(ProtocolError):
+        parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": command}), settings)
     for invalid in [dict(command, team=0), dict(command, text="  "), dict(command, text=42), dict(command, text="a" * 241)]:
         with pytest.raises(ProtocolError):
             parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": invalid}), settings)
-    with pytest.raises(ProtocolError, match="private"):
+    with pytest.raises(ProtocolError, match="gameplay"):
         parse_message(json.dumps({"type": "frame", "results": [], "tick": 3, "checksum": "0" * 64,
                                   "commands": [{"team": 0, "command": command}]}), settings)
 

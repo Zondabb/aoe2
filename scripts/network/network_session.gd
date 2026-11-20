@@ -15,7 +15,7 @@ const CONNECT_TIMEOUT := 12.0
 const RECEIVE_TIMEOUT := 25.0
 const READY_TIMEOUT := 40.0
 const PING_INTERVAL := 8.0
-const PROTOCOL_VERSION := 8
+const PROTOCOL_VERSION := 9
 const SnapshotCodec := preload("res://scripts/network/snapshot_codec.gd")
 const TICK_RATE := 30
 const FRAME_TICKS := 3
@@ -500,11 +500,7 @@ func _valid_inputs(value: Variant) -> bool:
 	var seen := {}
 	for item in value:
 		if item is not Dictionary or not _valid_wire_team(item.get("team")) or not _wire_integer(item.get("seq")) or not _valid_command(item.get("command")): return false
-		if item.command.op == "ai_instruction": return false
-		if item.has("ai"):
-			if int(item.seq) != 0 or item.ai is not Dictionary or item.ai.size() != 4: return false
-			for key in ["id", "generation", "control_generation", "expires_tick"]:
-				if not _wire_integer(item.ai.get(key), 1 if key == "id" else 0): return false
+		if item.size() != 3: return false
 		if int(item.seq) > 0:
 			var key := str(item.team) + ":" + str(item.seq)
 			if seen.has(key): return false
@@ -540,7 +536,7 @@ func _valid_command(value: Variant) -> bool:
 	if value.op.is_empty() or value.op.length() > 64: return false
 	for key in ["team", "player_id", "match_id", "host_team"]:
 		if value.has(key): return false
-	if value.op == "set_ai_control" and (value.size() != 2 or value.get("enabled") is not bool): return false
+	if value.op in ["set_ai_control", "ai_control_state", "ai_instruction"]: return false
 	return JSON.stringify(value, "", true, true).to_utf8_buffer().size() <= MAX_COMMAND_BYTES
 
 

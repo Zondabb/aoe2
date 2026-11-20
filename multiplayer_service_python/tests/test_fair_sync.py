@@ -225,5 +225,5 @@ def test_invalid_compact_step(packet):
 
 
 def test_v6_clients_are_rejected_before_matching():
-    with pytest.raises(ProtocolError, match="protocol_version 8"):
+    with pytest.raises(ProtocolError, match="protocol_version 9"):
         parse_message(json.dumps({"type": "join_queue", "protocol_version": 6, "name": "old", "civ": "chinese"}), Settings())

@@ -53,7 +53,7 @@ class TrafficRecorder:
                 "tick": message.get("tick"), "completed_tick": self.completed_tick,
                 "commands": len(message.get("commands", [])),
                 "game_commands": sum(1 for entry in message.get("commands", [])
-                                     if entry.get("command", entry).get("op") not in ("ai_control_state", "match_speed")),
+                                     if entry.get("command", entry).get("op") != "match_speed"),
                 "has_timing": "timing" in message,
                 "codec": message.get("codec"), "raw_size": message.get("raw_size"),
             }, separators=(",", ":")) + "\n")

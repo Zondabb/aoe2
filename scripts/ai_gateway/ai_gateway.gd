@@ -193,7 +193,7 @@ func _on_match_start(generation: int = -1) -> void:
 		generation = _generation
 	if not _is_current(generation):
 		return
-	match_id = "m_%d_%d_%d" % [int(Time.get_unix_time_from_system() * 1000.0), Time.get_ticks_usec(), get_instance_id()]
+	match_id = "m_" + Crypto.new().generate_random_bytes(16).hex_encode()
 	if _event_subscriber != 0:
 		EventBufferScript.unsubscribe(_event_subscriber)
 	_event_subscriber = EventBufferScript.subscribe()

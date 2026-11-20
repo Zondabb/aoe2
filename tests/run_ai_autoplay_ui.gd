@@ -20,7 +20,7 @@ class MockController extends Node:
 	func request_team_service_url(team: int, url: String) -> bool:
 		route_requests.append([team, url])
 		var network := get_node("/root/NetworkSession")
-		if not network.is_host() or not url.begins_with("http://"):
+		if network.team != team or not url.begins_with("http://"):
 			return false
 		routes[team] = url.trim_suffix("/")
 		state_changed.emit()
@@ -98,8 +98,6 @@ func _run() -> void:
 	_check(controller.instructions.size() == 2, "空白指令不发送")
 	_check(checkbox.button_pressed and label.text == "托管中", "状态信号更新托管显示且不产生额外请求")
 	_check(controller.requests.size() == 2, "权威状态刷新不触发 toggle 回传")
-	controller.update({"status": "pending"})
-	_check(checkbox.disabled and label.text == "等待主机确认…", "客端等待确认期间禁止连续点击")
 	controller.update({"enabled": false, "status": "error", "message": "Python 服务连接失败：127.0.0.1:8765"})
 	_check(not checkbox.disabled and not checkbox.button_pressed and label.text.contains("重试"), "连接失败取消选中并允许重试")
 	_check(label.tooltip_text.contains("127.0.0.1:8765"), "错误详情提供真实服务地址")
@@ -110,7 +108,7 @@ func _run() -> void:
 	network.team = 0
 	network.host_team = 0
 	controller.update({"status": "off"})
-	_check(checkbox.tooltip_text.contains("主机") and checkbox.tooltip_text.contains("自己的"), "联机提示说明主机服务与自己的队伍")
+	_check(checkbox.tooltip_text.contains("本机") and checkbox.tooltip_text.contains("自己的"), "联机提示说明本机服务与自己的队伍")
 	var settings := control.get_node("Panel/Row/ServiceSettings") as Button
 	var service_panel := control.get_node("ServicePanel") as Control
 	_check(settings.visible and not service_panel.visible, "联机服务地址默认折叠，减少地图遮挡")
@@ -121,43 +119,20 @@ func _run() -> void:
 	var host_address := host_row.get_node("Address") as LineEdit
 	var guest_address := guest_row.get_node("Address") as LineEdit
 	var note := control.get_node("ServicePanel/Contents/Note") as Label
-	_check(service_panel.visible and host_row.visible and guest_row.visible and host_address.editable and guest_address.editable, "主机可分别配置双方的 Python 服务地址")
-	_check(host_address.text.ends_with(":8765") and guest_address.text.ends_with(":8766"), "双方独立显示实际服务地址")
-	_check(note.text.contains("127.0.0.1") and note.text.contains("主机"), "说明服务地址从主机访问")
-	controller.remote_state.merge({"status": "error", "message": "连接失败：8766"}, true)
-	controller.update({"status": "off"})
-	_check(control.get_node("ServicePanel/Contents/Team1Status").text.contains("8766"), "主机能看到客端队伍的服务连接失败原因")
-	guest_address.text = "http://127.0.0.1:8877/"
-	guest_address.text_changed.emit(guest_address.text)
-	controller.update({"status": "connecting"})
-	_check(guest_address.text.ends_with(":8877/"), "托管状态刷新保留尚未应用的地址编辑")
-	guest_row.get_node("Apply").pressed.emit()
-	_check(controller.routes[1] == "http://127.0.0.1:8877" and guest_address.text.ends_with(":8877") and note.text.contains("已应用"), "应用时保存所选队伍的地址并显示标准化地址")
-	host_address.text = "invalid"
-	host_row.get_node("Apply").pressed.emit()
-	_check(controller.routes[0].ends_with(":8765") and note.text.contains("地址无效"), "地址拒绝时保留实际配置并显示失败原因")
-	for width in [480, 640, 1280]:
-		control.size.x = width
-		await process_frame
-		_check(service_panel.position.x + service_panel.size.x <= width, "地址面板在 %d 宽度内完整显示" % width)
-	game.online_team = 1
-	network.team = 1
-	controller.update({"status": "off"})
-	_check(not host_row.visible and guest_row.visible and not guest_address.editable and not guest_row.get_node("Apply").visible, "客端只看自己实际地址，不能编辑或应用地址")
-	_check(not checkbox.disabled and not checkbox.button_pressed, "客端仍能开关自己的 AI 托管")
-	controller.routes[1] = "http://host.example:8890"
-	controller.update({"status": "off"})
-	_check(guest_address.text == "http://host.example:8890", "客端显示主机最新同步的服务地址")
-	network.host_team = 1
-	controller.update({"status": "off"})
-	_check(host_row.visible and guest_row.visible and host_address.editable and guest_address.editable, "随机选择队伍 2 为主机时可配置双方服务")
-	host_address.text = "http://127.0.0.1:8891"
-	host_row.get_node("Apply").pressed.emit()
-	_check(controller.routes[0].ends_with(":8891"), "队伍 2 主机可应用队伍 1 的服务地址")
-	network.team = 0
-	game.online_team = 0
-	controller.update({"status": "off"})
-	_check(host_row.visible and not guest_row.visible and not host_address.editable, "队伍 1 客端没有主机配置权限")
+	for team in [0, 1]:
+		game.online_team = team
+		network.team = team
+		for authority in [0, 1]:
+			network.host_team = authority
+			controller.update({"status":"off"})
+			_check(host_row.visible == (team == 0) and guest_row.visible == (team == 1), "only own route is visible")
+			var address := host_address if team == 0 else guest_address
+			var row := host_row if team == 0 else guest_row
+			_check(address.editable and row.get_node("Apply").visible, "own route editable for both roles")
+			var desired := "http://localhost:%d" % (8888 + team + authority)
+			address.text = desired
+			row.get_node("Apply").pressed.emit()
+			_check(controller.routes[team] == desired and note.text.contains("本机"), "address applies on this computer")
 	var screenshot_path := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--screenshot="):

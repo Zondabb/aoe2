@@ -106,23 +106,16 @@ func _run() -> void:
 	context.team = Enums.Team.PLAYER
 	context.civ = bootstrap.player_civ
 	context.session_epoch = "fair-test"
-	var original := {"op": "move", "command_id": "fair-ai-1", "session_epoch": "fair-test", "task_id": "scout"}
-	check(net.fair.enqueue_ai(move, context, original).ok, "AI enters the same future input pipeline")
-	check(not net.fair.enqueue_ai(move, context, original).ok, "pending AI ID cannot be enqueued twice")
-	var stale: Dictionary = net.fair.pending.back().duplicate(true)
-	stale.erase("target")
-	net.fair._generations[id] = 1
-	var previous_order: String = net.simulation.checksum()
-	net.fair._begin({"tick": delay, "commands": [stale]})
-	check(net.simulation.checksum() == previous_order, "AI prepared before a human order is a deterministic no-op")
-	original.command_id = "fair-ai-2"
-	check(net.fair.enqueue_ai(move, context, original).ok, "fresh AI generation can queue")
-	var fresh: Dictionary = net.fair.pending.back().duplicate(true)
-	fresh.erase("target")
-	var manual_revision := int(unit.get_meta("manual_command_revision", 0))
-	net.fair._begin({"tick": delay, "commands": [fresh]})
-	check(unit.get_meta("ai_command_lineage", {}).get("command_id") == "fair-ai-2", "confirmed AI preserves task lineage for observations")
-	check(int(unit.get_meta("manual_command_revision", 0)) == manual_revision, "scheduled AI is never a manual takeover")
+	var original := {"op":"move", "unit_id":EntityRegistry.id_of(unit), "pos":move.pos, "command_id":"local-only", "session_epoch":"fair-test"}
+	check(CommandExecutor.execute(original, context).ok, "AI uses ordinary player submission")
+	var queued: Dictionary = net.fair.pending.back().duplicate(true)
+	queued.erase("target")
+	check(queued.size() == 3 and queued.seq > 0 and queued.command == move, "wire carries only team, normal sequence and primitive order")
+	net.fair._begin({"tick":delay, "commands":[queued]})
+	check(unit.get_meta("ai_command_lineage", {}).get("command_id") == "local-only", "local observation retains lineage")
+	check(net.submit_command(move), "player issues ordinary order")
+	original.command_id = "response-during-manual-input"
+	check(net.queue_ai_command(original, context).get("reason") == "manual_control_hold", "pending human input takes priority before transmission")
 	# Saturated frame slots are split between teams even if one arrived first.
 	var saturated := Fair.new()
 	saturated.setup(net)
@@ -213,7 +206,7 @@ func _run() -> void:
 	check(transition.enqueue(move, 1, 101, 90, 96), "new input uses the announced shorter window")
 	check(not transition.enqueue(move, 0, 102, 84, 90), "host cannot apply a lower delay early")
 	check(not transition.enqueue(move, 1, 102, 84, 90), "guest cannot apply a lower delay early")
-	var timing := {"generations": {}, "controls": {"0": 0, "1": 0}, "input_delay_ticks": 18, "speed": 2.0, "delay_schedule": transition.delay_schedule.duplicate(true)}
+	var timing := {"input_delay_ticks": 18, "speed": 2.0, "delay_schedule": transition.delay_schedule.duplicate(true)}
 	check(net._valid_fair_state(timing), "keyframes preserve old and future timing policies")
 	timing.delay_schedule[1].from_tick = 0
 	check(not net._valid_fair_state(timing), "keyframes reject ambiguous policy history")

@@ -44,7 +44,7 @@ FIELDS = {
     "watch_ready": {"type"},
 }
 
-PROTOCOL_VERSION = 8
+PROTOCOL_VERSION = 9
 TICK_RATE = 30
 FRAME_TICKS = 3
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
@@ -81,18 +81,34 @@ def _identifier(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value) is not None
 
 
+COMMAND_FIELDS = {
+    "move": {"op", "unit_id", "pos", "formation_speed"},
+    "stop": {"op", "unit_id"},
+    "gather": {"op", "unit_id", "target_id"},
+    "build": {"op", "unit_id", "building_id"},
+    "attack": {"op", "unit_id", "target_id"},
+    "train": {"op", "building_id", "unit_def_id"},
+    "cancel_train": {"op", "building_id", "queue_id"},
+    "place_building": {"op", "builder_id", "building_def_id", "pos", "orientation"},
+    "research_age": {"op", "building_id"},
+    "cancel_research_age": {"op", "building_id"},
+    "research_technology": {"op", "building_id", "technology_id"},
+    "cancel_technology": {"op", "building_id", "technology_id"},
+    "place_wall": {"op", "builder_id", "building_def_id", "start", "end", "include_gate", "append_queue"},
+    "set_gate_state": {"op", "building_id", "gate_state"},
+    "match_speed": {"op", "speed"},
+    "match_end": {"op", "winner"},
+}
+
+
 def _command(command: Any, settings: Settings) -> None:
     if not isinstance(command, dict) or not isinstance(command.get("op"), str) or not command["op"]:
         raise ProtocolError("invalid_payload", "command must contain a string op")
     if any(key in command for key in ("team", "player_id", "match_id", "host_team")):
         raise ProtocolError("invalid_payload", "Command identity is assigned by the service")
-    if command.get("op") == "ai_instruction":
-        text = command.get("text")
-        if set(command) != {"op", "text"} or not isinstance(text, str) or not text.strip() or len(text) > 240:
-            raise ProtocolError("invalid_payload", "AI instruction requires 1 to 240 characters of text")
-    if command.get("op") == "set_ai_control":
-        if set(command) != {"op", "enabled"} or type(command["enabled"]) is not bool:
-            raise ProtocolError("invalid_payload", "AI control requires only op and a boolean enabled field")
+    allowed = COMMAND_FIELDS.get(command["op"])
+    if allowed is None or not command.keys() <= allowed:
+        raise ProtocolError("invalid_payload", "Unknown gameplay operation or field")
     if len(json.dumps(command, ensure_ascii=True).encode()) > settings.max_command_bytes:
         raise ProtocolError("invalid_payload", "Command exceeds the size limit")
 
@@ -170,7 +186,7 @@ def parse_message(raw: str, settings: Settings) -> dict:
     _check_tree(data)
     if kind == "join_queue":
         if type(data["protocol_version"]) is not int or data["protocol_version"] != PROTOCOL_VERSION:
-            raise ProtocolError("protocol_mismatch", "Only protocol_version 8 (batched commands and compressed keyframes) is supported; update the game client")
+            raise ProtocolError("protocol_mismatch", "Only protocol_version 9 (gameplay-only synchronization) is supported; update the game client")
         name = data["name"]
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 24:
             raise ProtocolError("invalid_name", "Player name must contain 1 to 24 characters")
@@ -208,7 +224,7 @@ def parse_message(raw: str, settings: Settings) -> dict:
                 raise ProtocolError("invalid_payload", "An input frame may contain at most 62 commands")
             seen = set()
             for entry in commands:
-                if (not isinstance(entry, dict) or set(entry) not in ({"team", "seq", "command"}, {"team", "seq", "command", "ai"})
+                if (not isinstance(entry, dict) or set(entry) != {"team", "seq", "command"}
                         or not _team(entry["team"]) or not _safe_integer(entry["seq"])):
                     raise ProtocolError("invalid_payload", "Each input requires a team, sequence and command")
                 identity = (entry["team"], entry["seq"])
@@ -217,11 +233,6 @@ def parse_message(raw: str, settings: Settings) -> dict:
                         raise ProtocolError("invalid_payload", "Input sequences may not repeat within a frame")
                     seen.add(identity)
                 _command(entry["command"], settings)
-                if entry["command"]["op"] == "ai_instruction":
-                    raise ProtocolError("invalid_payload", "Player instructions are private to the host")
-                if "ai" in entry and (entry["seq"] != 0 or not isinstance(entry["ai"], dict)
-                                      or len(json.dumps(entry["ai"], ensure_ascii=True).encode()) > 4096):
-                    raise ProtocolError("invalid_payload", "AI metadata requires an internal input and a small object")
             if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
                 raise ProtocolError("invalid_payload", "Input frame exceeds the size limit")
         if kind in ("input_commit", "input_step"):
@@ -266,8 +277,6 @@ def parse_message(raw: str, settings: Settings) -> dict:
                 if not isinstance(entry, dict) or set(entry) != {"team", "command"} or type(entry["team"]) is not int or entry["team"] not in (0, 1):
                     raise ProtocolError("invalid_payload", "Each frame command requires a team and command")
                 _command(entry["command"], settings)
-                if entry["command"]["op"] == "ai_instruction":
-                    raise ProtocolError("invalid_payload", "Player instructions are private to the host")
             if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
                 raise ProtocolError("invalid_payload", "Frame exceeds the size limit")
         elif kind == "keyframe":
@@ -276,6 +285,12 @@ def parse_message(raw: str, settings: Settings) -> dict:
             state = decode_keyframe_state(data, settings) if "codec" in data else data["state"]
             if not isinstance(state, dict) or not state:
                 raise ProtocolError("invalid_payload", "state must be a nonempty object")
+            world = state.get("world")
+            timing = state.get("fair")
+            if isinstance(world, dict) and "ai_control" in world:
+                raise ProtocolError("invalid_payload", "Keyframes contain gameplay state only")
+            if isinstance(timing, dict) and timing.keys() - {"input_delay_ticks", "delay_schedule", "speed"}:
+                raise ProtocolError("invalid_payload", "Unexpected keyframe timing fields")
     elif kind == "finish_match":
         if type(data["winner"]) is not int or data["winner"] not in (0, 1):
             raise ProtocolError("invalid_payload", "winner must be team 0 or team 1")

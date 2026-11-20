@@ -20,18 +20,18 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 ## 增量指令同步与观战
 
-服务使用 **协议 v8**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v7 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
+服务使用 **协议 v9**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v8 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
 
 双方玩家按相同未来帧规则提交操作，主机提前广播输入，开局时钟校准后主机直接提交共同执行时刻，持续运行不再等待每帧接收确认往返。双方在该时刻校验并运行固定模拟，主机随后发送操作结果与摘要，观众只接收完成帧。服务只转发和校验报文，不运行游戏逻辑。当前游戏已移除本地预测实现，按现实时间 100ms 输入预算安排指令（1 倍速 3 ticks，2 倍速 6 ticks），详见 [对等调度与延后执行](../docs/online_fair.md)。
 
 UTF-8 JSON 文本帧，端点 `/ws`。部分核心消息（省略中间准备/提交帧，示例中的校验值实际为 64 位 SHA-256 十六进制串）：
 
-稳定阶段用一条 `input_step` 合并准备指令和执行时刻；速度、输入预算仅在初始化、变化或关键帧恢复时传递。`input_ack` 只在开局及恢复后确认一次，执行完成的 `ack` 仍逐帧保留。双方游戏与中转需一起升级到 v8。
+稳定阶段用一条 `input_step` 合并准备指令和执行时刻；速度、输入预算仅在初始化、变化或关键帧恢复时传递。`input_ack` 只在开局及恢复后确认一次，执行完成的 `ack` 仍逐帧保留。双方游戏与中转需一起升级到 v9。
 
-编队移动使用 `command_batch`（每包最多 64 条，连续序号、共同来源/目标帧），主机按原次序展开并逐单位校验。中转发给玩家的完成帧仅保留摘要、结果及 AI/速度状态更新；观众收到完整成功操作。关键帧使用 `codec="zlib"`、`raw_size` 和 Base64 `data` 传输，解压上限 4 MiB；恢复后的游戏状态仍按原摘要校验。
+编队移动使用 `command_batch`（每包最多 64 条，连续序号、共同来源/目标帧），主机按原次序展开并逐单位校验。中转发给玩家的完成帧仅保留摘要、结果及 速度更新；观众收到完整成功操作。关键帧使用 `codec="zlib"`、`raw_size` 和 Base64 `data` 传输，解压上限 4 MiB；恢复后的游戏状态仍按原摘要校验。
 
 ```json
-{"type":"join_queue","protocol_version":8,"name":"玩家","civ":"chinese"}
+{"type":"join_queue","protocol_version":9,"name":"玩家","civ":"chinese"}
 {"type":"ready"}
 {"type":"command","seq":1,"source_tick":0,"execute_tick":6,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
 {"type":"input_commit","tick":6,"execute_at_usec":1250000,"speed":2.0,"input_delay_ticks":6,"delay_from_tick":0}
@@ -139,6 +139,6 @@ docker run --rm -p 8001:8001 -v aoe2-multiplayer-data:/data aoe2-multiplayer
 ./multiplayer_service_python/.venv/Scripts/python.exe -m pytest multiplayer_service_python/tests -q
 ```
 
-服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v8；游戏模拟和关键帧恢复的验证入口见下方联机说明。
+服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v9；游戏模拟和关键帧恢复的验证入口见下方联机说明。
 
 协议与客户端实现见 [联机说明](../docs/multiplayer.md)。

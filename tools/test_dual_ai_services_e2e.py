@@ -86,7 +86,8 @@ def main() -> int:
     ai_ports, relay_port, dead_port = ports[:2], ports[2], ports[3]
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("AOE2_AI_", "AOE2_LLM_"))}
-    env.update(AOE2_AI_MODEL_CALLS_PER_MINUTE="12", AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(relay_port))
+    env.update(AOE2_AI_MODEL_CALLS_PER_MINUTE="12", AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(relay_port),
+               AOE2_MP_LEADERBOARD_DB=str(logs / "leaderboard.sqlite3"))
     processes: list[subprocess.Popen] = []
     handles = []
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -160,13 +161,13 @@ def main() -> int:
                 print(output[-8000:])
                 raise RuntimeError(f"peer {side} failed")
         report = json.loads(report_file.read_text(encoding="utf-8"))
-        roster = report["entity_teams"]
         if mock_errors:
             raise RuntimeError(f"upstream validation failed: {mock_errors}")
         required_roles = {"commander", "construction", "economy", "technology", "scout", "combat", "defense"}
         for team, model in enumerate(models):
             if planners[model].roles != required_roles:
                 raise RuntimeError(f"{model} did not plan every specialist role: {planners[model].roles}")
+            roster = report["entity_teams"] if team == 0 else json.loads(Path(str(report_file) + ".guest").read_text())
             own_ids = {str(entity["id"]) for sample in samples[model]
                        for section in ("buildings", "workers", "units", "production")
                        for entity in sample.get(section, [])}

@@ -92,7 +92,8 @@ def main() -> int:
     ai_port, relay_port, dead_port = free_port(), free_port(), free_port()
     config, env = mock_service_settings(logs, f"http://127.0.0.1:{upstream.server_port}/v1",
                                         "mock-role-planner" if args.protocol == "v3" else "mock-strategist")
-    env.update(AOE2_AI_URL=f"http://127.0.0.1:{ai_port}", AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(relay_port))
+    env.update(AOE2_AI_URL=f"http://127.0.0.1:{ai_port}", AOE2_MP_HOST="127.0.0.1", AOE2_MP_PORT=str(relay_port),
+               AOE2_MP_LEADERBOARD_DB=str(logs / "leaderboard.sqlite3"))
     # The game URL override would defeat the explicit dead-endpoint test.
     game_env = dict(env)
     game_env.pop("AOE2_AI_URL", None)

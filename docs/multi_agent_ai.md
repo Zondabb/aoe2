@@ -4,7 +4,7 @@
 
 ## 启动与切换
 
-联机支持主机为两队分别指定服务地址，可用不同配置启动两个 Python 进程进行模型对战，详见 [LLM 模型对战说明](llm_model_comparison.md)。
+联机时两位玩家分别在本机指定服务地址，可用不同配置启动两个 Python 进程进行模型对战，详见 [LLM 模型对战说明](llm_model_comparison.md)。
 
 模型、上游地址、密钥、后端和生成参数统一配置在 `ai_service_python/config.toml`，私有覆盖使用同目录 `config.local.toml`，完整格式见 [Python 服务配置](../ai_service_python/README.md#服务配置)。重启服务后从 Godot 编辑器开始新对局。游戏只通过 `data/game_settings.cfg` 配置 AI 服务连接与控制节奏；`user://game_settings.cfg` 等已有覆盖配置优先，修改默认文件后也要检查覆盖文件。
 
@@ -18,7 +18,7 @@ fast_tick_interval_sec=1.0
 fast_timeout_sec=3.0
 ```
 
-开启 `multi_agent_enabled` 后，外部 AI 的 `v2_chat` 模式自动使用 `POST /v3/ai/tick`，也可以显式使用 `protocol="v3_multi_agent"`。客户端不再根据模型后端决定是否启用多 Agent；显式 `v1_tick` 保留规则兼容协议。单人外部 AI 对手、单人 AI 托管、联机主机执行的双方托管共用这条链路。取消托管立即停止本地执行并使在途响应失效，随后尽力通知 Python 清理会话。
+开启 `multi_agent_enabled` 后，外部 AI 的 `v2_chat` 模式自动使用 `POST /v3/ai/tick`，也可以显式使用 `protocol="v3_multi_agent"`。客户端不再根据模型后端决定是否启用多 Agent；显式 `v1_tick` 保留规则兼容协议。单人外部 AI 对手、单人 AI 托管、联机各玩家的本地托管共用这条链路。取消托管立即停止本地执行并使在途响应失效，随后尽力通知 Python 清理会话。
 
 回退旧版同步模型指挥器：设置 `multi_agent_enabled=false`、`protocol="v2_chat"`，重进对局。旧版行为见[外部 LLM AI 说明](external_llm_ai.md)。内嵌规则 AI 保留原路径。
 
