@@ -8,13 +8,16 @@ or the player clears the instructions (which is how managed play is ended).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import copy
 
 from .models import Mandate, order_origin
 from .orders import Grounding, name_of, slot
 
 NEW, ACTIVE, DONE, SUPERSEDED, IMPOSSIBLE = "new", "active", "done", "superseded", "impossible"
-LABELS = {NEW: "新下达", ACTIVE: "执行中", DONE: "已完成", SUPERSEDED: "已取代", IMPOSSIBLE: "无法执行"}
-OPEN = (NEW, ACTIVE)
+WAITING_LEGISLATION = "waiting_legislation"
+LABELS = {NEW: "新下达", ACTIVE: "执行中", DONE: "已完成", SUPERSEDED: "已取代", IMPOSSIBLE: "无法执行",
+          WAITING_LEGISLATION: "等待立法"}
+OPEN = (NEW, ACTIVE, WAITING_LEGISLATION)
 MAX_TRIES = 2               # an interpretation the catalog refuses is asked for once more
 KEPT = 12                   # closed orders remembered for the panel and the log
 REFUSED = "这条指令没法落到游戏里能做的事上，暂不执行。"
@@ -42,6 +45,7 @@ class Order:
     problem: str = ""                                      # why the last interpretation was sent back
     refused: list = field(default_factory=list)            # the mandates of that interpretation, as the model gave them
     waiting: str = ""                                      # why it has not been interpreted yet
+    legislation: dict | None = None
 
     def label(self) -> str:
         if self.status == ACTIVE:
@@ -62,7 +66,9 @@ class Order:
             entry["notes"] = list(self.notes)
         if self.mandates:
             entry["mandates"] = [describe(m, slot(m) in self.done) for m in self.mandates]
-        if self.status == NEW and (self.waiting or self.problem):
+        if self.legislation:
+            entry["legislation"] = dict(self.legislation)
+        if self.status in (NEW, WAITING_LEGISLATION) and (self.waiting or self.problem):
             entry["waiting"] = self.waiting or self.problem
         return entry
 
@@ -161,19 +167,48 @@ class OrderLedger:
         """A later order takes the slots it names from every earlier one."""
         taken = {slot(m) for m in latest.mandates}
         for order in self.orders:
-            if order is latest or order.status != ACTIVE:
+            if order is latest or order.status not in (ACTIVE, WAITING_LEGISLATION):
                 continue
             kept = [m for m in order.mandates if slot(m) not in taken]
             if len(kept) != len(order.mandates):
                 order.mandates = kept
-                if all(slot(m) in order.done for m in kept):
+                if not order.legislation and all(slot(m) in order.done for m in kept):
                     order.status = SUPERSEDED if not kept else DONE
                     self._note(order, order.status, by=latest.number)
+
+    def refer_legislation(self, order: Order, grasp: str, thinking: str, decision: str,
+                         grounding: Grounding, requirement: dict) -> None:
+        """Freeze a code gap while its independent ordinary mandates keep running."""
+        order.tries += 1
+        order.grasp, order.thinking, order.decision = grasp, thinking, decision
+        order.notes, order.problem = list(grounding.notes), ""
+        order.status, order.mandates = WAITING_LEGISLATION, list(grounding.mandates)
+        order.legislation = copy.deepcopy(requirement)
+        order.waiting = "等待立法会验证并安装新的部门算法。"
+        self._supersede(order)
+        self.revision += 1
+        self._note(order, "legislation_requested", proposal_id=requirement["proposal_id"])
+
+    def legislation_result(self, proposal_id: str, status: str, reason: str = "") -> bool:
+        """Installation is progress, never proof that the player's goal was met."""
+        if status not in ("installed", "failed", "revoked"):
+            return False
+        order = next((o for o in self.orders if o.status in OPEN and o.legislation
+                      and o.legislation["proposal_id"] == proposal_id), None)
+        if order is None:
+            return False
+        order.legislation.update(status=status, reason=str(reason)[:1000])
+        order.status = ACTIVE if status == "installed" else (SUPERSEDED if status == "revoked" else WAITING_LEGISLATION)
+        order.waiting = "" if status == "installed" else (str(reason)[:1000] or "法案尚未生效，原有任务继续。")
+        self.revision += 1
+        self._note(order, "legislation_" + status, proposal_id=proposal_id, reason=str(reason)[:1000])
+        return True
 
     # ------------------------------------------------------------------ every tick
     def mandates(self) -> list[Mandate]:
         """What the open orders still ask for, oldest order first."""
-        return [m for order in self.orders if order.status == ACTIVE for m in order.mandates if slot(m) not in order.done]
+        return [m for order in self.orders if order.status in (ACTIVE, WAITING_LEGISLATION)
+                for m in order.mandates if slot(m) not in order.done]
 
     def record(self, order: Order, mandate: Mandate, finished: bool, figure: str) -> None:
         """Note how far one mandate has got; close the order when all of its mandates are carried out."""
@@ -182,12 +217,12 @@ class OrderLedger:
         if finished and key not in order.done:
             order.done.add(key)
             self.revision += 1
-            if all(slot(m) in order.done for m in order.mandates):
+            if not order.legislation and all(slot(m) in order.done for m in order.mandates):
                 order.status = DONE
                 self._note(order, DONE)
 
     def active(self) -> list[Order]:
-        return [order for order in self.orders if order.status == ACTIVE]
+        return [order for order in self.orders if order.status in (ACTIVE, WAITING_LEGISLATION)]
 
     def prune(self) -> None:
         closed = [order for order in self.orders if order.status not in OPEN]

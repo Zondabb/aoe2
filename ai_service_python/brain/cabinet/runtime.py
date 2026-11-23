@@ -29,7 +29,7 @@ from .departments.intel import IntelDept
 from .departments.tech import TechDept
 from .ledger import NEW, OrderLedger
 from .models import IntelBrief, Mandate, Request, order_origin
-from .orders import default_mandates, derive, ground_reading, load_policy, policy_entries, progress, slot
+from .orders import default_mandates, derive, ground, ground_reading, load_policy, policy_entries, progress, slot
 from .premier import (INTERPRET_PROMPT, ORDER_RETRY_LIMIT, ORDER_RETRY_PAUSE, ORDERS_ROLE, OUTPUT_TOKENS, RANK_PROMPT, ROLE as PREMIER, Premier,
                       interpret_context, interpret_schema, rank_context, rank_schema, reading)
 from .treasury import Treasury
@@ -66,6 +66,7 @@ class CabinetRuntime:
         self.policy_since: dict[int, float] = {}
         self.in_force: list[Mandate] = []      # this tick's mandates, with what they need first
         self._reading: int | None = None       # the order the model was last asked to read
+        self.legislative_enabled = False       # enabled only by the host's isolated runtime
         # What the premier says to the player (planning.broadcasts), and what the player has heard so far:
         # the model ranking last weighed for a broadcast, and the danger they have been told about.
         self.voice = Broadcaster()
@@ -288,7 +289,11 @@ class CabinetRuntime:
                                     self._age(), previous)
         self._reading = order.number
         order.asked += 1
-        return {"system": INTERPRET_PROMPT, "context": context, "schema": interpret_schema(),
+        prompt = INTERPRET_PROMPT
+        if self.legislative_enabled:
+            from brain.legislation.planning import INTAKE_PROMPT
+            prompt += INTAKE_PROMPT
+        return {"system": prompt, "context": context, "schema": interpret_schema(self.legislative_enabled),
                 "description": "Read the head of state's order into mandates for the departments.",
                 "player_orders": False, "output_tokens": OUTPUT_TOKENS}
 
@@ -299,8 +304,29 @@ class CabinetRuntime:
         if order is None or order.status != NEW or read is None:
             return False
         grasp, thinking, decision, raw = read
-        grounding = ground_reading(grasp, raw, self.field.validator.profile.civ_id, self._age(), order_origin(order.number))
+        gap = plan.get("legislation")
+        grounding = (ground(raw, self.field.validator.profile.civ_id, self._age(), order_origin(order.number))
+                     if gap is not None else ground_reading(grasp, raw, self.field.validator.profile.civ_id,
+                                                          self._age(), order_origin(order.number)))
+        if gap is not None:
+            from brain.legislation.planning import valid_gap
+            if not self.legislative_enabled or not valid_gap(gap) or grasp == "none" or grounding.problems:
+                return False
+            requirement = {**copy.deepcopy(gap), "proposal_id": f"order-{order.number}", "order_id": order.number,
+                           "instruction": order.text, "target_revision": self.ledger.revision + 1, "status": "waiting"}
+            self.ledger.refer_legislation(order, grasp, thinking, decision, grounding, requirement)
+            return True
         return self.ledger.accept(order, grasp, thinking, decision, grounding, raw) != "retry"
+
+    def legislative_requests(self) -> list[dict]:
+        """Frozen requests for the host; cancelled orders can never be submitted."""
+        if not self.legislative_enabled or self.field.goals.get("match_over"):
+            return []
+        return [copy.deepcopy(order.legislation) for order in self.ledger.active()
+                if order.legislation and order.legislation.get("status") == "waiting"]
+
+    def legislation_result(self, proposal_id: str, status: str, reason: str = "") -> bool:
+        return self.ledger.legislation_result(proposal_id, status, reason)
 
     def _age(self) -> int:
         last = self.field.last_req

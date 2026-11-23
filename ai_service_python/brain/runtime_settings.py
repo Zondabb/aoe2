@@ -20,7 +20,10 @@ _KEYS = {
     "llm": {"backend": "backend", "model": "llm_model", "base_url": "llm_base_url",
             "token": "llm_token", "max_tokens": "llm_max_tokens", "temperature": "llm_temperature",
             "timeout_sec": "llm_timeout_sec", "num_ctx": "llm_num_ctx"},
-    "ai": {"runtime": "ai_runtime"},
+    "ai": {"runtime": "ai_runtime", "legislation_enabled": "legislation_enabled",
+           "legislation_dir": "legislation_dir", "worker_mode": "worker_mode",
+           "worker_image": "worker_image", "worker_timeout_sec": "worker_timeout_sec",
+           "legislation_max_tokens": "legislation_max_tokens"},
 }
 # v3 runtimes a team session can run: the seven-role baseline, or the premier
 # and five departments of docs/cabinet_ai_design.md.
@@ -131,6 +134,22 @@ def ai_runtime() -> str:
 
 def llm_timeout_sec() -> float:
     return _bounded_number("llm_timeout_sec", "AOE2_LLM_TIMEOUT_SEC", 30, 2, 600)
+
+
+def legislation_enabled() -> bool:
+    return get_value("legislation_enabled", "AOE2_AI_LEGISLATION_ENABLED", default="false").lower() in {"1", "true", "on"}
+
+
+def legislation_options() -> dict:
+    path = Path(get_value("legislation_dir", "AOE2_AI_LEGISLATION_DIR", default="legislation_data"))
+    return {"root": path if path.is_absolute() else config_path().parent / path,
+            "mode": get_value("worker_mode", "AOE2_AI_WORKER_MODE", default="docker"),
+            "image": get_value("worker_image", "AOE2_AI_WORKER_IMAGE"),
+            "timeout": _bounded_number("worker_timeout_sec", "AOE2_AI_WORKER_TIMEOUT_SEC", 5, .1, 30)}
+
+
+def legislation_max_tokens() -> int:
+    return int(_bounded_number("legislation_max_tokens", "AOE2_AI_LEGISLATION_MAX_TOKENS", 8192, 1024, 32768))
 
 
 def llm_max_tokens() -> int:

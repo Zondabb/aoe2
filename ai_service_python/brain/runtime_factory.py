@@ -14,6 +14,9 @@ def create_runtime(profile_id: str):
     name = runtime_settings.ai_runtime()
     logger.info(json.dumps({"event": "runtime_selected", "runtime": name, "profile_id": profile_id}))
     if name == "cabinet":
+        if runtime_settings.legislation_enabled():
+            from brain.legislation.proxy import LegislativeRuntime
+            return LegislativeRuntime(profile_id, **runtime_settings.legislation_options())
         from brain.cabinet.runtime import CabinetRuntime
         return CabinetRuntime(profile_id)
     from brain.multi_agent.runtime import MultiAgentRuntime

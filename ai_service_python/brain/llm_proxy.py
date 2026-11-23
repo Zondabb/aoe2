@@ -85,11 +85,11 @@ def _local_ollama_base_url() -> str | None:
 
 def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
     """Use native structured output only for a local Ollama role-plan request."""
-    if len(req.tools) != 1 or req.tools[0].function.name != "propose_plan":
+    if len(req.tools) != 1 or req.tools[0].function.name not in ("propose_plan", "propose_source_patch"):
         return None
     choice = req.tool_choice
     if (not isinstance(choice, dict) or choice.get("type") != "function"
-            or choice.get("function") != {"name": "propose_plan"}):
+            or choice.get("function") != {"name": req.tools[0].function.name}):
         return None
     base = _local_ollama_base_url()
     return f"{base}/api/chat" if base else None
@@ -102,6 +102,8 @@ PLAN_OUTPUT_TOKENS, PLAN_OUTPUT_TOKENS_RANGE = 256, (64, 1024)
 
 
 def _plan_output_tokens(req: ChatCompletionRequest) -> int:
+    if len(req.tools) == 1 and req.tools[0].function.name == "propose_source_patch":
+        return runtime_settings.legislation_max_tokens()
     asked = getattr(getattr(req, "metadata", None), "plan_output_tokens", None)
     low, high = PLAN_OUTPUT_TOKENS_RANGE
     if isinstance(asked, int) and low <= asked <= high:
@@ -120,7 +122,7 @@ def _numeric_limits(schema: dict[str, Any]) -> str:
 
 def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
     messages = _messages_payload(req)
-    instruction = ("Return only the propose_plan arguments as one JSON object matching the supplied "
+    instruction = (f"Return only the {req.tools[0].function.name} arguments as one JSON object matching the supplied "
                    "schema. Do not include commentary, markdown, or a tool-call wrapper."
                    + _numeric_limits(req.tools[0].function.parameters))
     if messages and messages[0]["role"] == "system":
@@ -137,8 +139,10 @@ def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
         "think": False,
         "options": {
             "temperature": runtime_settings.llm_temperature(),
-            "num_ctx": runtime_settings.llm_num_ctx(),
-            "num_predict": min(_plan_output_tokens(req), runtime_settings.llm_max_tokens()),
+            "num_ctx": max(32768, runtime_settings.llm_num_ctx())
+                       if req.tools[0].function.name == "propose_source_patch" else runtime_settings.llm_num_ctx(),
+            "num_predict": min(_plan_output_tokens(req), runtime_settings.legislation_max_tokens()
+                               if req.tools[0].function.name == "propose_source_patch" else runtime_settings.llm_max_tokens()),
         },
         "keep_alive": "10m",
     }
@@ -184,11 +188,11 @@ def forward_openai(
             "completion_tokens": int(raw.get("eval_count") or 0),
         }
         raw["usage"]["total_tokens"] = sum(raw["usage"].values())
-        return _normalize_ollama_plan_response(raw, payload["model"]), payload, raw
+        return _normalize_ollama_plan_response(raw, payload["model"], req.tools[0].function.name), payload, raw
     return _normalize_openai_response(raw, payload["model"]), payload, raw
 
 
-def _normalize_ollama_plan_response(raw: dict[str, Any], fallback_model: str) -> ChatCompletionResponse:
+def _normalize_ollama_plan_response(raw: dict[str, Any], fallback_model: str, tool_name: str = "propose_plan") -> ChatCompletionResponse:
     message = raw.get("message") if isinstance(raw.get("message"), dict) else {}
     content = message.get("content")
     calls = None
@@ -200,7 +204,7 @@ def _normalize_ollama_plan_response(raw: dict[str, Any], fallback_model: str) ->
             plan = json.loads(content, parse_constant=_reject_json_constant)
             if isinstance(plan, dict):
                 calls = [{"id": "call_propose_plan", "type": "function", "function": {
-                    "name": "propose_plan", "arguments": content,
+                    "name": tool_name, "arguments": content,
                 }}]
                 finish = "tool_calls"
         except (ValueError, TypeError):

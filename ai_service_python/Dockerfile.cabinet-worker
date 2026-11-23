@@ -1,0 +1,7 @@
+# Build this trusted dependency image, then configure its immutable repository digest.
+# Department source is mounted read-only at runtime; no config or model secrets are copied.
+FROM python:3.13-slim
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+WORKDIR /service
+USER 65534:65534

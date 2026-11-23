@@ -76,7 +76,7 @@ INTERPRET_PROMPT = (
     f"decision 用中文口语说接下来做什么，不超过 {DECISION_LIMIT} 个字。不要写价格、坐标、单位编号或游戏命令。")
 
 
-def interpret_schema() -> dict:
+def interpret_schema(legislative: bool = False) -> dict:
     """The answer to one reading of an order. The subject can only be a catalog id, a resource or empty."""
     mandate = {"type": "object", "additionalProperties": False,
                "properties": {"kind": {"type": "string", "enum": list(KIND_DEPT)},
@@ -84,13 +84,17 @@ def interpret_schema() -> dict:
                               "amount": {"type": "integer", "minimum": 0, "maximum": 100000},
                               "urgency": {"type": "string", "enum": list(URGENCIES)}},
                "required": ["kind", "subject", "amount", "urgency"]}
-    return {"type": "object", "additionalProperties": False,
+    schema = {"type": "object", "additionalProperties": False,
             "properties": {
                 "thinking": {"type": "string", "minLength": 1, "maxLength": THINKING_LIMIT * 4},
                 "decision": {"type": "string", "minLength": 1, "maxLength": DECISION_LIMIT * 4},
                 "grasp": {"type": "string", "enum": list(GRASPS)},
                 "mandates": {"type": "array", "maxItems": MAX_MANDATES, "items": mandate}},
             "required": ["thinking", "decision", "grasp", "mandates"]}
+    if legislative:
+        from brain.legislation.planning import gap_schema
+        schema["properties"]["legislation"] = {"anyOf": [{"type": "null"}, gap_schema()]}
+    return schema
 
 
 def interpret_context(text: str, open_orders: list[dict], civ: str, age: int, previous: dict | None = None) -> dict:
