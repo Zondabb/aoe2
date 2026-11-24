@@ -33,7 +33,7 @@ if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
 
 Write-Host "Upstream model and generation settings: config.toml / config.local.toml (see service startup log)"
 Write-Host "Listen:   from selected configuration (or explicit -ListenPort)"
-Write-Host "Local role planning: native Ollama JSON schema, thinking off, concurrency=1"
+Write-Host "Local role planning: native Ollama JSON schema, concurrency=1 (num_ctx/think from config)"
 Write-Host "LLM inputs, outputs and applied plan changes: logs/multi_agent.jsonl"
 Write-Host ""
 

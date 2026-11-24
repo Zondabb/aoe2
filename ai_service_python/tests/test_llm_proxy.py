@@ -246,3 +246,32 @@ def test_a_planner_may_ask_for_a_larger_output_budget_within_bounds(asked, max_t
     if asked is not None:
         req.metadata = req.metadata.model_copy(update={"plan_output_tokens": asked})
     assert llm_proxy.build_openai_payload(req)["options"]["num_predict"] == expected
+
+
+def test_local_ollama_thinking_mode_and_typed_action_descriptions(monkeypatch):
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.setenv("AOE2_LLM_THINK", "true")
+    monkeypatch.setenv("AOE2_LLM_NUM_CTX", "16384")
+    monkeypatch.setenv("AOE2_LLM_MAX_TOKENS", "32768")
+    req = plan_request()
+    req.metadata = req.metadata.model_copy(update={"plan_output_tokens": 512})
+    payload = llm_proxy.build_openai_payload(req)
+    assert payload["think"] is True
+    assert payload["options"]["num_ctx"] == 16384
+    assert payload["options"]["num_predict"] == 512 + llm_proxy.THINKING_OUTPUT_TOKENS
+
+    from brain.legislation.agent import CodingSession
+    from brain.legislation.tools import action_tools
+    from brain.multi_agent.scheduler import plan_request as build_plan_request
+    session = object.__new__(CodingSession)
+    session.requirement, session.base, session.data = {"proposal_id": "order-1"}, "a" * 64, {"steps": 0}
+    schema = session.schema()
+    brief = {"system": "Code agent", "context": {}, "schema": schema, "tools": action_tools(schema),
+             "description": "Coding", "output_tokens": 8192, "orders": (), "statuses": []}
+    leg_req, _ = build_plan_request(ChatCompletionRequest(model="qwen3:8b", messages=[]),
+                                    "legislative_council", brief, "req-1")
+    leg_payload = llm_proxy.build_openai_payload(leg_req)
+    assert leg_payload["think"] is True
+    assert leg_payload["options"]["num_predict"] == 8192
+    assert "Actions: list (" in leg_payload["messages"][0]["content"]
+    assert "read (" in leg_payload["messages"][0]["content"]

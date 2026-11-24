@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from brain import runtime_settings
-from brain.legislation.tools import ACTION_TOOLS, is_action_tools, native_schema
+from brain.legislation.tools import ACTION_TOOLS, TOOL_ACTIONS, is_action_tools, native_schema
 from protocol.models import (
     ChatCompletionChoice,
     ChatCompletionRequest,
@@ -117,6 +117,7 @@ def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
 # player (the cabinet's premier) asks the service for more through the request
 # metadata, within these bounds; the service sets that field, never the client.
 PLAN_OUTPUT_TOKENS, PLAN_OUTPUT_TOKENS_RANGE = 256, (64, 1024)
+THINKING_OUTPUT_TOKENS = 4096
 
 
 def _plan_output_tokens(req: ChatCompletionRequest) -> int:
@@ -146,26 +147,37 @@ def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
                    "schema. Do not include commentary, markdown, or a tool-call wrapper."
                    + _numeric_limits(req.tools[0].function.parameters))
     if typed:
+        actions = "; ".join(f"{TOOL_ACTIONS[t.function.name]} ({t.function.description}"
+                            f"{_numeric_limits(t.function.parameters)})" for t in req.tools)
         instruction = ("Return exactly one JSON object for one action matching a complete schema branch. "
-                       "Include action and all required arguments; no commentary or tool-call wrapper.")
+                       "Put \"action\" first, then \"note\" and all required arguments; no commentary or tool-call wrapper. "
+                       f"Actions: {actions}")
     if messages and messages[0]["role"] == "system":
         messages[0]["content"] = f"{messages[0].get('content') or ''}\n{instruction}"
     else:
         messages.insert(0, {"role": "system", "content": instruction})
+    legislative = is_legislative_request(req)
+    think = runtime_settings.llm_think()
+    num_ctx = runtime_settings.legislation_context_tokens() if legislative else runtime_settings.llm_num_ctx()
+    if legislative:
+        num_predict = runtime_settings.legislation_output_tokens()
+    elif think:
+        num_predict = min(_plan_output_tokens(req) + THINKING_OUTPUT_TOKENS,
+                          runtime_settings.llm_max_tokens(), max(1024, num_ctx // 2))
+    else:
+        num_predict = min(_plan_output_tokens(req), runtime_settings.llm_max_tokens())
     return {
         "model": upstream_model(req),
         "stream": False,
         "messages": messages,
         "format": format_schema,
-        # Ollama's OpenAI endpoint does not support forced tool_choice, and
-        # qwen3 can consume the entire generation budget on hidden reasoning.
-        "think": False,
+        # Ollama's OpenAI endpoint does not support forced tool_choice; native
+        # /api/chat supports explicit thinking control with a dedicated budget.
+        "think": think,
         "options": {
             "temperature": runtime_settings.llm_temperature(),
-            "num_ctx": runtime_settings.legislation_context_tokens()
-                       if is_legislative_request(req) else runtime_settings.llm_num_ctx(),
-            "num_predict": min(_plan_output_tokens(req), runtime_settings.legislation_output_tokens()
-                               if is_legislative_request(req) else runtime_settings.llm_max_tokens()),
+            "num_ctx": num_ctx,
+            "num_predict": num_predict,
         },
         "keep_alive": "10m",
     }

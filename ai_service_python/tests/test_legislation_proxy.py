@@ -401,3 +401,57 @@ def test_changed_instruction_cancels_inflight_build_even_if_text_returns(service
         proxy._job.result(timeout=30)
     assert proxy._candidate is None and not proxy._failed
     assert proxy.release == proxy.base
+
+
+def test_patched_choose_sites_selects_adjacent_farm_option_without_mutating_observation(service):
+    svc, _ = service
+    first = svc.tick(request(1, orders=("农田要紧贴在一起建造",)))
+    proxy = next(iter(svc._sessions.values())).runtime
+    proxy.planning_brief("premier_orders")
+    plan = reading()
+    plan["legislation"]["departments"] = ["economy"]
+    assert proxy.apply_plan("premier_orders", plan)
+    target = (
+        "    def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:\n"
+        "        \"\"\"Reorder legal `options` for building `name` (e.g. 'farm', 'house', 'mill').\n"
+        "        Each option dict has keys `building_def_id`, `builder_id`, `pos`, `score`, and (for 'farm') `adjacent_farms`.\n"
+        "        Sort rather than drop options so the first farm (`adjacent_farms == 0`) and other buildings still place.\"\"\"\n"
+        "        return options\n"
+    )
+    patch = (
+        "    def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:\n"
+        "        if name == 'farm':\n"
+        "            for item in options:\n"
+        "                item['rank_key'] = item.get('adjacent_farms', 0)\n"
+        "            return sorted(options, key=lambda o: (-o['rank_key'], -o.get('score', 0)))\n"
+        "        return options\n"
+    )
+    old = (proxy.store.path(proxy.release) / ECONOMY).read_text(encoding="utf-8")
+    new = old.replace(target, patch)
+    proposal = {"proposal_id": "order-1", "base_release": proxy.release,
+                "unified_diff": "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True),
+                                                             fromfile="a/" + ECONOMY, tofile="b/" + ECONOMY)),
+                "state_fields": [], "explanation": "prefer adjacent farm sites"}
+    proxy.planning_brief("legislative_council")
+    assert proxy.apply_plan("legislative_council", proposal)
+    proxy._job.result(timeout=30)
+
+    req2 = request(2, orders=("农田要紧贴在一起建造",), events=accept(first, seq=200))
+    req2.observation.economy.wood = 200
+    req2.observation.economy.food = 80
+    req2.observation.entities = [e for e in req2.observation.entities
+                                 if not (e.get("kind") == "resource" and e.get("resource_type") == "FOOD")]
+    req2.observation.entities.append({"id": 50, "kind": "building", "def_id": "mill", "team": 0,
+                                      "pos": [16.0, 16.0], "hp": 600.0, "max_hp": 600.0, "is_complete": True})
+    req2.observation.entities.append({"id": 51, "kind": "building", "def_id": "farm", "team": 0,
+                                      "pos": [16.0, 26.0], "hp": 480.0, "max_hp": 480.0, "is_complete": True,
+                                      "resource_type": "FOOD", "amount": 175.0})
+    builder_id = next(e["id"] for e in req2.observation.entities if e.get("def_id") == "villager" and e.get("team") == 0)
+    req2.observation.decision_context["construction_options"] = [
+        {"building_def_id": "farm", "builder_id": builder_id, "pos": [26.0, 16.0], "score": 91.0, "adjacent_farms": 0},
+        {"building_def_id": "farm", "builder_id": builder_id, "pos": [24.0, 26.0], "score": 88.6, "adjacent_farms": 1},
+    ]
+    result = svc.tick(req2)
+    assert proxy.release != proxy.base
+    placed = [c for c in result["commands"] if c["op"] == "place_building" and c["building_def_id"] == "farm"]
+    assert len(placed) == 1 and placed[0]["pos"] == [24.0, 26.0]

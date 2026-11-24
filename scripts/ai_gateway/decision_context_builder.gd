@@ -324,9 +324,14 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 			# so a missing mill cannot permanently block farms and enclosure.
 			anchors.append({"pos": base, "resource_id": null, "radii": [18.0, 22.0, 26.0, 34.0, 44.0, 50.0], "score_bonus": -10.0})
 	var candidates: Array = []
+	var adjacent_candidates: Array = []
+	var farm_positions: Array[Vector2] = []
 	if zone == "farm":
 		var side := Vector2(-1 if direction.x < 0 else 1, -1 if direction.y < 0 else 1)
-		candidates = Queries.farm_sites(_farm_anchors(snapshots, team), side, LANE_WIDTH * 0.5)
+		var farm_anchors := _farm_anchors(snapshots, team)
+		farm_positions = _own_farm_positions(snapshots, team)
+		candidates = Queries.farm_sites(farm_anchors, side, LANE_WIDTH * 0.5)
+		adjacent_candidates = _adjacent_farm_sites(farm_anchors, farm_positions, side)
 	else:
 		var seen := {}
 		for anchor: Dictionary in anchors:
@@ -346,17 +351,38 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 					elif zone == "residential": score -= facing * 8.0
 					candidates.append({"point": point, "score": score, "resource_id": anchor.resource_id, "drop_off_id": anchor.get("drop_off_id")})
 		candidates.sort_custom(func(a, b): return a.score > b.score)
-	var found := 0
+	var chosen_points := {}
+	if zone == "farm" and not adjacent_candidates.is_empty():
+		var adj_checked := 0
+		for candidate: Dictionary in adjacent_candidates:
+			if adj_checked >= 2: break
+			var point: Vector2 = candidate.point
+			if not _site_available(definition, point, work, state, team, bounds, nav, true): continue
+			var builder := _nearest_builder(free_builders, point)
+			adj_checked += 1
+			var radius: float = builder.get("def").resolved_footprint_radius()
+			var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, radius)
+			if route.is_empty() or route[-1].distance_to(point) > 2: continue
+			var detour := _delivery_detour(nav, point, candidate.delivery_goal, radius)
+			if not is_finite(detour): continue
+			var exit_pos := point + Vector2.RIGHT * (definition.footprint.x * 0.5 + 2.0)
+			result.append({"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point),
+				"zone": zone, "planning_footprint": Protocol.vec2_to_array(planning_footprint(definition)),
+				"score": snappedf(candidate.score - detour, 0.1), "resource_target_id": candidate.resource_id,
+				"drop_off_id": candidate.drop_off_id, "adjacent_farms": int(candidate.adjacent_farms),
+				"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "adjacent_farm_cluster"]})
+			chosen_points[point] = true
+			break
+	var found := result.size()
 	var checked := 0
 	var index := 0
 	while index < candidates.size() and found < POSITIONS_PER_BUILDING and checked < MAX_ROUTE_CHECKS_PER_BUILDING:
 		var candidate: Dictionary = candidates[index]
 		index += 1
 		var point: Vector2 = candidate.point
+		if chosen_points.has(point): continue
 		if zone == "farm" and not _site_available(definition, point, work, state, team, bounds, nav): continue
-		var builder: Node2D = free_builders[0]
-		for unit in free_builders:
-			if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
+		var builder := _nearest_builder(free_builders, point)
 		checked += 1
 		var radius: float = builder.get("def").resolved_footprint_radius()
 		var route: PackedVector2Array = nav.find_path(builder.get("sim_pos"), point, radius)
@@ -376,11 +402,15 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 			continue
 		var exit_pos := point + Vector2.RIGHT * (definition.footprint.x * 0.5 + 2.0)
 		if definition.id in MILITARY_BUILDINGS and not nav.is_world_walkable_with_radius(exit_pos, 0.6): continue
-		result.append({"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point),
+		var entry := {"building_def_id": record.id, "builder_id": Registry.id_of(builder), "pos": Protocol.vec2_to_array(point),
 			"zone": zone, "planning_footprint": Protocol.vec2_to_array(planning_footprint(definition)),
 			"score": snappedf(candidate.score, 0.1), "resource_target_id": candidate.resource_id,
 			"drop_off_id": candidate.drop_off_id,
-			"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "farm_and_lane_reserve"]})
+			"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "farm_and_lane_reserve"]}
+		if zone == "farm":
+			entry["adjacent_farms"] = _count_adjacent_farms(point, farm_positions)
+		result.append(entry)
+		chosen_points[point] = true
 		found += 1
 	if zone == "farm":
 		result.sort_custom(func(a, b): return a.score > b.score)
@@ -542,11 +572,63 @@ static func _defense_finish(work: Dictionary) -> Dictionary:
 	return result
 
 
-static func _site_available(definition: BuildingDef, point: Vector2, work: Dictionary, state: MatchState, team: int, bounds: Rect2, nav: RefCounted) -> bool:
-	if not _planning_clear(definition, point, work.base, work.sites, bounds): return false
+static func _site_available(definition: BuildingDef, point: Vector2, work: Dictionary, state: MatchState, team: int, bounds: Rect2, nav: RefCounted, allow_adjacent_farms: bool = false) -> bool:
+	if not _planning_clear(definition, point, work.base, work.sites, bounds, allow_adjacent_farms): return false
 	if not Perimeter.strips_clear(work.wall_strips, point, definition.footprint + Vector2.ONE * 4): return false
 	if state.fog_enabled and (state.fog == null or not state.fog.footprint_visible(team, point, definition.footprint, true)): return false
 	return _can_place(definition.footprint, point, work.sites) and _footprint_walkable(point, definition.footprint, nav)
+
+
+static func _nearest_builder(free_builders: Array, point: Vector2) -> Node2D:
+	var builder: Node2D = free_builders[0]
+	for unit in free_builders:
+		if unit.get("sim_pos").distance_squared_to(point) < builder.get("sim_pos").distance_squared_to(point): builder = unit
+	return builder
+
+
+static func _own_farm_positions(snapshots: Array, team: int) -> Array[Vector2]:
+	var positions: Array[Vector2] = []
+	for item: Dictionary in snapshots:
+		if item.get("kind") == "building" and item.get("team") == team and item.get("def_id") == "farm" and float(item.get("hp", 0)) > 0:
+			positions.append(Protocol.array_to_vec2(item.pos))
+	return positions
+
+
+static func _count_adjacent_farms(point: Vector2, farm_positions: Array[Vector2]) -> int:
+	var count := 0
+	for fp: Vector2 in farm_positions:
+		if point != fp and point.distance_to(fp) <= Queries.FARM_PLANNING_SIDE + 0.5:
+			count += 1
+	return count
+
+
+static func _adjacent_farm_sites(farm_anchors: Array, farm_positions: Array[Vector2], side: Vector2) -> Array:
+	if farm_anchors.is_empty() or farm_positions.is_empty(): return []
+	var by_point := {}
+	var step := Queries.FARM_PLANNING_SIDE
+	var dirs := [Vector2(step, 0) * side, Vector2(0, step) * side, Vector2(-step, 0) * side, Vector2(0, -step) * side]
+	for fp: Vector2 in farm_positions:
+		for delta: Vector2 in dirs:
+			var point: Vector2 = (fp + delta).round()
+			var adj := _count_adjacent_farms(point, farm_positions)
+			if adj <= 0: continue
+			for anchor: Dictionary in farm_anchors:
+				var half: Vector2 = anchor.footprint * 0.5
+				var offset: Vector2 = point - anchor.pos
+				var edge: Vector2 = anchor.pos + offset.clamp(-half, half)
+				var dist := point.distance_to(edge)
+				if dist > 48.0: continue
+				var score := 100.0 - dist
+				if by_point.has(point) and score <= by_point[point].score: continue
+				var delivery_goal := edge.move_toward(point, 1.0 + half.x)
+				by_point[point] = {"point": point, "score": score, "drop_off_id": anchor.drop_off_id,
+					"delivery_goal": delivery_goal, "resource_id": null, "adjacent_farms": adj,
+					"index": by_point.get(point, {}).get("index", by_point.size())}
+	var candidates := by_point.values()
+	candidates.sort_custom(func(a, b):
+		if a.adjacent_farms != b.adjacent_farms: return a.adjacent_farms > b.adjacent_farms
+		return a.index < b.index if a.score == b.score else a.score > b.score)
+	return candidates
 
 
 static func _farm_anchors(snapshots: Array, team: int) -> Array:
@@ -597,7 +679,7 @@ static func _site_index(blockers: Array) -> Dictionary:
 				# producer can use other exits, but planners should not force a retry.
 				exit = Rect2(pos + Vector2(other.footprint.x * 0.5, -1.5), Vector2(5.0, 3.0))
 				covered = covered.merge(exit)
-			_bucket_insert(planning, covered, [rect, exit])
+			_bucket_insert(planning, covered, [rect, exit, other.id == &"farm"])
 		if blocker.is_queued_for_deletion() or blocker.get("is_placement_ghost") == true: continue
 		if blocker.has_method("get_water_contours") and not blocker.get_water_contours().is_empty():
 			water.append([blocker.get_water_contours(), Shore.contours_bounds(blocker.get_water_contours())])
@@ -625,7 +707,7 @@ static func _bucket_insert(buckets: Dictionary, rect: Rect2, entry: Array) -> vo
 			if not buckets.has(key): buckets[key] = []
 			buckets[key].append(entry)
 
-static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, sites: Dictionary, bounds: Rect2) -> bool:
+static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, sites: Dictionary, bounds: Rect2, allow_adjacent_farms: bool = false) -> bool:
 	var size := planning_footprint(definition)
 	var area := Rect2(pos - size * 0.5, size)
 	if not bounds.encloses(area.grow(1.0)): return false
@@ -634,12 +716,14 @@ static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2
 	var offset := pos - base
 	if absf(offset.x) < size.x * 0.5 + LANE_WIDTH * 0.5 or absf(offset.y) < size.y * 0.5 + LANE_WIDTH * 0.5: return false
 	var lane := area.grow(LANE_WIDTH * 0.5)
+	var farm_touch := allow_adjacent_farms and definition.id == &"farm"
+	var strict_area := area.grow(-0.01)
 	var planning: Dictionary = sites.planning
 	var cells := _bucket_cells(lane)
 	for y in range(cells.position.y, cells.end.y):
 		for x in range(cells.position.x, cells.end.x):
 			for entry: Array in planning.get(Vector2i(x, y), []):
-				if lane.intersects(entry[0]): return false
+				if (strict_area if farm_touch and entry.size() > 2 and bool(entry[2]) else lane).intersects(entry[0]): return false
 				if entry[1] is Rect2 and area.intersects(entry[1]): return false
 	return true
 

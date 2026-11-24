@@ -255,3 +255,19 @@ def test_agent_progress_is_visible_without_changing_frozen_goal_or_reviving_inst
     assert order.legislation["phase"] == "installed"
     assert not r.legislation_progress("order-1", "retrying")
     assert order.status == ACTIVE
+
+
+def test_legislation_lifecycle_emits_premier_broadcasts_for_player():
+    r = runtime()
+    r.planning_brief(ORDERS_ROLE)
+    assert r.apply_plan(ORDERS_ROLE, reading())
+    req = frame(2, time=2.0)
+    req.observation.player_instructions = ["木材低于200开始优先采集，到320停止"]
+    requested = r.tick(req)["planning"].get("broadcasts", [])
+    assert any("等待立法会" in line["text"] for line in requested)
+
+    assert r.legislation_result("order-1", "installed")
+    req3 = frame(3, time=3.0)
+    req3.observation.player_instructions = ["木材低于200开始优先采集，到320停止"]
+    installed = r.tick(req3)["planning"].get("broadcasts", [])
+    assert any("安装生效" in line["text"] for line in installed)

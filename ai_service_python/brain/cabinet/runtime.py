@@ -151,7 +151,7 @@ class CabinetRuntime:
         # 4. Orders, each paid from its own request's earmark. Units and
         # builders are claimed in the order the seven roles claimed them.
         self.tech.act(f)
-        self.crew.work(f, [r for r in self.treasury.line(self.requests, tiers) if r.key[0] == "building"])
+        self.crew.work(f, [r for r in self.treasury.line(self.requests, tiers) if r.key[0] == "building"], self.departments)
         for building in engine._production_plan(f)["ordered"]:
             if building.get("def_id") == "town_center":
                 self.economy.train(f, building)
@@ -187,6 +187,13 @@ class CabinetRuntime:
                 # The answer to an order is always read out: how it was understood, what will be done, what was changed.
                 voice.say(ORDER, order.thinking, joined(order.decision, *order.notes), now, since=order.received_at,
                           since_wall=self._order_wall.get(order.number), **about)
+            elif event["change"] == "legislation_requested":
+                voice.say(ORDER, order.thinking, joined(order.decision, *order.notes, order.waiting), now,
+                          since=order.received_at, since_wall=self._order_wall.get(order.number), **about)
+            elif event["change"] == "legislation_installed":
+                voice.say(ORDER, "", f"“{order.text}”的新算法已由立法会安装生效。", now, **about)
+            elif event["change"] == "legislation_failed":
+                voice.say(ORDER, "", joined(f"“{order.text}”立法未通过", event.get("reason", "")), now, **about)
             elif event["change"] == "done":
                 voice.say(CARRIED_OUT, "", f"“{order.text}”已经办完。", now, **about)
         for order in ledger.orders:

@@ -267,6 +267,11 @@ func _test_short_farm_deliveries() -> void:
 	check(state.get_resource(0, Enums.ResourceType.FOOD) >= food + 20, "one farmer delivers two loads to the mill within 12 simulation seconds")
 	worker.command_stop()
 	worker.carry_amount = 0
+	var cluster_plots: Array = Observation.build_json_safe(state, world, 0, 1, 99).decision_context.construction_options.filter(func(o): return o.building_def_id == "farm" and int(o.get("adjacent_farms", 0)) >= 1)
+	check(not cluster_plots.is_empty(), "existing farm exposes an edge-adjacent farm plot")
+	if not cluster_plots.is_empty():
+		var adj_pos := Vector2(cluster_plots[0].pos[0], cluster_plots[0].pos[1])
+		check(is_equal_approx(adj_pos.distance_to(pos), 8.0) and Placement.can_place_at(Catalog.get_building(&"farm"), adj_pos, world), "adjacent farm plot touches the 8x8 field edge without overlapping")
 	for dx in [-10, 0, 10]:
 		for dy in [-10, 0, 10]:
 			var occupied := mill.sim_pos + Vector2(dx, dy)

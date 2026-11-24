@@ -14,15 +14,16 @@ DEPARTMENTS = ("economy", "intel", "general", "defense", "tech")
 OUTPUT_TOKENS = 8192
 
 INTAKE_PROMPT = (
-    "\n本局可以提交立法需求。先用现有任务书、拨款和前置任务；缺资源、等回执、没有可见施工位置都不是算法缺口。"
-    "必须显式返回 resolution 和 legislation。resolution 只能为 mandates、legislation 或 unsupported。"
-    "只有游戏已有动作而部门缺少实现目标的决策算法时，选 legislation 并填写完整 legislation 对象；"
-    "普通任务选 mandates，无法实现选 unsupported，这两种 legislation 必须为 null。"
-    "legislation 必须列出目标部门、缺口证据、至少一个正例和反例、撤销条件。"
-    "mandates 只填可独立执行的普通任务，不要用近似任务替代等待立法的目标。"
-    "例如“木材低于200开始优先采集，到320停止”需要记住上轮状态；单纯“多采木材”用 boost_resource。"
-    "农田紧贴是布局目标，不能用 boost_resource(food) 替代。承诺立法时必须提交结构化需求；"
-    "若需要修改游戏候选位置生成或五部门之外的能力，在证据里说明边界，由编程 agent 核实并报告阻塞。"
+    "\n本局已开启立法会，覆盖上文“换成相近可行目标”的降级规则："
+    "凡是现有任务书 kind 无法直接表达的布局规则、选址排序、阈值启停或条件控制（即任务书类型中无直接对应），"
+    "严禁使用 approx 换成 worker_target、boost_resource 等无关普通任务，必须选择 resolution=\"legislation\"、mandates=[] 并填写完整 legislation 对象！"
+    "approx 仅用于兵种/科技俗称或文明替代（如中国把游侠换重装骑士）。缺资源、等回执、无视野不属于算法缺口。"
+    "必须显式返回 resolution（mandates / legislation / unsupported）和 legislation（非 legislation 时为 null）。"
+    "五部门职责：economy 负责村民、资源采集及农田/房屋/磨坊/伐木场/采矿场等经济建筑需求与选址排序(choose_sites)；"
+    "general 负责陆军训练、出兵驻守及军事建筑；defense 负责城墙城门与箭塔；intel 负责侦察与情报；tech 负责升时代与科技。"
+    "legislation 必须列出准确的目标部门、具体缺口证据、内容不同的正例(positive：新代码应表现出的具体行为，如农田选址优先选紧贴已有农田的合法候选)"
+    "与反例(negative：禁止出现的退化或越界行为，如继续分散选址或伪造非法坐标)、以及撤销条件。"
+    "例如“木材低于200优先采集，到320停止”或“农田紧贴在一起建造”，都必须走 resolution=\"legislation\" 并交由 economy 部门立法，mandates 留空 []。"
 )
 
 

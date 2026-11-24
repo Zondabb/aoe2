@@ -53,7 +53,7 @@ OpenAI 兼容接口上的规划请求显式设置 `parallel_tool_calls=false`。
 
 宿主维护最近操作及读取范围，返回 `next_line` 和带搜索词的 `next_offset`，重启后继续保留。源码地图从当前快照定位 `_govern`、施工队、经济需求与选址入口；默认搜索优先当前内阁和 multi_agent 代码，避免先走旧版 `brain/build_placement.py`。token 预算包含全部工具定义；阅读结果按完整行缩短时同步更新游标及可编辑视图，验收目标不截断。
 
-当前游戏端的农田候选规划会预留间距：`decision_context_builder.gd::_planning_clear` 对规划占地外扩后检查已有建筑。五部门只能从已有合法候选中筛选更紧凑的位置；严格零缝紧贴需要游戏端改变候选生成与间距约束。编程 agent 应明确报告这类能力缺口，不能伪造未提供的位置或把更紧凑等同于零间距。
+当前游戏端的农田候选规划默认预留通道间距，同时在已有己方农田旁提供无重叠边缘紧贴候选（`adjacent_farms >= 1`，仍避开基地主干道、城墙带与实心建筑间距）。内阁施工队通过所属部门的 `Department.choose_sites(f, name, options)` 对合法候选排序，因此经济部可通过立法补丁优先选择 `adjacent_farms` 更高或距离既有农田最近的合法位置。
 
 可用 `tools/legislation_replay.py --config <配置> --match <对局ID>` 离线检查对应冻结需求和工具定义。加 `--live --max-steps 12` 才会调用配置的模型；它只在内存中修改草稿并校验差异，不写对局会话、不安装发布，网络失败即停止。向外部模型发送需求与源码应按操作者授权范围执行。
 

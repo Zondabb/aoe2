@@ -366,3 +366,15 @@ def test_source_read_cursor_and_history_survive_budget_trimming_and_restart(make
 def test_reading_a_file_without_final_newline_advances_past_its_last_line(make_session):
     session = make_session({ECONOMY: "VALUE = 1"})
     assert read(session)["next_line"] == 2
+
+
+def test_list_rejects_exact_python_file_and_warns_on_duplicate_readonly_step(make_session):
+    session = make_session({ECONOMY: "class EconomyDept:\n    def choose_sites(self, f, name, options):\n        return options\n"})
+    assert session.brief()["context"]["source_map"][ECONOMY]["choose_sites"] == 2
+    assert session.apply(action(session, "list", path=ECONOMY, offset=64)) is None
+    assert "list_expects_directory_prefix" in session.data["feedback"]["error"]
+    assert session.data["failures"] == 1
+    assert session.apply(action(session, "list", path="brain/cabinet/departments/")) is None
+    assert "warning" not in session.data["feedback"]
+    assert session.apply(action(session, "list", path="brain/cabinet/departments/")) is None
+    assert "Repeated identical read-only call" in session.data["feedback"]["warning"]

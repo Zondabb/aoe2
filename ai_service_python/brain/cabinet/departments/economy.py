@@ -59,6 +59,12 @@ class EconomyDept(Department):
             self.field.roles["economy"].memory["villager_ordered_at"] = self.field.now
         return ordered
 
+    def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:
+        """Reorder legal `options` for building `name` (e.g. 'farm', 'house', 'mill').
+        Each option dict has keys `building_def_id`, `builder_id`, `pos`, `score`, and (for 'farm') `adjacent_farms`.
+        Sort rather than drop options so the first farm (`adjacent_farms == 0`) and other buildings still place."""
+        return options
+
     def act(self, f) -> None:
         """Gathering costs nothing: staff the resources the open requests are short of, and the one an order asked for."""
         for resource, amount in self.boosts.items():

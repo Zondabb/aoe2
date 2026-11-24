@@ -19,7 +19,7 @@ _KEYS = {
                 "snapshot_seconds": "snapshot_seconds"},
     "llm": {"backend": "backend", "model": "llm_model", "base_url": "llm_base_url",
             "token": "llm_token", "max_tokens": "llm_max_tokens", "temperature": "llm_temperature",
-            "timeout_sec": "llm_timeout_sec", "num_ctx": "llm_num_ctx"},
+            "timeout_sec": "llm_timeout_sec", "num_ctx": "llm_num_ctx", "think": "llm_think"},
     "ai": {"runtime": "ai_runtime", "legislation_enabled": "legislation_enabled",
            "legislation_dir": "legislation_dir", "worker_mode": "worker_mode",
            "worker_image": "worker_image", "worker_timeout_sec": "worker_timeout_sec",
@@ -187,6 +187,10 @@ def llm_num_ctx() -> int:
     return int(_bounded_number("llm_num_ctx", "AOE2_LLM_NUM_CTX", 8192, 2048, 32768))
 
 
+def llm_think() -> bool:
+    return get_value("llm_think", "AOE2_LLM_THINK", default="false").lower() in {"1", "true", "yes", "on"}
+
+
 def log_observation() -> bool:
     return get_value("log_observation", "AOE2_AI_LOG_OBSERVATION", default="false").lower() in {"1", "true", "yes", "on"}
 
@@ -214,6 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--llm-max-tokens", default="", help="Upstream generation token budget")
     parser.add_argument("--llm-temperature", default="", help="Upstream sampling temperature")
     parser.add_argument("--llm-num-ctx", default="", help="Local Ollama context window")
+    parser.add_argument("--llm-think", action=argparse.BooleanOptionalAction, default=None, help="Local Ollama native thinking mode")
     parser.add_argument("--log-observation", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--log-dir", default="", help="Log directory (relative to the selected config file)")
     parser.add_argument("--ai-token", default="", help="Optional Bearer token required from the game")
@@ -234,7 +239,7 @@ def apply_args(args: argparse.Namespace) -> None:
         token = lines[0].strip() if lines else ""
     clear_cli()
     for key in ("host", "port", "llm_base_url", "llm_model", "llm_timeout_sec", "llm_max_tokens",
-                "llm_temperature", "llm_num_ctx", "ai_token", "backend", "log_observation", "log_dir"):
+                "llm_temperature", "llm_num_ctx", "llm_think", "ai_token", "backend", "log_observation", "log_dir"):
         set_cli(**{key: getattr(args, key, None)})
     set_cli(llm_token=token, ai_runtime=getattr(args, "runtime", None))
     ai_runtime()  # refuse to start on an unknown runtime name

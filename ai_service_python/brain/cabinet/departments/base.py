@@ -68,6 +68,10 @@ class Department:
     def act(self, f) -> None:
         """Add orders, paying only from this department's purses."""
 
+    def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:
+        """Order legal construction sites for `name`; by default keep the crew's order."""
+        return options
+
     def report(self) -> DeptReport:
         state = self.field.roles[self.role] if self.role else None
         rows, waiting_funds, waiting_needs = [], False, False

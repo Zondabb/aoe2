@@ -6,16 +6,24 @@ host = "127.0.0.1"
 port = 8765
 log_observation = false
 
-[ai]
-# v3 runtime for new team sessions: "multi_agent" (seven roles) or "cabinet"
-# (premier and five departments, docs/cabinet_ai_design.md).
-runtime = "multi_agent"
-
 [llm]
 backend = "openai"
 model = "qwen3:8b"
 base_url = "http://127.0.0.1:11434/v1"
 max_tokens = 204800
 temperature = 0.2
-timeout_sec = 30
-num_ctx = 8192
+timeout_sec = 90
+num_ctx = 16384
+think = true
+
+[ai]
+runtime = "cabinet"
+legislation_enabled = true
+legislation_dir = "legislation_data"
+worker_mode = "docker"
+worker_image = "localhost:5000/cabinet-worker@sha256:04473314770fda64ce76eaa452107f8eb470faaed354f94ef1fb3dfd4917c59d"
+worker_timeout_sec = 5
+legislation_max_tokens = 8192
+legislation_context_tokens = 16384
+legislation_timeout_sec = 180
+legislation_max_steps = 24

@@ -12,10 +12,10 @@ ARGUMENTS = {
     "blocked": (["explanation"], []),
 }
 DESCRIPTIONS = {
-    "list": "List files under an optional path prefix.",
+    "list": "List .py files under a directory prefix (use read, not list, for a .py file).",
     "search": "Find literal query; active cabinet code is searched first.",
-    "read": "Read path from start_line. Continue at next_line.",
-    "edit": "Replace unique old_text in the read file at sha256.",
+    "read": "Read source lines of path from start_line. Continue at next_line.",
+    "edit": "Replace unique old_text in the read writable file at sha256.",
     "finish": "Validate drafts; declare new state_fields (or []).",
     "blocked": "Report the specific capability missing for the goal.",
 }
@@ -39,11 +39,21 @@ def is_action_tools(names):
 
 
 def native_schema(tools):
-    """Each union branch is a complete object, never a partial refinement."""
+    """Each union branch is a complete object led by its action discriminator.
+
+    Putting ``action`` first lets grammar-constrained decoders (such as Ollama's
+    GBNF generator) select the intended branch before emitting ``note`` or
+    branch-specific arguments, instead of collapsing into ``list`` after ``note``.
+    """
     branches = []
     for tool in tools:
         schema = copy.deepcopy(tool.function.parameters)
-        schema["properties"]["action"] = {"type": "string", "enum": [TOOL_ACTIONS[tool.function.name]]}
-        schema["required"] = schema.get("required", []) + ["action"]
+        props = schema["properties"]
+        ordered = {"action": {"type": "string", "enum": [TOOL_ACTIONS[tool.function.name]]}}
+        if "note" in props:
+            ordered["note"] = props.pop("note")
+        ordered.update(props)
+        schema["properties"] = ordered
+        schema["required"] = ["action"] + schema.get("required", [])
         branches.append(schema)
     return {"oneOf": branches}
