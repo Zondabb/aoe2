@@ -23,7 +23,10 @@ _KEYS = {
     "ai": {"runtime": "ai_runtime", "legislation_enabled": "legislation_enabled",
            "legislation_dir": "legislation_dir", "worker_mode": "worker_mode",
            "worker_image": "worker_image", "worker_timeout_sec": "worker_timeout_sec",
-           "legislation_max_tokens": "legislation_max_tokens"},
+           "legislation_max_tokens": "legislation_max_tokens",
+           "legislation_timeout_sec": "legislation_timeout_sec",
+           "legislation_context_tokens": "legislation_context_tokens",
+           "legislation_max_steps": "legislation_max_steps"},
 }
 # v3 runtimes a team session can run: the seven-role baseline, or the premier
 # and five departments of docs/cabinet_ai_design.md.
@@ -150,6 +153,26 @@ def legislation_options() -> dict:
 
 def legislation_max_tokens() -> int:
     return int(_bounded_number("legislation_max_tokens", "AOE2_AI_LEGISLATION_MAX_TOKENS", 8192, 1024, 32768))
+
+
+def legislation_timeout_sec() -> float:
+    """Read timeout for a bounded code-agent step, independent of ordinary plans."""
+    return _bounded_number("legislation_timeout_sec", "AOE2_AI_LEGISLATION_TIMEOUT_SEC", 120, 10, 600)
+
+
+def legislation_context_tokens() -> int:
+    """Total context allowance, including the reserved code-agent response."""
+    return int(_bounded_number("legislation_context_tokens", "AOE2_AI_LEGISLATION_CONTEXT_TOKENS", 16384, 8192, 131072))
+
+
+def legislation_output_tokens() -> int:
+    """Reserve room for the fixed contract and source, even in an 8k context."""
+    context = legislation_context_tokens()
+    return min(legislation_max_tokens(), context // 2, max(1024, context - 8192))
+
+
+def legislation_max_steps() -> int:
+    return int(_bounded_number("legislation_max_steps", "AOE2_AI_LEGISLATION_MAX_STEPS", 24, 4, 100))
 
 
 def llm_max_tokens() -> int:

@@ -15,26 +15,49 @@ worker_mode = "docker"
 worker_image = "your-registry/cabinet-worker@sha256:<实际镜像摘要>"
 worker_timeout_sec = 5
 legislation_max_tokens = 8192
+legislation_context_tokens = 16384
+legislation_timeout_sec = 120
+legislation_max_steps = 24
 ```
 
-使用 `ai_service_python/Dockerfile.cabinet-worker` 构建可信依赖镜像，推送到自己的镜像仓库，取得实际摘要再填入配置。运行环境必须有 Docker CLI 和可用 daemon；工作进程镜像不能带凭据。镜像通过摘要固定 Python 和依赖。当前测试在 Windows 本地工作进程模式完成，Docker 部署命令尚未实机验收。
+使用 `ai_service_python/Dockerfile.cabinet-worker` 构建可信依赖镜像，推送到自己的镜像仓库，取得实际摘要再填入配置。运行环境必须有 Docker CLI 和可用 daemon；工作进程镜像不能带凭据。镜像通过摘要固定 Python 和依赖。已在 Windows Docker Desktop 下验证中国、条顿两队的启动、连续两轮请求和重复请求；完整隔离安全测试及真实对局联调尚未完成。
+
+Windows 发布库内部保留长路径前缀，传给 Docker 挂载参数时转换为普通盘符或 UNC 路径。启动失败返回可重试的 `503 cabinet_worker_unavailable`，服务的 `cabinet_worker_start_failed` 日志记录有界的 Docker/Python 标准错误诊断。设置 `AOE2_TEST_WORKER_IMAGE` 为本机镜像的摘要引用后，可运行 `tests/test_legislation_process.py` 中的 Docker 回归用例；不设置时这两个用例跳过。
 
 Docker 工作进程禁止网络、丢弃 capabilities、禁提权、使用非 root 用户，源码和根文件系统只读，并限制 CPU、内存、进程数与临时空间。主进程不会向工作进程传入模型密钥、本地配置或宿主控制套接字。进程超时由宿主结束。源码的 AST/编译检查不是安全沙箱。
 
 仅用于可信本地开发与测试，可设置 `worker_mode = "local-development"`。此模式使用真实子进程、清理环境变量并限制 RPC 大小和超时，**不提供操作系统级文件、网络或子进程隔离**；不要用它执行不可信模型生成的代码。
 
-环境变量对应为 `AOE2_AI_LEGISLATION_ENABLED`、`AOE2_AI_LEGISLATION_DIR`、`AOE2_AI_WORKER_MODE`、`AOE2_AI_WORKER_IMAGE`、`AOE2_AI_WORKER_TIMEOUT_SEC`、`AOE2_AI_LEGISLATION_MAX_TOKENS`。
+环境变量对应为 `AOE2_AI_LEGISLATION_ENABLED`、`AOE2_AI_LEGISLATION_DIR`、`AOE2_AI_WORKER_MODE`、`AOE2_AI_WORKER_IMAGE`、`AOE2_AI_WORKER_TIMEOUT_SEC`、`AOE2_AI_LEGISLATION_MAX_TOKENS`、`AOE2_AI_LEGISLATION_CONTEXT_TOKENS`、`AOE2_AI_LEGISLATION_TIMEOUT_SEC`、`AOE2_AI_LEGISLATION_MAX_STEPS`。
+
+`legislation_context_tokens` 是包含输入和预留输出的总预算。输出不超过 `legislation_max_tokens` 和总预算的一半，并尽可能为输入保留 8192 token：8k 总预算时输出降到 1024，16k 时默认输出 8192。宿主按 UTF-8 字节保守估计输入 token，计入工具 schema 并预留协议开销。超大的读取结果缩小后重读；冻结需求本身超限时明确报告失败，不删减验收目标。立法请求使用独立超时和输出预算，不再被普通 LLM 的全局 `max_tokens` 覆盖。
 
 ## 更新流程
 
-1. 首相解读玩家新指令，区分普通任务与算法缺口。后者包含目标部门、证据、正反例和撤销条件；普通子任务可以继续执行。
-2. 后台 `legislative_council` 使用独立 `propose_source_patch` 工具和输出预算生成补丁。普通工具调用与本地 Ollama 的结构化输出均支持，沿用调度器配额。请求绑定会话、玩家指令修订和来源发布版本。
+1. 首相解读玩家新指令，必须显式返回 `resolution=mandates/legislation/unsupported` 和 `legislation` 对象或 null。立法需求包含目标部门、证据、正反例和撤销条件；普通子任务可以继续执行。缺字段、输出截断或无效解读会保留原指令，把具体缺失字段和有界原响应交回首相修正；连续三次失败后标记“解读失败”，停止自动重试，允许玩家重新下达。仅在说明文字里承诺立法不会算成立案。农田布局目标不能用增加粮食采集代替。
+2. 后台 `legislative_council` 使用分步编程 agent，提供 `legislative_list/search/read/edit/finish/blocked` 六个独立工具。搜索词、读取位置、编辑原文等参数直接在各工具根级声明必填，不依赖条件 schema 或文字说明。每步必须给出简短 note；法案、源码版本和步骤号由宿主绑定，无需模型重复填写。它按需读取固定版本的源码与调用者，编辑时校验已读原文和摘要，由宿主从草稿生成完整补丁。每轮只带冻结要求、简短笔记、有界操作历史、改动摘要和最近工具结果，不累积整段对话或一次塞入五部门全文。普通工具调用与本地 Ollama 的结构化输出均支持，每一步沿用调度器配额。请求绑定会话、玩家指令修订、步骤号和来源版本；游戏时间推进不会单独导致代码步骤过期。
 3. 发布管理器复制可信服务代码及必要数据，只接受五部门文件的精确文本补丁，拒绝越界、链接、二进制、基础版本冲突、截断补丁和语法错误。源码及清单按摘要保存，每次加载重新核验。
 4. 后台启动候选进程并演练检查点恢复。主进程在下一轮边界给候选最新状态，试跑新版函数并验证命令；通过后原子记录版本、检查点和完整响应。
-5. 首轮失败使用旧版处理同一输入。已运行多轮的版本失败时，从最新检查点恢复内建版本。不同会话分别存储状态；相同序号和输入重试返回持久化原响应，输入不同则冲突。
+5. 导入、检查点或候选首轮验证失败时，把错误交回编程 agent 修正，原有版本继续执行；模型超时、截断或编辑失败也有有界重试。连续三次步骤失败或达到总步数上限时停止并报告原因。已运行多轮的版本失败时，从最新检查点恢复内建版本。不同会话分别存储状态；相同序号和输入重试返回持久化原响应，输入不同则冲突。
 6. 玩家指令窗口发生任何变化时，保守撤销当前法案链，使用最新状态恢复内建代码，再处理这一轮。候选版本在旧基础或旧窗口下生成时会丢弃。
 
 存储目录含 `source/releases/<摘要>/`、临时暂存目录和 `sessions.sqlite3`。部署时应放在持久卷并限制宿主目录访问权限。SQLite 同一事务写检查点和响应；不要在活动对局期间手工改发布目录或删除数据库。版本和对局记录目前不自动清理。
+
+编程草稿、当前步骤和错误反馈随会话持久化。服务恢复时继续草稿；中断的候选验证需要重新提交 `finish`。台账区分编写、重试、验证、等待切换、已安装及失败；安装成功仍不代表游戏目标完成。agent 没有 shell、网络或任意宿主文件访问工具；五部门之外的源码只读。若农田紧贴需要调整游戏端合法候选位置生成，agent 应报告具体能力缺口，不能绕过候选和命令校验。
+
+首相工具 schema 使用单一完整对象签名，避免部分上游把 `oneOf` 的局部约束误当成完整参数列表、只返回 `grasp/resolution`。编程工具则按动作拆开，每个都是独立完整对象；宿主仍验证来源版本、权限、原文与摘要。Ollama 使用六个完整对象分支的结构化输出，避免根级字段与局部约束分离。模型端使用 `tool_choice=auto` 选择动作，宿主只执行通过校验的结构化调用；这也避免与部分推理模式不接受强制工具选择的接口冲突（参见 [DeepSeek API 文档](https://api-docs.deepseek.com/api/create-chat-completion/)）。
+
+OpenAI 兼容接口上的规划请求显式设置 `parallel_tool_calls=false`。若上游仍返回多个编程工具调用，宿主仅在至多四个调用全部属于同一法案、源码版本和步骤的只读操作时，选取一个通过完整 schema 校验的操作执行（优先 read，其次 search，再次 list）。其他调用不执行，选取记录和参数错误返回模型并写日志。包含 edit、finish、blocked、未知工具、混合版本或截断输出的多调用仍会拒绝；不会批量写代码或发布。每次请求仍只消耗一个调度槽、推进一个步骤。
+
+失败重试会同时保留上次成功的 `last_result` 和本次 `last_error`，避免模型丢失刚读到的源码后反复列目录。台账中的终止失败显示“立法失败”和原因，保留原有可独立执行的普通任务，但不会重复排入立法队列。
+
+宿主维护最近操作及读取范围，返回 `next_line` 和带搜索词的 `next_offset`，重启后继续保留。源码地图从当前快照定位 `_govern`、施工队、经济需求与选址入口；默认搜索优先当前内阁和 multi_agent 代码，避免先走旧版 `brain/build_placement.py`。token 预算包含全部工具定义；阅读结果按完整行缩短时同步更新游标及可编辑视图，验收目标不截断。
+
+当前游戏端的农田候选规划会预留间距：`decision_context_builder.gd::_planning_clear` 对规划占地外扩后检查已有建筑。五部门只能从已有合法候选中筛选更紧凑的位置；严格零缝紧贴需要游戏端改变候选生成与间距约束。编程 agent 应明确报告这类能力缺口，不能伪造未提供的位置或把更紧凑等同于零间距。
+
+可用 `tools/legislation_replay.py --config <配置> --match <对局ID>` 离线检查对应冻结需求和工具定义。加 `--live --max-steps 12` 才会调用配置的模型；它只在内存中修改草稿并校验差异，不写对局会话、不安装发布，网络失败即停止。向外部模型发送需求与源码应按操作者授权范围执行。
+
+部署这次服务代码修复后需重启 AI 服务并新开对局验证。已保存对局会恢复它原先固定的源码版本，不会静默迁移到新服务源码；此前已被旧逻辑误解为普通任务的指令也不会自动重写。
 
 ## 状态与校验
 

@@ -15,10 +15,14 @@ OUTPUT_TOKENS = 8192
 
 INTAKE_PROMPT = (
     "\n本局可以提交立法需求。先用现有任务书、拨款和前置任务；缺资源、等回执、没有可见施工位置都不是算法缺口。"
-    "只有游戏已有动作而部门缺少实现目标的决策算法时，填写 legislation；否则填 null 或省略。"
+    "必须显式返回 resolution 和 legislation。resolution 只能为 mandates、legislation 或 unsupported。"
+    "只有游戏已有动作而部门缺少实现目标的决策算法时，选 legislation 并填写完整 legislation 对象；"
+    "普通任务选 mandates，无法实现选 unsupported，这两种 legislation 必须为 null。"
     "legislation 必须列出目标部门、缺口证据、至少一个正例和反例、撤销条件。"
     "mandates 只填可独立执行的普通任务，不要用近似任务替代等待立法的目标。"
     "例如“木材低于200开始优先采集，到320停止”需要记住上轮状态；单纯“多采木材”用 boost_resource。"
+    "农田紧贴是布局目标，不能用 boost_resource(food) 替代。承诺立法时必须提交结构化需求；"
+    "若需要修改游戏候选位置生成或五部门之外的能力，在证据里说明边界，由编程 agent 核实并报告阻塞。"
 )
 
 

@@ -1,6 +1,7 @@
 """Source patches actually run in new processes and survive session restart."""
 import difflib
 import json
+import threading
 
 import pytest
 
@@ -61,6 +62,39 @@ HYSTERESIS = """        if f.obs.economy.wood < 200:
         if getattr(self, 'wood_priority', False):
             self.boosts['wood'] = BOOST_RUSH
 """
+
+ECONOMY = "brain/cabinet/departments/economy.py"
+ACT = "    def act(self, f) -> None:\n"
+
+
+def begin_coding(svc):
+    first = svc.tick(request(1))
+    proxy = next(iter(svc._sessions.values())).runtime
+    proxy.planning_brief("premier_orders")
+    assert proxy.apply_plan("premier_orders", reading())
+    assert proxy.planning_brief("legislative_council")["tool_name"] == "legislative_step"
+    return proxy, first
+
+
+def coding_step(proxy, action, **kwargs):
+    context = proxy.planning_brief("legislative_council")["context"]
+    result = {"proposal_id": context["legislation"]["proposal_id"], "base_release": context["base_release"],
+              "step": context["step"], "action": action, **kwargs}
+    return proxy.apply_plan("legislative_council", result)
+
+
+def edit_act(proxy, injection):
+    source = proxy._coding._source(ECONOMY)
+    line = source[:source.index(ACT)].count("\n") + 1
+    assert coding_step(proxy, "read", path=ECONOMY, start_line=line, max_lines=12)
+    view = proxy._coding.data["feedback"]
+    assert coding_step(proxy, "edit", path=ECONOMY, sha256=view["sha256"],
+                       old_text=ACT, new_text=ACT + injection, note="edited wood hysteresis; next validate")
+
+
+def finish_coding(proxy, fields=None):
+    assert coding_step(proxy, "finish", state_fields=fields or [], explanation="department behavior update")
+    proxy._job.result(timeout=30)
 
 
 def test_patch_handoff_hysteresis_retries_restart_and_revocation(service):
@@ -163,9 +197,11 @@ def test_two_department_patch_import_failure_installs_neither(service):
     assert state.ledger.orders[0].legislation["status"] == "failed"
 
 
-def test_scheduler_routes_mock_model_source_proposal(tmp_path, monkeypatch):
+@pytest.mark.parametrize("parallel_reads", [False, True])
+def test_scheduler_routes_mock_model_source_proposal(tmp_path, monkeypatch, parallel_reads):
     monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
     calls = []
+    steps = []
     holder = {}
     def forward(req):
         role = req.metadata.agent
@@ -173,30 +209,195 @@ def test_scheduler_routes_mock_model_source_proposal(tmp_path, monkeypatch):
         if role == "premier_orders":
             result = reading()
         elif role == "legislative_council":
-            result = source_patch(holder["proxy"], HYSTERESIS)
+            assert req.tool_choice == "auto"
+            assert {tool.function.name for tool in req.tools} == {
+                "legislative_" + name for name in ("list", "search", "read", "edit", "finish", "blocked")}
+            context = json.loads(req.messages[1].content)
+            result = {"proposal_id": context["legislation"]["proposal_id"],
+                      "base_release": context["base_release"], "step": context["step"]}
+            step = context["step"]
+            if step == 0:
+                result.update(action="list", path="brain/cabinet/departments/")
+            elif step == 1:
+                assert ECONOMY in context["last_result"]["files"]
+                result.update(action="search", path=ECONOMY, query="def act(")
+            elif step == 2:
+                found = context["last_result"]["matches"][0]
+                if parallel_reads:
+                    assert context["last_result"]["tool_selection"]["selected_call"] == 2
+                result.update(action="read", path=found["path"], start_line=found["line"], max_lines=12)
+            elif step == 3:
+                view = context["last_result"]
+                assert ACT in view["text"]
+                if parallel_reads:
+                    assert view["tool_selection"]["selected_call"] == 2
+                    assert view["tool_selection"]["unexecuted_calls"] == [1]
+                result.update(action="edit", path=ECONOMY, sha256=view["sha256"],
+                              old_text=ACT, new_text=ACT + HYSTERESIS)
+            else:
+                assert step == 4
+                result.update(action="finish", state_fields=source_patch(holder["proxy"], "")["state_fields"],
+                              explanation="wood hysteresis implemented and ready for validation")
+            steps.append(result["action"])
+            result["note"] = "Inspect call contract, make the minimal change, then submit for validation."
         else:
             result = {}  # Ranking rejection leaves the ordinary rule fallback intact.
+        tool_name = "legislative_" + result["action"] if role == "legislative_council" else req.tools[0].function.name
+        arguments = {k: v for k, v in result.items() if k not in {"proposal_id", "base_release", "step", "action"}} if role == "legislative_council" else result
         raw = {"id": "mock", "choices": [{"finish_reason": "tool_calls", "message": {
             "role": "assistant", "tool_calls": [{"type": "function", "function": {
-                "name": req.tools[0].function.name, "arguments": json.dumps(result)}}]}}]}
+                "name": tool_name, "arguments": json.dumps(arguments)}}]}}]}
+        if parallel_reads and role == "legislative_council" and step in (1, 2):
+            raw["choices"][0]["message"]["tool_calls"].insert(0, {"type": "function", "function": {
+                "name": "legislative_list", "arguments": json.dumps({"note": "List source files"})}})
         return ChatCompletionResponse.model_validate(raw), {}, raw
     def factory(profile):
         holder["proxy"] = LegislativeRuntime(profile, root=tmp_path / "store", mode="local-development", timeout=15)
         return holder["proxy"]
     svc = MultiAgentService(runtime_factory=factory, forward=forward, calls_per_minute=60)
     try:
-        req = request(1)
-        req.metadata = req.metadata.model_copy(update={"backend": "openai"})
-        first = svc.tick(req)
-        wait_idle(svc)
-        req = request(2, events=accept(first, seq=200))
-        req.metadata = req.metadata.model_copy(update={"backend": "openai"})
-        second = svc.tick(req)
-        wait_idle(svc)
-        proxy = holder["proxy"]
-        assert "legislative_council" in calls
-        proxy._job.result(timeout=30)
-        svc.tick(request(3, events=accept(second, seq=300)))
+        previous = None
+        for seq in range(1, 12):
+            req = request(seq, events=accept(previous, seq=seq*100) if previous else [])
+            req.metadata = req.metadata.model_copy(update={"backend": "openai"})
+            previous = svc.tick(req)
+            wait_idle(svc)
+            proxy = holder["proxy"]
+            if proxy._job:
+                proxy._job.result(timeout=30)
+                break
+        else:
+            pytest.fail(f"coding agent never submitted a candidate: {calls}, {proxy._journal}")
+        assert steps == ["list", "search", "read", "edit", "finish"]
+        assert proxy.release == proxy.base
+        svc.tick(request(seq + 1, events=accept(previous, seq=(seq + 1)*100)))
         assert proxy.release != proxy.base, proxy._journal
+        assert proxy._coding.status == "installed"
+        state = restore_checkpoint(proxy.state, CabinetRuntime(proxy.profile))
+        assert state.ledger.orders[0].legislation["status"] == "installed"
     finally:
         svc.shutdown()
+
+
+@pytest.mark.parametrize("ready", [False, True])
+def test_coding_draft_survives_service_restart_and_installs(service, ready):
+    svc, factory = service
+    proxy, first = begin_coding(svc)
+    edit_act(proxy, HYSTERESIS)
+    if ready:
+        finish_coding(proxy, source_patch(proxy, "")["state_fields"])
+        assert proxy._candidate is not None
+    snapshot = proxy._coding.snapshot()
+    assert proxy.release == proxy.base
+    svc.shutdown()
+    restarted = MultiAgentService(runtime_factory=factory)
+    try:
+        assert restarted.tick(request(1)) == first
+        restored = next(iter(restarted._sessions.values())).runtime
+        if ready:
+            assert restored._coding.status == "coding"
+            assert restored._coding.data["drafts"] == snapshot["data"]["drafts"]
+        else:
+            assert restored._coding.snapshot() == snapshot
+        brief = restored.planning_brief("legislative_council")
+        assert brief["context"]["step"] == (3 if ready else 2)
+        assert brief["context"]["note"] == "edited wood hysteresis; next validate"
+        finish_coding(restored, source_patch(restored, "")["state_fields"])
+        assert restored._candidate is not None
+        restarted.tick(request(2, events=accept(first, seq=200)))
+        assert restored.release != restored.base
+    finally:
+        restarted.shutdown()
+
+
+def test_candidate_import_error_returns_to_agent_for_repair(service):
+    svc, _ = service
+    proxy, first = begin_coding(svc)
+    anchor = "from __future__ import annotations\n"
+    invalid = "raise RuntimeError('candidate import failed')\n"
+    assert coding_step(proxy, "read", path=ECONOMY, start_line=1, max_lines=30)
+    assert coding_step(proxy, "edit", path=ECONOMY, sha256=proxy._coding.data["feedback"]["sha256"],
+                       old_text=anchor, new_text=anchor + invalid)
+    finish_coding(proxy)
+    assert proxy._candidate is None and not proxy._failed
+    assert proxy._coding.status == "coding"
+    brief = proxy.planning_brief("legislative_council")
+    assert "candidate_validation_failed" in brief["context"]["last_error"]["error"]
+    state = restore_checkpoint(proxy.state, CabinetRuntime(proxy.profile))
+    assert state.ledger.orders[0].legislation["status"] == "waiting"
+    assert state.ledger.orders[0].legislation["phase"] == "retrying"
+    assert coding_step(proxy, "read", path=ECONOMY, start_line=1, max_lines=30)
+    assert coding_step(proxy, "edit", path=ECONOMY, sha256=proxy._coding.data["feedback"]["sha256"],
+                       old_text=invalid, new_text="# validated candidate import\n")
+    finish_coding(proxy)
+    assert proxy._candidate is not None
+    svc.tick(request(2, events=accept(first, seq=200)))
+    assert proxy.release != proxy.base
+
+
+def test_candidate_tick_error_preserves_live_state_and_can_be_repaired(service):
+    svc, _ = service
+    proxy, first = begin_coding(svc)
+    invalid = "        raise RuntimeError('candidate tick failed')\n"
+    edit_act(proxy, invalid)
+    finish_coding(proxy)
+    original_pid = proxy.worker.process.pid
+    req = request(2, events=accept(first, seq=200))
+    second = svc.tick(req)
+    assert proxy.release == proxy.base
+    assert proxy.worker.process.pid == original_pid
+    assert proxy._coding.status == "coding"
+    assert "candidate_tick_failed" in proxy._coding.data["feedback"]["error"]
+    assert svc.tick(req) == second
+    current = restore_checkpoint(proxy.state, CabinetRuntime(proxy.profile))
+    assert current.field.last_tick == 2
+    assert current.ledger.orders[0].legislation["status"] == "waiting"
+    source = proxy._coding._source(ECONOMY)
+    line = source[:source.index(ACT)].count("\n") + 1
+    assert coding_step(proxy, "read", path=ECONOMY, start_line=line, max_lines=12)
+    assert coding_step(proxy, "edit", path=ECONOMY, sha256=proxy._coding.data["feedback"]["sha256"],
+                       old_text=invalid, new_text=HYSTERESIS)
+    finish_coding(proxy, source_patch(proxy, "")["state_fields"])
+    svc.tick(request(3, events=accept(second, seq=300)))
+    assert proxy.release != proxy.base
+    assert restore_checkpoint(proxy.state, CabinetRuntime(proxy.profile)).field.last_tick == 3
+
+
+def test_agent_blocked_capability_is_visible_and_not_resubmitted(service):
+    svc, _ = service
+    proxy, first = begin_coding(svc)
+    assert coding_step(proxy, "blocked", explanation="Game does not expose adjacent legal farm candidates.")
+    assert proxy.planning_brief("legislative_council") is None
+    assert proxy._job is None and proxy._coding.status == "blocked"
+    result = svc.tick(request(2, events=accept(first, seq=200)))
+    assert result["planning"]["legislation"]["phase"] == "blocked"
+    state = restore_checkpoint(proxy.state, CabinetRuntime(proxy.profile))
+    order = state.ledger.orders[0]
+    assert order.legislation["status"] == "failed"
+    assert "adjacent legal farm candidates" in order.waiting
+
+
+def test_changed_instruction_cancels_inflight_build_even_if_text_returns(service, monkeypatch):
+    svc, _ = service
+    proxy, first = begin_coding(svc)
+    edit_act(proxy, HYSTERESIS)
+    entered, release = threading.Event(), threading.Event()
+    build = proxy.store.build
+
+    def delayed_build(*args):
+        entered.set()
+        assert release.wait(20)
+        return build(*args)
+
+    monkeypatch.setattr(proxy.store, "build", delayed_build)
+    assert coding_step(proxy, "finish", state_fields=source_patch(proxy, "")["state_fields"], explanation="hysteresis")
+    assert entered.wait(5)
+    try:
+        second = svc.tick(request(2, orders=(), events=accept(first, seq=200)))
+        svc.tick(request(3, events=accept(second, seq=300)))
+        assert proxy._coding is None
+    finally:
+        release.set()
+        proxy._job.result(timeout=30)
+    assert proxy._candidate is None and not proxy._failed
+    assert proxy.release == proxy.base

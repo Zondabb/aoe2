@@ -52,7 +52,8 @@ def serve():
                             runtime.legislation_result(order.legislation["proposal_id"], *args)
                     result = True
                 elif method in {"planning_brief", "planning_context", "apply_plan", "take_journal",
-                                "load_strategic_memory", "legislative_requests", "legislation_result"}:
+                                "load_strategic_memory", "legislative_requests", "legislation_result",
+                                "plan_rejected", "legislation_progress"}:
                     result = getattr(runtime, method)(*args)
                 elif method == "properties":
                     result = {"goals": runtime.goals, "match_summary": runtime.match_summary}

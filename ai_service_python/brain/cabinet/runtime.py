@@ -285,6 +285,8 @@ class CabinetRuntime:
             return None
         engine = self.field
         previous = {"mandates": order.refused, "problem": order.problem} if order.problem else None
+        if previous is not None and getattr(order, "rejected_reading", None) is not None:
+            previous["response"] = copy.deepcopy(order.rejected_reading)
         context = interpret_context(order.text, [o.row() for o in self.ledger.active()], engine.validator.profile.civ_id,
                                     self._age(), previous)
         self._reading = order.number
@@ -295,19 +297,31 @@ class CabinetRuntime:
             prompt += INTAKE_PROMPT
         return {"system": prompt, "context": context, "schema": interpret_schema(self.legislative_enabled),
                 "description": "Read the head of state's order into mandates for the departments.",
-                "player_orders": False, "output_tokens": OUTPUT_TOKENS}
+                "player_orders": False, "output_tokens": 1024 if self.legislative_enabled else OUTPUT_TOKENS}
 
     def _read_order(self, plan: dict) -> bool:
         """Take the model's reading of the order it was asked about; False when it has to be asked again."""
         order = self.ledger.find(self._reading) if self._reading is not None else None
+        if order is None or order.status != NEW:
+            return False
+        if self.legislative_enabled:
+            from jsonschema import Draft202012Validator, ValidationError
+            try:
+                Draft202012Validator(interpret_schema(True)).validate(plan)
+            except (ValidationError, TypeError):
+                self.plan_rejected(ORDERS_ROLE, "invalid_resolution_or_fields", plan)
+                return False
         read = reading(plan)
-        if order is None or order.status != NEW or read is None:
+        if read is None:
             return False
         grasp, thinking, decision, raw = read
         gap = plan.get("legislation")
         grounding = (ground(raw, self.field.validator.profile.civ_id, self._age(), order_origin(order.number))
                      if gap is not None else ground_reading(grasp, raw, self.field.validator.profile.civ_id,
                                                           self._age(), order_origin(order.number)))
+        if self.legislative_enabled and grounding.problems:
+            self.plan_rejected(ORDERS_ROLE, "；".join(grounding.problems), plan)
+            return False
         if gap is not None:
             from brain.legislation.planning import valid_gap
             if not self.legislative_enabled or not valid_gap(gap) or grasp == "none" or grounding.problems:
@@ -318,6 +332,22 @@ class CabinetRuntime:
             return True
         return self.ledger.accept(order, grasp, thinking, decision, grounding, raw) != "retry"
 
+    def plan_rejected(self, role: str, reason: str, response: dict | None = None) -> bool:
+        """The host reports schema/length errors so the next reading can repair them."""
+        if role != ORDERS_ROLE or not self.legislative_enabled:
+            return False
+        order = self.ledger.find(self._reading) if self._reading is not None else None
+        if order is None or order.status != NEW:
+            return False
+        problem = (
+            "保留原指令的目标，不要用无关的普通任务替换它。必须填写 resolution 和 legislation。"
+            "resolution=legislation 时提交完整 legislation（部门、证据、正反例、撤销条件），mandates 可以为空；"
+            "resolution=mandates 时 legislation=null，至少一条任务书且确实能实现原目标；"
+            "resolution=unsupported 时 grasp=none、mandates=[]、legislation=null，说明缺少的能力。"
+            "只在 thinking/decision 里承诺立法不构成立案。错误：" + str(reason)[:400])
+        self.ledger.reject_reading(order, problem, response)
+        return True
+
     def legislative_requests(self) -> list[dict]:
         """Frozen requests for the host; cancelled orders can never be submitted."""
         if not self.legislative_enabled or self.field.goals.get("match_over"):
@@ -327,6 +357,9 @@ class CabinetRuntime:
 
     def legislation_result(self, proposal_id: str, status: str, reason: str = "") -> bool:
         return self.ledger.legislation_result(proposal_id, status, reason)
+
+    def legislation_progress(self, proposal_id: str, phase: str, reason: str = "", step: int = 0) -> bool:
+        return self.ledger.legislation_progress(proposal_id, phase, reason, step)
 
     def _age(self) -> int:
         last = self.field.last_req

@@ -93,7 +93,18 @@ def interpret_schema(legislative: bool = False) -> dict:
             "required": ["thinking", "decision", "grasp", "mandates"]}
     if legislative:
         from brain.legislation.planning import gap_schema
+        schema["properties"]["resolution"] = {"type": "string", "enum": ["mandates", "legislation", "unsupported"]}
         schema["properties"]["legislation"] = {"anyOf": [{"type": "null"}, gap_schema()]}
+        schema["required"] += ["resolution", "legislation"]
+        understood = [value for value in GRASPS if value != "none"]
+        schema["oneOf"] = [
+            {"properties": {"resolution": {"const": "mandates"}, "legislation": {"type": "null"},
+                            "mandates": {"minItems": 1}, "grasp": {"enum": understood}}},
+            {"properties": {"resolution": {"const": "legislation"}, "legislation": {"type": "object"},
+                            "grasp": {"enum": understood}}},
+            {"properties": {"resolution": {"const": "unsupported"}, "legislation": {"type": "null"},
+                            "mandates": {"maxItems": 0}, "grasp": {"const": "none"}}},
+        ]
     return schema
 
 

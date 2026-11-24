@@ -16,6 +16,7 @@ import threading
 from .process import WorkerClient, WorkerError
 from .releases import ReleaseStore
 from .store import SessionStore
+from .agent import CodingSession
 
 
 def fingerprint(req):
@@ -43,6 +44,9 @@ class LegislativeRuntime:
         self._candidate = None
         self._job = None
         self._request = None
+        self._coding = None
+        self._progress_key = None
+        self._generation = 0
         self._pending_tick = None
         self._journal = []
         self._failed = []
@@ -82,10 +86,40 @@ class LegislativeRuntime:
             self.base, self.release, self.state = record["base"], record["release"], record["state"]
             self.last_seq, self.last_time, self.event = record["seq"], record["time"], record["event"]
             self.instructions = tuple(record["instructions"])
+            saved = record.get("coding")
+            if saved and saved["base_release"] == self.release:
+                self._coding = CodingSession(self.store, saved["requirement"], self.release, saved["data"])
+                if self._coding.status in {"validating", "ready"}:
+                    self._coding.data.update(status="coding", feedback={
+                        "message": "Service resumed; drafts preserved. Submit finish again to revalidate."})
 
     def _record(self):
         return dict(base=self.base, release=self.release, state=self.state, seq=self.last_seq,
-                    time=self.last_time, event=self.event, instructions=list(self.instructions))
+                    time=self.last_time, event=self.event, instructions=list(self.instructions),
+                    coding=self._coding.snapshot() if self._coding else None)
+
+    def _save_coding(self):
+        if self.identity and self._pending_tick is None and not self._closed:
+            self.sessions.save(self.identity, self._record())
+
+    def _coding_progress(self):
+        """Only the foreground calls the active worker; builders update host state."""
+        coding = self._coding
+        if not coding:
+            return
+        proposal_id = coding.requirement["proposal_id"]
+        reason = str(coding.data["feedback"].get("error", coding.data["feedback"].get("reason", "")))[:500]
+        key = (proposal_id, coding.status, coding.data["steps"], coding.data["failures"], reason)
+        if key == self._progress_key:
+            return
+        if coding.status in {"failed", "blocked"}:
+            if not coding.data.get("reported"):
+                self._call("legislation_result", proposal_id, "failed", reason or "coding_step_limit")
+                coding.data["reported"] = True
+        elif coding.status in {"coding", "validating", "ready"}:
+            phase = "retrying" if coding.data["failures"] else coding.status
+            self._call("legislation_progress", proposal_id, phase, reason, coding.data["steps"])
+        self._progress_key = key
 
     def cached_response(self, req):
         return self.sessions.response(self.identity, req.metadata.tick, fingerprint(req))
@@ -135,26 +169,60 @@ class LegislativeRuntime:
 
     def planning_interval(self, role):
         if role == "legislative_council":
-            return 30
+            return 30 if self._coding and self._coding.data["failures"] else 0
         interval = self._call("planning_interval", role)
         return math.inf if interval is None else interval
 
     def planning_context(self, role):
         if role == "legislative_council":
-            return {"goals": self.goals, "plan_version": self.release, "goal_version": self.event}
+            return {"goals": self.goals, "plan_version": self.release, "goal_version": self.event,
+                    "legislation_phase": self._coding.status if self._coding else "waiting",
+                    "legislation_step": self._coding.data["steps"] if self._coding else 0}
         return self._call("planning_context", role)
 
     def planning_brief(self, role):
         if role != "legislative_council":
             return self._call("planning_brief", role)
-        from .planning import proposal_brief
-        if self._job and not self._job.done() or self._candidate:
-            return None
-        requests = self._call("legislative_requests")
-        if not requests:
-            return None
-        self._request = copy.deepcopy(requests[0])
-        return proposal_brief(self._request, self.release, self.store.context(self.release))
+        with self._lock:
+            self._coding_progress()
+            if self._job and not self._job.done() or self._candidate:
+                return None
+            requests = self._call("legislative_requests")
+            if not requests:
+                return None
+            self._request = copy.deepcopy(requests[0])
+            if (not self._coding or self._coding.base != self.release
+                    or self._coding.requirement["proposal_id"] != self._request["proposal_id"]):
+                self._coding = CodingSession(self.store, self._request, self.release)
+            if self._coding.status != "coding":
+                return None
+            try:
+                brief = self._coding.brief()
+            except ValueError as exc:
+                self._coding.data.update(status="failed", feedback={"error": str(exc)})
+                self._coding_progress()
+                self._save_coding()
+                return None
+            self._save_coding()
+            return brief
+
+    def plan_rejected(self, role, reason, response=None):
+        if role != "legislative_council":
+            return self._call("plan_rejected", role, reason, response)
+        with self._lock:
+            if not self._coding or self._coding.status != "coding":
+                return False
+            self._coding.reject(reason)
+            self._coding_progress()
+            self._save_coding()
+            return True
+
+    def planning_feedback(self, role, feedback):
+        if role == "legislative_council":
+            with self._lock:
+                if self._coding and self._coding.status == "coding":
+                    self._coding.data["feedback"]["tool_selection"] = copy.deepcopy(feedback)
+                    self._save_coding()
 
     def apply_plan(self, role, plan):
         if role != "legislative_council":
@@ -164,11 +232,29 @@ class LegislativeRuntime:
                     or plan.get("base_release") != self.release or self._candidate
                     or self._job and not self._job.done()):
                 return False
-            self._job = self._pool.submit(self._prepare, copy.deepcopy(plan), self.release,
-                                          self.instructions, copy.deepcopy(self.state))
+            coding = None
+            if "action" in plan:
+                coding = self._coding
+                if not coding or coding.status != "coding":
+                    return False
+                try:
+                    proposal = coding.apply(plan)
+                except Exception as exc:
+                    coding.reject(str(exc))
+                    proposal = None
+                self._coding_progress()
+                self._save_coding()
+                if proposal is None:
+                    return coding.status != "failed" and not coding.data["failures"]
+            else:
+                # Retained for trusted callers and release regression tests. The
+                # model-facing contract only exposes legislative_step.
+                proposal = plan
+            self._job = self._pool.submit(self._prepare, copy.deepcopy(proposal), self.release,
+                                          self.instructions, copy.deepcopy(self.state), self._generation, coding)
             return True
 
-    def _prepare(self, proposal, base, instructions, state):
+    def _prepare(self, proposal, base, instructions, state, generation, coding=None):
         worker = None
         try:
             release = self.store.build(base, proposal)
@@ -179,14 +265,25 @@ class LegislativeRuntime:
             from .checkpoint import restore_checkpoint
             restore_checkpoint(worker.checkpoint, CabinetRuntime(self.profile))
             with self._lock:
-                if self._closed or base != self.release or instructions != self.instructions:
+                if (self._closed or base != self.release or instructions != self.instructions
+                        or generation != self._generation):
                     worker.close()
                     return
                 self._candidate = (release, worker, proposal["proposal_id"], base, instructions)
+                if coding is self._coding and coding is not None:
+                    coding.data["status"] = "ready"
+                    self._save_coding()
                 worker = None
         except Exception as exc:
             with self._lock:
-                self._failed.append((proposal.get("proposal_id"), str(exc)[:300]))
+                if (self._closed or base != self.release or instructions != self.instructions
+                        or generation != self._generation):
+                    return
+                if coding is self._coding and coding is not None:
+                    coding.reject("candidate_validation_failed: " + str(exc)[:300])
+                    self._save_coding()
+                else:
+                    self._failed.append((proposal.get("proposal_id"), str(exc)[:300]))
                 self._journal.append(("legislation_failed", {"proposal_id": proposal.get("proposal_id"),
                                                             "reason": str(exc)[:300]}))
         finally:
@@ -276,10 +373,13 @@ class LegislativeRuntime:
                 self._call("legislation_result", proposal_id, "failed", reason)
             self._failed.clear()
             if instructions != self.instructions:
+                self._generation += 1
                 if self._candidate:
                     self._candidate[1].close()
                     self._candidate = None
                 self._request = None
+                self._coding = None
+                self._progress_key = None
                 if self.release != self.base:
                     replacement = self._start(self.base)
                     try:
@@ -293,6 +393,7 @@ class LegislativeRuntime:
                     self.state = replacement.checkpoint
                     self._journal.append(("legislation_revoked", {"reason": "instruction_window_changed"}))
                 self.instructions = instructions
+            self._coding_progress()
             previous = self.state
             active, release = self.worker, self.release
             candidate = self._candidate
@@ -319,15 +420,36 @@ class LegislativeRuntime:
                 if release == self.base:
                     active.call("retire_bills", "failed", "source_rolled_back")
                 if candidate:
-                    active.call("legislation_result", proposal_id, "failed", "candidate_tick_failed")
+                    if self._coding and self._coding.requirement["proposal_id"] == proposal_id:
+                        self._coding.reject("candidate_tick_failed: " + str(exc)[:300])
+                        if self._coding.status == "coding":
+                            active.call("legislation_progress", proposal_id, "retrying",
+                                        self._coding.data["feedback"]["error"], self._coding.data["steps"])
+                        else:
+                            active.call("legislation_result", proposal_id, "failed", "candidate_tick_failed")
+                    else:
+                        active.call("legislation_result", proposal_id, "failed", "candidate_tick_failed")
+                elif self._coding:
+                    self._coding.data.update(status="failed", feedback={"error": "source_rolled_back"})
                 result = active.call("tick", req.model_dump())
                 self._validate(req, result, active.checkpoint, previous)
                 self._journal.append(("legislation_rollback", {"reason": str(exc)[:300], "release": release}))
+            else:
+                if candidate:
+                    if self._coding:
+                        self._coding.data["status"] = "installed"
+                    self._journal.append(("legislation_installed", {"proposal_id": proposal_id,
+                                                                   "release": release, "effective_seq": req.metadata.tick}))
             if active is not self.worker:
                 self.worker.close()
             self.worker, self.release = active, release
             self.state = active.checkpoint
             result.setdefault("planning", {})["legislation"] = {"release": release, "effective_seq": req.metadata.tick}
+            if self._coding:
+                result["planning"]["legislation"].update(
+                    proposal_id=self._coding.requirement["proposal_id"], phase=self._coding.status,
+                    step=self._coding.data["steps"], reason=str(self._coding.data["feedback"].get(
+                        "error", self._coding.data["feedback"].get("reason", "")))[:500])
             self._pending_tick = fingerprint(req), copy.deepcopy(result)
             return result
 

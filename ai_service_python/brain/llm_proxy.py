@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from brain import runtime_settings
+from brain.legislation.tools import ACTION_TOOLS, is_action_tools, native_schema
 from protocol.models import (
     ChatCompletionChoice,
     ChatCompletionRequest,
@@ -40,6 +41,27 @@ def llm_token() -> str:
 
 def llm_timeout_sec() -> float:
     return runtime_settings.llm_timeout_sec()
+
+
+LEGISLATIVE_TOOLS = frozenset(("propose_source_patch", "legislative_step"))
+PLANNER_TOOLS = LEGISLATIVE_TOOLS | {"propose_plan"}
+
+
+def is_legislative_request(req: ChatCompletionRequest) -> bool:
+    """Recognize the host's code tools, without trusting client budget metadata."""
+    return (len(req.tools) == 1 and req.tools[0].function.name in LEGISLATIVE_TOOLS
+            or is_action_tools(t.function.name for t in req.tools))
+
+
+def _is_planner_request(req: ChatCompletionRequest) -> bool:
+    """Recognize the host's single forced planner function, not arbitrary tools."""
+    if is_action_tools(t.function.name for t in req.tools) and req.tool_choice in ("auto", "required"):
+        return True
+    if len(req.tools) != 1 or req.tools[0].function.name not in PLANNER_TOOLS:
+        return False
+    choice = req.tool_choice
+    return (isinstance(choice, dict) and choice.get("type") == "function"
+            and choice.get("function") == {"name": req.tools[0].function.name})
 
 
 def post_openai(url: str, headers: dict[str, str], payload: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -85,11 +107,7 @@ def _local_ollama_base_url() -> str | None:
 
 def _ollama_plan_url(req: ChatCompletionRequest) -> str | None:
     """Use native structured output only for a local Ollama role-plan request."""
-    if len(req.tools) != 1 or req.tools[0].function.name not in ("propose_plan", "propose_source_patch"):
-        return None
-    choice = req.tool_choice
-    if (not isinstance(choice, dict) or choice.get("type") != "function"
-            or choice.get("function") != {"name": req.tools[0].function.name}):
+    if not _is_planner_request(req):
         return None
     base = _local_ollama_base_url()
     return f"{base}/api/chat" if base else None
@@ -102,8 +120,8 @@ PLAN_OUTPUT_TOKENS, PLAN_OUTPUT_TOKENS_RANGE = 256, (64, 1024)
 
 
 def _plan_output_tokens(req: ChatCompletionRequest) -> int:
-    if len(req.tools) == 1 and req.tools[0].function.name == "propose_source_patch":
-        return runtime_settings.legislation_max_tokens()
+    if is_legislative_request(req):
+        return runtime_settings.legislation_output_tokens()
     asked = getattr(getattr(req, "metadata", None), "plan_output_tokens", None)
     low, high = PLAN_OUTPUT_TOKENS_RANGE
     if isinstance(asked, int) and low <= asked <= high:
@@ -122,9 +140,14 @@ def _numeric_limits(schema: dict[str, Any]) -> str:
 
 def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
     messages = _messages_payload(req)
+    typed = is_action_tools(t.function.name for t in req.tools)
+    format_schema = native_schema(req.tools) if typed else req.tools[0].function.parameters
     instruction = (f"Return only the {req.tools[0].function.name} arguments as one JSON object matching the supplied "
                    "schema. Do not include commentary, markdown, or a tool-call wrapper."
                    + _numeric_limits(req.tools[0].function.parameters))
+    if typed:
+        instruction = ("Return exactly one JSON object for one action matching a complete schema branch. "
+                       "Include action and all required arguments; no commentary or tool-call wrapper.")
     if messages and messages[0]["role"] == "system":
         messages[0]["content"] = f"{messages[0].get('content') or ''}\n{instruction}"
     else:
@@ -133,16 +156,16 @@ def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
         "model": upstream_model(req),
         "stream": False,
         "messages": messages,
-        "format": req.tools[0].function.parameters,
+        "format": format_schema,
         # Ollama's OpenAI endpoint does not support forced tool_choice, and
         # qwen3 can consume the entire generation budget on hidden reasoning.
         "think": False,
         "options": {
             "temperature": runtime_settings.llm_temperature(),
-            "num_ctx": max(32768, runtime_settings.llm_num_ctx())
-                       if req.tools[0].function.name == "propose_source_patch" else runtime_settings.llm_num_ctx(),
-            "num_predict": min(_plan_output_tokens(req), runtime_settings.legislation_max_tokens()
-                               if req.tools[0].function.name == "propose_source_patch" else runtime_settings.llm_max_tokens()),
+            "num_ctx": runtime_settings.legislation_context_tokens()
+                       if is_legislative_request(req) else runtime_settings.llm_num_ctx(),
+            "num_predict": min(_plan_output_tokens(req), runtime_settings.legislation_output_tokens()
+                               if is_legislative_request(req) else runtime_settings.llm_max_tokens()),
         },
         "keep_alive": "10m",
     }
@@ -157,12 +180,17 @@ def build_openai_payload(req: ChatCompletionRequest) -> dict[str, Any]:
         "model": model,
         "stream": False,
         "temperature": runtime_settings.llm_temperature(),
-        "max_tokens": runtime_settings.llm_max_tokens(),
+        "max_tokens": runtime_settings.legislation_output_tokens()
+                      if is_legislative_request(req) else runtime_settings.llm_max_tokens(),
         "messages": _messages_payload(req),
         "tool_choice": req.tool_choice,
     }
     if req.tools:
         payload["tools"] = _tools_payload(req)
+    if _is_planner_request(req):
+        # Each planner turn is bound to one state/version. Asking the provider
+        # explicitly avoids speculative read/edit calls in the same response.
+        payload["parallel_tool_calls"] = False
     return payload
 
 
@@ -178,7 +206,8 @@ def forward_openai(
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    raw = post_openai(url, headers, payload, llm_timeout_sec())
+    timeout = runtime_settings.legislation_timeout_sec() if is_legislative_request(req) else llm_timeout_sec()
+    raw = post_openai(url, headers, payload, timeout)
     if native_url is not None:
         # Preserve native duration/token fields while exposing the common usage
         # shape consumed by model_result logs and the public response.
@@ -188,11 +217,14 @@ def forward_openai(
             "completion_tokens": int(raw.get("eval_count") or 0),
         }
         raw["usage"]["total_tokens"] = sum(raw["usage"].values())
-        return _normalize_ollama_plan_response(raw, payload["model"], req.tools[0].function.name), payload, raw
+        names = [t.function.name for t in req.tools]
+        return _normalize_ollama_plan_response(raw, payload["model"], req.tools[0].function.name,
+                                              action_names=names if is_action_tools(names) else None), payload, raw
     return _normalize_openai_response(raw, payload["model"]), payload, raw
 
 
-def _normalize_ollama_plan_response(raw: dict[str, Any], fallback_model: str, tool_name: str = "propose_plan") -> ChatCompletionResponse:
+def _normalize_ollama_plan_response(raw: dict[str, Any], fallback_model: str, tool_name: str = "propose_plan", *,
+                                  action_names: list[str] | None = None) -> ChatCompletionResponse:
     message = raw.get("message") if isinstance(raw.get("message"), dict) else {}
     content = message.get("content")
     calls = None
@@ -203,6 +235,11 @@ def _normalize_ollama_plan_response(raw: dict[str, Any], fallback_model: str, to
         try:
             plan = json.loads(content, parse_constant=_reject_json_constant)
             if isinstance(plan, dict):
+                if action_names is not None:
+                    tool_name = ACTION_TOOLS.get(plan.pop("action", None), "")
+                    if tool_name not in action_names:
+                        raise ValueError("unknown_coding_action")
+                    content = json.dumps(plan, ensure_ascii=False, allow_nan=False)
                 calls = [{"id": "call_propose_plan", "type": "function", "function": {
                     "name": tool_name, "arguments": content,
                 }}]

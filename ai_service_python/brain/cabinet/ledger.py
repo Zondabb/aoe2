@@ -9,16 +9,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import copy
+import json
 
 from .models import Mandate, order_origin
 from .orders import Grounding, name_of, slot
 
 NEW, ACTIVE, DONE, SUPERSEDED, IMPOSSIBLE = "new", "active", "done", "superseded", "impossible"
 WAITING_LEGISLATION = "waiting_legislation"
+READING_FAILED = "reading_failed"
 LABELS = {NEW: "新下达", ACTIVE: "执行中", DONE: "已完成", SUPERSEDED: "已取代", IMPOSSIBLE: "无法执行",
-          WAITING_LEGISLATION: "等待立法"}
+          WAITING_LEGISLATION: "等待立法", READING_FAILED: "解读失败"}
 OPEN = (NEW, ACTIVE, WAITING_LEGISLATION)
 MAX_TRIES = 2               # an interpretation the catalog refuses is asked for once more
+MAX_READING_TRIES = 3       # malformed model responses must not retry forever
 KEPT = 12                   # closed orders remembered for the panel and the log
 REFUSED = "这条指令没法落到游戏里能做的事上，暂不执行。"
 # Reading an order takes a model. An order nobody has read after this many game seconds says why in the ledger.
@@ -46,8 +49,14 @@ class Order:
     refused: list = field(default_factory=list)            # the mandates of that interpretation, as the model gave them
     waiting: str = ""                                      # why it has not been interpreted yet
     legislation: dict | None = None
+    rejected_reading: dict | None = None
 
     def label(self) -> str:
+        # The order stays open so independent mandates can continue, but a
+        # failed bill is no longer waiting for the council to do more work.
+        if (self.status == WAITING_LEGISLATION and self.legislation
+                and self.legislation.get("status") == "failed"):
+            return "立法失败"
         if self.status == ACTIVE:
             figure = next((self.figures[slot(m)] for m in self.mandates if self.figures.get(slot(m))), "")
             return f"{LABELS[ACTIVE]} {figure}".strip()
@@ -68,7 +77,7 @@ class Order:
             entry["mandates"] = [describe(m, slot(m) in self.done) for m in self.mandates]
         if self.legislation:
             entry["legislation"] = dict(self.legislation)
-        if self.status in (NEW, WAITING_LEGISLATION) and (self.waiting or self.problem):
+        if self.status in (NEW, WAITING_LEGISLATION, READING_FAILED) and (self.waiting or self.problem):
             entry["waiting"] = self.waiting or self.problem
         return entry
 
@@ -148,6 +157,7 @@ class OrderLedger:
             self._note(order, "sent_back", problem=order.problem)
             return "retry"
         order.grasp, order.thinking, order.decision = grasp, thinking, decision
+        order.rejected_reading = None
         order.notes, order.problem = list(grounding.notes), ""
         if grasp == "none" or not grounding.mandates:
             if grasp != "none":
@@ -162,6 +172,24 @@ class OrderLedger:
         self.revision += 1
         self._note(order, "interpreted")
         return ACTIVE
+
+    def reject_reading(self, order: Order, problem: str, response: dict | None = None) -> None:
+        """Keep the exact goal pending; malformed routing is not an ordinary mandate."""
+        order.tries += 1
+        order.problem = str(problem)[:2000]
+        order.waiting = "解读缺少明确的执行方式，等待首相修正；原指令尚未执行。"
+        if isinstance(response, dict):
+            try:
+                encoded = json.dumps(response, ensure_ascii=False, allow_nan=False)
+                order.rejected_reading = (copy.deepcopy(response) if len(encoded) <= 12000 else
+                                          {"truncated": True, "response_preview": encoded[:12000]})
+            except (ValueError, TypeError):
+                order.rejected_reading = {"invalid_response": True}
+        self._note(order, "sent_back", problem=order.problem)
+        if order.tries >= MAX_READING_TRIES:
+            order.status = READING_FAILED
+            order.waiting = "模型连续三次未能给出有效解读，已停止自动重试；原指令未执行，可重新下达。"
+            self._note(order, "reading_failed", problem=order.problem)
 
     def _supersede(self, latest: Order) -> None:
         """A later order takes the slots it names from every earlier one."""
@@ -181,6 +209,7 @@ class OrderLedger:
         """Freeze a code gap while its independent ordinary mandates keep running."""
         order.tries += 1
         order.grasp, order.thinking, order.decision = grasp, thinking, decision
+        order.rejected_reading = None
         order.notes, order.problem = list(grounding.notes), ""
         order.status, order.mandates = WAITING_LEGISLATION, list(grounding.mandates)
         order.legislation = copy.deepcopy(requirement)
@@ -197,11 +226,31 @@ class OrderLedger:
                       and o.legislation["proposal_id"] == proposal_id), None)
         if order is None:
             return False
-        order.legislation.update(status=status, reason=str(reason)[:1000])
+        order.legislation.update(status=status, phase=status, reason=str(reason)[:1000])
         order.status = ACTIVE if status == "installed" else (SUPERSEDED if status == "revoked" else WAITING_LEGISLATION)
         order.waiting = "" if status == "installed" else (str(reason)[:1000] or "法案尚未生效，原有任务继续。")
         self.revision += 1
         self._note(order, "legislation_" + status, proposal_id=proposal_id, reason=str(reason)[:1000])
+        return True
+
+    def legislation_progress(self, proposal_id: str, phase: str, reason: str = "", step: int = 0) -> bool:
+        """Expose bounded agent progress without changing the frozen goal revision."""
+        labels = {"coding": "立法会正在分步阅读代码并编写补丁。", "retrying": "立法会请求失败，正在重试。",
+                  "validating": "立法会正在验证候选代码。", "ready": "候选代码已就绪，等待下一轮切换。"}
+        if phase not in labels or type(step) is not int or not 0 <= step <= 1000:
+            return False
+        order = next((o for o in self.orders if o.status in OPEN and o.legislation
+                      and o.legislation.get("status") == "waiting"
+                      and o.legislation["proposal_id"] == proposal_id), None)
+        if order is None:
+            return False
+        update = {"phase": phase, "step": step, "reason": str(reason)[:1000]}
+        changed = any(order.legislation.get(key) != value for key, value in update.items())
+        order.legislation.update(update)
+        order.status = WAITING_LEGISLATION
+        order.waiting = labels[phase] + (" " + update["reason"] if update["reason"] else "")
+        if changed:
+            self._note(order, "legislation_progress", proposal_id=proposal_id, **update)
         return True
 
     # ------------------------------------------------------------------ every tick
