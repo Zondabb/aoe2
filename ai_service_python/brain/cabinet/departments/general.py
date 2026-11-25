@@ -7,7 +7,7 @@ from brain.llm_commander import MILITARY_BUILDINGS, SCOUT_TYPES
 from brain.multi_agent.runtime import DEMOLITION_UNITS
 
 from ..models import from_order
-from ..orders import BUILD, UNITS, needs_of
+from ..orders import BUILD, STOCKPILE_CAP, UNITS, needs_of
 from .base import Department
 from .economy import idle_producer
 
@@ -34,22 +34,28 @@ class GeneralDept(Department):
         for mandate in mine:
             if mandate.kind == BUILD:
                 self.build_for(f, mandate, "military_plan_capacity")
-        self._stand(next((m.kind for m in mine if m.kind in ("attack", "hold")), None))
+        stance_mandate = next((m for m in mine if m.kind in ("attack", "hold")), None)
+        mustering_origins = {m.origin for m in self.stockpiles if from_order(m.origin)}
+        deferred_attack = (stance_mandate is not None and stance_mandate.kind == "attack"
+                           and stance_mandate.origin in mustering_origins)
+        self._stand("hold" if deferred_attack else (stance_mandate.kind if stance_mandate else None),
+                    deferred_attack=deferred_attack)
         for mandate in self.stockpiles:
             if mandate.subject is None:
-                size = max(2, min(24, int(mandate.amount)))
+                cap = STOCKPILE_CAP if from_order(mandate.origin) else 24
+                size = max(2, min(cap, int(mandate.amount)))
                 changed = engine.roles["combat"].plan["army_target"] != size
                 self.tune("commander", army_target=size)
                 self.tune("combat", army_target=size)
                 if changed:
                     # As with a model plan: a sortie already mustering keeps its size.
-                    if engine.goals["sortie_started"] is None:
+                    if engine.goals["sortie_started"] is None or from_order(mandate.origin):
                         engine.goals["sortie_target"] = size
                     engine.next_sortie_target = size
         # Moving and fighting cost nothing; this also says which producers the army lacks.
         engine._combat(f)
 
-    def _stand(self, stance: str | None) -> None:
+    def _stand(self, stance: str | None, *, deferred_attack: bool = False) -> None:
         """An order to attack sends what is ready; an order to hold keeps the army home and calls a sortie back."""
         engine, self.stance = self.field, stance
         engine.hold_army = stance == "hold"
@@ -58,8 +64,17 @@ class GeneralDept(Department):
             # The engine's own retreat: fall back to the rally point, then muster again.
             engine.goals["phase"] = "retreat"
             engine.roles["combat"].memory["retreat_until"] = engine.now + RECALL_SECONDS
-        elif stance == "attack" and not departed:
-            engine.goals["sortie_target"] = min(engine.goals["sortie_target"], ATTACK_NOW_FORCE)
+            if deferred_attack:
+                engine.goals["sortie_departed"] = None
+        elif stance == "attack":
+            if engine.roles["combat"].memory.get("retreat_until", 0) > engine.now:
+                engine.roles["combat"].memory.pop("retreat_until", None)
+                if engine.goals["phase"] == "retreat":
+                    engine.goals["sortie_departed"] = None
+                    engine.goals["phase"] = "muster"
+                    departed = False
+            if not departed:
+                engine.goals["sortie_target"] = min(engine.goals["sortie_target"], ATTACK_NOW_FORCE)
 
     def draft(self, f) -> None:
         engine = self.field

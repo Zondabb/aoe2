@@ -746,3 +746,104 @@ def test_the_service_has_the_model_read_an_order_while_the_ranking_goes_on(monke
     assert retried["planning"]["broadcasts"] == taken["planning"]["broadcasts"] and "broadcasts" not in after["planning"]
     said = [data for event, data in logs if event == "broadcast" and data["trigger"] == "order"]
     assert len(said) == 1 and said[0]["order"] == 1 and said[0]["after_wall_sec"] >= 0 and said[0]["lines"] == 2
+
+
+def test_stockpile_and_attack_in_one_order_holds_until_target_count_then_launches():
+    runtime = cabinet("teutons")
+    tick = castle_town(runtime, extra=[enemy_tc()])
+    engine = runtime.field
+    tick(1, soldiers=4, now=10)
+    engine.goals["sortie_departed"] = 15.0
+    tick(2, ["把兵屯到50个再出兵"], soldiers=4, now=15)
+    runtime.planning_brief("premier_orders")
+    assert runtime.apply_plan("premier_orders", read(m("stockpile", "militia", 50), m("attack")))
+    for step, count in enumerate((6, 18, 35, 49), start=3):
+        state = tick(step, ["把兵屯到50个再出兵"], soldiers=count, now=step * 40)
+        assert engine.hold_army and runtime.general.stance == "hold"
+        assert engine.goals["sortie_departed"] is None
+        assert state["planning"]["orders"] == [{"id": 1, "text": "把兵屯到50个再出兵", "status": f"执行中 {count}/50"}]
+    launched = tick(10, ["把兵屯到50个再出兵"], soldiers=50, now=500)
+    assert not engine.hold_army and runtime.general.stance == "attack"
+    assert engine.goals["sortie_departed"] == 500.0
+    assert len(engine.roles["combat"].memory["sortie_ids"]) == 50
+    finished = tick(11, ["把兵屯到50个再出兵"], soldiers=50, now=510)
+    assert runtime.ledger.orders[0].status == DONE and finished["planning"]["orders"] == []
+
+
+def test_build_mandate_expands_multiple_barracks_and_trains_in_parallel():
+    from test_multi_agent_runtime import accept
+    grounded = ground([m("build", "barracks", 3, "rush"), m("build", "watch_tower", 2), m("build", "stone_wall", 1)], "teutons", 1, "order#1")
+    assert [(x.dept, x.kind, x.subject, x.amount) for x in grounded.mandates] == [
+        ("general", "build", "barracks", 3), ("defense", "towers", None, 2), ("defense", "fortify", None, None)]
+    derived = derive([Mandate("general", "build", "siege_workshop", 2, origin="order#2")], field(age=1, buildings=("town_center", "barracks")))
+    assert [(x.dept, x.kind, x.subject or x.amount) for x in derived] == [
+        ("general", "build", "siege_workshop"), ("tech", "advance_age", 2), ("tech", "build", "blacksmith")]
+
+    runtime = cabinet("teutons")
+
+    def send(seq, extra_buildings=(), events=()):
+        sites = [{"building_def_id": "barracks", "builder_id": 11, "pos": [24, 0]},
+                 {"building_def_id": "barracks", "builder_id": 12, "pos": [24, 8]}]
+        req = stocked(frame(seq, entities=town(8, *extra_buildings), time=seq * 10,
+                            construction_options=sites, events=events), food=1000, wood=1000, gold=500)
+        req.observation.player_instructions = ["多建造两个兵营暴兵"]
+        return runtime.tick(req)
+
+    send(1)
+    runtime.planning_brief("premier_orders")
+    assert runtime.apply_plan("premier_orders", read(m("build", "barracks", 3, "rush"), m("stockpile", "militia", 20, "rush")))
+    second = send(2)
+    assert second["planning"]["orders"] == [{"id": 1, "text": "多建造两个兵营暴兵", "status": "执行中 1/3"}]
+    assert requests(second, "general")["barracks"]["item"] == "barracks x2"
+    assert "barracks" in bought(second)
+
+    b2 = building(30, "barracks", [24, 0])
+    third = send(3, extra_buildings=[b2], events=accept(second, seq=20))
+    assert third["planning"]["orders"] == [{"id": 1, "text": "多建造两个兵营暴兵", "status": "执行中 2/3"}]
+    assert requests(third, "general")["barracks"]["item"] == "barracks"
+    assert "barracks" in bought(third)
+
+    b3 = building(31, "barracks", [24, 8])
+    fourth = send(4, extra_buildings=[b2, b3], events=accept(third, seq=40))
+    trained = [c for c in fourth["commands"] if c["op"] == "train" and c["unit_def_id"] == "militia"]
+    assert len(trained) == 3
+    assert ("general", "build", "barracks") in runtime.ledger.orders[0].done
+
+
+def test_appended_order_keeps_inflight_order_reading_and_prioritizes_next_order(monkeypatch):
+    def forward(plan_req):
+        if plan_req.metadata.agent == "premier_orders":
+            text = json.loads(plan_req.messages[1].content)["order"]
+            if text == "建造3个箭塔":
+                return completion(json.dumps(read(m("towers", amount=3)), ensure_ascii=False))
+            return completion(json.dumps(read(m("build", "barracks", 3)), ensure_ascii=False))
+        shown = plan_req.tools[0].function.parameters["properties"]["tiers"]["required"]
+        return completion(json.dumps({**SAID, "tiers": {rid: "next" for rid in shown}, "posture": "balanced"}, ensure_ascii=False))
+
+    service = cabinet_service(monkeypatch, forward, calls_per_minute=1)
+    try:
+        req1 = tick_request(1, backend="openai")
+        req1.observation.player_instructions = ["建造3个箭塔"]
+        first = service.tick(req1)
+        assert [job[1][2] for job in service._pool.jobs] == ["premier_orders"]
+        assert first["planning"]["premier_orders"]["state"] == "planning"
+
+        req2 = tick_request(2, backend="openai")
+        req2.observation.player_instructions = ["建造3个箭塔", "多建造两个兵营"]
+        service.tick(req2)
+        service._pool.finish()
+
+        req3 = tick_request(3, backend="openai")
+        req3.observation.player_instructions = ["建造3个箭塔", "多建造两个兵营"]
+        third = service.tick(req3)
+        assert third["planning"]["orders"][0]["text"] == "建造3个箭塔"
+        assert third["planning"]["orders"][0]["status"].startswith("执行中")
+        assert [job[1][2] for job in service._pool.jobs] == ["premier_orders"]
+        service._pool.finish()
+
+        req4 = tick_request(4, backend="openai")
+        req4.observation.player_instructions = ["建造3个箭塔", "多建造两个兵营"]
+        fourth = service.tick(req4)
+        assert [o["status"].split()[0] for o in fourth["planning"]["orders"]] == ["执行中", "执行中"]
+    finally:
+        service.shutdown()

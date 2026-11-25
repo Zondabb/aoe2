@@ -11,6 +11,8 @@ funded department orders what the matching old role would have ordered.
 """
 from __future__ import annotations
 
+from brain.land_progression import CATALOG
+
 from ..models import DeptReport, Mandate, Request, ROUTINE
 from ..treasury import Treasury
 
@@ -113,7 +115,10 @@ class Department:
 
     def build_for(self, f, mandate: Mandate, reason: str) -> None:
         """A building some order needs before it can be carried out."""
-        self.field._request_building(f, mandate.subject, ORDERED_BUILDING_PRIORITY, reason)
+        target = int(mandate.amount) if mandate.amount else 1
+        if mandate.subject in CATALOG["buildings"] and mandate.subject not in f.building_defs:
+            f.building_defs = {**f.building_defs, mandate.subject: dict(CATALOG["buildings"][mandate.subject])}
+        self.field._request_building(f, mandate.subject, ORDERED_BUILDING_PRIORITY, reason, target)
         self.serve(("building", mandate.subject), mandate)
 
     def tune(self, role: str, **values) -> None:
@@ -188,7 +193,13 @@ class Department:
                 continue
             definition = f.building_defs[name]
             locked = not engine._unlocked_for_saving(f, definition)
-            self.want(("building", name), name, definition.get("cost", {}), capacity=1 if name in sites else 0,
+            served = self.served.get(("building", name))
+            count = 1
+            if served is not None and served.amount:
+                existing = sum(1 for b in f.buildings if b.get("def_id") == name and b.get("hp", 1) > 0
+                               and (name != "farm" or not b.get("is_complete") or float(b.get("amount", 0)) > 0))
+                count = max(1, int(served.amount) - existing)
+            self.want(("building", name), name, definition.get("cost", {}), count=count, capacity=1 if name in sites else 0,
                       needs=(str(definition.get("blocked_reason") or "locked"),) if locked else (),
                       urgency=urgency_of(priority), rank=priority,
                       floor=reason == "population_headroom" and priority >= POPULATION_CAPPED)

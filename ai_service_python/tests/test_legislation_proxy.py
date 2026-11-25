@@ -455,3 +455,31 @@ def test_patched_choose_sites_selects_adjacent_farm_option_without_mutating_obse
     assert proxy.release != proxy.base
     placed = [c for c in result["commands"] if c["op"] == "place_building" and c["building_def_id"] == "farm"]
     assert len(placed) == 1 and placed[0]["pos"] == [24.0, 26.0]
+
+
+def test_tower_order_places_watch_tower_through_host_validator(service):
+    from test_cabinet_runtime import stocked, town
+    svc, _ = service
+    req1 = stocked(request(1, orders=("建造3个箭塔",), entities=town(8), construction_options=[],
+                           defense_plan={"bounds": [-28, -28, 56, 56]}),
+                   stone=500, wood=500, food=500)
+    req1.observation.progression.age = 1
+    first = svc.tick(req1)
+    proxy = next(iter(svc._sessions.values())).runtime
+    assert proxy.planning_brief("premier_orders")["context"]["order"] == "建造3个箭塔"
+    assert proxy.apply_plan("premier_orders", {
+        "thinking": "在防线内侧补建三座瞭望箭塔。",
+        "decision": "先建第一座瞭望箭塔。",
+        "grasp": "exact",
+        "resolution": "mandates",
+        "legislation": None,
+        "mandates": [{"kind": "towers", "subject": "", "amount": 3, "urgency": "normal"}],
+    })
+    req2 = stocked(request(2, orders=("建造3个箭塔",), entities=town(8), construction_options=[],
+                           defense_plan={"bounds": [-28, -28, 56, 56]}, events=accept(first, seq=200)),
+                   stone=500, wood=500, food=500)
+    req2.observation.progression.age = 1
+    second = svc.tick(req2)
+    placed = [c for c in second["commands"] if c["op"] == "place_building" and c["building_def_id"] == "watch_tower"]
+    assert len(placed) == 1
+    assert second["planning"]["orders"] == [{"id": 1, "text": "建造3个箭塔", "status": "执行中 0/3"}]

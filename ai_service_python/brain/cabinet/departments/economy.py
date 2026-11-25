@@ -1,6 +1,7 @@
 """Economy: villagers, the buildings that feed and house them, and who gathers what."""
 from __future__ import annotations
 
+from ..orders import BUILD
 from .base import Department
 
 VILLAGER_RANK = 104
@@ -26,6 +27,8 @@ class EconomyDept(Department):
                 self.serve(("unit", "villager"), mandate)
             elif mandate.kind == "boost_resource" and mandate.subject in self.field.demands:
                 self.boosts[mandate.subject] = BOOST_RUSH if mandate.urgency == "rush" else BOOST
+            elif mandate.kind == BUILD:
+                self.build_for(f, mandate, "ordered_economy_building")
         self.field._economy_requirements(f)
 
     def draft(self, f) -> None:

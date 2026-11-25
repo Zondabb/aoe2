@@ -93,6 +93,7 @@ def test_default_config_does_not_depend_on_working_directory(monkeypatch, tmp_pa
     assert runtime_settings.llm_model() == "qwen3:8b"
     assert runtime_settings.backend() == "openai"
     assert runtime_settings.llm_temperature() == 0.2
+    assert runtime_settings.llm_think() is False
 
 
 def test_uvicorn_import_loads_environment_selected_config(tmp_path):

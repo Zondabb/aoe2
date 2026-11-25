@@ -271,8 +271,13 @@ class CabinetRuntime:
         engine, ledger = self.field, self.ledger
         for order in ledger.active():
             for mandate in order.mandates:
-                if slot(mandate) not in order.done:
+                if mandate.kind != "attack" and slot(mandate) not in order.done:
                     ledger.record(order, mandate, *progress(mandate, f, engine, order.received_at))
+            mustering = any(m.kind == "stockpile" and slot(m) not in order.done for m in order.mandates)
+            for mandate in order.mandates:
+                if mandate.kind == "attack" and slot(mandate) not in order.done:
+                    finished, figure = (False, "") if mustering else progress(mandate, f, engine, order.received_at)
+                    ledger.record(order, mandate, finished, figure)
         ledger.prune()
         scripted = []
         for entry in policy_entries(self.policy or [], f.age, self.policy_done):
@@ -413,8 +418,10 @@ class CabinetRuntime:
             raise ValueError("unknown role")
         engine = self.field
         if role == ORDERS_ROLE:
+            pending = self.ledger.pending()
             return {"role": role, "plan": {}, "plan_version": self.ledger.revision, "goal_version": engine.goal_version,
-                    "goals": copy.deepcopy(engine.goals)}
+                    "goals": copy.deepcopy(engine.goals), "reading_order_id": self._reading,
+                    "pending_order_id": pending.number if pending is not None else None}
         return {"role": role, "plan": self.premier.plan(engine.now), "plan_version": self.premier.version,
                 "goal_version": engine.goal_version, "goals": copy.deepcopy(engine.goals)}
 

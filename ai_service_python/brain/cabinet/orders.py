@@ -32,15 +32,27 @@ MIN_WORKER_TARGET = 16
 WORKER_RANGE = (8, 60)
 STOCKPILE_CAP = 60          # one order's worth of a unit; the population limit is the real ceiling
 STOCKPILE_DEFAULT = 10      # "more of them", when no number was given
+BUILD_CAP = 12              # one order's target count of a building
 MAX_MANDATES = 3
 GRASPS = ("exact", "approx", "guess", "none")
 URGENCIES = ("normal", "rush")
-# The kinds an order may be interpreted into, and the department each belongs to.
-KIND_DEPT = {"boost_resource": "economy", "worker_target": "economy", "stockpile": "general", "attack": "general", "hold": "general",
-             "fortify": "defense", "towers": "defense", "advance_age": "tech", "research": "tech", "scout": "intel"}
-TOWER_LINE = ("watch_tower", "guard_tower", "keep")
-# Derived only, never asked of the model: a building some other mandate needs.
 BUILD = "build"
+# The kinds an order may be interpreted into, and the default department each belongs to.
+KIND_DEPT = {"boost_resource": "economy", "worker_target": "economy", "stockpile": "general", "attack": "general", "hold": "general",
+             BUILD: "general", "fortify": "defense", "towers": "defense", "advance_age": "tech", "research": "tech", "scout": "intel"}
+TOWER_LINE = ("watch_tower", "guard_tower", "keep")
+WALL_BUILDINGS = ("palisade_wall", "stone_wall", "fortified_wall", "gate")
+TECH_BUILDINGS = ("blacksmith", "market", "monastery", "university")
+BUILDABLE_BUILDINGS = tuple(bid for bid in CATALOG["buildings"]
+                            if bid in NAMES["buildings"] and bid not in WALL_BUILDINGS and bid not in TOWER_LINE and bid != "outpost")
+
+
+def building_dept(building: str) -> str:
+    if building in MILITARY_BUILDINGS:
+        return "general"
+    if building in TECH_BUILDINGS:
+        return "tech"
+    return "economy"
 AGE_NAMES = ("黑暗时代", "封建时代", "城堡时代", "帝王时代")
 RESOURCE_NAMES = {"food": "食物", "wood": "木材", "gold": "黄金", "stone": "石头"}
 
@@ -100,7 +112,10 @@ def name_table(civ: str) -> dict:
 
 def subject_ids() -> list[str]:
     """Every value a mandate's subject may take, for the answer's schema."""
-    return ["", *RESOURCES, *[uid for uid in UNITS if uid in NAMES["units"]], *[tid for tid in TECHS if tid not in UNITS]]
+    return list(dict.fromkeys([
+        "", *RESOURCES, *[uid for uid in UNITS if uid in NAMES["units"]],
+        *TECHS, *BUILDABLE_BUILDINGS, *TOWER_LINE, *WALL_BUILDINGS,
+    ]))
 
 
 # ---------------------------------------------------------------------------- grounding an interpretation
@@ -152,6 +167,10 @@ def ground(raw: list, civ: str, age: int, origin: str = ROUTINE) -> Grounding:
         urgency = item.get("urgency") if item.get("urgency") in URGENCIES else "normal"
         if kind == "stockpile" and subject == "villager":
             kind = "worker_target"                           # villagers are the economy's, counted as a total
+        elif kind == BUILD and subject in TOWER_LINE:
+            kind = "towers"
+        elif kind == BUILD and subject in WALL_BUILDINGS:
+            kind = "fortify"
         if kind == "boost_resource":
             if subject not in RESOURCES:
                 result.problems.append(f"boost_resource 的 subject 必须是 {'、'.join(RESOURCES)} 之一，不能是 {subject or '空'}")
@@ -183,6 +202,18 @@ def ground(raw: list, civ: str, age: int, origin: str = ROUTINE) -> Grounding:
             elif amount > STOCKPILE_CAP:
                 result.notes.append(f"{amount} 个超过一次指令的上限，按 {STOCKPILE_CAP} 个执行")
                 amount = STOCKPILE_CAP
+        elif kind == BUILD:
+            if subject not in BUILDABLE_BUILDINGS:
+                result.problems.append(f"build 的 subject 必须是可建造建筑 id，不能是 {subject or '空'}")
+                continue
+            if not _allowed(CATALOG["buildings"][subject], civ):
+                result.problems.append(f"{civ_name(civ)}不能建造 {subject}")
+                continue
+            if amount is None:
+                amount = 1
+            elif amount > BUILD_CAP:
+                result.notes.append(f"{amount} 座超过一次指令的上限，按 {BUILD_CAP} 座执行")
+                amount = BUILD_CAP
         elif kind == "towers":
             subject = ""
             if amount is None:
@@ -207,7 +238,8 @@ def ground(raw: list, civ: str, age: int, origin: str = ROUTINE) -> Grounding:
             amount, subject = target, ""
         else:                                                # attack, hold, fortify, scout
             amount, subject = None, ""
-        mandate = Mandate(KIND_DEPT[kind], kind, subject or None, amount, urgency, origin)
+        dept = building_dept(subject) if kind == BUILD else KIND_DEPT[kind]
+        mandate = Mandate(dept, kind, subject or None, amount, urgency, origin)
         chosen.pop(slot(mandate), None)                      # said twice in one order: the later wording stands
         chosen[slot(mandate)] = mandate
     result.mandates = list(chosen.values())[:MAX_MANDATES]
@@ -247,7 +279,6 @@ def prerequisites(mandate: Mandate, f) -> list[Mandate]:
     is ranked with the order it serves."""
     needed: list[Mandate] = []
     child = lambda dept, kind, subject=None, amount=None: needed.append(Mandate(dept, kind, subject, amount, mandate.urgency, mandate.origin))
-    builder = lambda building: "general" if building in MILITARY_BUILDINGS else "tech"
     if mandate.kind == "stockpile" and mandate.subject in UNITS:
         record = UNITS[mandate.subject]
         if int(record.get("required_age", 0)) > f.age:
@@ -257,7 +288,14 @@ def prerequisites(mandate: Mandate, f) -> list[Mandate]:
             child("tech", "research", unlock)
         producer = record.get("train_at")
         if producer and not _owned(f, producer):
-            child(builder(producer), BUILD, producer)
+            child(building_dept(producer), BUILD, producer)
+    elif mandate.kind == BUILD and mandate.amount is not None and mandate.subject in CATALOG["buildings"]:
+        record = CATALOG["buildings"][mandate.subject]
+        if int(record.get("required_age", 0)) > f.age:
+            child("tech", "advance_age", amount=int(record["required_age"]))
+        for req_building in record.get("required_buildings", []):
+            if not _owned(f, req_building):
+                child(building_dept(req_building), BUILD, req_building)
     elif mandate.kind == "towers":
         required_age = CATALOG["buildings"]["watch_tower"]["required_age"]
         if f.progression_enabled and f.age < required_age:
@@ -270,7 +308,7 @@ def prerequisites(mandate: Mandate, f) -> list[Mandate]:
         if before in TECHS and not _researched(f, before):
             child("tech", "research", before)
         if record["research_at"] and not _owned(f, record["research_at"]):
-            child(builder(record["research_at"]), BUILD, record["research_at"])
+            child(building_dept(record["research_at"]), BUILD, record["research_at"])
     return needed
 
 
@@ -333,7 +371,8 @@ def load_policy(entries, civ: str) -> list[dict]:
         when = WHEN.match(entry["when"])
         if when.group(3) and int(when.group(3)) >= number:
             raise ValueError(f"national_policy entry {number}: done:{when.group(3)} must name an earlier entry")
-        if entry.get("dept") not in (None, KIND_DEPT.get(entry.get("kind"))):
+        expected_dept = building_dept(str(entry.get("subject") or "")) if entry.get("kind") == BUILD else KIND_DEPT.get(entry.get("kind"))
+        if entry.get("dept") not in (None, expected_dept):
             raise ValueError(f"national_policy entry {number}: {entry.get('kind')} is not a task of {entry.get('dept')}")
         grounded = ground([entry], civ, 0, policy_origin(number))
         if grounded.problems or grounded.notes or len(grounded.mandates) != 1:
@@ -371,7 +410,10 @@ def progress(mandate: Mandate, f, engine, since: float = 0.0) -> tuple[bool, str
     if mandate.kind == "research":
         return _researched(f, mandate.subject), ""
     if mandate.kind == BUILD:
-        return any(b.get("def_id") == mandate.subject and b.get("is_complete") for b in f.buildings), ""
+        have = sum(1 for b in f.buildings if b.get("def_id") == mandate.subject and b.get("is_complete") and b.get("hp", 1) > 0)
+        if mandate.amount is not None:
+            return have >= mandate.amount, f"{have}/{mandate.amount}"
+        return have >= 1, ""
     if mandate.kind == "attack":
         departed = engine.goals.get("sortie_departed")
         return departed is not None and departed >= since, ""

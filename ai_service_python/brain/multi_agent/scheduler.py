@@ -627,12 +627,16 @@ class MultiAgentService:
         while session.attempts and now - session.attempts[0] >= 60:
             session.attempts.popleft()
         interval = getattr(session.runtime, "planning_interval", INTERVALS.__getitem__)
-        for offset in range(len(roles)):
-            role_index = (session.next_role + offset) % len(roles)
-            role = roles[role_index]
-            if role in session.inflight or now - session.last_attempt.get(role, -math.inf) < interval(role):
+        ordered_roles = [roles[(session.next_role + offset) % len(roles)] for offset in range(len(roles))]
+        if ("premier_orders" in ordered_roles and "premier_orders" not in session.inflight
+                and interval("premier_orders") == 0):
+            ordered_roles = ["premier_orders", *[r for r in ordered_roles if r != "premier_orders"]]
+        for role in ordered_roles:
+            due = interval(role)
+            if role in session.inflight or now - session.last_attempt.get(role, -math.inf) < due:
                 continue
-            if len(session.attempts) >= self.calls_per_minute:
+            urgent_order = role == "premier_orders" and due == 0
+            if len(session.attempts) >= self.calls_per_minute and not urgent_order:
                 break
             # Round-robin demand across teams/matches, not just roles within one
             # team. A first-arriving client cannot reclaim every released slot.
@@ -734,8 +738,12 @@ class MultiAgentService:
         if session.closed:
             return "session_closed"
         if instruction_revision != session.instruction_revision:
-            return "player_instructions_changed"
-        if (getattr(req.metadata, "source_release", None) is not None
+            still_pending = (role == "premier_orders" and bool(session.player_instructions)
+                             and current.get("reading_order_id") is not None
+                             and current.get("reading_order_id") == current.get("pending_order_id"))
+            if not still_pending:
+                return "player_instructions_changed"
+        if (role != "premier_orders" and getattr(req.metadata, "source_release", None) is not None
                 and req.metadata.source_release != getattr(session.runtime, "release", None)):
             return "source_release_changed"
         if current.get("goals", {}).get("match_over"):

@@ -10,11 +10,11 @@ log_observation = false
 backend = "openai"
 model = "qwen3:8b"
 base_url = "http://127.0.0.1:11434/v1"
-max_tokens = 204800
+max_tokens = 2048
 temperature = 0.2
-timeout_sec = 90
+timeout_sec = 45
 num_ctx = 16384
-think = true
+think = false
 
 [ai]
 runtime = "cabinet"

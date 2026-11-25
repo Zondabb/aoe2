@@ -23,7 +23,10 @@ INTAKE_PROMPT = (
     "general 负责陆军训练、出兵驻守及军事建筑；defense 负责城墙城门与箭塔；intel 负责侦察与情报；tech 负责升时代与科技。"
     "legislation 必须列出准确的目标部门、具体缺口证据、内容不同的正例(positive：新代码应表现出的具体行为，如农田选址优先选紧贴已有农田的合法候选)"
     "与反例(negative：禁止出现的退化或越界行为，如继续分散选址或伪造非法坐标)、以及撤销条件。"
-    "例如“木材低于200优先采集，到320停止”或“农田紧贴在一起建造”，都必须走 resolution=\"legislation\" 并交由 economy 部门立法，mandates 留空 []。"
+    "例如“木材低于200优先采集，到320停止”或“农田紧贴在一起建造”，都必须走 resolution=\"legislation\" 并交由 economy 部门立法，mandates 留空 []。\n"
+    "反之，现有任务书已原生支持的目标严禁走 legislation，必须选 resolution=\"mandates\"、legislation=null："
+    "例如“建造 N 个箭塔”用 towers；“建造多个兵营/马厩/靶场暴兵”用 build（设目标总座数）加 stockpile；"
+    "“把兵屯到 N 个再出兵”在同一条指令中同时填 stockpile（选当前时代可用主力兵种，设数量 N）和 attack（系统会自动攒够 N 个再出击）。"
 )
 
 

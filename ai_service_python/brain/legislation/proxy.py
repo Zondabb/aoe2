@@ -292,6 +292,7 @@ class LegislativeRuntime:
 
     def _validate(self, req, result, checkpoint, previous):
         # The validation runs with host code, never the candidate's validators.
+        from brain.cabinet.orders import TOWER_LINE, default_mandates, load_policy
         from brain.cabinet.runtime import CabinetRuntime
         from .checkpoint import restore_checkpoint
         from protocol.models import Command
@@ -300,6 +301,28 @@ class LegislativeRuntime:
             raise WorkerError("checkpoint_input_mismatch")
         before = restore_checkpoint(previous, CabinetRuntime(self.profile))
         f = before.field.kernel.begin(req)
+        if any(isinstance(raw, dict) and raw.get("op") == "place_building"
+               and raw.get("building_def_id") in TOWER_LINE for raw in result.get("commands", [])):
+            trusted = restore_checkpoint(previous, CabinetRuntime(self.profile))
+            tf = trusted.field._open_frame(req)
+            if trusted.policy is None:
+                profile = trusted.field.validator.profile
+                trusted.policy = load_policy(list(profile.national_policy), profile.civ_id)
+                if trusted.mandates is None:
+                    trusted.mandates = [] if trusted.policy else default_mandates(profile)
+            trusted.ledger.intake(tf.obs.player_instructions, trusted.field.now)
+            trusted.defense.update(tf, trusted._mandates(tf), trusted.brief)
+            if trusted.defense.tower_order is not None:
+                trusted.defense._draft_towers(tf)
+                tower_defs = {k: v for k, v in tf.building_defs.items() if k in TOWER_LINE}
+                if tower_defs:
+                    f.building_defs = {**f.building_defs, **tower_defs}
+                tower_sites = [o for o in tf.context.get("construction_options", [])
+                               if isinstance(o, dict) and o.get("building_def_id") in TOWER_LINE]
+                if tower_sites:
+                    offered = f.context.get("construction_options", [])
+                    if not any(isinstance(o, dict) and o.get("building_def_id") in TOWER_LINE for o in offered):
+                        f.context = {**f.context, "construction_options": [*offered, *tower_sites]}
         if current.field.kernel._last_event_seq != before.field.kernel._last_event_seq:
             raise WorkerError("fabricated_event_cursor")
         if current.field.validator.profile != before.field.validator.profile:
