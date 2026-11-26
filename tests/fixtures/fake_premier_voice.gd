@@ -12,6 +12,11 @@ var installed: Array = [
 var spoken: Array = []
 var speaking := false
 var stops := 0
+var now_msec := -1
+
+
+func _now_msec() -> int:
+	return now_msec if now_msec >= 0 else super._now_msec()
 
 
 func _engine_problem() -> String:
@@ -36,8 +41,10 @@ func _engine_stop() -> void:
 	speaking = false
 
 
-## The engine has finished reading and the start-up grace is long over.
+## The engine has finished reading and the start-up grace and silence confirmation are long over.
 func fall_silent() -> void:
 	speaking = false
-	_started_msec = -100000
+	var now := _now_msec()
+	_started_msec = now - START_GRACE_MSEC - SILENT_CONFIRM_MSEC - 1000
+	_silent_since_msec = now - SILENT_CONFIRM_MSEC - 1000
 	_process(0.0)

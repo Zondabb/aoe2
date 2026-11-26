@@ -316,14 +316,15 @@ func _sync_state() -> void:
 	if _premier != null:
 		# The premier speaks only while the AI plays for this player.
 		var hosted := enabled and status == "active" and _controller.has_signal("premier_spoke")
-		if _premier.visible and not hosted:
+		var waiting_host := enabled and status in ["pending", "connecting"]
+		if not hosted and (_premier.visible or not waiting_host):
 			_premier.call("clear")
 		_premier.visible = hosted
 		if hosted:
 			for lines in _starting_broadcasts:
 				_premier.call("receive", lines)
 			_starting_broadcasts.clear()
-		elif not enabled or status not in ["pending", "connecting"]:
+		elif not waiting_host:
 			_starting_broadcasts.clear()
 	_follow.visible = enabled and status == "active" and has_node("../../Camera2D/BroadcastDirector")
 	_check.set_pressed_no_signal(enabled)

@@ -179,6 +179,7 @@ func _check_voice(audio: Variant, answer: Array) -> void:
 	voice.voice_enabled = true
 	voice.voice_id = ""
 	voice.rate = 1.0
+	_check(voice.stops == 1, "新对局初始化时清理系统语音队列")
 	var chinese: Array = voice.chinese_voices()
 	_check(chinese.size() == 2 and chinese[0]["id"] == "zh-1" and chinese[1]["name"] == "Yaoyao", "只列出系统里的中文语音")
 	_check(voice.resolve_voice() == "zh-1" and voice.notice.is_empty(), "默认用第一个中文语音")
@@ -197,23 +198,56 @@ func _check_voice(audio: Variant, answer: Array) -> void:
 	_check(voice._waiting.get("id") == "b-4", "等待中的指令回话不会被例行播报挤掉")
 	voice.say({"id": "b-6", "priority": 2, "texts": ["敌军来了！", "守家。"]})
 	_check(voice.spoken.size() == 4 and voice.spoken[2]["interrupt"] and not voice.spoken[3]["interrupt"] and voice.spoken[2]["text"] == "敌军来了！", "威胁播报打断正在读的内容")
-	voice.fall_silent()
-	_check(voice.spoken.size() == 5 and voice.spoken[4]["text"] == "第四条。" and not voice.spoken[4]["interrupt"], "读完后接着读等待的那条")
+
+	# Brief silence gaps between sentences must not finish the broadcast prematurely.
+	voice.now_msec = 10000
+	voice._started_msec = 10000 - voice.START_GRACE_MSEC - 10
+	voice.speaking = false
+	voice._process(0.0)
+	_check(voice.is_reading() and voice.spoken.size() == 4, "刚进入静音确认窗口时不提前判定播完")
+	voice.now_msec = 10000 + voice.SILENT_CONFIRM_MSEC - 50
+	voice._process(0.0)
+	_check(voice.is_reading() and voice.spoken.size() == 4, "句间短暂停顿不清空当前播报")
+	voice.speaking = true
+	voice.now_msec += 20
+	voice._process(0.0)
+	_check(voice.is_reading() and voice._silent_since_msec == -1, "恢复发声后重置静音计时")
+	voice.speaking = false
+	voice.now_msec += 100
+	voice._process(0.0)
+	_check(voice.is_reading() and voice.spoken.size() == 4, "再次静音初期仍等待确认")
+	voice.now_msec += voice.SILENT_CONFIRM_MSEC
+	voice._process(0.0)
+	_check(voice.spoken.size() == 5 and voice.spoken[4]["text"] == "第四条。" and not voice.spoken[4]["interrupt"], "连续静音达到确认时长后才接着读等待的那条")
+	voice.now_msec = -1
+
 	voice.fall_silent()
 	_check(not voice.is_reading() and voice.spoken.size() == 5, "没有等待的播报时安静下来")
+
+	var stops_before_idle_stop: int = voice.stops
+	voice.stop()
+	_check(voice.stops == stops_before_idle_stop + 1, "即使状态空闲，stop 也会无条件停止系统语音")
+
+	# If residual audio is still speaking in the OS queue while _playing is empty, cut it off.
+	voice.speaking = true
+	voice.say({"id": "b-stale", "priority": 0, "texts": ["打断残留语音。"]})
+	_check(voice.spoken.size() == 6 and voice.spoken[5]["interrupt"], "系统仍在发声但本地状态空闲时打断旧队列")
+	voice.fall_silent()
 
 	audio.muted = true
 	voice.say({"id": "b-7", "priority": 2, "texts": ["静音时不读。"]})
 	audio.muted = false
+	var stops_before_disable: int = voice.stops
 	voice.set_voice_enabled(false)
 	voice.say({"id": "b-7", "priority": 2, "texts": ["关掉朗读时不读。"]})
 	voice.set_voice_enabled(true)
-	_check(voice.spoken.size() == 5 and voice.stops == 0, "静音或关掉朗读时不读")
+	_check(voice.spoken.size() == 6 and voice.stops == stops_before_disable + 1, "静音或关掉朗读时不读，关闭朗读立即停止系统语音")
 	voice.say({"id": "b-8", "priority": 0, "texts": ["读到一半。"]})
+	var stops_before_mute: int = voice.stops
 	audio.muted = true
 	audio.settings_changed.emit()
 	audio.muted = false
-	_check(voice.stops == 1 and not voice.is_reading(), "读到一半静音，立刻停下")
+	_check(voice.stops == stops_before_mute + 1 and not voice.is_reading(), "读到一半静音，立刻停下")
 
 	voice.installed = [{"id": "en-1", "name": "Zira", "language": "en-US"}]
 	var before: int = voice.spoken.size()
@@ -229,6 +263,10 @@ func _check_voice(audio: Variant, answer: Array) -> void:
 	voice.say({"id": "b-10", "priority": 0, "texts": ["换了声音。"]})
 	var last: Dictionary = voice.spoken[voice.spoken.size() - 1]
 	_check(voice.rate == 2.0 and last["voice"] == "zh-2" and last["speed"] == 2.0 and voice.notice.is_empty(), "选中的语音和语速生效，语速有上限")
+	voice.fall_silent()
+	var stops_before_exit: int = voice.stops
+	root.remove_child(voice)
+	_check(voice.stops == stops_before_exit + 1, "离开场景树时即使空闲也无条件停止系统语音")
 	var again: Variant = _fake_voice()
 	root.add_child(again)
 	_check(again.voice_id == "zh-2" and again.rate == 2.0 and again.voice_enabled and again.subtitles, "开关、语音和语速下次还在")
@@ -324,10 +362,12 @@ func _check_controls(answer: Array) -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "UILayer"
 	match_root.add_child(layer)
+	node_added.connect(_install_voice)
 	var controls: Control = _controls_script.new()
 	controls.name = "AiAutoplayControls"
 	controls.size = Vector2(1280, 720)
 	layer.add_child(controls)
+	node_added.disconnect(_install_voice)
 	await process_frame
 	var premier: Variant = controls.get_node_or_null("PremierPanel")
 	_check(premier != null, "托管控件里有播报面板")
@@ -354,10 +394,11 @@ func _check_controls(answer: Array) -> void:
 	_check(premier.shown().size() == 1, "本队首相的播报显示在面板上")
 	_check(premier.position.x == 16 and premier.size.x == bar.size.x and premier.size.y > 30, "播报面板与托管面板同宽")
 	_check(instruction.visible and premier.position.y >= instruction.position.y + instruction.size.y, "播报面板排在指令输入框下面")
+	var stops_before_cancel: int = premier.voice.stops
 	controller.state["enabled"] = false
 	controller.state["status"] = "off"
 	controller.state_changed.emit()
-	_check(not premier.visible and premier.shown().is_empty(), "取消托管后收起并清空")
+	_check(not premier.visible and premier.shown().is_empty() and premier.voice.stops == stops_before_cancel + 1, "取消托管后收起、清空并停止朗读")
 	controller.premier_spoke.emit(0, answer)
 	_check(premier.shown().is_empty(), "取消托管后到达的播报不显示")
 	controller.state.merge({"enabled": true, "status": "pending"}, true)
@@ -365,6 +406,15 @@ func _check_controls(answer: Array) -> void:
 	controller.premier_spoke.emit(1, answer)
 	controller.premier_spoke.emit(0, answer)
 	_check(premier.shown().is_empty(), "确认托管前不显示提前到达的播报")
+	var stops_before_pending_cancel: int = premier.voice.stops
+	controller.state.merge({"enabled": false, "status": "off"}, true)
+	controller.state_changed.emit()
+	_check(premier.voice.stops == stops_before_pending_cancel + 1 and controls._starting_broadcasts.is_empty(), "连接确认中取消托管时也清理语音和暂存播报")
+	controller.state.merge({"enabled": true, "status": "pending"}, true)
+	controller.state_changed.emit()
+	controller.premier_spoke.emit(1, answer)
+	controller.premier_spoke.emit(0, answer)
+	_check(premier.shown().is_empty(), "再次确认托管前仍不显示提前到达的播报")
 	controller.state["status"] = "active"
 	controller.state_changed.emit()
 	_check(premier.shown().size() == 1 and premier.shown()[0].thinking == answer[0].text, "确认托管后补播本队消息一次")

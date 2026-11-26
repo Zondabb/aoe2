@@ -10,7 +10,9 @@ signal settings_changed
 
 const Settings := preload("res://scripts/core/game_settings.gd")
 ## After a speak call the system needs a moment before it reports that it is speaking.
-const START_GRACE_MSEC := 800
+const START_GRACE_MSEC := 1200
+## Require continuous silence across frames so brief pauses between sentences do not look finished.
+const SILENT_CONFIRM_MSEC := 450
 const PREVIEW_TEXT := "首相播报试听。"
 
 var subtitles := true
@@ -26,6 +28,7 @@ var settings_path := Settings.PREMIER_USER_PATH
 var _playing: Dictionary = {}
 var _waiting: Dictionary = {}
 var _started_msec := 0
+var _silent_since_msec := -1
 var _next_utterance := 1
 
 
@@ -40,7 +43,8 @@ func _ready() -> void:
 	if audio != null and audio.has_signal("settings_changed"):
 		audio.connect("settings_changed", _on_audio_changed)
 	resolve_voice()
-	set_process(false)
+	# Clear any leftover process-wide TTS queue from an earlier match.
+	stop()
 
 
 func _exit_tree() -> void:
@@ -66,12 +70,19 @@ func _engine_speak(text: String, voice: String, volume: int, speed: float, utter
 	DisplayServer.tts_speak(text, voice, volume, 1.0, speed, utterance, interrupt)
 
 
+func _now_msec() -> int:
+	return Time.get_ticks_msec()
+
+
 func _engine_speaking() -> bool:
+	if not _engine_problem().is_empty():
+		return false
 	return DisplayServer.tts_is_speaking()
 
 
 func _engine_stop() -> void:
-	DisplayServer.tts_stop()
+	if _engine_problem().is_empty():
+		DisplayServer.tts_stop()
 
 
 ## The system's Chinese voices as {"id", "name"}; empty when there are none or speech cannot be used.
@@ -131,7 +142,7 @@ func say(broadcast: Dictionary) -> void:
 		return
 	var urgency := int(broadcast.get("priority", 0))
 	if _playing.is_empty():
-		_start(broadcast, false)
+		_start(broadcast, _engine_speaking())
 	elif urgency > int(_playing.get("priority", 0)):
 		# More urgent than what is being read: cut in. What was waiting still follows.
 		_start(broadcast, true)
@@ -146,10 +157,10 @@ func preview() -> void:
 
 
 func stop() -> void:
-	if not _playing.is_empty():
-		_engine_stop()
+	_engine_stop()
 	_playing = {}
 	_waiting = {}
+	_silent_since_msec = -1
 	set_process(false)
 
 
@@ -184,11 +195,20 @@ func set_rate(value: float, persist := true) -> void:
 
 func _process(_delta: float) -> void:
 	if _playing.is_empty():
+		_silent_since_msec = -1
 		set_process(false)
 		return
-	if Time.get_ticks_msec() - _started_msec < START_GRACE_MSEC or _engine_speaking():
+	var now := _now_msec()
+	if now - _started_msec < START_GRACE_MSEC or _engine_speaking():
+		_silent_since_msec = -1
+		return
+	if _silent_since_msec < 0:
+		_silent_since_msec = now
+		return
+	if now - _silent_since_msec < SILENT_CONFIRM_MSEC:
 		return
 	_playing = {}
+	_silent_since_msec = -1
 	if _waiting.is_empty():
 		set_process(false)
 		return
@@ -199,13 +219,14 @@ func _process(_delta: float) -> void:
 
 func _start(broadcast: Dictionary, interrupt: bool) -> void:
 	var voice := resolve_voice()
-	if voice.is_empty():
+	var texts: Array = broadcast.get("texts", [])
+	if voice.is_empty() or texts.is_empty():
 		return
 	_playing = broadcast
-	_started_msec = Time.get_ticks_msec()
+	_started_msec = _now_msec()
+	_silent_since_msec = -1
 	var volume := _volume()
 	var first := true
-	var texts: Array = broadcast.get("texts", [])
 	for text: Variant in texts:
 		# The system queues the sentences; only the first may cut off what is being read.
 		_engine_speak(String(text), voice, volume, rate, _next_utterance, interrupt and first)
