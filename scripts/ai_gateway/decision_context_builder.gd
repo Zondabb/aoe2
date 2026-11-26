@@ -16,7 +16,9 @@ const Context := preload("res://scripts/ai_gateway/command_execution_context.gd"
 const Shore := preload("res://scripts/world/shore_geometry.gd")
 const MAX_FRONTIERS := 12
 const POSITIONS_PER_BUILDING := 3
+const FARM_POSITIONS_PER_BUILDING := 8
 const MAX_ROUTE_CHECKS_PER_BUILDING := 4
+const FARM_MAX_ROUTE_CHECKS := 12
 const MILITARY_BUILDINGS := ["barracks", "archery_range", "stable", "siege_workshop", "castle"]
 const PLANNING_SCALE := Queries.SETTLEMENT_FOOTPRINT_SCALE
 const FARM_RESERVE_RADIUS := 22.0
@@ -330,7 +332,7 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 		var side := Vector2(-1 if direction.x < 0 else 1, -1 if direction.y < 0 else 1)
 		var farm_anchors := _farm_anchors(snapshots, team)
 		farm_positions = _own_farm_positions(snapshots, team)
-		candidates = Queries.farm_sites(farm_anchors, side, LANE_WIDTH * 0.5)
+		candidates = Queries.farm_sites(farm_anchors, side, 0.0)
 		adjacent_candidates = _adjacent_farm_sites(farm_anchors, farm_positions, side)
 	else:
 		var seen := {}
@@ -355,8 +357,9 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 	if zone == "farm" and not adjacent_candidates.is_empty():
 		var adj_checked := 0
 		for candidate: Dictionary in adjacent_candidates:
-			if adj_checked >= 2: break
+			if adj_checked >= 4 or result.size() >= 2: break
 			var point: Vector2 = candidate.point
+			if _overlaps_chosen_farm(point, chosen_points): continue
 			if not _site_available(definition, point, work, state, team, bounds, nav, true): continue
 			var builder := _nearest_builder(free_builders, point)
 			adj_checked += 1
@@ -372,16 +375,17 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 				"drop_off_id": candidate.drop_off_id, "adjacent_farms": int(candidate.adjacent_farms),
 				"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "adjacent_farm_cluster"]})
 			chosen_points[point] = true
-			break
+	var max_positions := FARM_POSITIONS_PER_BUILDING if zone == "farm" else POSITIONS_PER_BUILDING
+	var max_route_checks := FARM_MAX_ROUTE_CHECKS if zone == "farm" else MAX_ROUTE_CHECKS_PER_BUILDING
 	var found := result.size()
 	var checked := 0
 	var index := 0
-	while index < candidates.size() and found < POSITIONS_PER_BUILDING and checked < MAX_ROUTE_CHECKS_PER_BUILDING:
+	while index < candidates.size() and found < max_positions and checked < max_route_checks:
 		var candidate: Dictionary = candidates[index]
 		index += 1
 		var point: Vector2 = candidate.point
-		if chosen_points.has(point): continue
-		if zone == "farm" and not _site_available(definition, point, work, state, team, bounds, nav): continue
+		if chosen_points.has(point) or (zone == "farm" and _overlaps_chosen_farm(point, chosen_points)): continue
+		if zone == "farm" and not _site_available(definition, point, work, state, team, bounds, nav, true): continue
 		var builder := _nearest_builder(free_builders, point)
 		checked += 1
 		var radius: float = builder.get("def").resolved_footprint_radius()
@@ -594,6 +598,13 @@ static func _own_farm_positions(snapshots: Array, team: int) -> Array[Vector2]:
 	return positions
 
 
+static func _overlaps_chosen_farm(point: Vector2, chosen_points: Dictionary) -> bool:
+	for existing: Vector2 in chosen_points:
+		if absf(point.x - existing.x) < Queries.FARM_PLANNING_SIDE - 0.01 and absf(point.y - existing.y) < Queries.FARM_PLANNING_SIDE - 0.01:
+			return true
+	return false
+
+
 static func _count_adjacent_farms(point: Vector2, farm_positions: Array[Vector2]) -> int:
 	var count := 0
 	for fp: Vector2 in farm_positions:
@@ -679,7 +690,11 @@ static func _site_index(blockers: Array) -> Dictionary:
 				# producer can use other exits, but planners should not force a retry.
 				exit = Rect2(pos + Vector2(other.footprint.x * 0.5, -1.5), Vector2(5.0, 3.0))
 				covered = covered.merge(exit)
-			_bucket_insert(planning, covered, [rect, exit, other.id == &"farm"])
+			var hug_rect: Variant = null
+			if other.id in [&"farm", &"town_center", &"mill"]:
+				var hug_size := Queries.farm_hug_size(other.id, other.footprint)
+				hug_rect = Rect2(pos - hug_size * 0.5, hug_size)
+			_bucket_insert(planning, covered, [rect, exit, hug_rect])
 		if blocker.is_queued_for_deletion() or blocker.get("is_placement_ghost") == true: continue
 		if blocker.has_method("get_water_contours") and not blocker.get_water_contours().is_empty():
 			water.append([blocker.get_water_contours(), Shore.contours_bounds(blocker.get_water_contours())])
@@ -707,23 +722,25 @@ static func _bucket_insert(buckets: Dictionary, rect: Rect2, entry: Array) -> vo
 			if not buckets.has(key): buckets[key] = []
 			buckets[key].append(entry)
 
-static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, sites: Dictionary, bounds: Rect2, allow_adjacent_farms: bool = false) -> bool:
+static func _planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, sites: Dictionary, bounds: Rect2, _allow_adjacent_farms: bool = true) -> bool:
 	var size := planning_footprint(definition)
+	var is_farm := definition.id == &"farm"
 	var area := Rect2(pos - size * 0.5, size)
 	if not bounds.encloses(area.grow(1.0)): return false
-	# Reserve cross-base traffic lanes even around walkable farms; this keeps
-	# future walls and solid foundations from sealing the base's four exits.
+	# Solid buildings reserve cross-base traffic lanes; walkable farms may hug the TC on all four sides.
 	var offset := pos - base
-	if absf(offset.x) < size.x * 0.5 + LANE_WIDTH * 0.5 or absf(offset.y) < size.y * 0.5 + LANE_WIDTH * 0.5: return false
+	if not is_farm and (absf(offset.x) < size.x * 0.5 + LANE_WIDTH * 0.5 or absf(offset.y) < size.y * 0.5 + LANE_WIDTH * 0.5): return false
 	var lane := area.grow(LANE_WIDTH * 0.5)
-	var farm_touch := allow_adjacent_farms and definition.id == &"farm"
 	var strict_area := area.grow(-0.01)
 	var planning: Dictionary = sites.planning
 	var cells := _bucket_cells(lane)
 	for y in range(cells.position.y, cells.end.y):
 		for x in range(cells.position.x, cells.end.x):
 			for entry: Array in planning.get(Vector2i(x, y), []):
-				if (strict_area if farm_touch and entry.size() > 2 and bool(entry[2]) else lane).intersects(entry[0]): return false
+				if is_farm and entry.size() > 2 and entry[2] is Rect2:
+					if strict_area.intersects(entry[2]): return false
+				elif lane.intersects(entry[0]):
+					return false
 				if entry[1] is Rect2 and area.intersects(entry[1]): return false
 	return true
 

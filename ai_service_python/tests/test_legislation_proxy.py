@@ -414,8 +414,12 @@ def test_patched_choose_sites_selects_adjacent_farm_option_without_mutating_obse
     target = (
         "    def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:\n"
         "        \"\"\"Reorder legal `options` for building `name` (e.g. 'farm', 'house', 'mill').\n"
-        "        Each option dict has keys `building_def_id`, `builder_id`, `pos`, `score`, and (for 'farm') `adjacent_farms`.\n"
-        "        Sort rather than drop options so the first farm (`adjacent_farms == 0`) and other buildings still place.\"\"\"\n"
+        "        Each option dict has keys `building_def_id`, `builder_id`, `pos`, `score`, `drop_off_id`,\n"
+        "        and (for 'farm') `adjacent_farms`. `pos` (and entity `pos` in `f.buildings`/`f.units`) is\n"
+        "        continuous world coordinates `[x, y]` of the center, NOT 1-tile grid indices (adjacent farm\n"
+        "        centers are ~8.0 apart; first-ring mill/town_center farm centers are ~8.0/~10.0 away, and\n"
+        "        `score` is `100 - edge_distance` minus detour). Rank by continuous distance rather than `<= 1`,\n"
+        "        and sort rather than drop options so `adjacent_farms == 0` and other buildings still place.\"\"\"\n"
         "        return options\n"
     )
     patch = (

@@ -71,7 +71,8 @@ class Department:
         """Add orders, paying only from this department's purses."""
 
     def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:
-        """Order legal construction sites for `name`; by default keep the crew's order."""
+        """Order legal construction sites for `name`; by default keep the crew's order.
+        `pos` on options and entities is continuous world `[x, y]` center coordinates, not 1-tile grid indices."""
         return options
 
     def report(self) -> DeptReport:

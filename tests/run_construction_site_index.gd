@@ -76,7 +76,7 @@ func _run() -> void:
 	# Exactly touching and barely overlapping footprints exercise the strict edges.
 	for blocker in blockers:
 		var footprint: Vector2 = blocker.call("get_placement_footprint") if blocker.has_method("get_placement_footprint") else (blocker.get("block_size") if blocker.get("block_size") is Vector2 else Vector2.ONE)
-		for definition in [Catalog.get_building(&"house"), Catalog.get_building(&"barracks")]:
+		for definition in [Catalog.get_building(&"house"), Catalog.get_building(&"barracks"), Catalog.get_building(&"farm")]:
 			var reach: Vector2 = (footprint + definition.footprint) * 0.5
 			var planning_reach: Vector2 = (DC.planning_footprint(definition) + DC.planning_footprint(blocker.get("def")) if blocker.get("def") is BuildingDef else footprint) * 0.5 + Vector2.ONE * DC.LANE_WIDTH * 0.5
 			for offset in [Vector2(reach.x, 0), Vector2(0, -reach.y), Vector2(reach.x - 0.001, 0), Vector2(planning_reach.x, 0), Vector2(-planning_reach.x, 0), Vector2(0, planning_reach.y), Vector2(planning_reach.x - 0.001, 1)]:
@@ -109,16 +109,23 @@ func _run() -> void:
 ## The original per-blocker loop of DecisionContextBuilder._planning_clear.
 func _reference_planning_clear(definition: BuildingDef, pos: Vector2, base: Vector2, blockers: Array, bounds: Rect2) -> bool:
 	var size := DC.planning_footprint(definition)
+	var is_farm := definition.id == &"farm"
 	var area := Rect2(pos - size * 0.5, size)
 	if not bounds.encloses(area.grow(1.0)): return false
 	var offset := pos - base
-	if absf(offset.x) < size.x * 0.5 + DC.LANE_WIDTH * 0.5 or absf(offset.y) < size.y * 0.5 + DC.LANE_WIDTH * 0.5: return false
+	if not is_farm and (absf(offset.x) < size.x * 0.5 + DC.LANE_WIDTH * 0.5 or absf(offset.y) < size.y * 0.5 + DC.LANE_WIDTH * 0.5): return false
+	var strict_area := area.grow(-0.01)
+	var Queries := preload("res://scripts/systems/ai/ai_entity_queries.gd")
 	for blocker in blockers:
 		var other: BuildingDef = blocker.get("def") as BuildingDef
 		if other == null: continue
 		var other_pos: Vector2 = blocker.get("sim_pos")
-		var other_size := DC.planning_footprint(other)
-		if area.grow(DC.LANE_WIDTH * 0.5).intersects(Rect2(other_pos - other_size * 0.5, other_size)): return false
+		if is_farm and other.id in [&"farm", &"town_center", &"mill"]:
+			var hug_size := Queries.farm_hug_size(other.id, other.footprint)
+			if strict_area.intersects(Rect2(other_pos - hug_size * 0.5, hug_size)): return false
+		else:
+			var other_size := DC.planning_footprint(other)
+			if area.grow(DC.LANE_WIDTH * 0.5).intersects(Rect2(other_pos - other_size * 0.5, other_size)): return false
 		if String(other.id) in DC.MILITARY_BUILDINGS:
 			var exit := Rect2(other_pos + Vector2(other.footprint.x * 0.5, -1.5), Vector2(5.0, 3.0))
 			if area.intersects(exit): return false

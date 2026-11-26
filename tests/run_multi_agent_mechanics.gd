@@ -201,12 +201,16 @@ func _test_observation_and_layout() -> void:
 		check(option.planning_footprint == [12.0, 12.0], "planning artwork footprint is distinct from the legal 3 by 3 footprint")
 		check(Placement.can_place_at(Catalog.get_building(&"barracks"), at, world), "planned site passes real footprint validation")
 	var farms: Array = options.filter(func(item): return item.building_def_id == "farm")
-	check(not farms.is_empty(), "TC-adjacent farm plots remain available")
+	check(farms.size() >= 4 and farms.size() <= Decision.FARM_POSITIONS_PER_BUILDING, "TC-adjacent farm plots expand up to the farm candidate limit")
+	check(farms.any(func(item):
+		var at := Vector2(item.pos[0], item.pos[1])
+		return is_equal_approx(at.distance_to(tc.sim_pos), 10.0) and (is_zero_approx(at.x - tc.sim_pos.x) or is_zero_approx(at.y - tc.sim_pos.y))
+	), "walkable farms hug TC cardinal faces without cross-corridor gap")
 	var camps: Array = options.filter(func(item): return item.building_def_id == "lumber_camp")
 	check(not camps.is_empty() and camps.all(func(item): return item.resource_target_id == Registry.id_of(forest)), "lumber camp sites use visible resource anchors")
 	for option in options:
 		var at := Vector2(option.pos[0], option.pos[1])
-		if at.distance_to(tc.sim_pos) < 42:
+		if option.building_def_id != "farm" and at.distance_to(tc.sim_pos) < 42:
 			check(absf(at.x - tc.sim_pos.x) > 1.5 and absf(at.y - tc.sim_pos.y) > 1.5, "layout keeps cross-base transport lanes")
 	check(worker.hp > 0, "layout planning never mutates workers")
 
@@ -232,7 +236,7 @@ func _test_secondary_farm_district() -> void:
 		var farms: Array = observation.decision_context.construction_options.filter(func(item): return item.building_def_id == "farm")
 		check(not farms.is_empty(), "crowded base still supplies farm plot %d" % iteration)
 		if farms.is_empty(): break
-		check(farms.size() <= Decision.POSITIONS_PER_BUILDING, "secondary farm districts keep the output candidate limit")
+		check(farms.size() <= Decision.FARM_POSITIONS_PER_BUILDING, "secondary farm districts keep the output candidate limit")
 		var option: Dictionary = farms[0]
 		if option.drop_off_id == Registry.id_of(mill): mill_based += 1
 		check(option.drop_off_id in [Registry.id_of(tc), Registry.id_of(mill)], "farm district uses a completed own food drop-off")
@@ -255,10 +259,11 @@ func _test_short_farm_deliveries() -> void:
 	var worker := _unit(&"villager", Vector2(12, 12))
 	var obs := Observation.build_json_safe(state, world, 0, 1, 0)
 	var plots: Array = obs.decision_context.construction_options.filter(func(o): return o.building_def_id == "farm")
-	check(not plots.is_empty(), "open mill has farm options")
+	check(plots.size() == Decision.FARM_POSITIONS_PER_BUILDING, "open base exposes up to 8 farm options across depots")
+	check(plots.any(func(o): return o.drop_off_id == Registry.id_of(mill)) and plots.any(func(o): return o.drop_off_id == Registry.id_of(tc)), "farm options include both mill and TC hugging sites simultaneously")
 	if plots.is_empty(): return
 	var pos := Vector2(plots[0].pos[0], plots[0].pos[1])
-	check(plots[0].drop_off_id == Registry.id_of(mill) and pos.distance_to(mill.sim_pos) == 10, "field hugs the open side of the mill with traffic clearance")
+	check(plots[0].drop_off_id == Registry.id_of(mill) and is_equal_approx(pos.distance_to(mill.sim_pos), 8.0), "field tightly hugs the open side of the mill")
 	var farm := _building(&"farm", pos)
 	worker.sim_pos = pos
 	var food := state.get_resource(0, Enums.ResourceType.FOOD)
@@ -272,8 +277,8 @@ func _test_short_farm_deliveries() -> void:
 	if not cluster_plots.is_empty():
 		var adj_pos := Vector2(cluster_plots[0].pos[0], cluster_plots[0].pos[1])
 		check(is_equal_approx(adj_pos.distance_to(pos), 8.0) and Placement.can_place_at(Catalog.get_building(&"farm"), adj_pos, world), "adjacent farm plot touches the 8x8 field edge without overlapping")
-	for dx in [-10, 0, 10]:
-		for dy in [-10, 0, 10]:
+	for dx in [-8, 0, 8]:
+		for dy in [-8, 0, 8]:
 			var occupied := mill.sim_pos + Vector2(dx, dy)
 			if occupied != mill.sim_pos and occupied != pos: _building(&"farm", occupied)
 	obs = Observation.build_json_safe(state, world, 0, 1, 1)
@@ -281,7 +286,7 @@ func _test_short_farm_deliveries() -> void:
 	check(not plots.is_empty(), "crowded mill can use another drop-off")
 	if not plots.is_empty():
 		pos = Vector2(plots[0].pos[0], plots[0].pos[1])
-		check(plots[0].drop_off_id == Registry.id_of(tc) and pos.distance_to(tc.sim_pos) < 16, "next field uses the open TC ring before expanding beyond the mill")
+		check(plots[0].drop_off_id == Registry.id_of(tc) and is_equal_approx(pos.distance_to(tc.sim_pos), 10.0), "next field tightly hugs the open TC ring before expanding beyond the mill")
 
 func _test_inaccessible_mill() -> void:
 	_fixture()

@@ -220,6 +220,15 @@ static func planning_size(id: StringName, footprint: Vector2) -> Vector2:
 	return Vector2.ONE * FARM_PLANNING_SIDE if id == &"farm" else footprint * SETTLEMENT_FOOTPRINT_SCALE
 
 
+static func farm_hug_size(id: StringName, footprint: Vector2) -> Vector2:
+	# Drawn TC ground is ~10.47x10.47 (4 tiles * 2.62) and mill is ~5.24x5.24.
+	# Using 12x12 for TC and 8x8 for mill/farm lets 8x8 farms hug all four faces
+	# without overlapping the rendered building or adjacent farms.
+	if id == &"town_center": return Vector2.ONE * 12.0
+	if id in [&"mill", &"farm"]: return Vector2.ONE * FARM_PLANNING_SIDE
+	return planning_size(id, footprint)
+
+
 ## Search all four sides of every food drop-off, closest delivery first.
 ## Mirroring the offsets towards the map center keeps symmetric starts fair.
 static func farm_sites(anchors: Array, side: Vector2, lane: float, first_ring := 0, ring_count := 4) -> Array:
@@ -227,7 +236,8 @@ static func farm_sites(anchors: Array, side: Vector2, lane: float, first_ring :=
 	var step := ceilf(FARM_PLANNING_SIDE * 0.5 + lane)
 	for anchor: Dictionary in anchors:
 		var half: Vector2 = anchor.footprint * 0.5
-		var inner := ceilf(half.x * SETTLEMENT_FOOTPRINT_SCALE + FARM_PLANNING_SIDE * 0.5 + lane)
+		var depot_half := farm_hug_size(&"town_center" if anchor.footprint.x >= 4.0 else &"mill", anchor.footprint).x * 0.5 if lane <= 0.0 else half.x * SETTLEMENT_FOOTPRINT_SCALE
+		var inner := ceilf(depot_half + FARM_PLANNING_SIDE * 0.5 + lane)
 		for ring in range(first_ring, first_ring + ring_count):
 			var radius := inner + ring * ceilf(FARM_PLANNING_SIDE + lane)
 			var slots := ceili(radius / step)
