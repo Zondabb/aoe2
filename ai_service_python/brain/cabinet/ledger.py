@@ -226,6 +226,8 @@ class OrderLedger:
                       and o.legislation["proposal_id"] == proposal_id), None)
         if order is None:
             return False
+        if status == "installed" and order.legislation.get("status") != "waiting":
+            return False
         order.legislation.update(status=status, phase=status, reason=str(reason)[:1000])
         order.status = ACTIVE if status == "installed" else (SUPERSEDED if status == "revoked" else WAITING_LEGISLATION)
         order.waiting = "" if status == "installed" else (str(reason)[:1000] or "法案尚未生效，原有任务继续。")

@@ -162,7 +162,7 @@ def legislation_timeout_sec() -> float:
 
 def legislation_context_tokens() -> int:
     """Total context allowance, including the reserved code-agent response."""
-    return int(_bounded_number("legislation_context_tokens", "AOE2_AI_LEGISLATION_CONTEXT_TOKENS", 16384, 8192, 131072))
+    return int(_bounded_number("legislation_context_tokens", "AOE2_AI_LEGISLATION_CONTEXT_TOKENS", 32768, 8192, 131072))
 
 
 def legislation_output_tokens() -> int:

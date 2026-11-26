@@ -9,7 +9,7 @@
 # worker_mode = "docker"
 # worker_image = "your-registry/cabinet-worker@sha256:<actual-digest>"
 # legislation_max_tokens = 8192
-# legislation_context_tokens = 16384
+# legislation_context_tokens = 32768
 # legislation_timeout_sec = 120
 # legislation_max_steps = 24
 

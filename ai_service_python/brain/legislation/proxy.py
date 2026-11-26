@@ -1,7 +1,8 @@
 """Team-local source releases, worker handoff and durable commit boundaries.
 
 Version one supports additive department state and a linear chain of bills.
-Changing the player instruction window conservatively revokes that whole chain.
+Clearing the player instruction window conservatively revokes that whole chain;
+appending new instructions does not interrupt unrelated bills.
 """
 from __future__ import annotations
 
@@ -175,9 +176,12 @@ class LegislativeRuntime:
 
     def planning_context(self, role):
         if role == "legislative_council":
+            coding = self._coding
             return {"goals": self.goals, "plan_version": self.release, "goal_version": self.event,
-                    "legislation_phase": self._coding.status if self._coding else "waiting",
-                    "legislation_step": self._coding.data["steps"] if self._coding else 0}
+                    "legislation_phase": coding.status if coding else "waiting",
+                    "legislation_step": coding.data["steps"] if coding else 0,
+                    "active_proposal_id": coding.requirement["proposal_id"]
+                                          if coding and coding.status == "coding" else None}
         return self._call("planning_context", role)
 
     def planning_brief(self, role):
@@ -189,6 +193,11 @@ class LegislativeRuntime:
                 return None
             requests = self._call("legislative_requests")
             if not requests:
+                if self._coding and self._coding.status not in {"installed", "failed", "blocked"}:
+                    self._coding = None
+                    self._request = None
+                    self._progress_key = None
+                    self._save_coding()
                 return None
             self._request = copy.deepcopy(requests[0])
             if (not self._coding or self._coding.base != self.release
@@ -251,10 +260,10 @@ class LegislativeRuntime:
                 # model-facing contract only exposes legislative_step.
                 proposal = plan
             self._job = self._pool.submit(self._prepare, copy.deepcopy(proposal), self.release,
-                                          self.instructions, copy.deepcopy(self.state), self._generation, coding)
+                                          copy.deepcopy(self.state), self._generation, coding)
             return True
 
-    def _prepare(self, proposal, base, instructions, state, generation, coding=None):
+    def _prepare(self, proposal, base, state, generation, coding=None):
         worker = None
         try:
             release = self.store.build(base, proposal)
@@ -265,19 +274,17 @@ class LegislativeRuntime:
             from .checkpoint import restore_checkpoint
             restore_checkpoint(worker.checkpoint, CabinetRuntime(self.profile))
             with self._lock:
-                if (self._closed or base != self.release or instructions != self.instructions
-                        or generation != self._generation):
+                if self._closed or base != self.release or generation != self._generation:
                     worker.close()
                     return
-                self._candidate = (release, worker, proposal["proposal_id"], base, instructions)
+                self._candidate = (release, worker, proposal["proposal_id"], base, generation)
                 if coding is self._coding and coding is not None:
                     coding.data["status"] = "ready"
                     self._save_coding()
                 worker = None
         except Exception as exc:
             with self._lock:
-                if (self._closed or base != self.release or instructions != self.instructions
-                        or generation != self._generation):
+                if self._closed or base != self.release or generation != self._generation:
                     return
                 if coding is self._coding and coding is not None:
                     coding.reject("candidate_validation_failed: " + str(exc)[:300])
@@ -396,25 +403,26 @@ class LegislativeRuntime:
                 self._call("legislation_result", proposal_id, "failed", reason)
             self._failed.clear()
             if instructions != self.instructions:
-                self._generation += 1
-                if self._candidate:
-                    self._candidate[1].close()
-                    self._candidate = None
-                self._request = None
-                self._coding = None
-                self._progress_key = None
-                if self.release != self.base:
-                    replacement = self._start(self.base)
-                    try:
-                        self._restore(replacement, self.state, self.base)
-                        replacement.call("retire_bills", "revoked", "instruction_window_changed")
-                    except BaseException:
-                        replacement.close()
-                        raise
-                    self.worker.close()
-                    self.worker, self.release = replacement, self.base
-                    self.state = replacement.checkpoint
-                    self._journal.append(("legislation_revoked", {"reason": "instruction_window_changed"}))
+                if not instructions:
+                    self._generation += 1
+                    if self._candidate:
+                        self._candidate[1].close()
+                        self._candidate = None
+                    self._request = None
+                    self._coding = None
+                    self._progress_key = None
+                    if self.release != self.base:
+                        replacement = self._start(self.base)
+                        try:
+                            self._restore(replacement, self.state, self.base)
+                            replacement.call("retire_bills", "revoked", "instruction_window_changed")
+                        except BaseException:
+                            replacement.close()
+                            raise
+                        self.worker.close()
+                        self.worker, self.release = replacement, self.base
+                        self.state = replacement.checkpoint
+                        self._journal.append(("legislation_revoked", {"reason": "instruction_window_changed"}))
                 self.instructions = instructions
             self._coding_progress()
             previous = self.state
@@ -422,14 +430,16 @@ class LegislativeRuntime:
             candidate = self._candidate
             if candidate:
                 self._candidate = None
-                release, active, proposal_id, base, window = candidate
-                if base != self.release or window != self.instructions:
+                release, active, proposal_id, base, generation = candidate
+                if base != self.release or generation != self._generation:
                     active.close()
                     active, release, candidate = self.worker, self.release, None
             try:
                 if candidate:
                     self._restore(active, previous, release)
-                    active.call("legislation_result", proposal_id, "installed", "source_release_ready")
+                    if not active.call("legislation_result", proposal_id, "installed", "source_release_ready"):
+                        active.close()
+                        active, release, candidate = self.worker, self.release, None
                 result = active.call("tick", req.model_dump())
                 self._validate(req, result, active.checkpoint, previous)
             except Exception as exc:

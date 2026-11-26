@@ -8,7 +8,7 @@ from jsonschema import Draft202012Validator, ValidationError
 import pytest
 
 from brain import runtime_settings
-from brain.legislation.agent import CodingSession, byte_size, digest
+from brain.legislation.agent import READ_MAX_BYTES, CodingSession, byte_size, digest
 from brain.legislation.planning import proposal_schema
 from brain.legislation.releases import WRITABLE, apply_diff
 
@@ -95,7 +95,7 @@ def test_context_stays_bounded_with_large_chinese_source_and_repeated_reads(make
                              note="Read another bounded section."))
         brief = session.brief()
         assert session.data["feedback"]["truncated"]
-        assert len(session.data["feedback"]["text"].encode("utf-8")) <= 2000
+        assert len(session.data["feedback"]["text"].encode("utf-8")) <= READ_MAX_BYTES
         used = byte_size(brief["context"]) + byte_size(brief["tools"]) + len(brief["system"].encode("utf-8"))
         assert used + brief["output_tokens"] + 1024 <= 16384
         assert brief["context"]["legislation"] == session.requirement
@@ -378,3 +378,62 @@ def test_list_rejects_exact_python_file_and_warns_on_duplicate_readonly_step(mak
     assert "warning" not in session.data["feedback"]
     assert session.apply(action(session, "list", path="brain/cabinet/departments/")) is None
     assert "Repeated identical read-only call" in session.data["feedback"]["warning"]
+
+
+def test_default_32k_context_reads_entire_economy_department_in_one_step(tmp_path):
+    from pathlib import Path
+
+    assert runtime_settings.legislation_context_tokens() == 32768
+    real_source = (Path(__file__).resolve().parents[1] / ECONOMY).read_text(encoding="utf-8")
+    root = tmp_path / "release"
+    files = {path: SOURCE for path in WRITABLE}
+    files[ECONOMY] = real_source
+    for path, text in files.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    class Store:
+        def path(self, release):
+            return root
+
+        def manifest(self, release):
+            return {"files": files}
+
+    goal = {"proposal_id": "order-1", "instruction": "农田要紧贴着城镇中心和磨坊建造",
+            "departments": ["economy"], "evidence": ["choose_sites returns options unchanged"],
+            "acceptance": {"positive": ["prefer adjacent farm sites"], "negative": ["never forge coords"]}}
+    session = CodingSession(Store(), goal, "a" * 64)
+    view = read(session, path=ECONOMY)
+    assert not view["truncated"]
+    assert view["text"] == real_source
+    assert view["next_line"] == view["total_lines"] + 1
+    brief = session.brief()
+    summary = brief["context"]["read_files"][ECONOMY]
+    assert summary["complete"] is True
+    assert "def choose_sites(" in " ".join(summary["symbols"])
+
+
+def test_recent_actions_expanded_and_read_files_summary_warns_on_readonly_reread(make_session):
+    session = make_session({
+        CALLER: "class Runtime:\n    def _govern(self):\n        pass\n",
+        ECONOMY: "class Economy:\n    def choose_sites(self, f, name, options):\n        return options\n",
+    })
+    for idx in range(14):
+        session.apply(action(session, "search", query=f"q{idx}"))
+    assert len(session.brief()["context"]["recent_actions"]) == 14
+
+    first_caller = read(session, CALLER)
+    assert "warning" not in first_caller
+    assert session.brief()["context"]["read_files"][CALLER]["complete"] is True
+
+    read(session, ECONOMY)
+    reread_caller = read(session, CALLER)
+    assert "read_files" in reread_caller["warning"]
+
+    reread_economy = read(session, ECONOMY)
+    assert "warning" not in reread_economy
+    edit(session, reread_economy, old="return options", new="return list(options)")
+    edited_summary = session.brief()["context"]["read_files"][ECONOMY]
+    assert edited_summary["edited"] is True
+    assert edited_summary["ranges"] == []

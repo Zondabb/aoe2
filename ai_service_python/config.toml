@@ -24,6 +24,6 @@ worker_mode = "docker"
 worker_image = "localhost:5000/cabinet-worker@sha256:04473314770fda64ce76eaa452107f8eb470faaed354f94ef1fb3dfd4917c59d"
 worker_timeout_sec = 5
 legislation_max_tokens = 8192
-legislation_context_tokens = 16384
+legislation_context_tokens = 32768
 legislation_timeout_sec = 180
 legislation_max_steps = 24

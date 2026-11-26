@@ -58,7 +58,7 @@ def test_source_tool_has_dedicated_budget_and_ollama_schema(monkeypatch, tool):
     req = request(tool)
     payload = llm_proxy.build_openai_payload(req)
     assert payload["options"]["num_predict"] == 8192
-    assert payload["options"]["num_ctx"] == 16384
+    assert payload["options"]["num_ctx"] == 32768
     assert payload["format"] == req.tools[0].function.parameters
     plan = {"action": "read"}
     response = llm_proxy._normalize_ollama_plan_response(
@@ -142,7 +142,7 @@ def test_legislative_limits_load_from_toml_and_environment(tmp_path, monkeypatch
 
 @pytest.mark.parametrize("key, getter, default, low, high", [
     ("TIMEOUT_SEC", runtime_settings.legislation_timeout_sec, 120, 10, 600),
-    ("CONTEXT_TOKENS", runtime_settings.legislation_context_tokens, 16384, 8192, 131072),
+    ("CONTEXT_TOKENS", runtime_settings.legislation_context_tokens, 32768, 8192, 131072),
     ("MAX_STEPS", runtime_settings.legislation_max_steps, 24, 4, 100),
 ])
 def test_legislative_limits_are_bounded(key, getter, default, low, high, monkeypatch):

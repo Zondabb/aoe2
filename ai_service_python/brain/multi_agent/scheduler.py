@@ -649,6 +649,8 @@ class MultiAgentService:
                     self._release_slot(req.metadata.match_id)
                     continue
                 context, schema, orders, statuses = brief["context"], brief["schema"], brief["orders"], brief["statuses"]
+                proposal_id = (context.get("legislation", {}).get("proposal_id")
+                               if isinstance(context.get("legislation"), dict) else None)
                 request_id = uuid.uuid4().hex
                 plan_req, context_json = plan_request(req, role, brief, request_id)
                 if hasattr(session.runtime, "release"):
@@ -659,7 +661,7 @@ class MultiAgentService:
                 session.plan_status[role] = {"state": "planning", "request_id": request_id}
                 self._pool.submit(self._plan, session, req.metadata.match_id, role, plan_req, schema,
                                   context.get("goal_version"), request_id, len(context_json), session.instruction_revision,
-                                  orders, "new" in statuses)
+                                  orders, "new" in statuses, proposal_id)
             except Exception:
                 session.inflight.discard(role)
                 self._release_slot(req.metadata.match_id)
@@ -733,7 +735,8 @@ class MultiAgentService:
 
     @staticmethod
     def _obsolete_plan(session: _Session, role: str, req: ChatCompletionRequest,
-                       goal_version: Any, instruction_revision: int, current: dict) -> str | None:
+                       goal_version: Any, instruction_revision: int, current: dict,
+                       proposal_id: str | None = None) -> str | None:
         """The same identity guards protect applying a result and retry feedback."""
         if session.closed:
             return "session_closed"
@@ -741,7 +744,10 @@ class MultiAgentService:
             still_pending = (role == "premier_orders" and bool(session.player_instructions)
                              and current.get("reading_order_id") is not None
                              and current.get("reading_order_id") == current.get("pending_order_id"))
-            if not still_pending:
+            still_coding = (role == "legislative_council" and bool(session.player_instructions)
+                            and proposal_id is not None
+                            and current.get("active_proposal_id") == proposal_id)
+            if not (still_pending or still_coding):
                 return "player_instructions_changed"
         if (role != "premier_orders" and getattr(req.metadata, "source_release", None) is not None
                 and req.metadata.source_release != getattr(session.runtime, "release", None)):
@@ -759,7 +765,7 @@ class MultiAgentService:
 
     def _plan(self, session: _Session, match_id: str, role: str, req: ChatCompletionRequest,
               schema: dict, goal_version: Any, request_id: str, input_chars: int, instruction_revision: int,
-              orders: tuple[str, ...] = (), new_orders: bool = False) -> None:
+              orders: tuple[str, ...] = (), new_orders: bool = False, proposal_id: str | None = None) -> None:
         started = self.clock()
         identity = dict(match_id=match_id, team=req.metadata.team, session_epoch=session.epoch,
                         observation_seq=req.metadata.tick, sim_time=req.metadata.time_sec,
@@ -788,7 +794,7 @@ class MultiAgentService:
             with session.lock:
                 current = {} if session.closed else session.runtime.planning_context(role)
                 age_sim_sec = max(0.0, session.last_sim_time - req.metadata.time_sec)
-                obsolete = self._obsolete_plan(session, role, req, goal_version, instruction_revision, current)
+                obsolete = self._obsolete_plan(session, role, req, goal_version, instruction_revision, current, proposal_id)
                 if obsolete:
                     reason = obsolete
                 elif plan is None:
@@ -846,7 +852,7 @@ class MultiAgentService:
                 if not received:
                     try:
                         current = {} if session.closed else session.runtime.planning_context(role)
-                        obsolete = self._obsolete_plan(session, role, req, goal_version, instruction_revision, current)
+                        obsolete = self._obsolete_plan(session, role, req, goal_version, instruction_revision, current, proposal_id)
                         rejected = getattr(session.runtime, "plan_rejected", None)
                         if not obsolete and rejected is not None:
                             rejected(role, "transport_error:" + type(exc).__name__)

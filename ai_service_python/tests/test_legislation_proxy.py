@@ -483,3 +483,96 @@ def test_tower_order_places_watch_tower_through_host_validator(service):
     placed = [c for c in second["commands"] if c["op"] == "place_building" and c["building_def_id"] == "watch_tower"]
     assert len(placed) == 1
     assert second["planning"]["orders"] == [{"id": 1, "text": "建造3个箭塔", "status": "执行中 0/3"}]
+
+
+def test_new_unrelated_instructions_do_not_interrupt_coding_candidate_or_installed_bill(service):
+    svc, _ = service
+    proxy, first = begin_coding(svc)
+    assert coding_step(proxy, "read", path=ECONOMY, start_line=1, max_lines=120)
+    assert proxy._coding.data["steps"] == 1
+
+    second = svc.tick(request(2, orders=("木材低于200开始优先采集，到320停止", "建造3个箭塔"),
+                              events=accept(first, seq=200)))
+    assert proxy._coding is not None and proxy._coding.data["steps"] == 1
+    assert proxy.planning_brief("premier_orders")["context"]["order"] == "建造3个箭塔"
+    assert proxy.apply_plan("premier_orders", {
+        "thinking": "补建三座箭塔防守。",
+        "decision": "派国防部建箭塔。",
+        "grasp": "exact",
+        "resolution": "mandates",
+        "legislation": None,
+        "mandates": [{"kind": "towers", "subject": "", "amount": 3, "urgency": "normal"}],
+    })
+    edit_act(proxy, HYSTERESIS)
+    finish_coding(proxy, source_patch(proxy, "")["state_fields"])
+    assert proxy._candidate is not None
+
+    third = svc.tick(request(3, orders=("木材低于200开始优先采集，到320停止", "建造3个箭塔", "多采食物"),
+                             events=accept(second, seq=300)))
+    assert proxy.release != proxy.base
+
+    fourth = svc.tick(request(4, orders=("建造3个箭塔", "多采食物", "加强侦察", "补充村民"),
+                              events=accept(third, seq=400)))
+    assert proxy.release != proxy.base
+
+    svc.tick(request(5, orders=(), events=accept(fourth, seq=500)))
+    assert proxy.release == proxy.base
+
+
+def test_inflight_legislative_step_survives_new_unrelated_instruction(tmp_path, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    holder = {}
+    state = {"injected": False, "previous": None, "next_seq": 3}
+
+    def forward(req):
+        role = req.metadata.agent
+        if role == "premier_orders":
+            context = json.loads(req.messages[1].content)
+            if context["order"] == "木材低于200开始优先采集，到320停止":
+                result = reading()
+            else:
+                result = {"thinking": "建箭塔防守。", "decision": "派国防部建箭塔。", "grasp": "exact",
+                          "resolution": "mandates", "legislation": None,
+                          "mandates": [{"kind": "towers", "subject": "", "amount": 2, "urgency": "normal"}]}
+            tool_name = req.tools[0].function.name
+            arguments = result
+        elif role == "legislative_council":
+            if not state["injected"]:
+                state["injected"] = True
+                req_new = request(state["next_seq"],
+                                  orders=("木材低于200开始优先采集，到320停止", "建造2座箭塔防守"),
+                                  events=accept(state["previous"], seq=state["next_seq"] * 100))
+                req_new.metadata = req_new.metadata.model_copy(update={"backend": "openai"})
+                state["previous"] = svc.tick(req_new)
+            tool_name = "legislative_read"
+            arguments = {"path": ECONOMY, "start_line": 1, "note": "Read economy module."}
+        else:
+            tool_name = req.tools[0].function.name
+            arguments = {}
+        raw = {"id": "mock", "choices": [{"finish_reason": "tool_calls", "message": {
+            "role": "assistant", "tool_calls": [{"type": "function", "function": {
+                "name": tool_name, "arguments": json.dumps(arguments)}}]}}]}
+        return ChatCompletionResponse.model_validate(raw), {}, raw
+
+    def factory(profile):
+        holder["proxy"] = LegislativeRuntime(profile, root=tmp_path / "store", mode="local-development", timeout=15)
+        return holder["proxy"]
+
+    svc = MultiAgentService(runtime_factory=factory, forward=forward, calls_per_minute=60)
+    try:
+        req1 = request(1)
+        req1.metadata = req1.metadata.model_copy(update={"backend": "openai"})
+        state["previous"] = svc.tick(req1)
+        wait_idle(svc)
+
+        req2 = request(2, events=accept(state["previous"], seq=200))
+        req2.metadata = req2.metadata.model_copy(update={"backend": "openai"})
+        state["previous"] = svc.tick(req2)
+        wait_idle(svc)
+
+        assert state["injected"]
+        session = svc._sessions[("legislation", 0)]
+        assert session.plan_status["legislative_council"]["state"] == "applied"
+        assert holder["proxy"]._coding.data["steps"] == 1
+    finally:
+        svc.shutdown()

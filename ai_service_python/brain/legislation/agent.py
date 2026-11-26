@@ -20,9 +20,15 @@ from .tools import action_tools
 
 
 TOOL = "legislative_step"
+READ_DEFAULT_LINES = 120
+READ_MAX_BYTES = 8000
+RECENT_ACTIONS_LIMIT = 16
+HISTORY_LIMIT = 24
+READ_FILES_LIMIT = 10
 SYSTEM = (
     "你是立法会编程 agent。冻结需求不能降级；每轮仅调用一个专用工具并等待结果，未选中的调用未执行。"
-    "按 source_map 和 recent_actions 检查当前调用链，勿重复列目录或读同一段；读源码文件必须用 read(path, start_line)，继续阅读用 next_line。"
+    "按 source_map、read_files 和 recent_actions 检查当前调用链，勿重复列目录或重读 read_files 已覆盖的只读文件；"
+    "读源码文件必须用 read(path, start_line)，继续阅读用 next_line；只在准备 edit 可写部门文件且 last_result 不是该文件时再读目标片段。"
     "明确契约后做最小修改，或用 legislative_blocked 说明缺失能力。只改五部门，其他源码只读。"
     "建筑选址由 construction.py 调用所属部门的 choose_sites(f, name, options) 对合法候选排序（农田 option 含 adjacent_farms 紧贴已有农田数及 pos）。"
     "edit 使用最近读取的 sha256 和唯一 old_text，每次改动保持语法正确。宿主生成 diff；finish 声明新增字段及默认值。"
@@ -42,6 +48,31 @@ def byte_size(value):
 
 def digest(source):
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def _merge_ranges(reads: list[list[int]]) -> list[list[int]]:
+    intervals = sorted((int(s), int(e)) for s, e in reads if int(s) <= int(e))
+    merged: list[list[int]] = []
+    for s, e in intervals:
+        if merged and s <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return merged
+
+
+def _extract_symbols(source: str, ranges: list[list[int]]) -> list[str]:
+    symbols: list[str] = []
+    if not ranges:
+        return symbols
+    for lineno, line in enumerate(source.splitlines(), 1):
+        if not any(lo <= lineno <= hi for lo, hi in ranges):
+            continue
+        if line.lstrip().startswith(("class ", "def ")):
+            symbols.append(f"L{lineno}: {line.strip()[:100]}")
+            if len(symbols) >= 16:
+                break
+    return symbols
 
 
 class CodingSession:
@@ -100,7 +131,9 @@ class CodingSession:
                    "writable": sorted(WRITABLE), "note": self.data["note"],
                    "changed_files": [{"path": p, "sha256": digest(s)} for p, s in self.data["drafts"].items()],
                    "last_result": self.data["feedback"]}
-        context["recent_actions"] = self.data.get("history", [])[-8:]
+        context["recent_actions"] = self.data.get("history", [])[-RECENT_ACTIONS_LIMIT:]
+        context["read_files"] = self._public_read_files()
+        read_files_mode = "full"
         context["source_map"] = self._source_map()
         context["remaining_steps"] = runtime_settings.legislation_max_steps() - self.data["steps"]
         if context["remaining_steps"] <= 6:
@@ -116,6 +149,10 @@ class CodingSession:
         while needed > budget and len(context["recent_actions"]) > 3:
             context["recent_actions"] = context["recent_actions"][1:]
             needed = byte_size(context) + byte_size(tools) + len(SYSTEM.encode("utf-8"))
+        if needed > budget and context["read_files"]:
+            context["read_files"] = self._public_read_files(compact=True)
+            read_files_mode = "compact"
+            needed = byte_size(context) + byte_size(tools) + len(SYSTEM.encode("utf-8"))
         if (needed > budget and isinstance(context["last_result"], dict)
                 and "text" in context["last_result"] and "start_line" in context["last_result"]):
             context["last_result"] = copy.deepcopy(context["last_result"])
@@ -126,6 +163,10 @@ class CodingSession:
                 result["truncated"] = True
                 result["next_line"] = result["start_line"] + len(result["text"].splitlines())
                 needed = byte_size(context) + byte_size(tools) + len(SYSTEM.encode("utf-8"))
+        if needed > budget and context["read_files"]:
+            context["read_files"] = {}
+            read_files_mode = "empty"
+            needed = byte_size(context) + byte_size(tools) + len(SYSTEM.encode("utf-8"))
         if needed > budget:
             context["last_result"] = {"error": "previous_result_exceeds_context_budget",
                                       "hint": "Read a smaller range or search a narrower query."}
@@ -133,12 +174,16 @@ class CodingSession:
         if needed > budget:
             context["recent_actions"] = context["recent_actions"][-3:]
             needed = byte_size(context) + byte_size(tools) + len(SYSTEM.encode("utf-8"))
+        if needed > budget and context["read_files"]:
+            context["read_files"] = {}
+            read_files_mode = "empty"
+            needed = byte_size(context) + byte_size(tools) + len(SYSTEM.encode("utf-8"))
         if needed > budget:
             raise ValueError("legislation_requirement_exceeds_context_budget")
         visible = context["last_result"]
         view = self.data.get("view") or {}
         if (isinstance(visible, dict) and "text" in visible and visible.get("path") == view.get("path")
-                and visible.get("sha256") == view.get("sha256")):
+                and visible.get("sha256") == view.get("sha256") and visible["text"] != view.get("text")):
             view["text"] = visible["text"]
             if self.data["failures"]:
                 self.data["last_success"] = copy.deepcopy(visible)
@@ -147,9 +192,48 @@ class CodingSession:
             history = self.data.get("history", [])
             if history and history[-1].get("action") == "read" and history[-1].get("path") == visible["path"]:
                 history[-1]["next_line"] = visible.get("next_line")
+            entry = self.data.get("read_files", {}).get(visible["path"])
+            if entry and entry.get("sha256") == visible["sha256"] and entry.get("reads"):
+                source = self._source(visible["path"])
+                entry["reads"][-1] = [visible["start_line"], visible["next_line"] - 1]
+                entry["ranges"] = _merge_ranges(entry["reads"])
+                entry["complete"] = (entry["ranges"] == [[1, entry["total_lines"]]] if entry["total_lines"] else True)
+                entry["symbols"] = _extract_symbols(source, entry["ranges"])
+                if read_files_mode == "full":
+                    context["read_files"] = self._public_read_files()
+                elif read_files_mode == "compact":
+                    context["read_files"] = self._public_read_files(compact=True)
         return {"system": SYSTEM, "context": context, "schema": schema, "tool_name": TOOL, "tools": tools,
                 "description": "Inspect or edit the pinned department workspace, one bounded step at a time.",
                 "player_orders": False, "output_tokens": runtime_settings.legislation_output_tokens()}
+
+    def _range_covered(self, path: str, sha: str, start: int, end: int) -> bool:
+        entry = self.data.get("read_files", {}).get(path)
+        return bool(entry and entry.get("sha256") == sha and start <= end
+                    and any(lo <= start and end <= hi for lo, hi in entry.get("ranges", [])))
+
+    def _record_read(self, path: str, sha: str, source: str, start: int, end: int) -> None:
+        read_files = self.data.setdefault("read_files", {})
+        old = read_files.pop(path, None)
+        if len(read_files) >= READ_FILES_LIMIT:
+            read_files.pop(next(iter(read_files)))
+        prior_reads = old.get("reads", []) if old and old.get("sha256") == sha else []
+        reads = (prior_reads + ([[start, end]] if start <= end else []))[-HISTORY_LIMIT:]
+        total_lines = len(source.splitlines())
+        ranges = _merge_ranges(reads)
+        complete = (ranges == [[1, total_lines]] if total_lines else True)
+        read_files[path] = {"sha256": sha, "total_lines": total_lines, "reads": reads,
+                            "ranges": ranges, "complete": complete,
+                            "symbols": _extract_symbols(source, ranges)}
+
+    def _public_read_files(self, *, compact: bool = False) -> dict:
+        read_files = self.data.get("read_files", {})
+        if compact:
+            return {p: {"ranges": copy.deepcopy(v["ranges"]), "total_lines": v["total_lines"],
+                        "complete": v["complete"]} for p, v in read_files.items()}
+        return {p: {k: copy.deepcopy(v[k])
+                    for k in ("sha256", "total_lines", "ranges", "complete", "symbols", "edited") if k in v}
+                for p, v in read_files.items()}
 
     def _source_map(self):
         symbols = {"brain/cabinet/runtime.py": ["_govern"],
@@ -203,7 +287,7 @@ class CodingSession:
             self.data["feedback"]["warning"] = (
                 "Repeated identical read-only call. Inspect a file with read(path, start_line=1), "
                 "advance to next_line, edit a writable department, or call blocked.")
-        self.data["history"] = (previous + [record])[-12:]
+        self.data["history"] = (previous + [record])[-HISTORY_LIMIT:]
         if "note" in action:
             self.data["note"] = action["note"]
         if self.data["steps"] >= runtime_settings.legislation_max_steps() and self.status == "coding":
@@ -242,13 +326,21 @@ class CodingSession:
             start = action["start_line"]
             if start > len(lines):
                 raise ValueError("read_line_out_of_range")
-            selected = "".join(lines[start-1:start-1+action.get("max_lines", 40)])
-            text = selected.encode("utf-8")[:2000].decode("utf-8", errors="ignore")
+            selected = "".join(lines[start-1:start-1+action.get("max_lines", READ_DEFAULT_LINES)])
+            text = selected.encode("utf-8")[:READ_MAX_BYTES].decode("utf-8", errors="ignore")
             if len(text) < len(selected) and "\n" in text:
                 text = text[:text.rfind("\n")+1]
-            view = {"path": path, "sha256": digest(source), "start_line": start,
+            sha = digest(source)
+            next_line = start + len(text.splitlines())
+            already_covered = self._range_covered(path, sha, start, next_line - 1)
+            self._record_read(path, sha, source, start, next_line - 1)
+            view = {"path": path, "sha256": sha, "start_line": start,
                     "text": text, "truncated": len(text) < len(selected), "total_lines": len(lines),
-                    "next_line": start + len(text.splitlines())}
+                    "next_line": next_line}
+            if already_covered and path not in WRITABLE:
+                view["warning"] = (
+                    "This range of a read-only file was already read (see read_files). "
+                    "Do not re-read read-only files; read and edit the writable target department or call blocked.")
             self.data["view"] = {"path": path, "sha256": view["sha256"], "text": text}
             self.data["feedback"] = view
         elif op == "edit":
@@ -268,6 +360,12 @@ class CodingSession:
             compile(updated, path, "exec", dont_inherit=True)
             self.data["drafts"][path] = updated
             self.data["view"] = None
+            total_lines = len(updated.splitlines())
+            self.data.setdefault("read_files", {})[path] = {
+                "sha256": digest(updated), "total_lines": total_lines, "reads": [], "ranges": [],
+                "complete": False, "symbols": _extract_symbols(updated, [[1, total_lines]] if total_lines else []),
+                "edited": True,
+            }
             self.data["feedback"] = {"edited": path, "sha256": digest(updated), "syntax": "passed"}
         elif op == "blocked":
             self.data["status"] = "blocked"
