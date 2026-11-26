@@ -117,7 +117,17 @@ def test_non_ollama_urls_retain_openai_payload(base, monkeypatch):
     monkeypatch.setenv("AOE2_LLM_BASE_URL", base)
     sent = llm_proxy.build_openai_payload(plan_request())
     assert sent["tool_choice"]["function"]["name"] == "propose_plan"
-    assert "format" not in sent and "think" not in sent
+    assert "format" not in sent and "think" not in sent and "thinking" not in sent
+
+
+def test_deepseek_disables_thinking_when_a_tool_is_required(monkeypatch):
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://api.deepseek.com")
+    sent = llm_proxy.build_openai_payload(plan_request())
+    assert sent["thinking"] == {"type": "disabled"}
+    assert sent["tool_choice"]["function"]["name"] == "propose_plan"
+    req = plan_request()
+    req.tool_choice = "auto"
+    assert "thinking" not in llm_proxy.build_openai_payload(req)
 
 
 @pytest.mark.parametrize("change", ["no_tools", "other_tool", "multiple_tools", "auto_choice"])

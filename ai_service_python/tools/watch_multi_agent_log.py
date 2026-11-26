@@ -144,6 +144,8 @@ class Viewer:
             # Command batches have no request_id; never pretend they belong to a call.
             if self.args.request_id and request_id != self.args.request_id:
                 continue
+            if self.args.team is not None and row.get("team") != self.args.team:
+                continue
             if event == "llm_io":
                 self.io[request_id] = row
             elif event == "model_request":
@@ -192,14 +194,17 @@ def main():
     parser.add_argument("--commands", action="store_true", help="另显示执行器命令，启动时仅最近一个非空批次")
     parser.add_argument("--full-io", action="store_true", help="显示真实发送 JSON 和模型原始响应")
     parser.add_argument("--request-id", help="按完整 request_id 精确筛选模型调用")
+    parser.add_argument("--team", type=int, help="只显示指定队伍（如 --team 0）")
     args = parser.parse_args()
     if args.last < 1:
         parser.error("--last 必须大于 0")
+    if args.team is not None and args.team < 0:
+        parser.error("--team 必须是非负整数")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     if not args.path.is_file() and not args.follow:
         parser.error(f"日志文件不存在: {args.path}")
-    print(f"只读日志: {args.path.resolve()}")
+    print(f"只读日志: {args.path.resolve()}" + (f" | 队伍 {args.team}" if args.team is not None else ""))
     reader, viewer = LogReader(args.path), Viewer(args)
     rows, _ = reader.read(final=not args.follow)
     viewer.ingest(rows, initial=True)

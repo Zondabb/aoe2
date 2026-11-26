@@ -183,6 +183,20 @@ def _build_ollama_plan_payload(req: ChatCompletionRequest) -> dict[str, Any]:
     }
 
 
+def _deepseek_forced_tool_thinking(tool_choice: Any) -> dict[str, str] | None:
+    """DeepSeek rejects a named or required tool_choice while thinking is on.
+
+    Its flash models enable thinking unless the request turns it off. Other
+    OpenAI-compatible hosts do not understand this field, so leave them alone.
+    """
+    host = urlsplit(llm_base_url()).hostname
+    forced = tool_choice == "required" or (
+        isinstance(tool_choice, dict) and tool_choice.get("type") == "function")
+    if host != "api.deepseek.com" or not forced:
+        return None
+    return {"type": "disabled"}
+
+
 def build_openai_payload(req: ChatCompletionRequest) -> dict[str, Any]:
     """Actual upstream body, shared by HTTP forwarding and diagnostic logs."""
     if _ollama_plan_url(req) is not None:
@@ -203,6 +217,9 @@ def build_openai_payload(req: ChatCompletionRequest) -> dict[str, Any]:
         # Each planner turn is bound to one state/version. Asking the provider
         # explicitly avoids speculative read/edit calls in the same response.
         payload["parallel_tool_calls"] = False
+    thinking = _deepseek_forced_tool_thinking(req.tool_choice)
+    if thinking is not None:
+        payload["thinking"] = thinking
     return payload
 
 
