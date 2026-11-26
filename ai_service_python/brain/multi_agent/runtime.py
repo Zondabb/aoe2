@@ -655,7 +655,7 @@ class MultiAgentRuntime:
                        "agent_status": statuses, "goals": copy.deepcopy(self.goals)}
         self.kernel.prune(f)
         for role in self.roles.values():
-            for key in ("movement", "reported_stalls", "worker_progress", "command_times", "last_attack"):
+            for key in ("movement", "reported_stalls", "worker_progress", "command_times", "last_attack", "recall_missions", "gather_commits"):
                 if key in role.memory:
                     role.memory[key] = {uid: value for uid, value in role.memory[key].items() if uid in f.entities}
         return result
@@ -1821,11 +1821,11 @@ class MultiAgentRuntime:
         if options:
             for resource, amount in sorted(options, key=lambda o: self._wall_score(f, o, scene))[0]["cost"].items():
                 self.demands[resource] += amount
-        if self._defense_reveal(f, scene["workers"], scene["enemies"]):
+        if self._defense_reveal(f, scene["workers"], scene["enemies"], allow_new=not options):
             return
         self._status("defense", "waiting", "perimeter_budget_or_hidden_or_blocked_section")
 
-    def _defense_reveal(self, f: _DecisionFrame, workers: list, enemies: list) -> bool:
+    def _defense_reveal(self, f: _DecisionFrame, workers: list, enemies: list, allow_new: bool = True) -> bool:
         """Reveal only authoritative nearby boundary probes with one safe worker."""
         role = self.roles["defense"]
         mission = role.memory.get("perimeter_scout", {})
@@ -1850,14 +1850,14 @@ class MultiAgentRuntime:
         # A stale or completed probe is released; the game supplies a new small
         # step from the latest visible geometry instead of a blind long move.
         role.memory.pop("perimeter_scout", None)
-        if self.now < role.memory.get("probe_pause_until", 0):
+        if not allow_new or self.now < role.memory.get("probe_pause_until", 0):
             return False
         for option in f.context.get("defense_scout_options", []):
             uid = option.get("unit_id", option.get("builder_id"))
             candidate = f.entities.get(uid, {})
             pos = _vec(option.get("pos"))
             if (not pos or candidate not in workers or candidate.get("order", "NONE") not in ("NONE", "GATHER")
-                    or candidate.get("build_queue_ids") or candidate.get("gather_state") == "to_drop_off"
+                    or candidate.get("build_queue_ids") or candidate.get("gather_state") in ("to_drop_off", "searching_resource")
                     or float(candidate.get("carry_amount", 0)) > .001 or _distance(candidate["pos"], pos) > 16
                     or any(min(_distance(candidate["pos"], enemy["pos"]), _distance(pos, enemy["pos"])) < 12 for enemy in enemies)):
                 continue
@@ -1974,9 +1974,10 @@ class MultiAgentRuntime:
                 continue
             if building.get("def_id") not in MILITARY_BUILDINGS:
                 continue
-            for name in self._military_choices(f, building, counts, siege_count, siege_target):
-                for r, amount in f.unit_defs[name].get("cost", {}).items():
-                    self.demands[r] += amount
+            choices = self._military_choices(f, building, counts, siege_count, siege_target)
+            for r, amount in (f.unit_defs[choices[0]].get("cost", {}).items() if choices else ()):
+                self.demands[r] += amount
+            for name in choices:
                 if name not in DEMOLITION_UNITS and siege_count < siege_target and not self.roles["commander"].memory.get("threat_ids"):
                     if any(f.budget[r] - f.unit_defs[name].get("cost", {}).get(r, 0) < min(f.budget[r], amount)
                            for r, amount in siege_reserve.items() if r in ("wood", "gold")):
@@ -2099,29 +2100,53 @@ class MultiAgentRuntime:
         for r in RESOURCES:
             target_stock = self.demands[r] * 2 + (role.plan["reserve_wood"] if r == "wood" else 100 if r == "food" else 0)
             # Gold and stone are only spent on specific units, buildings and
-            # ages: a few hundred unused is already idle labour.
+            # ages: a few hundred unused is already idle labour. Taper smoothly
+            # above the surplus threshold instead of flipping 10x on one load.
             idle_stock = 200 if r in ("gold", "stone") else 600
-            if f.budget[r] > max(idle_stock, target_stock * 3):
-                ratios[r] *= .1
+            surplus_stock = max(idle_stock, target_stock * 3)
+            if f.budget[r] > surplus_stock:
+                band = max(100.0, surplus_stock * .5)
+                ratios[r] *= max(.1, 1.0 - .9 * (f.budget[r] - surplus_stock) / band)
             elif f.budget[r] < target_stock:
                 ratios[r] += .25 * (target_stock - f.budget[r]) / max(1, target_stock)
         total = max(.1, sum(ratios.values()))
         ratios = {r: value / total for r, value in ratios.items()}
+        recall_missions = role.memory.setdefault("recall_missions", {})
+        gather_commits = role.memory.setdefault("gather_commits", {})
+        by_id = {u["id"]: u for u in workers}
+        for uid, mission in list(recall_missions.items()):
+            w = by_id.get(uid)
+            goal = _vec(w.get("move_goal")) if w else None
+            on_move = (w is not None and w.get("order") == "MOVE"
+                       and (goal is None or _distance(goal, mission["pos"]) <= 3.0)
+                       and self.leases.get(uid, {}).get("role") not in ("human", "defense", "scout"))
+            just_arrived = (w is not None and w.get("order", "NONE") == "NONE"
+                            and _distance(w["pos"], mission["pos"]) <= 8.0)
+            if not (on_move or just_arrived) or self.now - mission.get("at", 0.0) > 60.0:
+                recall_missions.pop(uid, None)
         def worker_kind(worker):
+            if worker.get("order") == "MOVE" and worker["id"] in recall_missions:
+                return recall_missions[worker["id"]]["kind"]
             return str(worker.get("gather_resource_type") or self._resource_kind(f.entities.get(worker.get("target_id"), {}))
                        or self._resource_kind(f.entities.get(worker.get("last_resource_id"), {})) or worker.get("carry_type") or "").lower()
-        assigned = {r: sum(u.get("order") == "GATHER" and worker_kind(u) == r for u in workers) for r in RESOURCES}
+        assigned = {r: sum((u.get("order") == "GATHER" or u.get("order") == "MOVE" and u["id"] in recall_missions)
+                           and worker_kind(u) == r for u in workers) for r in RESOURCES}
         used_farms = {uid for u in workers if u.get("order") == "GATHER" for uid in (u.get("target_id"), u.get("last_resource_id"))}
         local_food_goal = any(b.get("def_id") == "farm" for b in f.buildings) or any(name == "farm" for _, name, _ in self.build_requests)
+        dropoff_positions = [b["pos"] for b in f.buildings if b.get("is_complete")
+                             and (b.get("drop_off_resources") or b.get("def_id") in ("town_center", "mill", "lumber_camp", "mining_camp"))]
         rebalanced = 0
-        for worker in workers:
+        # Assign idle/released/recalled hands before considering rebalancing active gatherers,
+        # so a newly spawned or freed villager fills deficits directly instead of swapping jobs.
+        for worker in sorted(workers, key=lambda u: u.get("order", "NONE") == "GATHER"):
+            uid = worker["id"]
             # A builder taken off its job comes back to the economy.
-            released = worker["id"] in self.kernel.stalled_builders
-            if worker["id"] in f.actors or worker.get("order") == "BUILD" and not released:
+            released = uid in self.kernel.stalled_builders
+            if uid in f.actors or worker.get("order") == "BUILD" and not released:
                 continue
             if self._recover_loaded_worker(f, worker, resources):
                 continue
-            if worker.get("gather_state") == "to_drop_off" or float(worker.get("carry_amount", 0)) > .001:
+            if worker.get("gather_state") in ("to_drop_off", "searching_resource") or float(worker.get("carry_amount", 0)) > .001:
                 continue
             # Pick a resource type *after* filtering occupied farm slots. A
             # nominal food deficit with no assignable food must not leave every
@@ -2131,47 +2156,101 @@ class MultiAgentRuntime:
                                  or self._delivery_distance(f, e) <= 64]
             if affordable_travel or local_food_goal:
                 available = affordable_travel
-            remembered = [r for rid, r in self.resource_memory.items() if rid not in f.entities
-                          and (self._resource_kind(r) != "stone" or self.demands["stone"] > 0)
-                          and not self._in_raid_zone(f, r["pos"])]
-            kinds = {self._resource_kind(e) for e in available} | {self._resource_kind(r) for r in remembered}
-            desired = max(kinds, key=lambda r: ratios.get(r, 0) * len(workers) - assigned.get(r, 0), default="")
-            current = worker_kind(worker)
-            previous_resource = f.entities.get(worker.get("last_resource_id"), f.entities.get(worker.get("target_id"), {}))
-            previous_pos = _vec(previous_resource.get("pos")) or _vec(self.validator.gather_assignments.get(worker["id"], {}).get("pos"))
-            remote_food_order = current == "food" and local_food_goal and previous_pos is not None and self._delivery_distance(f, {"pos": previous_pos, "resource_type": "FOOD"}) > 64
-            reported = role.memory.get("reported_stalls", {}).get(worker["id"], -100)
-            stalled = released or worker["id"] in self.validator.stalled_workers or int(worker.get("stuck_frames", 0)) >= 12 or self.now - reported < 3
-            unnecessary_stone = current == "stone" and not self.demands["stone"]
-            overstaffed = assigned.get(current, 0) > ratios.get(current, 0) * len(workers) + .5
-            rebalance = worker.get("order") == "GATHER" and current != desired and rebalanced < 2 and (unnecessary_stone or overstaffed)
-            if worker.get("order", "NONE") != "NONE" and not stalled and not rebalance and not remote_food_order:
-                continue
-            choices = [e for e in available if self._resource_kind(e) == desired]
+            all_remembered = [r for rid, r in self.resource_memory.items() if rid not in f.entities
+                              and (self._resource_kind(r) != "stone" or self.demands["stone"] > 0)
+                              and not self._in_raid_zone(f, r["pos"])]
+            affordable_remembered = [r for r in all_remembered if self._resource_kind(r) != "food"
+                                     or self._delivery_distance(f, r) <= 64]
+            remembered = affordable_remembered if (affordable_travel or affordable_remembered or local_food_goal) else all_remembered
             # One approach is paid once; delivery repeats every ten resources.
             # Give the compatible drop-off round trip greater weight even if
             # the worker has already wandered near an enemy-side resource.
             trip = lambda e: _distance(worker["pos"], e["pos"]) + 2 * self._delivery_distance(f, e)
+            reported = role.memory.get("reported_stalls", {}).get(uid, -100)
+            stalled = released or uid in self.validator.stalled_workers or int(worker.get("stuck_frames", 0)) >= 180 or self.now - reported < 3
+            recall_aborted = False
+            if uid in recall_missions:
+                mission = recall_missions[uid]
+                mkind, mpos = mission["kind"], mission["pos"]
+                was_counted = worker.get("order") == "MOVE"
+                if mkind != "stone" or self.demands["stone"] > 0:
+                    nearby = [e for e in available if self._resource_kind(e) == mkind
+                              and (_distance(e["pos"], mpos) <= 24 or _distance(e["pos"], worker["pos"]) <= 16)]
+                    if nearby:
+                        target = min(nearby, key=trip)
+                        if self._emit(f, "economy", "gather", {"unit_id": uid, "target_id": target["id"]}):
+                            role.memory.get("reported_stalls", {}).pop(uid, None)
+                            recall_missions.pop(uid, None)
+                            gather_commits[uid] = {"kind": mkind, "at": self.now}
+                            if not was_counted:
+                                assigned[mkind] = assigned.get(mkind, 0) + 1
+                            if target.get("def_id") == "farm":
+                                used_farms.add(target["id"])
+                        continue
+                    still_hidden = any(self._resource_kind(r) == mkind and _distance(r["pos"], mpos) <= 6 for r in remembered)
+                    if worker.get("order") == "MOVE" and not stalled and still_hidden:
+                        continue
+                recall_missions.pop(uid, None)
+                if was_counted:
+                    assigned[mkind] = max(0, assigned.get(mkind, 0) - 1)
+                    recall_aborted = True
+            kinds = {self._resource_kind(e) for e in available} | {self._resource_kind(r) for r in remembered}
+            staff_total = sum(assigned.values())
+            planning_total = max(1, staff_total if worker.get("order") == "GATHER" else staff_total + 1)
+            desired = max(kinds, key=lambda r: ratios.get(r, 0) * planning_total - assigned.get(r, 0), default="")
+            current = worker_kind(worker)
+            previous_resource = f.entities.get(worker.get("last_resource_id"), f.entities.get(worker.get("target_id"), {}))
+            previous_pos = _vec(previous_resource.get("pos")) or _vec(self.validator.gather_assignments.get(uid, {}).get("pos"))
+            remote_food_order = current == "food" and local_food_goal and previous_pos is not None and self._delivery_distance(f, {"pos": previous_pos, "resource_type": "FOOD"}) > 64
+            unnecessary_stone = current == "stone" and not self.demands["stone"]
+            commit = gather_commits.get(uid)
+            recently_committed = commit is not None and commit.get("kind") == current and self.now - commit.get("at", -100.0) < 45.0
+            en_route_to_resource = (worker.get("gather_state") == "to_resource" and bool(dropoff_positions)
+                                    and min(_distance(worker["pos"], p) for p in dropoff_positions) > 10.0)
+            surplus = assigned.get(current, 0) - ratios.get(current, 0) * planning_total
+            deficit = ratios.get(desired, 0) * planning_total - assigned.get(desired, 0)
+            keeps_minimum = assigned.get(current, 0) > 1 or ratios.get(current, 0) < .08
+            overstaffed = (surplus >= .85 and keeps_minimum
+                           and (deficit >= .75 or assigned.get(desired, 0) == 0 and ratios.get(desired, 0) * planning_total >= .5))
+            rebalance = (worker.get("order") == "GATHER" and current != desired
+                         and (unnecessary_stone or (rebalanced < 1 and overstaffed and not recently_committed and not en_route_to_resource)))
+            if worker.get("order", "NONE") != "NONE" and not stalled and not rebalance and not remote_food_order and not recall_aborted:
+                continue
+            target_kind = (current if stalled and worker.get("order") == "GATHER" and current in kinds
+                           and not rebalance and not remote_food_order else desired)
+            choices = [e for e in available if self._resource_kind(e) == target_kind]
+            if stalled and worker.get("order") == "GATHER" and len(choices) > 1:
+                choices = [e for e in choices if e["id"] != worker.get("target_id")] or choices
             target = min(choices, key=trip, default=None)
             # The home forest may be out of sight while its workers deliver.
             # Gather orders need a visible target, so walk back into sight of a
             # clearly cheaper remembered site instead of crossing the map.
-            recalled = min((r for r in remembered if self._resource_kind(r) == desired), key=trip, default=None)
+            recalled = min((r for r in remembered if self._resource_kind(r) == target_kind), key=trip, default=None)
             if recalled is not None and (target is None or trip(recalled) + 20 < trip(target)):
                 if self._move(f, "economy", worker, list(recalled["pos"])) or worker.get("order") == "MOVE":
-                    assigned[desired] = assigned.get(desired, 0) + 1
+                    role.memory.get("reported_stalls", {}).pop(uid, None)
+                    recall_missions[uid] = {"kind": target_kind, "pos": list(recalled["pos"]), "at": self.now}
+                    gather_commits[uid] = {"kind": target_kind, "at": self.now}
+                    assigned[target_kind] = assigned.get(target_kind, 0) + 1
+                    if worker.get("order") == "GATHER":
+                        assigned[current] = max(0, assigned.get(current, 0) - 1)
+                        if rebalance:
+                            rebalanced += 1
                 continue
             if target is None and remote_food_order:
                 self._move(f, "economy", worker, f.base)
                 continue
             if target is None and released:
-                self._emit(f, "economy", "stop", {"unit_id": worker["id"]})     # nothing to gather: at least leave the job
+                self._emit(f, "economy", "stop", {"unit_id": uid})     # nothing to gather: at least leave the job
                 continue
-            if target and self._emit(f, "economy", "gather", {"unit_id": worker["id"], "target_id": target["id"]}):
-                assigned[desired] = assigned.get(desired, 0) + 1
+            if target and self._emit(f, "economy", "gather", {"unit_id": uid, "target_id": target["id"]}):
+                role.memory.get("reported_stalls", {}).pop(uid, None)
+                gather_commits[uid] = {"kind": target_kind, "at": self.now}
+                assigned[target_kind] = assigned.get(target_kind, 0) + 1
                 if worker.get("order") == "GATHER":
                     assigned[current] = max(0, assigned.get(current, 0) - 1)
-                    rebalanced += 1
+                    if rebalance:
+                        rebalanced += 1
                 if target.get("def_id") == "farm":
                     used_farms.add(target["id"])
         role.memory["allocation"] = assigned

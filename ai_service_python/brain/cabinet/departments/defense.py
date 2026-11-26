@@ -106,6 +106,6 @@ class DefenseDept(Department):
         if self.options:
             for resource, amount in self._best(f, self.options)["cost"].items():
                 engine.demands[resource] += amount
-        if engine._defense_reveal(f, self.scene["workers"], self.scene["enemies"]):
+        if engine._defense_reveal(f, self.scene["workers"], self.scene["enemies"], allow_new=not self.options):
             return
         engine._status("defense", "waiting", "perimeter_budget_or_hidden_or_blocked_section")

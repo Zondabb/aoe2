@@ -120,3 +120,131 @@ def test_unneeded_gold_stock_releases_miners():
     out = runtime.tick(req)
     moved = [c for c in issued(out, "gather") if c["target_id"] == 101]
     assert moved                                         # surplus gold: shift a miner to wood
+
+
+def test_worker_walking_to_berries_or_wood_does_not_ping_pong_on_stock_swings_or_brief_bumps():
+    runtime = MultiAgentRuntime("chinese")
+    berries_a = resource(100, "FOOD", [24, 24])
+    berries_b = resource(103, "FOOD", [26, 24])
+    wood = resource(101, "WOOD", [24, -24])
+    # Three berry pickers, three woodcutters, plus worker 16 walking empty-handed to berries.
+    berry_crew = [unit(10 + i, pos=[23, 24], order="GATHER", target_id=100, gather_state="gathering",
+                       carry_amount=4, gather_resource_type="FOOD") for i in range(3)]
+    wood_crew = [unit(13 + i, pos=[23, -24], order="GATHER", target_id=101, gather_state="gathering",
+                      carry_amount=4, gather_resource_type="WOOD") for i in range(3)]
+    walker = unit(16, pos=[15, 15], order="GATHER", target_id=100, gather_state="to_resource",
+                  carry_amount=0, gather_resource_type="FOOD", stuck_frames=20)
+    base = [building(1, "town_center"), building(2, "barracks"), *berry_crew, *wood_crew, walker, berries_a, berries_b, wood]
+
+    for seq, (food_stock, wood_stock) in enumerate(((40, 70), (90, 20), (610, 590), (590, 620)), start=1):
+        req = frame(seq, entities=copy.deepcopy(base), time=seq * 4, construction_options=[])
+        req.observation.economy.food, req.observation.economy.wood = food_stock, wood_stock
+        out = runtime.tick(req)
+        assert not [c for c in out["commands"] if c.get("unit_id") == 16]
+
+    # Even a sustained 3s+ block on bush 100 switches to adjacent bush 103, not across the map to wood.
+    blocked = copy.deepcopy(base)
+    next(e for e in blocked if e["id"] == 16)["stuck_frames"] = 200
+    req = frame(10, entities=blocked, time=50, construction_options=[])
+    req.observation.economy.food, req.observation.economy.wood = 90, 20
+    out = runtime.tick(req)
+    reassigned = [c for c in issued(out, "gather") if c["unit_id"] == 16]
+    assert reassigned and reassigned[0]["target_id"] == 103
+
+
+def test_recalled_forest_walk_counts_toward_staffing_and_switches_to_gather_on_sight():
+    runtime = MultiAgentRuntime("chinese")
+    berries = resource(100, "FOOD", [12, 12])
+    home_wood = resource(101, "WOOD", [36, 0])
+    foragers = [unit(10 + i, pos=[2, 2], order="GATHER", target_id=100, gather_state="to_resource",
+                     carry_amount=0, gather_resource_type="FOOD") for i in range(4)]
+    walker = unit(15, pos=[0, 5])
+    t1 = tick(runtime, 1, [building(1, "town_center"), building(2, "barracks"), *foragers, walker, berries, home_wood],
+              sight((0, 0, 50)), construction_options=[])
+    # Tick 2: home_wood is now in fog; walker 15 is idle and sent via MOVE toward [36, 0].
+    req2 = frame(2, entities=[building(1, "town_center"), building(2, "barracks"), *foragers, walker, berries],
+                 time=10, events=accept(t1), construction_options=[])
+    req2.observation.placement_visibility = sight((0, 0, 20))
+    req2.observation.economy.wood, req2.observation.economy.food = 20, 200
+    t2 = runtime.tick(req2)
+    assert [c["pos"] for c in issued(t2, "move") if c["unit_id"] == 15] == [[36, 0]]
+
+    # Tick 3: walker 15 is halfway there (MOVE); it counts as staffing wood and is not pulled back.
+    walking = unit(15, pos=[18, 0], order="MOVE", move_goal=[36, 0])
+    req3 = frame(3, entities=[building(1, "town_center"), building(2, "barracks"), *foragers, walking, berries],
+                 time=15, events=accept(t2, seq=20), construction_options=[])
+    req3.observation.placement_visibility = sight((0, 0, 20), (18, 0, 10))
+    req3.observation.economy.wood, req3.observation.economy.food = 200, 20
+    t3 = runtime.tick(req3)
+    assert not [c for c in t3["commands"] if c.get("unit_id") == 15]
+
+    # Tick 4: home_wood enters walker 15's vision before collision; immediately switch MOVE -> GATHER on wood,
+    # even though food is momentarily low!
+    nearing = unit(15, pos=[28, 0], order="MOVE", move_goal=[36, 0])
+    req4 = frame(4, entities=[building(1, "town_center"), building(2, "barracks"), *foragers, nearing, berries, home_wood],
+                 time=20, construction_options=[])
+    req4.observation.placement_visibility = sight((0, 0, 20), (28, 0, 10))
+    req4.observation.economy.wood, req4.observation.economy.food = 200, 20
+    t4 = runtime.tick(req4)
+    gathers = [c for c in issued(t4, "gather") if c["unit_id"] == 15]
+    assert gathers and gathers[0]["target_id"] == 101
+
+
+def test_remembered_remote_berries_do_not_cause_fog_boundary_ping_pong():
+    runtime = MultiAgentRuntime("chinese")
+    remote_berries = resource(100, "FOOD", [110, 0])
+    home_wood = resource(101, "WOOD", [12, 0])
+    base_entities = [building(1, "town_center"), building(2, "barracks"), building(3, "mill"),
+                     building(300, "farm", [8, 8], amount=300, resource_type="FOOD"),
+                     unit(10, order="GATHER", target_id=300, last_resource_id=300, gather_state="gathering",
+                          carry_amount=5, gather_resource_type="FOOD"),
+                     unit(11), home_wood]
+    t1 = tick(runtime, 1, base_entities + [remote_berries], sight((0, 0, 130)), construction_options=[])
+    # Remote berries leave sight while the only local farm is occupied: unit 11 gathers wood instead of walking 110 units.
+    req2 = frame(2, entities=base_entities, time=10, events=accept(t1), construction_options=[])
+    req2.observation.placement_visibility = sight((0, 0, 30))
+    req2.observation.economy.food = 20
+    out = runtime.tick(req2)
+    assert [c["target_id"] for c in issued(out, "gather") if c["unit_id"] == 11] == [101]
+    assert not [c for c in issued(out, "move") if c.get("unit_id") == 11]
+
+
+def test_visible_wall_options_do_not_pull_gatherers_into_perimeter_reveal():
+    from brain.cabinet.runtime import CabinetRuntime
+    from test_wall_defense import defense_frame
+
+    req = defense_frame(threat=False)
+    req.observation.economy.wood = 70  # below reserve_wood=100, so wall waits on wood while options remain visible
+    req.observation.decision_context["defense_scout_options"] = [{"unit_id": 10, "pos": [10, 0], "side": 0}]
+    for runtime in (MultiAgentRuntime("chinese"), CabinetRuntime("chinese")):
+        out = runtime.tick(copy.deepcopy(req))
+        assert not [c for c in issued(out, "move") if c.get("unit_id") == 10]
+
+
+def test_economy_manager_rebalance_hysteresis_does_not_oscillate_between_food_and_wood():
+    from brain.command_builder import CommandContext
+    from brain.economy_manager import EconomyManager
+    from brain.profile_loader import profile_for_id
+    from brain.stores import Blackboard, PHASE_BOOM
+
+    food_node = {"id": 20, "kind": "resource", "resource_type": "FOOD", "pos": [10.0, 0.0], "amount": 500.0}
+    wood_node = {"id": 21, "kind": "resource", "resource_type": "WOOD", "pos": [-10.0, 0.0], "amount": 500.0}
+    gold_node = {"id": 22, "kind": "resource", "resource_type": "GOLD", "pos": [0.0, 10.0], "amount": 500.0}
+    villagers = (
+        [{"id": 100 + i, "def_id": "villager", "pos": [0.0, 0.0], "order": "GATHER", "gather_state": "to_resource",
+          "carry_amount": 0.0, "_last_resource": food_node, "last_resource_id": 20} for i in range(5)]
+        + [{"id": 110 + i, "def_id": "villager", "pos": [0.0, 0.0], "order": "GATHER", "gather_state": "to_resource",
+            "carry_amount": 0.0, "_last_resource": wood_node, "last_resource_id": 21} for i in range(5)]
+        + [{"id": 120, "def_id": "villager", "pos": [0.0, 0.0], "order": "GATHER", "gather_state": "to_resource",
+            "carry_amount": 0.0, "_last_resource": gold_node, "last_resource_id": 22}]
+    )
+    bb = Blackboard(
+        progression={"age": 0},
+        map_bounds=(-100.0, -100.0, 100.0, 100.0),
+        team_buildings=[{"id": 1, "def_id": "town_center", "pos": [0.0, 0.0], "is_complete": True}],
+        team_villagers=villagers,
+        resource_nodes=[food_node, wood_node, gold_node],
+    )
+    ctx = CommandContext(tick=1)
+    EconomyManager().assign_gatherers(ctx, bb, profile_for_id("chinese"), PHASE_BOOM)
+    assert ctx.commands == []

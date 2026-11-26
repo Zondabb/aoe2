@@ -93,12 +93,11 @@ class GeneralDept(Department):
             choices.sort(key=lambda name: name not in ordered_first)
             pick = next((name for name in choices if name in DEMOLITION_UNITS or self._obtainable(f, name)), None)
             free = idle_producer(building) and building["id"] not in f.producers
-            # Gatherers follow what the army is waiting to buy.
-            for name in choices:
-                for resource, amount in f.unit_defs[name].get("cost", {}).items():
+            # Gatherers follow the next unit this producer actually wants, not every option in its tech tree.
+            demand_unit = pick or (choices[0] if choices else None)
+            if demand_unit is not None:
+                for resource, amount in f.unit_defs[demand_unit].get("cost", {}).items():
                     engine.demands[resource] += amount
-                if name == pick and free:
-                    break
             if pick is None or not building.get("is_complete"):
                 continue
             self.lineup[building["id"]] = pick

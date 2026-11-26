@@ -98,7 +98,8 @@ class EconomyManager:
         reserved = {c.unit_id for c in ctx.commands} | {c.builder_id for c in ctx.commands}
         deficits = {kind: total * ratio - counts.get(kind, 0) for kind, ratio in ratios.items()}
         for kind in sorted(deficits, key=deficits.get, reverse=True):
-            if deficits[kind] <= 0.25:
+            unstaffed = counts.get(kind, 0) == 0
+            if deficits[kind] <= (0.25 if unstaffed else 0.75):
                 continue
             for worker in bb.team_villagers:
                 if worker.get("order") != ORDER_GATHER or worker.get("gather_state") in ("to_drop_off", "searching_resource") or float(worker.get("carry_amount", 0)) > 0.001 or int(worker["id"]) in reserved:
@@ -109,7 +110,7 @@ class EconomyManager:
                 previous_ratio = ratios.get(previous_type, 0)
                 minimum = 0 if previous_ratio == 0 else 1
                 if (counts.get(previous_type, 0) <= minimum
-                        or counts.get(previous_type, 0) - total * previous_ratio <= 0.5):
+                        or counts.get(previous_type, 0) - total * previous_ratio <= (0.5 if unstaffed else 0.75)):
                     continue
                 target = nearest_resource_near_base(worker, bb.resource_nodes, kind, bb.own_tc_pos, BASE_RESOURCE_RADIUS)
                 if target is None:

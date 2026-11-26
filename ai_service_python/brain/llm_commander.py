@@ -149,13 +149,20 @@ class LlmCommander:
         for eid, worker in entities.items():
             if worker.get("team") != req.metadata.team or worker.get("def_id") != "villager":
                 continue
-            if worker.get("order") != "GATHER" or worker.get("gather_state") == "to_drop_off" or float(worker.get("carry_amount", 0)) > .001:
+            if worker.get("order") != "GATHER":
+                self.gather_approaches.pop(eid, None)
+                continue
+            source_id = (worker.get("last_resource_id") if worker.get("gather_state") == "to_drop_off"
+                         else (worker.get("target_id") or worker.get("last_resource_id")))
+            live_source = entities.get(source_id, {})
+            if ((live_source.get("kind") == "resource" or live_source.get("def_id") == "farm")
+                    and _vec(live_source.get("pos")) and float(live_source.get("amount", 0)) > 0):
+                self.gather_assignments[eid] = {"id": live_source["id"], "pos": list(live_source["pos"])}
+            if worker.get("gather_state") in ("to_drop_off", "searching_resource") or float(worker.get("carry_amount", 0)) > .001:
                 self.gather_approaches.pop(eid, None)
                 continue
             target = entities.get(worker.get("target_id"), {})
-            if target and _vec(target.get("pos")) and float(target.get("amount", 0)) > 0:
-                self.gather_assignments[eid] = {"id": target["id"], "pos": list(target["pos"])}
-            elif worker.get("target_id") is None and eid in self.gather_assignments:
+            if not (target and _vec(target.get("pos")) and float(target.get("amount", 0)) > 0) and worker.get("target_id") is None and eid in self.gather_assignments:
                 # A once-seen resource can leave current sight while this
                 # owned worker is approaching. Retain only that mission's
                 # previously observed coordinate, not a hidden entity lookup.
@@ -423,10 +430,11 @@ class LlmCommander:
             current = worker_kind(worker)
             desired = max(available_kinds, key=lambda r: ratios.get(r, 0) * len(workers) - assigned.get(r, 0), default="")
             deficit = ratios.get(desired, 0) * len(workers) - assigned.get(desired, 0)
-            harvesting = worker.get("order") == "GATHER" and worker.get("gather_state") != "to_drop_off" and float(worker.get("carry_amount", 0)) <= .001
-            stalled = harvesting and worker["id"] in self.stalled_workers
-            can_rebalance = harvesting and rebalanced < 2 and desired != current and deficit >= .5 and assigned.get(current, 0) > ratios.get(current, 0) * len(workers)
-            if worker.get("order", "NONE") != "NONE" and int(worker.get("stuck_frames", 0)) < 12 and not can_rebalance and not stalled:
+            surplus = assigned.get(current, 0) - ratios.get(current, 0) * len(workers)
+            harvesting = worker.get("order") == "GATHER" and worker.get("gather_state") not in ("to_drop_off", "searching_resource") and float(worker.get("carry_amount", 0)) <= .001
+            stalled = harvesting and (worker["id"] in self.stalled_workers or int(worker.get("stuck_frames", 0)) >= 180)
+            can_rebalance = harvesting and rebalanced < 2 and desired != current and deficit >= .75 and surplus >= .75
+            if worker.get("order", "NONE") != "NONE" and not can_rebalance and not stalled:
                 continue
             # A blocked wood approach should try another observed tree rather
             # than abandoning an already-understaffed wood economy for food.
