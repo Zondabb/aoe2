@@ -18,7 +18,7 @@ class ConstructionCrew:
         may reorder legal `construction_options` via `choose_sites(f, name, options)`.
         The game accepts one new foundation per decision."""
         engine = self.field
-        if engine._staff_foundations(f) >= engine.roles["construction"].plan["max_builders"]:
+        if engine._staff_foundations(f) >= engine._builder_limit(f):
             engine._status("construction", "running", "complete_active_foundations")
             return None
         owners = {dept.name: dept for dept in departments}

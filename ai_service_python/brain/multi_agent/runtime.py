@@ -1506,16 +1506,17 @@ class MultiAgentRuntime:
                            and min((_distance(e["pos"], p) for p in dropoffs), default=_distance(e["pos"], f.base)) <= 48)
         if natural_food < max(200, len(workers) * 40):
             usable_farms = sum(b.get("def_id") == "farm" and b.get("is_complete") and float(b.get("amount", 0)) > 0 for b in f.buildings)
-            # Transition before the final berries run out. Save the first food
-            # bridge even when 60/100 wood would otherwise be spent elsewhere.
-            mill_priority = 105 if f.budget["food"] < 150 else 55
-            farm_priority = 105 if f.budget["food"] < 150 else 45
-            if not usable_farms:
-                mill_priority = farm_priority = 112 if f.budget["food"] < 100 and not self._food_bridge(f) else 108
-            self._request_building(f, "mill", mill_priority, "farm_prerequisite")
             farmer_target = max(1, min(len(workers), math.ceil(len(workers) * self.roles["economy"].plan["food_workers_ratio"])))
             if f.budget["food"] > 800:
                 farmer_target = min(farmer_target, 2)
+            # Transition before the final berries run out. Save the first food
+            # bridge even when 60/100 wood would otherwise be spent elsewhere.
+            mill_priority = 105 if f.budget["food"] < 150 else 55
+            under_farmed = usable_farms < max(1, farmer_target // 2) and f.budget["food"] < 600
+            farm_priority = 105 if f.budget["food"] < 150 else (102 if under_farmed else 45)
+            if not usable_farms:
+                mill_priority = farm_priority = 112 if f.budget["food"] < 100 and not self._food_bridge(f) else 108
+            self._request_building(f, "mill", mill_priority, "farm_prerequisite")
             self._request_building(f, "farm", farm_priority, "staffed_food_supply", farmer_target)
         known = {str(e.get("resource_type", "")).lower() for e in self._known_resources(f)}
         if "wood" in known:
@@ -1540,21 +1541,43 @@ class MultiAgentRuntime:
         if "gold" in known and len(workers) >= 8:
             self._request_building(f, "mining_camp", 58, "gold_delivery")
 
-    def _foundation_under_way(self, f: _DecisionFrame, name: str) -> bool:
-        """One foundation of a kind at a time; one that builders cannot reach does not count.
+    def _builder_limit(self, f: _DecisionFrame) -> int:
+        """Scale construction concurrency with workforce when using the default plan."""
+        role = self.roles["construction"]
+        base = int(role.plan["max_builders"])
+        if role.plan_source != "default_policy":
+            return base
+        workers = sum(u.get("def_id") == "villager" for u in f.units)
+        return min(8, max(base, workers // 6))
 
-        Farms run out and must be replaced all match: a single field laid
-        where nobody could get to it otherwise ended farming for good."""
-        return any(b.get("def_id") == name and not b.get("is_complete") and not self.kernel.at_rest(b["id"]) for b in f.buildings)
+    def _foundation_under_way(self, f: _DecisionFrame, name: str) -> bool:
+        """One foundation of a kind at a time, except farms once a larger workforce
+        needs concurrent plots to outpace farm depletion; unreachable foundations at
+        rest do not count."""
+        foundations = [
+            b for b in f.buildings
+            if b.get("def_id") == name and not b.get("is_complete") and not self.kernel.at_rest(b["id"])
+        ]
+        if name != "farm":
+            return bool(foundations)
+        workers = sum(u.get("def_id") == "villager" for u in f.units)
+        if workers < 12:
+            return bool(foundations)
+        cap = min(6, self._builder_limit(f))
+        pending = sum(
+            t["command"]["op"] == "place_building" and t["command"].get("building_def_id") == "farm"
+            for t in self.pending.values()
+        )
+        return len(foundations) + pending >= cap
 
     def _staff_foundations(self, f: _DecisionFrame) -> int:
         """Send a free worker to every unstaffed foundation; returns the builders now at work."""
-        role = self.roles["construction"]
         # A builder the arbiter took off its job no longer counts as at work.
         workers = [u for u in f.units if u.get("def_id") == "villager"]
         crew = [u for u in workers if u["id"] not in self.kernel.stalled_builders]
         active = sum(u.get("order") == "BUILD" for u in crew)
         queued = {eid for worker in crew for eid in worker.get("build_queue_ids", [])}
+        builder_limit = self._builder_limit(f)
         for foundation in [b for b in f.buildings if not b.get("is_complete") and b.get("def_id") not in FORTIFICATION_TYPES and b["id"] not in queued]:
             if any(u.get("order") == "BUILD" and u.get("target_id") == foundation["id"] for u in crew):
                 continue
@@ -1563,7 +1586,7 @@ class MultiAgentRuntime:
             available = [u for u in workers if u.get("order", "NONE") in ("NONE", "GATHER") and u.get("gather_state") != "to_drop_off"
                          and float(u.get("carry_amount", 0)) <= .001 and not self.kernel.benched(u["id"])]
             for worker in sorted(available, key=lambda u: _distance(u["pos"], foundation["pos"])):
-                if active < role.plan["max_builders"] and self._emit(f, "construction", "build", {"unit_id": worker["id"], "building_id": foundation["id"]}):
+                if active < builder_limit and self._emit(f, "construction", "build", {"unit_id": worker["id"], "building_id": foundation["id"]}):
                     active += 1
                     break
         return active
@@ -1613,7 +1636,7 @@ class MultiAgentRuntime:
         role = self.roles["construction"]
         self.construction_reserve = {}
         active = self._staff_foundations(f)
-        if active >= role.plan["max_builders"]:
+        if active >= self._builder_limit(f):
             self._status("construction", "running", "complete_active_foundations")
             return
         # Critical infrastructure needs a bounded savings window, not merely
@@ -2097,6 +2120,7 @@ class MultiAgentRuntime:
                      and (self._resource_kind(e) != "stone" or self.demands["stone"] > 0)
                      and not self._in_raid_zone(f, e["pos"])]
         ratios = {"food": role.plan["food_workers_ratio"], "wood": .35, "gold": .2, "stone": .05 if self.demands["stone"] else 0}
+        surplus_stocks: dict[str, float] = {}
         for r in RESOURCES:
             target_stock = self.demands[r] * 2 + (role.plan["reserve_wood"] if r == "wood" else 100 if r == "food" else 0)
             # Gold and stone are only spent on specific units, buildings and
@@ -2104,9 +2128,11 @@ class MultiAgentRuntime:
             # above the surplus threshold instead of flipping 10x on one load.
             idle_stock = 200 if r in ("gold", "stone") else 600
             surplus_stock = max(idle_stock, target_stock * 3)
+            surplus_stocks[r] = surplus_stock
             if f.budget[r] > surplus_stock:
                 band = max(100.0, surplus_stock * .5)
-                ratios[r] *= max(.1, 1.0 - .9 * (f.budget[r] - surplus_stock) / band)
+                floor_mult = .02 if r in ("gold", "stone") else .1
+                ratios[r] *= max(floor_mult, 1.0 - (1.0 - floor_mult) * (f.budget[r] - surplus_stock) / band)
             elif f.budget[r] < target_stock:
                 ratios[r] += .25 * (target_stock - f.budget[r]) / max(1, target_stock)
         total = max(.1, sum(ratios.values()))
@@ -2137,8 +2163,16 @@ class MultiAgentRuntime:
                              and (b.get("drop_off_resources") or b.get("def_id") in ("town_center", "mill", "lumber_camp", "mining_camp"))]
         rebalanced = 0
         # Assign idle/released/recalled hands before considering rebalancing active gatherers,
-        # so a newly spawned or freed villager fills deficits directly instead of swapping jobs.
-        for worker in sorted(workers, key=lambda u: u.get("order", "NONE") == "GATHER"):
+        # and among active gatherers inspect the most overstaffed resource first so a single
+        # rebalance slot pulls from surplus gold/stone before needed wood.
+        staff_snapshot = max(1, sum(assigned.values()))
+        for worker in sorted(
+            workers,
+            key=lambda u: (
+                u.get("order", "NONE") == "GATHER",
+                -(assigned.get(worker_kind(u), 0) - ratios.get(worker_kind(u), 0.0) * staff_snapshot),
+            ),
+        ):
             uid = worker["id"]
             # A builder taken off its job comes back to the economy.
             released = uid in self.kernel.stalled_builders
@@ -2195,9 +2229,14 @@ class MultiAgentRuntime:
                     assigned[mkind] = max(0, assigned.get(mkind, 0) - 1)
                     recall_aborted = True
             kinds = {self._resource_kind(e) for e in available} | {self._resource_kind(r) for r in remembered}
+            active_total = sum(ratios.get(r, 0.0) for r in kinds)
+            active_ratios = {
+                r: (ratios.get(r, 0.0) / active_total if active_total > 1e-9 else 1.0 / len(kinds))
+                for r in kinds
+            }
             staff_total = sum(assigned.values())
             planning_total = max(1, staff_total if worker.get("order") == "GATHER" else staff_total + 1)
-            desired = max(kinds, key=lambda r: ratios.get(r, 0) * planning_total - assigned.get(r, 0), default="")
+            desired = max(kinds, key=lambda r: active_ratios.get(r, 0.0) * planning_total - assigned.get(r, 0), default="")
             current = worker_kind(worker)
             previous_resource = f.entities.get(worker.get("last_resource_id"), f.entities.get(worker.get("target_id"), {}))
             previous_pos = _vec(previous_resource.get("pos")) or _vec(self.validator.gather_assignments.get(uid, {}).get("pos"))
@@ -2207,11 +2246,12 @@ class MultiAgentRuntime:
             recently_committed = commit is not None and commit.get("kind") == current and self.now - commit.get("at", -100.0) < 45.0
             en_route_to_resource = (worker.get("gather_state") == "to_resource" and bool(dropoff_positions)
                                     and min(_distance(worker["pos"], p) for p in dropoff_positions) > 10.0)
-            surplus = assigned.get(current, 0) - ratios.get(current, 0) * planning_total
-            deficit = ratios.get(desired, 0) * planning_total - assigned.get(desired, 0)
-            keeps_minimum = assigned.get(current, 0) > 1 or ratios.get(current, 0) < .08
-            overstaffed = (surplus >= .85 and keeps_minimum
-                           and (deficit >= .75 or assigned.get(desired, 0) == 0 and ratios.get(desired, 0) * planning_total >= .5))
+            surplus = assigned.get(current, 0) - active_ratios.get(current, 0.0) * planning_total
+            deficit = active_ratios.get(desired, 0.0) * planning_total - assigned.get(desired, 0)
+            keeps_minimum = assigned.get(current, 0) > 1 or active_ratios.get(current, 0.0) < .08
+            desired_in_surplus = desired in surplus_stocks and f.budget.get(desired, 0.0) > surplus_stocks[desired]
+            overstaffed = (surplus >= .85 and keeps_minimum and not desired_in_surplus
+                           and (deficit >= .75 or assigned.get(desired, 0) == 0 and active_ratios.get(desired, 0.0) * planning_total >= .5))
             rebalance = (worker.get("order") == "GATHER" and current != desired
                          and (unnecessary_stone or (rebalanced < 1 and overstaffed and not recently_committed and not en_route_to_resource)))
             if worker.get("order", "NONE") != "NONE" and not stalled and not rebalance and not remote_food_order and not recall_aborted:
