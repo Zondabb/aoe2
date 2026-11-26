@@ -159,6 +159,7 @@ def test_manifest_tampering_and_invalid_id_rejected(tmp_path, source):
 
 @pytest.mark.parametrize("fields", [[{"department": "economy", "name": "wood_priority", "type": "bool", "default": "false"}],
                                    [{"department": "economy", "name": "__class__", "type": "dict", "default": {}}],
+                                   [{"department": "economy", "name": "choose_sites", "type": "list", "default": []}],
                                    [{"department": "premier", "name": "flag", "type": "bool", "default": False}],
                                    [{"department": "tech", "name": "flag", "type": "int", "default": True}]])
 def test_rejects_invalid_state_field_declarations(tmp_path, source, fields):

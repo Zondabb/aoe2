@@ -65,11 +65,15 @@ class EconomyDept(Department):
     def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:
         """Reorder legal `options` for building `name` (e.g. 'farm', 'house', 'mill').
         Each option dict has keys `building_def_id`, `builder_id`, `pos`, `score`, `drop_off_id`,
-        and (for 'farm') `adjacent_farms`. `pos` (and entity `pos` in `f.buildings`/`f.units`) is
+        and (only for 'farm') `adjacent_farms`. `f.buildings` and `f.units` are `list[dict]`
+        (NOT `dict` — NEVER call `f.buildings.get(...)`; filter `[b for b in f.buildings if
+        b.get('def_id') in ('town_center', 'mill') and b.get('is_complete')]`, or look up
+        `f.entities.get(opt.get('drop_off_id'))` where `f.entities` is `dict[int, dict]`).
+        `Department` has no `self._distance`; use `math.dist(a, b)` (import `math`). `pos` is
         continuous world coordinates `[x, y]` of the center, NOT 1-tile grid indices (adjacent farm
-        centers are ~8.0 apart; first-ring mill/town_center farm centers are ~8.0/~10.0 away, and
-        `score` is `100 - edge_distance` minus detour). Rank by continuous distance rather than `<= 1`,
-        and sort rather than drop options so `adjacent_farms == 0` and other buildings still place."""
+        centers are ~8.0 apart; first-ring mill/town_center farm centers are ~8.0/~10.0 away;
+        `score` is `100 - edge_distance` minus detour). Guard with `if name != 'farm': return options`
+        when ranking farms, and sort rather than drop options so `adjacent_farms == 0` still places."""
         return options
 
     def act(self, f) -> None:

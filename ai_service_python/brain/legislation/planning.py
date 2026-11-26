@@ -26,7 +26,9 @@ INTAKE_PROMPT = (
     "例如“木材低于200优先采集，到320停止”或“农田紧贴在一起建造”，都必须走 resolution=\"legislation\" 并交由 economy 部门立法，mandates 留空 []。\n"
     "反之，现有任务书已原生支持的目标严禁走 legislation，必须选 resolution=\"mandates\"、legislation=null："
     "例如“建造 N 个箭塔”用 towers；“建造多个兵营/马厩/靶场暴兵”用 build（设目标总座数）加 stockpile；"
-    "“把兵屯到 N 个再出兵”在同一条指令中同时填 stockpile（选当前时代可用主力兵种，设数量 N）和 attack（系统会自动攒够 N 个再出击）。"
+    "“把兵屯到 N 个再出兵”在同一条指令中同时填 stockpile（选当前时代可用主力兵种，设数量 N）和 attack（系统会自动攒够 N 个再出击）；"
+    "“多种田 / 建造农田采集食物 / 增加食物收入 / 增加农民种田”均属现有普通任务书（用 build subject=\"farm\" 填正整数目标总座数如 6~10，严禁填 0，可搭配 boost_resource subject=\"food\" 或 worker_target），必须选 resolution=\"mandates\"、legislation=null。\n"
+    "只针对当前 order 原文判断 resolution，orders 仅供了解在办任务；严禁因 orders 里有历史指令或旧法案，就把当前普通指令合并或改写成 resolution=\"legislation\" 重提旧法案。"
 )
 
 

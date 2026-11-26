@@ -271,3 +271,29 @@ def test_legislation_lifecycle_emits_premier_broadcasts_for_player():
     req3.observation.player_instructions = ["木材低于200开始优先采集，到320停止"]
     installed = r.tick(req3)["planning"].get("broadcasts", [])
     assert any("安装生效" in line["text"] for line in installed)
+
+
+def test_failed_bill_is_idempotent_and_omitted_from_later_order_interpretation_context():
+    r = runtime()
+    r.planning_brief(ORDERS_ROLE)
+    assert r.apply_plan(ORDERS_ROLE, reading())
+    r.ledger.take_events()
+    assert r.legislation_result("order-1", "failed", "source_rolled_back") is True
+    assert r.legislation_result("order-1", "failed", "source_rolled_back") is False
+    failed_events = [e for e in r.ledger.take_events() if e.get("change") == "legislation_failed"]
+    assert len(failed_events) == 1
+    assert r.ledger.rows() == [{"id": 1, "text": "木材低于200开始优先采集，到320停止", "status": "立法失败"}]
+
+    r.ledger.intake([r.ledger.find(1).text, "多种田增加食物收入"], 2)
+    orders_ctx = r.planning_brief(ORDERS_ROLE)["context"]["orders"]
+    assert orders_ctx == []
+
+    # When a failed bill also carries an active ordinary mandate, show it as executing rather than failed legislation.
+    r2 = runtime()
+    r2.planning_brief(ORDERS_ROLE)
+    ordinary = {"kind": "boost_resource", "subject": "food", "amount": 0, "urgency": "normal"}
+    assert r2.apply_plan(ORDERS_ROLE, reading([ordinary]))
+    assert r2.legislation_result("order-1", "failed", "source_rolled_back") is True
+    r2.ledger.intake([r2.ledger.find(1).text, "多种田增加食物收入"], 2)
+    orders_ctx2 = r2.planning_brief(ORDERS_ROLE)["context"]["orders"]
+    assert orders_ctx2 == [{"id": 1, "text": "木材低于200开始优先采集，到320停止", "status": "执行中"}]

@@ -12,6 +12,7 @@ funded department orders what the matching old role would have ordered.
 from __future__ import annotations
 
 from brain.land_progression import CATALOG
+from brain.llm_commander import MILITARY_BUILDINGS
 
 from ..models import DeptReport, Mandate, Request, ROUTINE
 from ..treasury import Treasury
@@ -72,7 +73,8 @@ class Department:
 
     def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:
         """Order legal construction sites for `name`; by default keep the crew's order.
-        `pos` on options and entities is continuous world `[x, y]` center coordinates, not 1-tile grid indices."""
+        `f.buildings`/`f.units` are `list[dict]` (not `dict`), `f.entities` is `dict[int, dict]`,
+        use `math.dist` for `[x, y]` center distances, and guard building-specific sorting with `if name == ...`."""
         return options
 
     def report(self) -> DeptReport:
@@ -185,6 +187,8 @@ class Department:
         """File a request for each building the field engine asked for on this department's behalf."""
         engine = self.field
         sites = {o.get("building_def_id") for o in f.context.get("construction_options", []) if isinstance(o, dict)}
+        has_military = any(b.get("def_id") in MILITARY_BUILDINGS for b in f.buildings)
+        usable_farms = sum(b.get("def_id") == "farm" and b.get("is_complete") and float(b.get("amount", 0)) > 0 for b in f.buildings)
         # Highest priority first, so equal ranks keep the builders' old order.
         for priority, name, reason in sorted(engine.build_requests, reverse=True):
             if BUILDING_OWNER.get(reason, DEFAULT_OWNER) != self.name:
@@ -200,7 +204,15 @@ class Department:
                 existing = sum(1 for b in f.buildings if b.get("def_id") == name and b.get("hp", 1) > 0
                                and (name != "farm" or not b.get("is_complete") or float(b.get("amount", 0)) > 0))
                 count = max(1, int(served.amount) - existing)
+            food_floor = (
+                reason == "staffed_food_supply"
+                and name == "farm"
+                and has_military
+                and f.budget.get("wood", 0) >= 180
+                and f.budget.get("food", 0) < 600
+                and (usable_farms == 0 or (f.budget.get("food", 0) < 250 and priority >= 100))
+            )
             self.want(("building", name), name, definition.get("cost", {}), count=count, capacity=1 if name in sites else 0,
                       needs=(str(definition.get("blocked_reason") or "locked"),) if locked else (),
                       urgency=urgency_of(priority), rank=priority,
-                      floor=reason == "population_headroom" and priority >= POPULATION_CAPPED)
+                      floor=(reason == "population_headroom" and priority >= POPULATION_CAPPED) or food_floor)

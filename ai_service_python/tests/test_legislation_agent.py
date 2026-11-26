@@ -437,3 +437,50 @@ def test_recent_actions_expanded_and_read_files_summary_warns_on_readonly_reread
     edited_summary = session.brief()["context"]["read_files"][ECONOMY]
     assert edited_summary["edited"] is True
     assert edited_summary["ranges"] == []
+
+
+def test_read_reports_eof_flag_without_changing_next_line_cursor(make_session, monkeypatch):
+    session = make_session({ECONOMY: "line1\nline2\nline3\n"})
+    partial = read(session, max_lines=1)
+    assert partial["eof"] is False and partial["next_line"] == 2
+    full = session.apply(action(session, "read", path=ECONOMY, start_line=2, max_lines=10))
+    assert full is None
+    assert session.data["feedback"]["eof"] is True
+    assert session.data["feedback"]["next_line"] == 4
+
+    monkeypatch.setattr(runtime_settings, "legislation_context_tokens", lambda: 8192)
+    huge = "".join(f"# row {i} " + ("x" * 60) + "\n" for i in range(400))
+    bounded = make_session({ECONOMY: huge})
+    read(bounded, max_lines=120)
+    brief = bounded.brief()
+    assert brief["context"]["last_result"]["truncated"] is True
+    assert brief["context"]["last_result"]["eof"] is False
+
+
+def test_edit_feedback_and_rejection_hints_prevent_blind_edit_loops(make_session):
+    session = make_session({ECONOMY: "class EconomyDept:\n    def choose_sites(self, f, name, options):\n        return options\n"})
+    view = read(session)
+    edit(session, view, old="return options", new="return list(options)")
+    assert "legislative_finish" in session.data["feedback"]["next_step"]
+    assert "legislative_read" in session.data["feedback"]["next_step"]
+
+    # Editing again without re-reading yields an actionable hint instead of a blind retry.
+    session.apply(action(session, "edit", path=ECONOMY, sha256=session.data["feedback"]["sha256"],
+                         old_text="return list(options)", new_text="return options"))
+    assert session.data["feedback"]["error"] == "edit_requires_current_read"
+    assert "legislative_finish" in session.data["feedback"]["hint"]
+    assert "legislative_read" in session.data["feedback"]["hint"]
+
+    # Trying to declare choose_sites as a state_field is caught synchronously on finish.
+    session.apply(action(session, "finish",
+                         state_fields=[{"department": "economy", "name": "choose_sites", "type": "list", "default": []}],
+                         explanation="update choose_sites"))
+    assert session.status == "coding"
+    assert "state_field_shadows_department_member" in session.data["feedback"]["error"]
+    assert "state_fields=[]" in session.data["feedback"]["hint"]
+
+    # Runtime/validation failures also tell the model to read first before editing.
+    for tag in ("candidate_tick_failed: AttributeError", "runtime_rollback: KeyError"):
+        s = make_session()
+        s.reject(tag)
+        assert "legislative_read" in s.data["feedback"]["hint"]

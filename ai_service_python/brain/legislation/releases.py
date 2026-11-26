@@ -132,9 +132,20 @@ def apply_diff(sources: dict[str, str], patch: str) -> dict[str, str]:
     return output
 
 
+def _department_classes() -> dict[str, type]:
+    from brain.cabinet.departments.defense import DefenseDept
+    from brain.cabinet.departments.economy import EconomyDept
+    from brain.cabinet.departments.general import GeneralDept
+    from brain.cabinet.departments.intel import IntelDept
+    from brain.cabinet.departments.tech import TechDept
+    return {"economy": EconomyDept, "intel": IntelDept, "general": GeneralDept,
+            "defense": DefenseDept, "tech": TechDept}
+
+
 def _state_fields(fields: object) -> list:
     if not isinstance(fields, list) or len(fields) > 128:
         raise ReleaseError("invalid_state_fields")
+    dept_classes = _department_classes()
     seen = set()
     types = {"bool": bool, "int": int, "float": (int, float), "str": str, "list": list, "dict": dict,
              "boolean": bool, "integer": int, "number": (int, float), "string": str, "array": list, "object": dict}
@@ -144,6 +155,8 @@ def _state_fields(fields: object) -> list:
         name, dept, kind = field["name"], field["department"], field["type"]
         if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]{0,79}", name) or dept not in DEPARTMENTS:
             raise ReleaseError("invalid_state_field_name")
+        if hasattr(dept_classes[dept], name):
+            raise ReleaseError("state_field_shadows_department_member")
         if not isinstance(kind, str) or kind not in types or not isinstance(field["default"], types[kind]):
             raise ReleaseError("invalid_state_default")
         if kind in ("int", "integer", "float", "number") and isinstance(field["default"], bool):

@@ -14,9 +14,9 @@ ARGUMENTS = {
 DESCRIPTIONS = {
     "list": "List .py files under a directory prefix (use read, not list, for a .py file).",
     "search": "Find literal query; active cabinet code is searched first.",
-    "read": "Read source lines of path from start_line. Continue at next_line.",
-    "edit": "Replace unique old_text in the read writable file at sha256.",
-    "finish": "Validate drafts; declare new state_fields (or []).",
+    "read": "Read source lines of path from start_line. Continue at next_line only when truncated is true (stop when eof is true).",
+    "edit": "Replace unique old_text in the just-read writable file at sha256 (clears read view; call finish next, or read again before another edit).",
+    "finish": "Validate drafts; pass state_fields=[] unless your code assigns new self.<attr> on the department (never list methods or option keys).",
     "blocked": "Report the specific capability missing for the goal.",
 }
 

@@ -442,6 +442,8 @@ class LegislativeRuntime:
                         active, release, candidate = self.worker, self.release, None
                 result = active.call("tick", req.model_dump())
                 self._validate(req, result, active.checkpoint, previous)
+                if candidate:
+                    active.call("smoke_test", req.model_dump())
             except Exception as exc:
                 if active is not self.worker:
                     active.close()
@@ -450,9 +452,9 @@ class LegislativeRuntime:
                     active.close()
                     active, release = self._start(self.base), self.base
                 self._restore(active, previous, release)
-                if release == self.base:
-                    active.call("retire_bills", "failed", "source_rolled_back")
                 if candidate:
+                    if release == self.base:
+                        active.call("retire_bills", "failed", "source_rolled_back")
                     if self._coding and self._coding.requirement["proposal_id"] == proposal_id:
                         self._coding.reject("candidate_tick_failed: " + str(exc)[:300])
                         if self._coding.status == "coding":
@@ -460,10 +462,30 @@ class LegislativeRuntime:
                                         self._coding.data["feedback"]["error"], self._coding.data["steps"])
                         else:
                             active.call("legislation_result", proposal_id, "failed", "candidate_tick_failed")
+                            self._coding.data["reported"] = True
                     else:
                         active.call("legislation_result", proposal_id, "failed", "candidate_tick_failed")
-                elif self._coding:
-                    self._coding.data.update(status="failed", feedback={"error": "source_rolled_back"})
+                else:
+                    reopened = False
+                    if (self._coding and self._coding.status == "installed"
+                            and self._coding.base == self.base and self._coding.data.get("drafts")):
+                        failed_id = self._coding.requirement["proposal_id"]
+                        self._coding.reject("runtime_rollback: " + str(exc)[:300])
+                        if self._coding.status == "coding":
+                            reopened = bool(active.call("legislation_reopen", failed_id,
+                                                        self._coding.data["feedback"]["error"],
+                                                        self._coding.data["steps"]))
+                    if release == self.base:
+                        active.call("retire_bills", "failed", "source_rolled_back")
+                    if not reopened and self._coding:
+                        if self._coding.base != release:
+                            self._coding = None
+                            self._request = None
+                            self._progress_key = None
+                        else:
+                            if self._coding.status != "failed":
+                                self._coding.data.update(status="failed", feedback={"error": "source_rolled_back"})
+                            self._coding.data["reported"] = True
                 result = active.call("tick", req.model_dump())
                 self._validate(req, result, active.checkpoint, previous)
                 self._journal.append(("legislation_rollback", {"reason": str(exc)[:300], "release": release}))

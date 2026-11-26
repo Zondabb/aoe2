@@ -411,17 +411,6 @@ def test_patched_choose_sites_selects_adjacent_farm_option_without_mutating_obse
     plan = reading()
     plan["legislation"]["departments"] = ["economy"]
     assert proxy.apply_plan("premier_orders", plan)
-    target = (
-        "    def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:\n"
-        "        \"\"\"Reorder legal `options` for building `name` (e.g. 'farm', 'house', 'mill').\n"
-        "        Each option dict has keys `building_def_id`, `builder_id`, `pos`, `score`, `drop_off_id`,\n"
-        "        and (for 'farm') `adjacent_farms`. `pos` (and entity `pos` in `f.buildings`/`f.units`) is\n"
-        "        continuous world coordinates `[x, y]` of the center, NOT 1-tile grid indices (adjacent farm\n"
-        "        centers are ~8.0 apart; first-ring mill/town_center farm centers are ~8.0/~10.0 away, and\n"
-        "        `score` is `100 - edge_distance` minus detour). Rank by continuous distance rather than `<= 1`,\n"
-        "        and sort rather than drop options so `adjacent_farms == 0` and other buildings still place.\"\"\"\n"
-        "        return options\n"
-    )
     patch = (
         "    def choose_sites(self, f, name: str, options: list[dict]) -> list[dict]:\n"
         "        if name == 'farm':\n"
@@ -431,7 +420,9 @@ def test_patched_choose_sites_selects_adjacent_farm_option_without_mutating_obse
         "        return options\n"
     )
     old = (proxy.store.path(proxy.release) / ECONOMY).read_text(encoding="utf-8")
-    new = old.replace(target, patch)
+    start = old.index("    def choose_sites(")
+    end = old.index("    def act(", start)
+    new = old[:start] + patch + "\n" + old[end:]
     proposal = {"proposal_id": "order-1", "base_release": proxy.release,
                 "unified_diff": "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True),
                                                              fromfile="a/" + ECONOMY, tofile="b/" + ECONOMY)),
@@ -580,3 +571,93 @@ def test_inflight_legislative_step_survives_new_unrelated_instruction(tmp_path, 
         assert holder["proxy"]._coding.data["steps"] == 1
     finally:
         svc.shutdown()
+
+
+def test_candidate_choose_sites_error_is_caught_by_smoke_test_without_funded_buildings(service):
+    svc, _ = service
+    proxy, first = begin_coding(svc)
+    source = proxy._coding._source(ECONOMY)
+    start_line = source[:source.index("    def choose_sites(")].count("\n") + 1
+    assert coding_step(proxy, "read", path=ECONOMY, start_line=start_line, max_lines=30)
+    view = proxy._coding.data["feedback"]
+    bad_line = "        town_center = f.buildings.get('town_center', {}).get('pos', [0, 0])\n        return options\n"
+    assert coding_step(proxy, "edit", path=ECONOMY, sha256=view["sha256"],
+                       old_text="        return options\n", new_text=bad_line, note="test bad choose_sites")
+    finish_coding(proxy)
+    assert proxy._candidate is not None
+
+    req2 = request(2, events=accept(first, seq=200))
+    req2.observation.economy.wood = 0
+    req2.observation.economy.food = 0
+    second = svc.tick(req2)
+    assert proxy.release == proxy.base
+    assert proxy._coding.status == "coding"
+    assert "candidate_tick_failed" in proxy._coding.data["feedback"]["error"]
+    assert "AttributeError" in proxy._coding.data["feedback"]["error"]
+
+    # Repair choose_sites after reading current draft, then verify clean install.
+    source2 = proxy._coding._source(ECONOMY)
+    line2 = source2[:source2.index("    def choose_sites(")].count("\n") + 1
+    assert coding_step(proxy, "read", path=ECONOMY, start_line=line2, max_lines=30)
+    view2 = proxy._coding.data["feedback"]
+    good_line = ("        if name == 'farm':\n"
+                 "            tcs = [b for b in f.buildings if b.get('def_id') == 'town_center']\n"
+                 "            return sorted(options, key=lambda o: -o.get('score', 0)) if tcs else options\n"
+                 "        return options\n")
+    assert coding_step(proxy, "edit", path=ECONOMY, sha256=view2["sha256"],
+                       old_text=bad_line, new_text=good_line, note="fix f.buildings list handling")
+    finish_coding(proxy)
+    assert proxy._candidate is not None
+    req3 = request(3, events=accept(second, seq=300))
+    req3.observation.economy.wood = 0
+    svc.tick(req3)
+    assert proxy.release != proxy.base
+
+
+def test_post_install_crash_reopens_coding_draft_and_never_emits_duplicate_failure(tmp_path):
+    logs1 = []
+    svc = MultiAgentService(
+        runtime_factory=lambda p: LegislativeRuntime(p, root=tmp_path / "data1", mode="local-development", timeout=15),
+        log=lambda ev, data: logs1.append((ev, data)),
+    )
+    late_crash = "        if f.req.metadata.tick >= 3:\n            raise RuntimeError('late crash')\n"
+    try:
+        proxy, first = begin_coding(svc)
+        edit_act(proxy, late_crash)
+        finish_coding(proxy, source_patch(proxy, "")["state_fields"])
+
+        second = svc.tick(request(2, events=accept(first, seq=200)))
+        assert proxy.release != proxy.base
+        assert proxy._coding.status == "installed"
+
+        logs1.clear()
+        svc.tick(request(3, events=accept(second, seq=300)))
+        assert proxy.release == proxy.base
+        assert proxy._coding.status == "coding"
+        assert "runtime_rollback" in proxy._coding.data["feedback"]["error"]
+        assert not [d for ev, d in logs1 if ev == "order" and d.get("change") == "legislation_failed"]
+        assert [d for ev, d in logs1 if ev == "legislation_rollback"]
+        state3 = restore_checkpoint(proxy.state, CabinetRuntime(proxy.profile))
+        assert state3.ledger.orders[0].legislation["status"] == "waiting"
+        assert state3.ledger.orders[0].legislation["phase"] == "retrying"
+    finally:
+        svc.shutdown()
+
+    # Exhaust retries on a raw prepare() rollback and confirm legislation_failed is emitted at most once.
+    logs2 = []
+    svc2 = MultiAgentService(
+        runtime_factory=lambda p: LegislativeRuntime(p, root=tmp_path / "data2", mode="local-development", timeout=15),
+        log=lambda ev, data: logs2.append((ev, data)),
+    )
+    try:
+        proxy2, first2 = prepare(svc2, late_crash)
+        second2 = svc2.tick(request(2, events=accept(first2, seq=200)))
+        assert proxy2.release != proxy2.base
+        logs2.clear()
+        third2 = svc2.tick(request(3, events=accept(second2, seq=300)))
+        assert proxy2.release == proxy2.base
+        svc2.tick(request(4, events=accept(third2, seq=400)))
+        failed_orders = [d for ev, d in logs2 if ev == "order" and d.get("change") == "legislation_failed"]
+        assert len(failed_orders) == 1
+    finally:
+        svc2.shutdown()

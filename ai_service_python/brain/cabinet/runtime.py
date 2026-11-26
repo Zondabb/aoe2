@@ -27,7 +27,7 @@ from .departments.economy import EconomyDept
 from .departments.general import GeneralDept
 from .departments.intel import IntelDept
 from .departments.tech import TechDept
-from .ledger import NEW, OrderLedger
+from .ledger import ACTIVE, LABELS, NEW, OrderLedger
 from .models import IntelBrief, Mandate, Request, order_origin
 from .orders import default_mandates, derive, ground, ground_reading, load_policy, policy_entries, progress, slot
 from .premier import (INTERPRET_PROMPT, ORDER_RETRY_LIMIT, ORDER_RETRY_PAUSE, ORDERS_ROLE, OUTPUT_TOKENS, RANK_PROMPT, ROLE as PREMIER, Premier,
@@ -299,7 +299,19 @@ class CabinetRuntime:
         previous = {"mandates": order.refused, "problem": order.problem} if order.problem else None
         if previous is not None and getattr(order, "rejected_reading", None) is not None:
             previous["response"] = copy.deepcopy(order.rejected_reading)
-        context = interpret_context(order.text, [o.row() for o in self.ledger.active()], engine.validator.profile.civ_id,
+        open_orders = []
+        for active_order in self.ledger.active():
+            if active_order.legislation and active_order.legislation.get("status") == "failed":
+                if not any(slot(m) not in active_order.done for m in active_order.mandates):
+                    continue
+                row = active_order.row()
+                figure = next((active_order.figures[slot(m)] for m in active_order.mandates
+                               if active_order.figures.get(slot(m))), "")
+                row["status"] = f"{LABELS[ACTIVE]} {figure}".strip()
+                open_orders.append(row)
+            else:
+                open_orders.append(active_order.row())
+        context = interpret_context(order.text, open_orders, engine.validator.profile.civ_id,
                                     self._age(), previous)
         self._reading = order.number
         order.asked += 1
@@ -369,6 +381,9 @@ class CabinetRuntime:
 
     def legislation_result(self, proposal_id: str, status: str, reason: str = "") -> bool:
         return self.ledger.legislation_result(proposal_id, status, reason)
+
+    def legislation_reopen(self, proposal_id: str, reason: str = "", step: int = 0) -> bool:
+        return self.ledger.legislation_reopen(proposal_id, reason, step)
 
     def legislation_progress(self, proposal_id: str, phase: str, reason: str = "", step: int = 0) -> bool:
         return self.ledger.legislation_progress(proposal_id, phase, reason, step)

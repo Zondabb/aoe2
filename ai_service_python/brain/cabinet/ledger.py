@@ -228,11 +228,31 @@ class OrderLedger:
             return False
         if status == "installed" and order.legislation.get("status") != "waiting":
             return False
+        if status == "failed" and order.legislation.get("status") == "failed":
+            return False
         order.legislation.update(status=status, phase=status, reason=str(reason)[:1000])
         order.status = ACTIVE if status == "installed" else (SUPERSEDED if status == "revoked" else WAITING_LEGISLATION)
         order.waiting = "" if status == "installed" else (str(reason)[:1000] or "法案尚未生效，原有任务继续。")
         self.revision += 1
         self._note(order, "legislation_" + status, proposal_id=proposal_id, reason=str(reason)[:1000])
+        return True
+
+    def legislation_reopen(self, proposal_id: str, reason: str = "", step: int = 0) -> bool:
+        """Reopen a rolled-back bill for coding repair without emitting a duplicate failure."""
+        if type(step) is not int or not 0 <= step <= 1000:
+            return False
+        order = next((o for o in self.orders if o.status in OPEN and o.legislation
+                      and o.legislation.get("status") in ("installed", "failed")
+                      and o.legislation["proposal_id"] == proposal_id), None)
+        if order is None:
+            return False
+        clean = str(reason)[:1000]
+        order.legislation.update(status="waiting", phase="retrying", step=step, reason=clean)
+        order.status = WAITING_LEGISLATION
+        order.waiting = "立法会运行回滚，正在修复重试。" + (" " + clean if clean else "")
+        self.revision += 1
+        self._note(order, "legislation_progress", proposal_id=proposal_id,
+                   phase="retrying", step=step, reason=clean)
         return True
 
     def legislation_progress(self, proposal_id: str, phase: str, reason: str = "", step: int = 0) -> bool:

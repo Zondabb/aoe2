@@ -51,9 +51,32 @@ def serve():
                         if order.legislation and order.legislation.get("status") == "installed":
                             runtime.legislation_result(order.legislation["proposal_id"], *args)
                     result = True
+                elif method == "smoke_test":
+                    probe = restore_checkpoint(export_checkpoint(runtime),
+                                               CabinetRuntime(runtime.field.validator.profile_id))
+                    probe.legislative_enabled = True
+                    pf = probe.field._open_frame(ChatCompletionRequest.model_validate(args[0]))
+                    builder_id = next((u["id"] for u in pf.units if u.get("def_id") == "villager"), 1)
+                    drop_id = next((b["id"] for b in pf.buildings
+                                    if b.get("def_id") in ("town_center", "mill") and b.get("is_complete")), None)
+                    for bname in ("farm", "house", "mill", "barracks", "watch_tower"):
+                        sample = [
+                            {"building_def_id": bname, "builder_id": builder_id,
+                             "pos": [pf.base[0] + 10.0, pf.base[1]], "score": 90.0, "drop_off_id": drop_id},
+                            {"building_def_id": bname, "builder_id": builder_id,
+                             "pos": [pf.base[0] + 10.0, pf.base[1] + 8.0], "score": 88.0, "drop_off_id": drop_id},
+                        ]
+                        if bname == "farm":
+                            sample[0]["adjacent_farms"] = 0
+                            sample[1]["adjacent_farms"] = 1
+                        for dept in probe.departments:
+                            chosen = dept.choose_sites(pf, bname, [dict(opt) for opt in sample])
+                            if not isinstance(chosen, list):
+                                raise TypeError("choose_sites must return list")
+                    result = True
                 elif method in {"planning_brief", "planning_context", "apply_plan", "take_journal",
                                 "load_strategic_memory", "legislative_requests", "legislation_result",
-                                "plan_rejected", "legislation_progress"}:
+                                "legislation_reopen", "plan_rejected", "legislation_progress"}:
                     result = getattr(runtime, method)(*args)
                 elif method == "properties":
                     result = {"goals": runtime.goals, "match_summary": runtime.match_summary}
