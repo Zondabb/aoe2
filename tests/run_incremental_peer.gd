@@ -1,6 +1,7 @@
 extends SceneTree
-## Real peer for ordered operations, late observation and forced repair.
+## Real peer for ordered operations and forced repair (Protocol v10, no spectator).
 const Maps := preload("res://scripts/world/map_data.gd")
+const WireCodec := preload("res://scripts/network/wire_codec.gd")
 var session: Node
 var game: Node
 var arena: Node
@@ -21,8 +22,6 @@ var received_commands := 0
 var first_keyframe_tick := -1
 var commands_sent := 0
 var default_map := false
-var observer_ready := false
-var saw_observed_move := false
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -44,12 +43,7 @@ func _run() -> void:
 	node_added.connect(func(node: Node):
 		if node.name == "NetworkMatch":
 			node.status_changed.connect(func(value: String): print(role, " runtime: ", value)))
-	if role == "spectator":
-		session.matches_received.connect(func(matches: Array):
-			if not matches.is_empty(): session.watch_match(endpoint, matches[0].match_id))
-		session.request_matches(endpoint)
-	else:
-		session.join_queue(endpoint, role, "chinese")
+	session.join_queue(endpoint, role, "chinese")
 
 func _map() -> Dictionary:
 	var data := Maps.create(160, 160, "Lockstep regression")
@@ -65,7 +59,7 @@ func _map() -> Dictionary:
 
 func _matched(info: Dictionary) -> void:
 	game.online_active = true
-	game.online_spectator = role == "spectator"
+	game.online_spectator = false
 	game.online_team = int(info.get("team", -1))
 	game.player_civ_id = &"chinese"
 	game.ai_civ_id = &"chinese"
@@ -76,20 +70,16 @@ func _matched(info: Dictionary) -> void:
 	current_scene = arena
 
 func _packet(message: Dictionary) -> void:
-	var size := JSON.stringify(message, "", true, true).to_utf8_buffer().size()
 	if message.type == "keyframe_request" and arena != null:
 		var net := arena.get_node("NetworkMatch")
 		var debug := FileAccess.open(output + ".host-keyframe-%d" % net.tick, FileAccess.WRITE)
 		debug.store_string(JSON.stringify(net.simulation.capture(), "", true, true))
-	if message.type == "frame":
+	if message.type == "schedule":
 		frame_packets += 1
-		frame_bytes += size
+		frame_bytes += WireCodec.encode_packet(message).size()
 		received_commands += message.commands.size()
-		for item in message.commands:
-			var command: Dictionary = item.command
-			if command.get("op") == "move" and Vector2(command.pos[0], command.pos[1]) == Vector2(0, 25):
-				saw_observed_move = true
 	elif message.type == "keyframe":
+		var size := JSON.stringify(message, "", true, true).to_utf8_buffer().size()
 		var debug_file := FileAccess.open(output + ".keyframe-%d" % int(message.tick), FileAccess.WRITE)
 		debug_file.store_string(JSON.stringify(message, "", true, true))
 		call_deferred("_dump_restored", int(message.tick))
@@ -107,47 +97,31 @@ func _process(_delta: float) -> bool:
 	if arena == null: return false
 	runtime = arena.get_node_or_null("NetworkMatch")
 	if runtime == null or not runtime.synchronized or not runtime._playing: return false
+	if runtime.fair != null and not runtime.fair.is_ready(): return false
 	var current_tick := int(runtime.tick)
-	if runtime.is_host and not observer_ready and current_tick >= 30:
-		var marker := FileAccess.open(finish_file + ".watch-ready", FileAccess.WRITE)
-		if marker == null:
-			_fail("could not signal observer readiness")
-			return false
-		marker.close()
-		observer_ready = true
 	if runtime.desync_count > (1 if corrupted else 0):
 		_fail("unplanned deterministic mismatch at tick %d" % current_tick)
 		return false
 	if phase == 0:
 		phase = 1
-		if role == "spectator":
-			if runtime.submit_command({"op":"stop", "unit_id":1}): _fail("spectator controlled a unit")
-			var watching := FileAccess.open(finish_file + ".watching", FileAccess.WRITE)
-			if watching == null:
-				_fail("could not signal observer synchronization")
-				return false
-			watching.close()
-		else:
-			_orders()
+		_orders()
 	if phase == 1 and current_tick >= 90:
 		phase = 2
-		if role != "spectator": _build()
-	# Deliberately corrupt only the guest, then demand a full repair followed
-	# by many successfully acknowledged incremental frames.
-	if role != "spectator" and not runtime.is_host and current_tick >= 210 and not corrupted:
+		_build()
+	if not runtime.is_host and current_tick >= 210 and not corrupted:
 		corrupted = true
 		runtime.match_state.resources[0][0] += 7
-	if phase == 2 and current_tick >= 300 and role != "spectator" and FileAccess.file_exists(finish_file + ".watching"):
+	if phase == 2 and current_tick >= 270 and not runtime._awaiting_keyframe:
 		phase = 3
 		for unit in runtime.entities.get_children():
 			if unit is UnitAgent and unit.team == runtime.local_team and unit.def.id == &"villager":
 				_send({"op":"move", "unit_id":runtime.entity_id(unit), "pos":[0,25]})
 				break
-	if current_tick >= 450 and (saw_observed_move if role == "spectator" else phase == 3):
+	if current_tick >= 450 and phase == 3:
 		_write_report()
-	# Frames span physics ticks; end between frames like a real result would.
 	if runtime.is_host and runtime._frame_step == 0 and FileAccess.file_exists(finish_file):
-		runtime.match_state.set_winner(Enums.Team.AI)
+		if runtime.fair != null: runtime.fair.request_finish(Enums.Team.AI)
+		else: runtime.match_state.set_winner(Enums.Team.AI)
 	return false
 
 func _orders() -> void:
@@ -162,7 +136,7 @@ func _orders() -> void:
 		if entity is ResourceNode and entity.resource_type == 1 and signf(entity.sim_pos.x) == sign_value:
 			if resource == null or entity.sim_pos.distance_squared_to(Vector2(sign_value * 120, sign_value * 120)) < resource.sim_pos.distance_squared_to(Vector2(sign_value * 120, sign_value * 120)): resource = entity
 	if villagers.size() < 3 or town == null or resource == null:
-		_fail("keyframe omitted playable objects")
+		_fail("seed map omitted playable objects")
 		return
 	_send({"op":"move", "unit_id":runtime.entity_id(villagers[0]), "pos":[villagers[0].sim_pos.x + 8, villagers[0].sim_pos.y + 8]})
 	_send({"op":"gather", "unit_id":runtime.entity_id(villagers[1]), "target_id":runtime.entity_id(resource)})

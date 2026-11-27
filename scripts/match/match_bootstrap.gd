@@ -133,11 +133,6 @@ func _finish_setup() -> void:
 		network.name = "NetworkMatch"
 		get_parent().add_child(network)
 		network.setup(self)
-	if GameSession.online_spectator:
-		var controls: Node = load("res://scripts/ui/spectator_controls.gd").new()
-		controls.name = "SpectatorControls"
-		get_parent().get_node("UILayer").add_child(controls)
-		controls.setup(self)
 	var audio := load("res://scripts/audio/match_audio.gd").new() as Node
 	audio.name = "MatchAudio"
 	get_parent().add_child(audio)
@@ -186,10 +181,8 @@ func _setup_ground() -> void:
 func _spawn_entities() -> void:
 	if not _saved_data.is_empty():
 		return
-	if GameSession.online_active:
-		var net_session := get_node_or_null("/root/NetworkSession")
-		if GameSession.online_spectator or net_session == null or GameSession.local_team() != int(net_session.host_team):
-			return
+	if GameSession.online_active and GameSession.online_spectator:
+		return
 	var entities := get_node_or_null("../Entities") as Node2D
 	if entities == null or entities.get_child_count() > 0:
 		return

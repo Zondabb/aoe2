@@ -33,7 +33,7 @@ var ai_protocol := "v1_tick"
 var ai_protocol_version := 1
 ## Python AI 服务访问凭据（cfg api_token / AOE2_AI_TOKEN / UI），不是模型 API key。
 var ai_service_token := ""
-## Host-owned per-team service routing. Empty values inherit the shared URL/token.
+## Local service overrides for the team assigned to this player. Empty values inherit the shared URL/token.
 ## Tokens stay local and are never included in multiplayer snapshots.
 var ai_team_service_urls: Dictionary = {0: "", 1: ""}
 var ai_team_service_tokens: Dictionary = {0: "", 1: ""}

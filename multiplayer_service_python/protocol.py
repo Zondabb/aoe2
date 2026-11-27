@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import math
 import re
 import unicodedata
+import zlib
 from typing import Any
 
 from .settings import Settings
@@ -21,62 +24,33 @@ FIELDS = {
     "join_queue": {"type", "protocol_version", "name", "civ"},
     "cancel_queue": {"type"},
     "ready": {"type"},
-    "command": {"type", "seq", "command"},
-    "premier_broadcast": {"type", "match_id", "team", "lines"},
-    "frame": {"type", "tick", "commands", "checksum"},
-    "ack": {"type", "tick", "checksum"},
     "request_keyframe": {"type"},
     "keyframe": {"type", "request_id", "tick", "state", "checksum"},
     "finish_match": {"type", "winner"},
     "leave": {"type"},
     "ping": {"type"},
-    "list_matches": {"type"},
-    "watch_match": {"type", "match_id"},
-    "watch_ready": {"type"},
 }
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 10
 TICK_RATE = 30
 FRAME_TICKS = 3
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_FRAME_COMMANDS = 64
 MAX_FRAME_BYTES = 262_144
+MAX_INPUT_COMMANDS = 62
+MAX_INPUT_LEAD_TICKS = 180
+
+
+def _safe_integer(value: Any, minimum: int = 0) -> bool:
+    return type(value) is int and minimum <= value <= MAX_SAFE_INTEGER
+
+
+def _tick(value: Any) -> bool:
+    return _safe_integer(value) and value % FRAME_TICKS == 0
 
 
 def _identifier(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value) is not None
-
-
-def _premier_line(line: Any) -> bool:
-    required = {"id", "seq", "kind", "text", "trigger", "priority"}
-    return (isinstance(line, dict) and required <= line.keys() <= required | {"order", "about", "final"}
-            and isinstance(line["id"], str) and 0 < len(line["id"]) <= 64
-            and type(line["seq"]) is int and 0 <= line["seq"] < 8
-            and line["kind"] in ("thinking", "decision")
-            and isinstance(line["text"], str) and bool(line["text"].strip()) and len(line["text"]) <= 1024
-            and line["trigger"] in ("order", "change", "threat", "done")
-            and type(line["priority"]) is int and 0 <= line["priority"] <= 2
-            and ("order" not in line or type(line["order"]) is int and 0 <= line["order"] <= MAX_SAFE_INTEGER)
-            and ("about" not in line or isinstance(line["about"], str) and len(line["about"]) <= 240)
-            and ("final" not in line or type(line["final"]) is bool))
-
-
-def _command(command: Any, settings: Settings) -> None:
-    if not isinstance(command, dict) or not isinstance(command.get("op"), str) or not command["op"]:
-        raise ProtocolError("invalid_payload", "command must contain a string op")
-    if any(key in command for key in ("team", "player_id", "match_id", "host_team")):
-        raise ProtocolError("invalid_payload", "Command identity is assigned by the service")
-    if command["op"] == "premier_broadcast":
-        raise ProtocolError("invalid_payload", "Premier broadcasts require the private presentation channel")
-    if command.get("op") == "ai_instruction":
-        text = command.get("text")
-        if set(command) != {"op", "text"} or not isinstance(text, str) or not text.strip() or len(text) > 240:
-            raise ProtocolError("invalid_payload", "AI instruction requires 1 to 240 characters of text")
-    if command.get("op") == "set_ai_control":
-        if set(command) != {"op", "enabled"} or type(command["enabled"]) is not bool:
-            raise ProtocolError("invalid_payload", "AI control requires only op and a boolean enabled field")
-    if len(json.dumps(command, ensure_ascii=True).encode()) > settings.max_command_bytes:
-        raise ProtocolError("invalid_payload", "Command exceeds the size limit")
 
 
 def _object(pairs: list[tuple[str, Any]]) -> dict:
@@ -109,6 +83,27 @@ def _check_tree(root: Any) -> None:
             pending.extend((child, depth + 1) for child in value)
 
 
+def decode_keyframe_state(data: dict, settings: Settings) -> dict:
+    """Bound decompression before allocating/parsing a snapshot; keep wire compressed."""
+    if data["codec"] != "zlib" or not _safe_integer(data["raw_size"], 1) or data["raw_size"] > settings.max_message_bytes:
+        raise ProtocolError("invalid_payload", "Invalid snapshot codec or expanded size")
+    if not isinstance(data["data"], str):
+        raise ProtocolError("invalid_payload", "Compressed snapshot must be base64 text")
+    try:
+        packed = base64.b64decode(data["data"], validate=True)
+        if not packed or base64.b64encode(packed).decode("ascii") != data["data"]:
+            raise ValueError("Noncanonical base64")
+        decoder = zlib.decompressobj()
+        raw = decoder.decompress(packed, data["raw_size"] + 1)
+        if len(raw) != data["raw_size"] or not decoder.eof or decoder.unconsumed_tail or decoder.unused_data:
+            raise ValueError("Snapshot size or stream mismatch")
+        state = json.loads(raw.decode("utf-8"), object_pairs_hook=_object, parse_constant=_constant)
+    except (ValueError, TypeError, zlib.error, binascii.Error, RecursionError):
+        raise ProtocolError("invalid_payload", "Invalid compressed snapshot") from None
+    _check_tree(state)
+    return state
+
+
 def parse_message(raw: str, settings: Settings) -> dict:
     if len(raw.encode("utf-8")) > settings.max_message_bytes:
         raise ProtocolError("message_too_large", "Message exceeds the size limit", 1009)
@@ -121,12 +116,17 @@ def parse_message(raw: str, settings: Settings) -> dict:
     kind = data["type"]
     if kind not in FIELDS:
         raise ProtocolError("unknown_type", "Unknown message type")
-    if set(data) != FIELDS[kind]:
+    allowed = [FIELDS[kind]]
+    if kind == "finish_match":
+        allowed.append(FIELDS[kind] | {"tick"})
+    if kind == "keyframe":
+        allowed.append({"type", "request_id", "tick", "checksum", "codec", "raw_size", "data"})
+    if set(data) not in allowed:
         raise ProtocolError("invalid_payload", "Missing or unexpected message fields")
     _check_tree(data)
     if kind == "join_queue":
         if type(data["protocol_version"]) is not int or data["protocol_version"] != PROTOCOL_VERSION:
-            raise ProtocolError("protocol_mismatch", "Only protocol_version 4 (fixed-point lockstep) is supported; update the game client")
+            raise ProtocolError("protocol_mismatch", "Only protocol_version 10 (event-driven binary sync) is supported; update the game client")
         name = data["name"]
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 24:
             raise ProtocolError("invalid_name", "Player name must contain 1 to 24 characters")
@@ -135,43 +135,26 @@ def parse_message(raw: str, settings: Settings) -> dict:
         data["name"] = name.strip()
         if data["civ"] not in ("chinese", "teutons"):
             raise ProtocolError("invalid_civ", "Supported civilizations: chinese, teutons")
-    elif kind == "watch_match":
-        match_id = data["match_id"]
-        if not _identifier(match_id):
-            raise ProtocolError("invalid_payload", "match_id must be a valid match identifier")
-    elif kind == "premier_broadcast":
-        if (not _identifier(data["match_id"]) or type(data["team"]) is not int or data["team"] not in (0, 1)
-                or not isinstance(data["lines"], list) or not 1 <= len(data["lines"]) <= 8
-                or not all(_premier_line(line) for line in data["lines"])):
-            raise ProtocolError("invalid_payload", "Invalid premier broadcast")
-    elif kind == "command":
-        if type(data["seq"]) is not int or not 0 < data["seq"] <= MAX_SAFE_INTEGER:
-            raise ProtocolError("invalid_sequence", "seq must be a positive safe integer")
-        _command(data["command"], settings)
-    elif kind in ("frame", "ack", "keyframe"):
+    elif kind == "keyframe":
         tick = data["tick"]
-        if type(tick) is not int or not 0 <= tick <= MAX_SAFE_INTEGER or tick % FRAME_TICKS:
+        if not _tick(tick):
             raise ProtocolError("invalid_sequence", "tick must be a nonnegative safe integer at a frame boundary")
         if not isinstance(data["checksum"], str) or re.fullmatch(r"[0-9a-f]{64}", data["checksum"]) is None:
             raise ProtocolError("invalid_payload", "checksum must be a SHA-256 hex string")
-        if kind == "frame":
-            commands = data["commands"]
-            if not isinstance(commands, list) or len(commands) > MAX_FRAME_COMMANDS:
-                raise ProtocolError("invalid_payload", "A frame may contain at most 64 commands")
-            for entry in commands:
-                if not isinstance(entry, dict) or set(entry) != {"team", "command"} or type(entry["team"]) is not int or entry["team"] not in (0, 1):
-                    raise ProtocolError("invalid_payload", "Each frame command requires a team and command")
-                _command(entry["command"], settings)
-                if entry["command"]["op"] == "ai_instruction":
-                    raise ProtocolError("invalid_payload", "Player instructions are private to the host")
-            if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
-                raise ProtocolError("invalid_payload", "Frame exceeds the size limit")
-        elif kind == "keyframe":
-            if not _identifier(data["request_id"]):
-                raise ProtocolError("invalid_payload", "request_id must be a valid request identifier")
-            if not isinstance(data["state"], dict) or not data["state"]:
-                raise ProtocolError("invalid_payload", "state must be a nonempty object")
+        if not _identifier(data["request_id"]):
+            raise ProtocolError("invalid_payload", "request_id must be a valid request identifier")
+        state = decode_keyframe_state(data, settings) if "codec" in data else data["state"]
+        if not isinstance(state, dict) or not state:
+            raise ProtocolError("invalid_payload", "state must be a nonempty object")
+        world = state.get("world")
+        timing = state.get("fair")
+        if isinstance(world, dict) and "ai_control" in world:
+            raise ProtocolError("invalid_payload", "Keyframes contain gameplay state only")
+        if isinstance(timing, dict) and timing.keys() - {"input_delay_ticks", "delay_schedule", "speed"}:
+            raise ProtocolError("invalid_payload", "Unexpected keyframe timing fields")
     elif kind == "finish_match":
         if type(data["winner"]) is not int or data["winner"] not in (0, 1):
             raise ProtocolError("invalid_payload", "winner must be team 0 or team 1")
+        if "tick" in data and not _tick(data["tick"]):
+            raise ProtocolError("invalid_sequence", "tick must be a nonnegative safe integer at a frame boundary")
     return data

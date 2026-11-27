@@ -429,7 +429,7 @@ func _network_player(side: int, host: int) -> Node:
 	transport.team = side
 	transport.host_team = host
 	transport.state = "playing"
-	transport.match_info = {"match_id": "1234567890abcdef1234567890abcdef", "premier_broadcasts": true}
+	transport.match_info = {"match_id": "1234567890abcdef1234567890abcdef"}
 	arena.add_child(transport)
 	var net: Variant = load("res://scripts/network/network_match.gd").new()
 	net.name = "NetworkMatch"
@@ -475,46 +475,37 @@ func _check_network_players(host: int) -> void:
 	for panel: Variant in panels:
 		panel.voice.voice_enabled = true
 		panel.voice.subtitles = true
-	var authority: Variant = home.get_node("PlayerAiControl")
+	var home_control: Variant = home.get_node("PlayerAiControl")
+	var away_control: Variant = away.get_node("PlayerAiControl")
 	var sender: RecordingSession = home.get_node("NetworkMatch").session
 	var receiver: RecordingSession = away.get_node("NetworkMatch").session
-	var gateway: Variant = _gateway.new()
-	gateway.premier_spoke.connect(authority._on_premier_spoke)
+	var home_gateway: Variant = _gateway.new()
+	var away_gateway: Variant = _gateway.new()
+	home_gateway.premier_spoke.connect(home_control._on_premier_spoke)
+	away_gateway.premier_spoke.connect(away_control._on_premier_spoke)
 	var host_line := _line("h", 0, "decision", "主队先采木。", "order", 1)
 	var guest_line := _line("g", 0, "decision", "客队先采金。", "order", 1)
 	guest_line["final"] = true
-	gateway._relay_premier_lines(host, {"broadcasts": [host_line]})
+	home_gateway._relay_premier_lines(host, {"broadcasts": [host_line]})
+	# Foreign-team lines are ignored locally and never forwarded over the relay.
+	home_control._on_premier_spoke(guest, [guest_line])
 	# As on the HTTP path, numbers arrive from Godot's JSON parser as floats.
 	var reply: Dictionary = JSON.parse_string(JSON.stringify({"broadcasts": [guest_line]}))
-	gateway._relay_premier_lines(guest, reply)
-	gateway._relay_premier_lines(guest, reply)
-	_check(sender.packets.size() == 1, "只有客队播报走网络，重复的 tick 不重发")
-	if sender.packets.size() == 1:
-		var packet: Dictionary = sender.packets[0]
-		_check(packet.team == guest and packet.lines == [guest_line] and packet.lines[0].seq is int, "客队消息保留字幕、优先级和整数序号")
-		var decoded: Dictionary = JSON.parse_string(JSON.stringify(packet))
-		receiver._handle_message(decoded.merged({"team": host}, true))
-		receiver._handle_message(decoded.merged({"match_id": "old"}, true))
-		receiver._handle_message(decoded.merged({"lines": ["invalid"]}, true))
-		receiver.spectator = true
-		receiver._handle_message(decoded)
-		receiver.spectator = false
-		_check(panels[1].shown().is_empty() and panels[1].voice.spoken.is_empty(), "错队、旧对局、格式错误和观战消息均未展示")
-		receiver._handle_message(decoded)
-		for i in 2:
-			var expected: String = [host_line.text, guest_line.text][i]
-			var rows: Array = panels[i].shown()
-			var spoken: Array = panels[i].voice.spoken
-			_check(rows.size() == 1 and rows[0].decision == expected, "双方各自只显示本队字幕")
-			_check(spoken.size() == 1 and spoken[0].text == expected, "双方各自只朗读本队消息")
-		away.get_node("PlayerAiControl").stop_all()
-		receiver._handle_message(decoded)
-		_check(panels[1].shown().is_empty() and panels[1].voice.spoken.size() == 1, "对局结束后丢弃迟到的消息")
-	home.get_node("PlayerAiControl").stop_all()
-	sender.match_info.erase("premier_broadcasts")
-	sender.send_premier_broadcast(guest, [guest_line])
-	_check(sender.packets.size() == 1, "旧中继不会收到不认识的播报消息")
-	gateway.free()
+	away_gateway._relay_premier_lines(guest, reply)
+	away_gateway._relay_premier_lines(guest, reply)
+	_check(sender.packets.is_empty() and receiver.packets.is_empty(), "联机双方各连本地 AI，播报不经中继转发")
+	for i in 2:
+		var expected: String = [host_line.text, guest_line.text][i]
+		var rows: Array = panels[i].shown()
+		var spoken: Array = panels[i].voice.spoken
+		_check(rows.size() == 1 and rows[0].decision == expected, "双方各自只显示本队字幕")
+		_check(spoken.size() == 1 and spoken[0].text == expected, "双方各自只朗读本队消息")
+	away_control.stop_all()
+	away_control._on_premier_spoke(guest, [guest_line])
+	_check(panels[1].shown().is_empty() and panels[1].voice.spoken.size() == 1, "对局结束后丢弃迟到的消息")
+	home_control.stop_all()
+	home_gateway.free()
+	away_gateway.free()
 	home.queue_free()
 	away.queue_free()
 	await process_frame

@@ -213,21 +213,18 @@ func _sync_service_settings(state: Dictionary) -> void:
 	var game := get_node_or_null("/root/GameSession")
 	var online := game != null and bool(game.get("online_active"))
 	var local_team := int(game.call("local_team")) if game != null else 0
-	var network := get_node_or_null("/root/NetworkSession")
-	var host := not online or (network != null and network.has_method("is_host") and bool(network.call("is_host")))
 	_service_button.visible = online and _controller.has_method("team_service_url")
 	_service_panel.visible = _service_button.visible and _service_button.button_pressed
-	var states: Dictionary = _controller.call("capture_states") if _controller.has_method("capture_states") else {}
 	for team: int in _service_rows:
 		var entry: Dictionary = _service_rows[team]
-		entry.row.visible = host or team == local_team
+		entry.row.visible = team == local_team
 		var address: LineEdit = entry.address
-		address.editable = host and String(state.get("status", "")) != "ended"
-		entry.apply.visible = host
+		address.editable = team == local_team and String(state.get("status", "")) != "ended"
+		entry.apply.visible = entry.row.visible
 		entry.apply.disabled = not address.editable
-		var team_state: Dictionary = states.get(str(team), state if team == local_team else {})
+		var team_state: Dictionary = state
 		var team_status := String(team_state.get("status", "off"))
-		var status_text := {"active": "托管中", "connecting": "正在连接…", "pending": "等待主机确认…", "error": "连接失败", "ended": "对局结束"}
+		var status_text := {"active": "托管中", "connecting": "正在连接…", "error": "连接失败", "ended": "对局结束"}
 		entry.status.text = String(status_text.get(team_status, "手动控制"))
 		if team_status == "error":
 			entry.status.text = String(team_state.get("message", "连接失败，请检查 Python 服务"))
@@ -236,14 +233,14 @@ func _sync_service_settings(state: Dictionary) -> void:
 		if _controller.has_method("team_service_url"):
 			var actual := String(_controller.call("team_service_url", team))
 			# Preserve unsubmitted edits while state updates arrive from the AI.
-			if not host or (not address.has_focus() and not bool(address.get_meta("dirty", false))):
+			if not address.has_focus() and not bool(address.get_meta("dirty", false)):
 				address.text = actual
 			address.tooltip_text = "当前服务：" + actual
 		if not address.text_changed.is_connected(_on_address_edited.bind(team)):
 			address.text_changed.connect(_on_address_edited.bind(team))
-	var note := "地址从主机访问；127.0.0.1 指主机。应用后会重新连接该队 AI。" if host else "由主机配置 AI 服务；此处显示自己队伍的实际地址。"
+	var note := "此地址由本机访问；127.0.0.1 指本机。更换地址会重连自己的 AI。"
 	_service_note.text = note + ("\n" + _route_message if not _route_message.is_empty() else "")
-	# Hiding the other team's row on a guest also shrinks the panel's height.
+	# Fit the panel to the local player's row.
 	call_deferred("_sync_layout")
 
 
@@ -328,13 +325,10 @@ func _sync_state() -> void:
 			_starting_broadcasts.clear()
 	_follow.visible = enabled and status == "active" and has_node("../../Camera2D/BroadcastDirector")
 	_check.set_pressed_no_signal(enabled)
-	# Connecting can be cancelled immediately. Only an unacknowledged online
-	# request temporarily prevents another toggle.
-	_check.disabled = status in ["pending", "ended"] or (not available and not enabled)
+	_check.disabled = status == "ended" or (not available and not enabled)
 	match status:
 		"connecting": _status.text = "正在连接…"
 		"active": _status.text = "托管中"
-		"pending": _status.text = "等待主机确认…"
 		"error": _status.text = "连接失败，勾选重试"
 		"ended": _status.text = "对局结束"
 		_: _status.text = "手动控制" if available else "准备中…"
@@ -342,10 +336,10 @@ func _sync_state() -> void:
 	if status == "active": color = Color("c2e5ad")
 	elif status == "error": color = Color("ffb195")
 	_status.add_theme_color_override("font_color", color)
-	var hint := "勾选后，外部 Python LLM 接管自己的队伍，负责探索、建设、生产和出兵。\n取消后恢复手动控制，丢弃后续 AI 指令；已执行的移动、建造和生产继续进行。"
+	var hint := "勾选后，外部 Python LLM 接管自己的队伍，负责探索、建设、生产和出兵。\n取消会停止本机 AI；已提交的游戏指令仍按帧执行。"
 	var game := get_node_or_null("/root/GameSession")
 	if game != null and bool(game.get("online_active")):
-		hint += "\n联机由主机运行并配置 Python AI 服务，双方只能开关自己的托管。"
+		hint += "\n联机时由本机连接自己的 Python AI 服务。"
 	if not message.is_empty(): hint += "\n" + message
 	_check.tooltip_text = hint
 	_status.tooltip_text = message if not message.is_empty() else hint

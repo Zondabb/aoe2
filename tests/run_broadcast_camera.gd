@@ -5,6 +5,7 @@ var failures := 0
 
 class GuestNetwork extends Node:
 	var is_host := false
+	var spectator := false
 	var _playing := true
 	var synchronized := true
 	var _terminal := false
@@ -104,21 +105,20 @@ func _run() -> void:
 	world.add_child(network)
 	control.online = true
 	control.local_team = 1
-	var active := {"enabled": true, "status": "active", "message": ""}
-	var off := {"enabled": false, "status": "off", "message": ""}
-	control.apply_remote_states({"0": active, "1": off})
+	control._set_state(1, false, "off", "")
+	control.state_changed.emit()
 	check(not camera.broadcast_following, "host takeover alone doesn't move the guest's camera")
-	control.apply_remote_states({"0": off, "1": active})
-	check(camera.broadcast_following, "replicated local-team takeover enables the guest's camera")
+	control._set_state(1, true, "active", "")
+	check(camera.broadcast_following, "local-team takeover enables the guest's camera")
 	recruit.damaged.emit(recruit)
 	check(not director._latest.has(director.Interest.BATTLE), "team one cannot frame a fight visible only to team zero")
 	state.fog.visible_now[1][index] = 1
 	recruit.damaged.emit(recruit)
 	director._choose_shot(Time.get_ticks_msec())
 	check(director._pan != null, "guest frames the fight when their own fog reveals it")
-	control.apply_remote_states({"0": active, "1": off})
-	check(not camera.broadcast_following and director._pan == null, "remote cancellation interrupts the guest shot")
-	control.apply_remote_states({"0": off, "1": active})
+	control._set_state(1, false, "off", "")
+	check(not camera.broadcast_following and director._pan == null, "local cancellation interrupts the guest shot")
+	control._set_state(1, true, "active", "")
 	control.stop_all()
 	check(not camera.broadcast_following and not toggle.visible, "match end returns the view to manual control")
 	world.free()

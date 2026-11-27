@@ -47,6 +47,26 @@ static func submit(node: Node, command: Dictionary) -> bool:
 	var network := runtime(node)
 	return bool(network.submit_command(command)) if network != null else false
 
+static func move_group(source: Node, units: Array[Node2D], destinations: PackedVector2Array, formation_speed: float) -> void:
+	if is_spectator(source) or units.size() != destinations.size(): return
+	if not is_online(source):
+		for i in units.size(): unit_order(source, units[i], "move", destinations[i], formation_speed)
+		return
+	var network := runtime(source)
+	if network == null: return
+	var commands: Array = []
+	var live_units: Array[Node2D] = []
+	for i in units.size():
+		var unit := units[i]
+		if not is_instance_valid(unit) or unit.is_queued_for_deletion(): continue
+		var target: Vector2 = destinations[i]
+		var command := {"op": "move", "unit_id": network.entity_id(unit), "pos": [target.x, target.y]}
+		if formation_speed > 0.0: command["formation_speed"] = formation_speed
+		commands.append(command)
+		live_units.append(unit)
+	if commands.is_empty() or not network.submit_commands(commands): return
+	for unit in live_units: _play_order_voice(source, unit, "move", null)
+
 static func unit_order(source: Node, unit: Node2D, op: String, target: Variant = null, formation_speed := 0.0) -> void:
 	if is_spectator(source): return
 	if not is_instance_valid(unit) or unit.is_queued_for_deletion():

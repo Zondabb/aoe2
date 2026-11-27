@@ -21,7 +21,6 @@ def main() -> int:
     parser.add_argument("--godot", required=True)
     parser.add_argument("--duration", type=float, default=45.0, help="real seconds after both players start")
     parser.add_argument("--speed", type=float, default=2.0)
-    parser.add_argument("--spectator", action="store_true")
     parser.add_argument("--extra-units", type=int, default=0, help="additional host militia for snapshot/load stress")
     parser.add_argument("--baseline", action="store_true", help="use locally saved pre-fix network scripts in .godot")
     args = parser.parse_args()
@@ -71,9 +70,9 @@ def main() -> int:
                        "--", endpoint, role, label, str(finish), str(logs / (label + ".json")),
                        str(args.speed), str(args.extra_units), probe_dir], label)
 
-    def rooms():
-        with urlopen(f"http://127.0.0.1:{port}/api/matches", timeout=1) as response:
-            return json.load(response)["matches"]
+    def active_matches():
+        with urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1) as response:
+            return int(json.load(response).get("matches", 0))
 
     try:
         server = launch([sys.executable, "-m", "multiplayer_service_python.main"], "server")
@@ -87,12 +86,11 @@ def main() -> int:
                 time.sleep(.1)
         players = [godot("player", "Player-" + str(side)) for side in range(2)]
         deadline = time.monotonic() + 30
-        while not rooms():
+        while active_matches() < 1:
             if any(peer.poll() is not None for peer in players): raise RuntimeError("peer exited before match started")
             if time.monotonic() > deadline: raise RuntimeError("match startup timeout")
             time.sleep(.1)
         active = list(players)
-        if args.spectator: active.append(godot("watch", "Observer"))
         start = time.monotonic()
         while time.monotonic() - start < args.duration:
             if any(peer.poll() is not None for peer in active): raise RuntimeError("peer ended before requested wall duration")
@@ -103,7 +101,7 @@ def main() -> int:
         for peer in active:
             if peer.poll() != 0: raise RuntimeError(f"peer exit was {peer.poll()}")
         reports = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in logs.glob("*.json")}
-        expected = {"Player-0", "Player-1"} | ({"Observer"} if args.spectator else set())
+        expected = {"Player-0", "Player-1"}
         if set(reports) != expected:
             raise RuntimeError("a peer did not produce its timing report")
         for label, report in reports.items():
@@ -113,7 +111,7 @@ def main() -> int:
             if errors: raise RuntimeError(f"{label} emitted engine/script errors: {errors[:3]}")
             if report.get("transport_failure") or report.get("server_error_code"):
                 raise RuntimeError(f"{label} reported a transport failure")
-        host = reports["Player-0"] if reports["Player-0"]["captures"] else reports["Player-1"]
+        host = reports["Player-0"] if reports["Player-0"].get("is_host") else reports["Player-1"]
         if not args.baseline and host["snapshot_hz"] > 10.5:
             raise RuntimeError("snapshot frequency grew beyond the real-time budget")
         print(json.dumps(reports, ensure_ascii=False, indent=2))

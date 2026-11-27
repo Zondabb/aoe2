@@ -349,6 +349,7 @@ func _notification(what: int) -> void:
 		_flush_billboard_frame()
 
 
+## Keep the occlusion mask aligned with normal physics interpolation.
 func render_canvas_transform(source: Node2D) -> Transform2D:
 	var result := source.get_global_transform_with_canvas()
 	if not is_physics_interpolated_and_enabled() or source.is_set_as_top_level():

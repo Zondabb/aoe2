@@ -1,4 +1,4 @@
-"""Real relay + two independently simulating games + a late observer."""
+"""Real relay + two independently simulating games (Protocol v10, no spectator)."""
 from __future__ import annotations
 import argparse
 import json
@@ -43,8 +43,6 @@ def main() -> None:
     try:
         server_command = [sys.executable, "-m", "multiplayer_service_python.main"]
         if args.host_team is not None:
-            # Test-only selection proves both random-host branches without
-            # adding a host override to the production server.
             code = ("from unittest.mock import patch; import runpy,secrets; original=secrets.randbelow; "
                     f"p=patch('multiplayer_service_python.matchmaking.secrets.randbelow',side_effect=lambda n:{args.host_team} if n==2 else original(n)); "
                     "p.start(); runpy.run_module('multiplayer_service_python.main',run_name='__main__')")
@@ -65,33 +63,26 @@ def main() -> None:
                 if proc.poll() is not None and label != "server":
                     time.sleep(.5)
                     raise RuntimeError("\n".join(f"{f.name}: {f.read_text(encoding='utf-8', errors='replace')[-7000:]}" for f in logs.glob("*.txt")))
-            # A cold map load can exceed five seconds. Join after the host has
-            # actually simulated a second so the observer exercises late entry.
-            if "spectator" not in processes and (logs / "finish.txt.watch-ready").exists():
-                peer("spectator")
-            if all((logs / f"{role}.json").exists() for role in ["player-a", "player-b", "spectator"]): break
+            if all((logs / f"{role}.json").exists() for role in ["player-a", "player-b"]): break
             time.sleep(.15)
         else:
-            raise RuntimeError("peers did not reach450 deterministic ticks")
+            raise RuntimeError("peers did not reach 450 deterministic ticks")
         finish.write_text("finish", encoding="utf-8")
-        for role in ["player-a", "player-b", "spectator"]:
+        for role in ["player-a", "player-b"]:
             proc = processes[role]
             proc.wait(timeout=10)
             log = (logs / f"{role}.txt").read_text(encoding="utf-8", errors="replace")
             if proc.returncode or "INCREMENTAL E2E PASSED" not in log or "SCRIPT ERROR:" in log:
                 raise RuntimeError(f"{role} failed:\n{log[-9000:]}")
-        reports = [json.loads((logs / f"{role}.json").read_text()) for role in ["player-a", "player-b", "spectator"]]
+        reports = [json.loads((logs / f"{role}.json").read_text()) for role in ["player-a", "player-b"]]
         for report in reports:
-            if report["role"] == "spectator":
-                assert report["first_keyframe_tick"] > 0 and report["keyframes"] == 1 and report["desyncs"] == 0, report
-            elif report["team"] != report["host_team"]:
-                assert report["corrupted"] and report["desyncs"] == 1 and report["keyframes"] == 2, report
-            if report["frames"]:
-                assert report["frame_bytes"] / report["frames"] < 4096, report
-                assert report["commands"] > 0, report
+            if report["team"] != report["host_team"]:
+                assert report["corrupted"] and report["desyncs"] == 1 and report["keyframes"] == 1, report
+            else:
+                assert report["keyframes_sent"] == 1, report
         assert len({(r["tick"], r["checksum"]) for r in reports}) == 1, reports
         print(json.dumps(reports, indent=2))
-        print("INCREMENTAL E2E PASSED: equal final checksums, late join, forced resync, compact frames")
+        print("INCREMENTAL E2E PASSED: equal final checksums, seed sync, forced resync, binary silent frames")
     finally:
         for proc in processes.values():
             if proc.poll() is None: proc.terminate()

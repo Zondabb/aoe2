@@ -2,72 +2,34 @@
 
 主菜单「联机对战」进入大厅，选择文明、输入昵称后开始匹配。默认服务地址为 `ws://127.0.0.1:8001/ws`，也可通过 `game_settings.cfg` 的 `[multiplayer]` 配置。启动及部署见 [部署文档](multiplayer_deployment.md)和 [Python 服务 README](../multiplayer_service_python/README.md)。
 
-## 协议 v4
+## 协议 v10
 
-服务配对后随机选择一名玩家担任主机，`host_team` 可以是 `0` 或 `1`。队伍编号只决定单位归属；双方收到同一个地图种子和固定模拟参数。游戏与 Python 服务必须一起更新，v1–v3 客户端不能加入 v4 对局。
+逐消息的字段、二进制帧编码与时序见[联机同步消息详解](multiplayer_sync_messages.md)。
 
-双方都执行游戏逻辑。玩家操作先交给主机，主机校验单位归属、视野、资源、生产条件及参数，将通过校验的操作按顺序放入帧。主机自己的操作也必须排队，不能提前生效。AI 托管只在主机请求 Python/LLM，产生的操作同样经过帧队列。
+服务配对后随机选择一名玩家担任主机，`host_team` 可以是 `0` 或 `1`。队伍编号决定单位归属；双方收到同一个地图种子和固定模拟参数，按同种子在本地生成初始地图。游戏与 Python 服务必须一起更新，v1–v9 客户端不能加入 v10 对局；本分支已移除在线观战功能。
 
-- 模拟步长固定为 `1/30` 秒，每个网络帧推进 3 步，目标每秒 10 帧。
-- 模拟步在物理帧（30 Hz）中逐步执行，单位移动由物理插值平滑；不再在同一渲染帧里集中执行 3 步和校验。步频 = 实际时间 × 对局速度。对局速度取主机的游戏速度设置（`[game] speed`，默认 `data/game_settings.cfg` 为 2.0，范围 0.25–4），主机每 30 帧在帧内广播一次 `match_speed`，客端和观众据此设置 `Engine.time_scale`，退出对局后恢复本机设置。速度只改变每秒执行多少个固定步，不影响确定性。机器过载时每个渲染帧最多执行 2 × 速度 步，对局整体减速而不是画面长时间卡住。
-- 一帧包含有序操作、结束 `tick` 和 SHA-256 状态摘要；无操作时发送空帧以推进统一时钟。摘要覆盖定点位置、血量、命令与目标、计时器、生产队列、经济、时代/科技、寻路待办、支援计时和双方迷雾，直接写入二进制数组计算，不再每帧序列化完整状态 JSON。每个整模拟秒（tick 为 30 的倍数）的帧改用完整摘要，覆盖关键帧中的全部状态，紧凑摘要未包含的隐藏字段也能在 1 秒内发现分歧（见[性能说明](multiplayer_performance.md#紧凑摘要与完整摘要)）。关键帧仍是完整状态。
-- 帧是流水线式的：主机不等待上一帧确认，最多领先客端最近确认约 0.6 秒的帧（1 倍速 6 帧，2 倍速 12 帧）；双方同时模拟。只有往返延迟或客端处理落后超过该窗口时，主机才暂停推进、游戏减速。客端校验一致后返回 `ack`，主机按 tick 核对已发布的摘要。
-- 客端按到达顺序缓存帧。断流后先攒 1 帧抖动缓冲再继续；等待中的帧超过 2 个时，在每个物理帧的时间预算内多执行几步追赶。观众积压超过 60 帧时改为请求关键帧。对局结束消息到达时，客端先执行完已收到的帧，保证各方最终 tick 一致。
-- 增量帧不能合并或丢弃。缺帧、操作重放失败或校验不符时，客端请求全量关键帧修复，然后继续处理增量帧。主机在帧边界（当前帧 3 步完成并发出后）回答关键帧请求。
+双方都执行固定步长（`1/30` 秒）游戏逻辑，每 3 步为一个逻辑帧边界。开局客机校准时钟并与主机交换 `SYNC_INIT` 后，双方按对齐的单调时钟各自静默推进：**无玩家操作时双方不发送任何空帧报文**，仅每现实秒由主机在整模拟秒边界发送 1 次 13 字节二进制 `HEARTBEAT` 校验 32-bit 状态摘要，客机回复 13 字节 `HEARTBEAT_ACK`。设计与调优边界见 [对等调度与事件驱动静默锁步](online_fair.md)。每位玩家的游戏在本机直接连接自己的 Python AI 服务，AI 操作与手动输入共用未来帧队列，单回合批量 AI 指令自动合包为 `CMD_SUBMIT`。
 
-寻路每步处理固定数量请求，实体按稳定网络 ID 推进；影响移动和战斗的错峰、避让顺序不再依赖进程实例 ID。关键帧包含单位目标、路径、冷却、建筑与训练队列、生产付款、时代/科技研究、箭矢、经济、寻路待办、支援计时和双方迷雾。不会加载消息中指定的脚本或资源路径。
+- 模拟步长固定为 `1/30` 秒，每个网络帧 3 步；1 倍速每秒 30 ticks，默认 2 倍速每秒 60 ticks。
+- 物理帧中按实际墙钟时间 × 对局速度推进，保留普通物理插值；移除本地预测实现，操作按现实时间 100ms 输入预算安排未来执行帧（1 倍速 3 ticks，2 倍速 6 ticks）。
+- 仅在有输入、溢出拒绝或调速/预算策略变化时发送紧凑二进制 `SCHEDULE`（最多 62 条公平排序指令），客机以 10 字节 `SCHEDULE_ACK` 确认或无损顺延。
+- 摘要计算保留 `LockstepState` 在整模拟秒边界的完整二进制 SHA-256（`full_digest`）；常规心跳携带前 32 位摘要（`checksum32`）核对，失步时客机请求全量压缩关键帧（zlib + Base64）恢复。
 
-协议 v4 使用整数定点模拟状态：时间单位为 1/30720 秒，每步精确增加 1024；血量、携带量、资源余量和坐标精度为 1/1024。冷却、建造、训练、研究、治疗和弹道推进使用整数运算；采集、治疗和弹道保留除法余数，关键帧同时恢复这些余数。命中距离、部分碰撞、迷雾栅格和墙方向也使用整数计算。界面、存档兼容接口仍可读取秒数和小数值。
+## 传输格式
 
-攻击接近点、队伍集结位置和建筑作业点在整数坐标网格上计算。A* 使用直行 10、斜行 14 的代价和跳点搜索。攻击与死亡使用单位目录中的固定动作时长，精灵朝向和显示帧不参与校验。避让、邻居查询及视线检测沿用[原生模拟内核](native_simulation.md)。
-
-主机生成湖面后将岸线顶点量化到 1/1024 格。关键帧保存实际轮廓，玩家和观众从同一组顶点判断涉水、碰撞和建筑放置。超过 JSON 精确数字范围的避让缓存整数按十进制字符串传输。引擎接口、部分建筑放置和旧的几何接口仍使用浮点数，其余浮点状态保留精确位模式。跨架构整局一致性仍需在对应设备验证。
-
-## 消息格式
-
-端点 `/ws` 使用 UTF-8 JSON 文本帧。下面省略了实际 64 字符校验值和完整关键帧内容；完整字段校验见服务端 `protocol.py`。
-
-```json
-{"type":"join_queue","protocol_version":4,"name":"玩家","civ":"chinese"}
-{"type":"ready"}
-{"type":"command","seq":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
-{"type":"frame","tick":3,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"…"}
-{"type":"ack","tick":3,"checksum":"…"}
-{"type":"request_keyframe"}
-{"type":"keyframe_request","request_id":"服务端生成的请求ID"}
-{"type":"keyframe","request_id":"服务端生成的请求ID","tick":3,"state":{"world":{},"simulation":{}},"checksum":"…"}
-```
-
-`command.seq` 按玩家独立递增；服务根据连接注入 `team`，玩家不能冒充其他队伍。`frame.tick` 从 3 开始，每次增加 3。只有被选中的主机能发布帧、回答关键帧和提交胜负。服务仅向请求者转发关键帧，不缓存或周期广播全量世界；同一时刻多个请求可共用一份响应。单条操作限 16 KiB、一帧最多 64 条操作/256 KiB、全量消息限 4 MiB。
-
-开始消息 `match_found` 包含 `match_id/team/host_team/players/seed/protocol_version/tick_rate/frame_ticks`。双方 `ready` 后收到 `start`；客端载入初始关键帧并确认后才推进第一帧。`ping/pong`、匹配取消、主动离开及 `match_ended` 保留原有功能。
-
-## 观战和权限
-
-大厅「观看对战」显示已经开局的对局。观众加载场景后发出 `watch_ready` 与关键帧请求，恢复主机当前 tick 的完整状态后执行后续增量帧；详见 [观战文档](spectator.md)。观众不参与玩家确认屏障，退出、慢连接或恢复失败不会结束玩家对局。切换队伍视角或显示全图只影响本地显示，不能下令或开启 AI 托管。
-
-此实现信任随机选出的游戏主机。Python 服务校验消息身份和格式，游戏主机负责规则校验，不具备独立服务器反作弊。所有参与者持有全场状态；迷雾只限制正常界面。请使用相同游戏和 Godot 构建；当前回归覆盖本机 Windows 多进程，没有验证跨架构浮点运算一致性。尚无断线重连或主机迁移。
+端点 `/ws` 采用 **JSON 文本帧 + 二进制帧** 混合传输：
+- **JSON 文本帧**：仅用于匹配与低频控制/恢复（`join_queue`、`cancel_queue`、`ready`、`request_keyframe`、`keyframe`、`finish_match`、`leave`、`ping`/`pong`、`queued`、`queue_cancelled`、`match_found`、`start`、`match_ended`、`error`）。
+- **二进制帧**：所有局内高频同步报文（`0x01 CLOCK_PROBE`、`0x02 CLOCK_REPLY`、`0x03 SYNC_INIT`、`0x04 CMD_SUBMIT`、`0x05 SCHEDULE`、`0x06 SCHEDULE_ACK`、`0x07 HEARTBEAT`、`0x08 HEARTBEAT_ACK`），小端编码并做严格边界、有限浮点、规范 varint 和身份校验。
 
 ## 战绩与验证
 
-`http://服务器地址:端口/` 或 `/leaderboard` 提供战绩排行榜。开局后退出/掉线计负，准备阶段中止或无胜者结束不计入；观众不参与排名。SQLite 数据卷及部署设置见服务 README。
-
-当前 v4 回归入口：
+`http://服务器地址:端口/` 或 `/leaderboard` 提供战绩排行榜。开局后退出/掉线计负，准备阶段中止或无胜者结束不计入。SQLite 数据卷及部署设置见服务 README。
 
 ```powershell
-python -m pytest multiplayer_service_python/tests -q
+.\.godot\civ-python\Scripts\python.exe -m pytest -o cache_dir=.godot/pytest_cache multiplayer_service_python/tests -q
 Godot_console.exe --headless --path . --script res://tests/run_incremental_transport.gd
+Godot_console.exe --headless --path . --script res://tests/run_online_fair.gd
 Godot_console.exe --headless --path . --script res://tests/run_lockstep_state.gd
-Godot_console.exe --headless --path . --script res://tests/run_lockstep_combat_frames.gd
-python tools/test_incremental_e2e.py --godot "<Godot console executable>"
-python tools/test_incremental_e2e.py --godot "<Godot console executable>" --default-map --host-team 1
+.\.godot\civ-python\Scripts\python.exe tools/test_incremental_e2e.py --godot "<Godot console executable>"
+.\.godot\civ-python\Scripts\python.exe tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 0 --traffic-report
 ```
-
-性能探针（见[性能说明](multiplayer_performance.md)）：
-
-```powershell
-Godot_console.exe --headless --path . --script res://tests/bench_lockstep_frame.gd -- 60 40
-python tools/bench_lockstep_e2e.py --godot "<Godot console executable>" --army 30 --seconds 20
-```
-
-集成测试启动临时回环服务、两个真实游戏进程及晚加入的观众，比较最终状态摘要，并故意扰动客端资源验证修复。`--host-team` 只在测试进程中控制随机选择，生产服务没有此选项。旧的周期快照性能测试属于 v1，当前协议使用上述入口。带宽及取舍见 [性能说明](multiplayer_performance.md)。

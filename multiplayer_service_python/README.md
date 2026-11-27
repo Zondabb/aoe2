@@ -18,37 +18,14 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 健康检查：`GET http://127.0.0.1:8001/healthz`。
 
-## 增量指令同步与观战
+## 事件驱动二进制同步（协议 v10）
 
-服务使用 **协议 v4**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v3 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
+服务使用 **协议 v10**（已移除在线观战）。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号决定单位归属，和主机身份独立。旧版 v1–v9 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
 
-双方玩家只提交操作。服务根据连接身份注入队伍，转交本局主机校验；主机每批执行三个固定模拟步，发布按序排列的合法操作和状态校验值。另一位玩家与观众用相同操作推进自己的模拟，不再持续接收世界快照。客端玩家返回 `ack`，主机确认校验值相同后推进下一批；观众的确认不参与对局等待。
+- **JSON 文本帧**：仅用于匹配队列（`join_queue`/`cancel_queue`）、准备（`ready`）、失步关键帧恢复（`request_keyframe`/`keyframe`）、终局（`finish_match`/`match_ended`）与低频保活（`ping`/`pong`）。
+- **二进制帧**：局内时钟校准（`0x01`/`0x02`）、开局同种子时间线同步（`0x03 SYNC_INIT`）、玩家指令批量提交（`0x04 CMD_SUBMIT`）、两阶段日程确认（`0x05 SCHEDULE` / `0x06 SCHEDULE_ACK`）及 1 Hz 32-bit 摘要心跳（`0x07 HEARTBEAT` / `0x08 HEARTBEAT_ACK`）。无操作时不发送空帧；若 `SCHEDULE` 迟到，客机以 `accepted=0` 通知主机无损顺延，不触发关键帧重传。
 
-UTF-8 JSON 文本帧，端点 `/ws`。核心消息（示例中的校验值实际为 64 位 SHA-256 十六进制串）：
-
-```json
-{"type":"join_queue","protocol_version":4,"name":"玩家","civ":"chinese"}
-{"type":"ready"}
-{"type":"command","seq":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
-{"type":"frame","tick":3,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"64位校验值"}
-{"type":"ack","tick":3,"checksum":"64位校验值"}
-{"type":"request_keyframe"}
-{"type":"keyframe","request_id":"服务分配的32位ID","tick":3,"state":{"world":{},"simulation":{}},"checksum":"64位校验值"}
-```
-
-`command.seq` 是每位玩家独立递增序号。`frame.tick` 必须从 3 开始，每次增加 3，重复或缺帧拒绝；只有主机能发送 `frame`、`keyframe` 或 `finish_match`。空操作帧仍传递时钟和校验值。每批最多 64 个操作、256 KiB，每条操作最多 16 KiB；完整关键帧最多 4 MiB。Python 只检查协议和身份，游戏规则及状态校验由游戏主机/客端执行。
-
-联机大厅列出双方已开局的对局；观众加入后走以下流程：
-
-1. `list_matches` 返回双方名称、文明、局时长与观众数；`watch_match` 返回 `spectate_started`，含显式 `role="spectator"`、随机 `host_team` 和模拟参数。
-2. 场景加载完成后发送 `watch_ready`，再发送 `request_keyframe`。服务分配请求 ID，将 `keyframe_request` 发给主机；主机在完整模拟帧边界捕获全量状态并回答。
-3. 关键帧只转交服务记录的请求者；之后按连接上的顺序接收增量 `frame`。加载期间不向观众堆积指令帧，观众在关键帧到达前忽略帧，恢复后从对应 tick 继续运算。缺帧或校验不一致时重新请求关键帧。
-
-服务不缓存全量状态。并发请求合并成一次主机捕获，目标集合由服务维护；单人重复请求不会增加主机队列。房间请求间隔受 `KEYFRAME_REQUEST_INTERVAL` 和最大关键帧带宽预算共同限制；`keyframe_rate_limited` 可等待后重试，主机超过 `KEYFRAME_TIMEOUT` 未回答则返回 `keyframe_timeout`。观众退出会移除自己的待响应资格，晚到的已取消响应不会结束玩家对局。
-
-观众没有玩家队伍，不能发送操作、AI 托管开关、准备、帧或胜负结算。视角切换与解除迷雾只影响显示，无法控制单位。观众离开、掉线或接收过慢不会结束双方对局或计入排行榜。
-
-只读 HTTP 列表 `GET /api/matches` 返回 `{"matches":[...]}`，设置 `Cache-Control: no-store`，不包含指令或世界数据。默认每局最多 16 位观众、列表最多 64 局，通过 `AOE2_MP_MAX_SPECTATORS_PER_MATCH` 和 `AOE2_MP_MAX_LISTED_MATCHES` 配置。观战满员返回 `spectators_full`，已结束或尚未开局返回 `match_unavailable`。
+健康检查：`GET http://127.0.0.1:8001/healthz`。服务不缓存全量世界状态，仅在异常失步时向请求者转发压缩关键帧。
 
 ## Web 排行榜
 
@@ -112,7 +89,7 @@ docker run --rm -p 8001:8001 -v aoe2-multiplayer-data:/data aoe2-multiplayer
 - `LEADERBOARD_DB`：SQLite 文件路径，默认服务目录的 `data/leaderboard.sqlite3`；Docker 默认 `/data/leaderboard.sqlite3`。
 - `MAX_CONNECTIONS=128`、`MAX_QUEUE=128`。
 - `MAX_MESSAGE_BYTES=4194304`、`MAX_COMMAND_BYTES=16384`。
-- `MESSAGES_PER_SECOND=90`、`MESSAGE_BURST=180`、`OUTGOING_QUEUE_SIZE=64`（每个连接待发送的消息数）。
+- `MESSAGES_PER_SECOND=300`、`MESSAGE_BURST=600`、`OUTGOING_QUEUE_SIZE=64`（每个连接待发送的消息数）。
 - `BYTES_PER_SECOND=4194304`、`BYTE_BURST=8388608`。
 - `KEYFRAME_REQUEST_INTERVAL=1`、`KEYFRAME_TIMEOUT=10`（秒）；房间请求间隔还会预留至少 25% 带宽供普通指令使用。
 - `IDLE_TIMEOUT=30`、`QUEUE_TIMEOUT=120`、`READY_TIMEOUT=30`、`MATCH_TIMEOUT=10800`（秒）。
@@ -126,6 +103,6 @@ docker run --rm -p 8001:8001 -v aoe2-multiplayer-data:/data aoe2-multiplayer
 ./multiplayer_service_python/.venv/Scripts/python.exe -m pytest multiplayer_service_python/tests -q
 ```
 
-服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v4；游戏模拟和关键帧恢复的验证入口见下方联机说明。
+服务测试覆盖随机主机的两个分配结果、操作身份、连续帧序号、关键帧请求与响应路由、超时/退出清理、16 人并发观战请求合并以及排行榜隔离。旧版快照协议测试已迁移到 v9；游戏模拟和关键帧恢复的验证入口见下方联机说明。
 
 协议与客户端实现见 [联机说明](../docs/multiplayer.md)。

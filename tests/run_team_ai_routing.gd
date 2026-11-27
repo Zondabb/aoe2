@@ -52,22 +52,16 @@ func _run() -> void:
 	root.add_child(controller)
 	controller.online = true
 	controller.local_team = 0
-	check(controller.request_team_service_url(1, "http://localhost:9876/"), "host may configure guest service")
-	check(controller.team_service_url(1) == "http://localhost:9876", "host endpoint update is normalized")
-	check(not controller.request_team_service_url(1, "http://name@localhost"), "invalid update is rejected")
-	check(controller.team_service_url(1) == "http://localhost:9876", "invalid update preserves previous endpoint")
+	check(not controller.request_team_service_url(1, "http://localhost:9876"), "only local player can select its endpoint")
 	var old := FakeGateway.new()
 	controller.add_child(old)
 	controller._gateways[0] = old
 	check(controller.request_team_service_url(0, "http://localhost:9999"), "host may update own endpoint")
 	check(old.stopped and not controller._gateways.has(0), "endpoint switch stops and removes old gateway")
-	var snapshot: Dictionary = controller.capture_states()
-	check(snapshot["0"].service_url == "http://localhost:9999" and snapshot["1"].service_url == "http://localhost:9876", "public snapshot includes both service roots")
-	check(not JSON.stringify(snapshot).contains("test-token") and not snapshot["0"].has("api_token"), "service credentials never enter public snapshot")
 	controller.local_team = 1
-	controller.apply_remote_states(snapshot)
-	check(controller.team_service_url(0) == snapshot["0"].service_url and controller.team_service_url(1) == snapshot["1"].service_url, "guest reads authoritative host endpoints")
-	check(not controller.request_team_service_url(0, "http://localhost:1") and not controller.request_team_service_url(1, "http://localhost:1"), "guest cannot direct host HTTP requests for either team")
+	check(controller.team_service_url(0).is_empty(), "other endpoint is private")
+	check(controller.request_team_service_url(1, "http://localhost:9876/"), "guest can configure its endpoint")
+	check(not controller.request_team_service_url(1, "invalid") and controller.team_service_url(1) == "http://localhost:9876", "invalid change preserves active route")
 	controller.online = false
 	controller.local_team = 0
 	check(not controller.request_team_service_url(1, "http://localhost:1"), "single player cannot modify opponent player control")
