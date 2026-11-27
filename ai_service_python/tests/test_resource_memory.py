@@ -248,3 +248,136 @@ def test_economy_manager_rebalance_hysteresis_does_not_oscillate_between_food_an
     ctx = CommandContext(tick=1)
     EconomyManager().assign_gatherers(ctx, bb, profile_for_id("chinese"), PHASE_BOOM)
     assert ctx.commands == []
+
+
+def test_receding_forest_or_second_woodline_builds_additional_lumber_camp():
+    from brain.cabinet.runtime import CabinetRuntime
+
+    def make_req(seq, *, second_camp=False):
+        lumberjacks = [
+            unit(10 + i, pos=[56, 0], order="GATHER", target_id=102, last_resource_id=102, gather_resource_type="WOOD")
+            for i in range(4)
+        ]
+        farmers = [
+            unit(14 + i, pos=[-16, 24], order="GATHER", target_id=300, last_resource_id=300, gather_resource_type="FOOD")
+            for i in range(2)
+        ]
+        buildings = [
+            building(1, "town_center"),
+            building(2, "barracks", [16, 16]),
+            building(3, "mill", [-16, 16]),
+            building(300, "farm", [-16, 24], amount=300, resource_type="FOOD"),
+            building(4, "lumber_camp", [20, 0]),
+        ]
+        if second_camp:
+            buildings.append(building(5, "lumber_camp", [50, 6]))
+        entities = [
+            *buildings,
+            *lumberjacks,
+            *farmers,
+            unit(16, pos=[44, 0]),
+            unit(17, pos=[0, 10]),
+            resource(101, "WOOD", [26, 0], amount=100),
+            resource(102, "WOOD", [58, 0], amount=800),
+        ]
+        options = [
+            {"building_def_id": "lumber_camp", "builder_id": 17, "pos": [24, 8], "resource_target_id": 101},
+            {"building_def_id": "lumber_camp", "builder_id": 16, "pos": [50, 6], "resource_target_id": 102},
+            {"building_def_id": "farm", "builder_id": 17, "pos": [-24, 24]},
+        ]
+        req = frame(seq, entities=entities, time=seq * 10, catalog=FULL_CATALOG, construction_options=options)
+        req.observation.economy.wood = 200
+        req.observation.economy.food = 300
+        return req
+
+    probe = MultiAgentRuntime("chinese")
+    req_probe = make_req(1)
+    req_probe.observation.decision_context["construction_options"] = []
+    probe.tick(req_probe)
+    kept = probe._sane_drop_off_sites(probe.frame, "lumber_camp", make_req(1).observation.decision_context["construction_options"][:2])
+    assert [o["pos"] for o in kept] == [[50, 6]]
+
+    for runtime in (MultiAgentRuntime("chinese"), CabinetRuntime("chinese")):
+        out = runtime.tick(make_req(1))
+        placed = issued(out, "place_building")
+        assert [(c["building_def_id"], c["pos"]) for c in placed] == [("lumber_camp", [50, 6])]
+        if isinstance(runtime, CabinetRuntime):
+            req_camp = next(r for r in out["agent_status"]["economy"]["requests"] if r["item"] == "lumber_camp")
+            assert req_camp["urgency"] >= 2 and req_camp["tier"] in ("next", "now")
+
+        after = runtime.tick(make_req(2, second_camp=True))
+        assert not [c for c in issued(after, "place_building") if c["building_def_id"] == "lumber_camp"]
+
+
+def test_depleted_gold_or_distant_stone_builds_additional_mining_camp():
+    from brain.cabinet.models import Mandate
+    from brain.cabinet.runtime import CabinetRuntime
+
+    def make_gold_req(seq, *, second_camp=False):
+        miners = [
+            unit(10 + i, pos=[60, -10], order="GATHER", target_id=102, last_resource_id=102, gather_resource_type="GOLD")
+            for i in range(3)
+        ]
+        workers = [unit(13 + i, pos=[0, 8]) for i in range(9)]
+        buildings = [
+            building(1, "town_center"),
+            building(2, "barracks", [16, 16]),
+            building(3, "mill", [-16, 16]),
+            building(300, "farm", [-16, 24], amount=300, resource_type="FOOD"),
+            building(4, "mining_camp", [20, -10]),
+        ]
+        if second_camp:
+            buildings.append(building(5, "mining_camp", [54, -10]))
+        entities = [
+            *buildings,
+            *miners,
+            *workers,
+            resource(102, "GOLD", [62, -10], amount=800),
+        ]
+        options = [
+            {"building_def_id": "mining_camp", "builder_id": 13, "pos": [24, -14]},
+            {"building_def_id": "mining_camp", "builder_id": 14, "pos": [54, -10], "resource_target_id": 102},
+        ]
+        req = frame(seq, entities=entities, time=seq * 10, catalog=FULL_CATALOG, construction_options=options)
+        req.observation.economy.wood = 200
+        req.observation.economy.food = 200
+        return req
+
+    for runtime in (MultiAgentRuntime("chinese"), CabinetRuntime("chinese")):
+        out = runtime.tick(make_gold_req(1))
+        placed = issued(out, "place_building")
+        assert [(c["building_def_id"], c["pos"]) for c in placed] == [("mining_camp", [54, -10])]
+        after = runtime.tick(make_gold_req(2, second_camp=True))
+        assert not [c for c in issued(after, "place_building") if c["building_def_id"] == "mining_camp"]
+
+    stone_runtime = CabinetRuntime("chinese")
+    stone_runtime.mandates = [Mandate("defense", "towers", amount=3, origin="order#1")]
+    stone_miners = [
+        unit(10 + i, pos=[54, 25], order="GATHER", target_id=103, last_resource_id=103, gather_resource_type="STONE")
+        for i in range(2)
+    ]
+    stone_entities = [
+        building(1, "town_center"),
+        building(2, "barracks", [16, 16]),
+        building(3, "mill", [-16, 16]),
+        building(300, "farm", [-16, 24], amount=300, resource_type="FOOD"),
+        building(4, "mining_camp", [20, -10]),
+        *stone_miners,
+        *[unit(12 + i, pos=[0, 8]) for i in range(8)],
+        resource(103, "STONE", [55, 25], amount=400),
+    ]
+    stone_req = frame(
+        1,
+        entities=stone_entities,
+        time=10,
+        catalog=FULL_CATALOG,
+        construction_options=[
+            {"building_def_id": "mining_camp", "builder_id": 12, "pos": [48, 25], "resource_target_id": 103},
+        ],
+    )
+    stone_req.observation.progression.age = 1
+    stone_req.observation.economy.wood = 300
+    stone_req.observation.economy.food = 200
+    stone_req.observation.economy.stone = 50
+    stone_out = stone_runtime.tick(stone_req)
+    assert any(c["building_def_id"] == "mining_camp" and c["pos"] == [48, 25] for c in issued(stone_out, "place_building"))

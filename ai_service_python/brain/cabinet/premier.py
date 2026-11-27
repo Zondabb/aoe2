@@ -60,7 +60,7 @@ INTERPRET_PROMPT = (
     "任务书的 kind 如下：\n"
     "boost_resource 多采一种资源，subject 填 food、wood、gold 或 stone；\n"
     "worker_target 村民总数的目标，amount 填总数；\n"
-    "stockpile 囤积一种兵，subject 填 names.units 里的 id，amount 填数量；\n"
+    "stockpile 囤兵，amount 填目标数量；指定具体兵种时 subject 填 names.units 里的 id，未指定具体兵种（如“屯够50人口兵力再出兵”“攒30个兵”）时 subject 填空字符串 \"\"（按总军事人口计，不要擅自限定单一兵种）；\n"
     "attack 现在出兵进攻（若同一条指令同时含 stockpile 和 attack，会自动按兵不动攒够数量再出击）；hold 按兵不动；\n"
     "build 建造或扩建建筑，subject 填建筑 id（barracks 兵营、archery_range 靶场、stable 马厩、siege_workshop 攻城武器厂、castle 城堡、"
     "town_center 城镇中心、house 房屋、mill 磨坊、farm 农田、lumber_camp 伐木场、mining_camp 采矿场、blacksmith 铁匠铺、market 市场、"

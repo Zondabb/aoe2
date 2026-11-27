@@ -30,7 +30,12 @@ UNITS, TECHS = CATALOG["units"], NAMES["technologies"]
 
 MIN_WORKER_TARGET = 16
 WORKER_RANGE = (8, 60)
-STOCKPILE_CAP = 60          # one order's worth of a unit; the population limit is the real ceiling
+STOCKPILE_CAP = 60          # one order's worth of a single unit; the population limit is the real ceiling
+ARMY_STOCKPILE_CAP = 150    # generic total military population target
+POPULATION_CAP_CEILING = 200
+POPULATION_SATURATION_CAP = 150
+POPULATION_SATURATION_RATIO = 0.92
+MIN_FALLBACK_ARMY = 4
 STOCKPILE_DEFAULT = 10      # "more of them", when no number was given
 BUILD_CAP = 12              # one order's target count of a building
 MAX_MANDATES = 3
@@ -186,22 +191,24 @@ def ground(raw: list, civ: str, age: int, origin: str = ROUTINE) -> Grounding:
                 amount = max(low, min(high, amount))
             subject = ""
         elif kind == "stockpile":
-            if subject not in UNITS:
-                result.problems.append(f"stockpile 的 subject 必须是 names.units 里的 id，不能是 {subject or '空'}")
-                continue
-            if not _allowed(UNITS[subject], civ):
-                replacement = _replacement_unit(subject, civ)
-                if replacement is None:
-                    result.problems.append(f"{civ_name(civ)}造不了 {subject}，也没有相近的兵种")
+            if subject:
+                if subject not in UNITS:
+                    result.problems.append(f"stockpile 的 subject 必须是 names.units 里的 id，不能是 {subject}")
                     continue
-                result.notes.append(f"{civ_name(civ)}造不了{name_of(subject)}，改为{name_of(replacement)}")
-                subject = replacement
+                if not _allowed(UNITS[subject], civ):
+                    replacement = _replacement_unit(subject, civ)
+                    if replacement is None:
+                        result.problems.append(f"{civ_name(civ)}造不了 {subject}，也没有相近的兵种")
+                        continue
+                    result.notes.append(f"{civ_name(civ)}造不了{name_of(subject)}，改为{name_of(replacement)}")
+                    subject = replacement
+            cap = STOCKPILE_CAP if subject else ARMY_STOCKPILE_CAP
             if amount is None:
                 result.notes.append(f"没有说数量，先按 {STOCKPILE_DEFAULT} 个")
                 amount = STOCKPILE_DEFAULT
-            elif amount > STOCKPILE_CAP:
-                result.notes.append(f"{amount} 个超过一次指令的上限，按 {STOCKPILE_CAP} 个执行")
-                amount = STOCKPILE_CAP
+            elif amount > cap:
+                result.notes.append(f"{amount} 个超过一次指令的上限，按 {cap} 个执行")
+                amount = cap
         elif kind == BUILD:
             if subject not in BUILDABLE_BUILDINGS:
                 result.problems.append(f"build 的 subject 必须是可建造建筑 id，不能是 {subject or '空'}")
@@ -393,11 +400,53 @@ def policy_entries(script: list[dict], age: int, done: set[int]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------- how far a mandate has got
+def military_population(f) -> int:
+    """Total population of all living non-villager units on the field."""
+    return sum(int(UNITS.get(u.get("def_id"), {}).get("population", 1))
+               for u in f.units if u.get("def_id") != "villager")
+
+
+def stockpile_count(mandate: Mandate, f) -> int:
+    """Living count for a specific unit (plus later upgrade forms), or total military pop when generic."""
+    if not mandate.subject:
+        return military_population(f)
+    family = {mandate.subject} | later_forms(mandate.subject)
+    return sum(1 for u in f.units if u.get("def_id") != "villager" and u.get("def_id") in family)
+
+
+def population_full_for_muster(f, stockpiles: list[Mandate]) -> bool:
+    """Whether training is blocked by population ceiling/saturation so a deferred sortie should launch."""
+    if not stockpiles:
+        return False
+    pop_cap = int(getattr(f, "pop_cap", 0) or 0)
+    pop_used = int(getattr(f, "pop_used", 0) or 0)
+    if pop_cap <= 0:
+        return False
+    mil_pop = military_population(f)
+    if mil_pop < MIN_FALLBACK_ARMY:
+        return False
+    min_unit_pop = min(
+        (int(UNITS.get(m.subject, {}).get("population", 1)) if m.subject else 1 for m in stockpiles),
+        default=1,
+    )
+    has_house_foundation = any(b.get("def_id") == "house" and not b.get("is_complete") for b in f.buildings)
+    has_house_site = any(isinstance(o, dict) and o.get("building_def_id") == "house"
+                         for o in f.context.get("construction_options", []))
+    cannot_expand = not has_house_foundation and (pop_cap >= POPULATION_CAP_CEILING or not has_house_site)
+    if pop_used + min_unit_pop > pop_cap and cannot_expand:
+        return True
+    max_target = max((int(m.amount or 0) for m in stockpiles), default=0)
+    if (pop_cap >= POPULATION_SATURATION_CAP
+            and pop_used >= int(pop_cap * POPULATION_SATURATION_RATIO)
+            and mil_pop >= max(max_target, 50)):
+        return True
+    return False
+
+
 def progress(mandate: Mandate, f, engine, since: float = 0.0) -> tuple[bool, str]:
     """Whether a mandate has been carried out, and a short figure for the ledger."""
     if mandate.kind == "stockpile" and mandate.amount:
-        family = {mandate.subject} | later_forms(mandate.subject) if mandate.subject else None
-        have = sum(u.get("def_id") != "villager" and (family is None or u.get("def_id") in family) for u in f.units)
+        have = stockpile_count(mandate, f)
         return have >= mandate.amount, f"{have}/{mandate.amount}"
     if mandate.kind == "worker_target" and mandate.amount:
         have = sum(u.get("def_id") == "villager" for u in f.units)

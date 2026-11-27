@@ -318,7 +318,7 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 	var radii: Array = [26.0, 30.0, 34.0, 44.0, 50.0, 56.0, 68.0]
 	if record.id in ["lumber_camp", "mining_camp", "mill"]:
 		zone = "resource_drop_off"
-		anchors = _resource_anchors(record.id, snapshots, base)
+		anchors = _resource_anchors(record.id, snapshots, base, team)
 		radii = [10.0, 14.0, 18.0]
 		if record.id == "mill":
 			# A reserved wall band can cover both old 26/34 fallback rings.
@@ -376,7 +376,7 @@ static func _construction_for_record(work: Dictionary, record: Dictionary, state
 				"exit_pos": Protocol.vec2_to_array(exit_pos), "reasons": ["visible_legal_footprint", "known_route", "adjacent_farm_cluster"]})
 			chosen_points[point] = true
 	var max_positions := FARM_POSITIONS_PER_BUILDING if zone == "farm" else POSITIONS_PER_BUILDING
-	var max_route_checks := FARM_MAX_ROUTE_CHECKS if zone == "farm" else MAX_ROUTE_CHECKS_PER_BUILDING
+	var max_route_checks := FARM_MAX_ROUTE_CHECKS if zone == "farm" else (6 if zone == "resource_drop_off" else MAX_ROUTE_CHECKS_PER_BUILDING)
 	var found := result.size()
 	var checked := 0
 	var index := 0
@@ -652,16 +652,59 @@ static func _farm_anchors(snapshots: Array, team: int) -> Array:
 	return anchors
 
 
-static func _resource_anchors(building_id: String, snapshots: Array, base: Vector2) -> Array:
+static func _resource_anchors(building_id: String, snapshots: Array, base: Vector2, team: int = -1) -> Array:
 	var allowed: Array = ["WOOD"] if building_id == "lumber_camp" else ["GOLD", "STONE"] if building_id == "mining_camp" else ["FOOD"]
 	var resources: Array = snapshots.filter(func(item): return item.get("kind") == "resource" and String(item.get("resource_type", "")).to_upper() in allowed and float(item.get("amount", 0)) > 0)
-	resources.sort_custom(func(a, b): return Protocol.array_to_vec2(a.pos).distance_squared_to(base) < Protocol.array_to_vec2(b.pos).distance_squared_to(base))
-	var result: Array = []
+	var own_camps: Array[Vector2] = []
+	var own_tcs: Array[Vector2] = []
+	var active_resource_ids := {}
+	var gatherer_positions: Array[Vector2] = []
+	if team >= 0 and building_id in ["lumber_camp", "mining_camp"]:
+		var allowed_resource_ids := {}
+		for r: Dictionary in resources:
+			allowed_resource_ids[r.id] = true
+		for item: Dictionary in snapshots:
+			if int(item.get("team", -1)) != team: continue
+			if item.get("kind") == "building" and float(item.get("hp", 0)) > 0:
+				var bid := String(item.get("def_id", ""))
+				if bid == building_id:
+					own_camps.append(Protocol.array_to_vec2(item.pos))
+				elif bid == "town_center":
+					own_tcs.append(Protocol.array_to_vec2(item.pos))
+			elif item.get("kind") == "unit" and item.get("def_id") == "villager" and item.get("order") == "GATHER":
+				var target_id: Variant = item.get("target_id")
+				var last_id: Variant = item.get("last_resource_id")
+				var carry := String(item.get("carry_type", "")).to_upper()
+				if carry in allowed or (target_id != null and allowed_resource_ids.has(target_id)) or (last_id != null and allowed_resource_ids.has(last_id)):
+					if target_id != null: active_resource_ids[target_id] = true
+					if last_id != null: active_resource_ids[last_id] = true
+					gatherer_positions.append(Protocol.array_to_vec2(item.pos))
+	if own_camps.is_empty():
+		resources.sort_custom(func(a, b): return Protocol.array_to_vec2(a.pos).distance_squared_to(base) < Protocol.array_to_vec2(b.pos).distance_squared_to(base))
+		var result: Array = []
+		for resource: Dictionary in resources:
+			var point: Vector2 = Protocol.array_to_vec2(resource.pos)
+			if result.any(func(anchor): return anchor.pos.distance_to(point) < 12.0): continue
+			result.append({"pos": point, "resource_id": resource.id})
+			if result.size() >= 3: break
+		return result
+	var scored: Array = []
 	for resource: Dictionary in resources:
 		var point: Vector2 = Protocol.array_to_vec2(resource.pos)
+		var served: bool = own_camps.any(func(c_pos: Vector2) -> bool: return c_pos.distance_to(point) <= 22.0) or own_tcs.any(func(tc_pos: Vector2) -> bool: return tc_pos.distance_to(point) <= 18.0)
+		var active: bool = active_resource_ids.has(resource.id) or gatherer_positions.any(func(w_pos: Vector2) -> bool: return w_pos.distance_to(point) <= 16.0)
+		var bonus: float = -30.0 if served else (12.0 if active else 0.0)
+		scored.append({"point": point, "resource_id": resource.id, "served": served, "active": active, "dist_sq": point.distance_squared_to(base), "score_bonus": bonus})
+	scored.sort_custom(func(a, b):
+		if a.served != b.served: return not a.served
+		if a.active != b.active: return a.active
+		return a.dist_sq < b.dist_sq)
+	var result: Array = []
+	for item: Dictionary in scored:
+		var point: Vector2 = item.point
 		if result.any(func(anchor): return anchor.pos.distance_to(point) < 12.0): continue
-		result.append({"pos": point, "resource_id": resource.id})
-		if result.size() >= 3: break
+		result.append({"pos": point, "resource_id": item.resource_id, "score_bonus": item.score_bonus})
+		if result.size() >= 4: break
 	return result
 
 

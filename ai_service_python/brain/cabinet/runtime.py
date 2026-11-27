@@ -29,7 +29,8 @@ from .departments.intel import IntelDept
 from .departments.tech import TechDept
 from .ledger import ACTIVE, LABELS, NEW, OrderLedger
 from .models import IntelBrief, Mandate, Request, order_origin
-from .orders import default_mandates, derive, ground, ground_reading, load_policy, policy_entries, progress, slot
+from .orders import (default_mandates, derive, ground, ground_reading, load_policy, policy_entries,
+                     population_full_for_muster, progress, slot)
 from .premier import (INTERPRET_PROMPT, ORDER_RETRY_LIMIT, ORDER_RETRY_PAUSE, ORDERS_ROLE, OUTPUT_TOKENS, RANK_PROMPT, ROLE as PREMIER, Premier,
                       interpret_context, interpret_schema, rank_context, rank_schema, reading)
 from .treasury import Treasury
@@ -75,6 +76,7 @@ class CabinetRuntime:
         self._decision_threat: dict[int, int] = {}       # model ranking version -> the danger its model saw
         self._order_wall: dict[int, float] = {}          # order number -> wall clock when it arrived
         self._waiting_said: dict[int, str] = {}          # order number -> the reason for waiting already read out
+        self._muster_released: set[int] = set()          # orders whose deferred attack was released on pop cap
         # Entries for the match log, taken by the service after each tick.
         self.journal: list[tuple[str, dict]] = []
         self._logged: dict = {"decision": None, "source": None, "grants": None, "grants_at": -GRANT_LOG_SPACING}
@@ -269,16 +271,28 @@ class CabinetRuntime:
     def _mandates(self, f) -> list[Mandate]:
         """This tick's mandates: the standing ones and the policy script, a player's orders over both, and what each needs first."""
         engine, ledger = self.field, self.ledger
+        self._muster_released &= {o.number for o in ledger.active()}
         for order in ledger.active():
             for mandate in order.mandates:
                 if mandate.kind != "attack" and slot(mandate) not in order.done:
                     ledger.record(order, mandate, *progress(mandate, f, engine, order.received_at))
-            mustering = any(m.kind == "stockpile" and slot(m) not in order.done for m in order.mandates)
+            open_stockpiles = [m for m in order.mandates if m.kind == "stockpile" and slot(m) not in order.done]
+            has_open_attack = any(m.kind == "attack" and slot(m) not in order.done for m in order.mandates)
+            if (open_stockpiles and has_open_attack and order.number not in self._muster_released
+                    and population_full_for_muster(f, open_stockpiles)):
+                self._muster_released.add(order.number)
+                engine.debug.append({
+                    "category": "MULTI_AGENT",
+                    "message": f"cabinet: order#{order.number} muster released by population cap fallback ({f.pop_used}/{f.pop_cap})",
+                })
+            mustering = bool(open_stockpiles) and order.number not in self._muster_released
             for mandate in order.mandates:
                 if mandate.kind == "attack" and slot(mandate) not in order.done:
                     finished, figure = (False, "") if mustering else progress(mandate, f, engine, order.received_at)
                     ledger.record(order, mandate, finished, figure)
         ledger.prune()
+        self._muster_released &= {o.number for o in ledger.active()}
+        self.general.released_origins = {order_origin(n) for n in self._muster_released}
         scripted = []
         for entry in policy_entries(self.policy or [], f.age, self.policy_done):
             since = self.policy_since.setdefault(entry["number"], engine.now)

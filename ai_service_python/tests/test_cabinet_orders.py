@@ -12,8 +12,8 @@ import pytest
 from brain.cabinet.departments.base import Department
 from brain.cabinet.ledger import ACTIVE, DONE, IMPOSSIBLE, NEW, REFUSED, SUPERSEDED, UNANSWERED, UNREAD, OrderLedger
 from brain.cabinet.models import IntelBrief, Mandate, Request, order_origin
-from brain.cabinet.orders import (BUILD, NAMES, STOCKPILE_CAP, Grounding, default_mandates, derive, ground, later_forms, load_policy,
-                                  name_table, needs_of, policy_entries, progress, slot, subject_ids)
+from brain.cabinet.orders import (ARMY_STOCKPILE_CAP, BUILD, NAMES, STOCKPILE_CAP, Grounding, default_mandates, derive, ground,
+                                  later_forms, load_policy, name_table, needs_of, policy_entries, progress, slot, subject_ids)
 from brain.cabinet.premier import INTERPRET_PROMPT, default_tiers, interpret_context, interpret_schema, reading
 from brain.cabinet.runtime import CabinetRuntime
 from brain.cabinet.treasury import Treasury
@@ -112,6 +112,10 @@ def test_an_answer_can_only_name_what_the_catalog_holds():
     # guessed: the model left the amount open
     ("teutons", 2, [m("stockpile", "knight")], [("general", "stockpile", "knight", 10, "normal")], ["没有说数量，先按 10 个"]),
     ("chinese", 1, [m("advance_age")], [("tech", "advance_age", None, 2, "normal")], []),
+    # generic army population stockpile (empty subject)
+    ("chinese", 2, [m("stockpile", "", 50)], [("general", "stockpile", None, 50, "normal")], []),
+    ("chinese", 2, [m("stockpile", "", 500)], [("general", "stockpile", None, ARMY_STOCKPILE_CAP, "normal")],
+     [f"500 个超过一次指令的上限，按 {ARMY_STOCKPILE_CAP} 个执行"]),
     # villagers are counted as a total, whatever kind the model chose
     ("chinese", 1, [m("stockpile", "villager", 30)], [("economy", "worker_target", None, 30, "normal")], []),
     # said twice in one order: the later wording stands
@@ -128,7 +132,6 @@ def test_an_interpretation_is_checked_against_the_catalog_and_repaired(civ, age,
 
 @pytest.mark.parametrize("civ, said, problem", [
     ("teutons", [m("stockpile", "chemistry", 5)], "stockpile 的 subject 必须是 names.units 里的 id，不能是 chemistry"),
-    ("teutons", [m("stockpile", "", 5)], "stockpile 的 subject 必须是 names.units 里的 id，不能是 空"),
     ("teutons", [m("research", "knight")], "research 的 subject 必须是 names.techs 里的 id，不能是 knight"),
     ("teutons", [m("boost_resource", "knight")], "boost_resource 的 subject 必须是 food、wood、gold、stone 之一，不能是 knight"),
     ("teutons", [m("worker_target")], "worker_target 需要 amount：村民总数"),
@@ -847,3 +850,172 @@ def test_appended_order_keeps_inflight_order_reading_and_prioritizes_next_order(
         assert [o["status"].split()[0] for o in fourth["planning"]["orders"]] == ["执行中", "执行中"]
     finally:
         service.shutdown()
+
+
+def _unit_catalog(*names):
+    import copy
+    return [{"id": name, **copy.deepcopy(CATALOG["units"][name])} for name in names]
+
+
+def test_generic_stockpile_and_attack_counts_mixed_army_and_prioritizes_training():
+    from test_multi_agent_runtime import accept
+
+    runtime = cabinet("chinese")
+    engine = runtime.field
+    engine.roles["combat"].memory["initial_force"] = [100]
+
+    def send(seq, units, now, events=()):
+        entities = [
+            building(1, "town_center"),
+            building(2, "barracks", trainable=["militia"]),
+            building(3, "stable", trainable=["knight"]),
+            enemy_tc(),
+            *[unit(10 + i) for i in range(10)],
+            *units,
+        ]
+        req = stocked(frame(seq, entities=entities, time=now, events=events), food=1000, wood=500, gold=1000)
+        req.observation.economy.pop_used = 10 + len(units)
+        req.observation.economy.pop_cap = 100
+        req.observation.progression = Progression(age=2)
+        req.observation.decision_context["catalog"]["units"] = _unit_catalog("villager", "militia", "knight", "archer")
+        req.observation.player_instructions = ["屯够50人口兵力再出兵"]
+        return runtime.tick(req)
+
+    mixed_49 = [*army(20), *[unit(100 + i, "knight") for i in range(15)], *[unit(200 + i, "archer") for i in range(14)]]
+    first = send(1, mixed_49, now=10)
+    runtime.planning_brief("premier_orders")
+    assert runtime.apply_plan("premier_orders", read(m("stockpile", "", 50), m("attack")))
+
+    holding = send(2, mixed_49, now=20, events=accept(first, seq=1))
+    assert engine.hold_army and runtime.general.stance == "hold"
+    assert engine.goals["sortie_departed"] is None
+    assert holding["planning"]["orders"] == [{"id": 1, "text": "屯够50人口兵力再出兵", "status": "执行中 49/50"}]
+    req_knight = requests(holding, "general")["knight"]
+    assert (req_knight["origin"], req_knight["tier"]) == ("order#1", "now")
+    assert "knight" in bought(holding)
+
+    mixed_50 = [*mixed_49, unit(250, "archer")]
+    ready = send(3, mixed_50, now=30, events=accept(holding, seq=20))
+    assert not engine.hold_army and runtime.general.stance == "attack"
+    assert engine.roles["commander"].plan["stance"] == "pressure"
+    launched = send(4, mixed_50, now=35)
+    assert engine.goals["sortie_departed"] == 35.0
+    assert len(engine.roles["combat"].memory["sortie_ids"]) == 50
+
+    done = send(5, mixed_50, now=40)
+    assert runtime.ledger.orders[0].status == DONE and done["planning"]["orders"] == []
+
+
+def test_specific_ordered_stockpile_pauses_unrelated_routine_training_unless_under_attack():
+    runtime = cabinet("chinese")
+
+    def send(seq, threat=False):
+        entities = [
+            building(1, "town_center"),
+            building(2, "barracks", trainable=["long_swordsman"]),
+            building(3, "archery_range", trainable=["crossbowman"]),
+            building(4, "stable", trainable=["knight"]),
+            building(5, "castle", trainable=["chu_ko_nu"]),
+            *[unit(10 + i) for i in range(20)],
+            *army(6),
+        ]
+        if threat:
+            entities.append(unit(900, "knight", [10, 0], team=1))
+        req = stocked(frame(seq, entities=entities, time=seq * 10), food=1000, wood=1000, gold=1000)
+        req.observation.economy.pop_used = 26
+        req.observation.economy.pop_cap = 100
+        req.observation.progression = Progression(age=2)
+        req.observation.decision_context["catalog"]["units"] = _unit_catalog(
+            "villager", "militia", "long_swordsman", "crossbowman", "knight", "chu_ko_nu"
+        )
+        req.observation.player_instructions = ["屯50个诸葛弩再进攻"]
+        return runtime.tick(req)
+
+    send(1)
+    runtime.planning_brief("premier_orders")
+    assert runtime.apply_plan("premier_orders", read(m("stockpile", "chu_ko_nu", 50), m("attack")))
+
+    peaceful = send(2, threat=False)
+    gen_reqs = requests(peaceful, "general")
+    assert gen_reqs["chu_ko_nu"]["origin"] == "order#1"
+    assert "knight" not in gen_reqs and "crossbowman" not in gen_reqs and "long_swordsman" not in gen_reqs
+    assert bought(peaceful) == ["chu_ko_nu"]
+
+    alarm = send(3, threat=True)
+    alarm_reqs = requests(alarm, "general")
+    assert "chu_ko_nu" in alarm_reqs
+    assert any(u in alarm_reqs for u in ("knight", "crossbowman", "long_swordsman"))
+    assert any(u in bought(alarm) for u in ("knight", "crossbowman", "long_swordsman"))
+
+
+def test_population_full_fallback_releases_deferred_attack_without_recalling_on_losses():
+    runtime = cabinet("chinese")
+    engine = runtime.field
+
+    def send(seq, *, chu_count, militia_count, pop_used, pop_cap, house_site=False, now=None):
+        entities = [
+            building(1, "town_center"),
+            building(2, "castle", trainable=["chu_ko_nu"]),
+            enemy_tc(),
+            *[unit(10 + i) for i in range(20)],
+            *[unit(100 + i, "chu_ko_nu") for i in range(chu_count)],
+            *[unit(300 + i, "militia") for i in range(militia_count)],
+        ]
+        options = [{"building_def_id": "house", "builder_id": 10, "pos": [0, 24]}] if house_site else []
+        req = stocked(frame(seq, entities=entities, time=now if now is not None else seq * 10, construction_options=options), each=1000)
+        req.observation.economy.pop_used = pop_used
+        req.observation.economy.pop_cap = pop_cap
+        req.observation.progression = Progression(age=2)
+        req.observation.decision_context["catalog"]["units"] = _unit_catalog("villager", "militia", "chu_ko_nu")
+        req.observation.player_instructions = ["屯50个诸葛弩再进攻"]
+        return runtime.tick(req)
+
+    send(1, chu_count=10, militia_count=10, pop_used=20, pop_cap=20, house_site=True)
+    runtime.planning_brief("premier_orders")
+    assert runtime.apply_plan("premier_orders", read(m("stockpile", "chu_ko_nu", 50), m("attack")))
+
+    early_capped = send(2, chu_count=10, militia_count=10, pop_used=20, pop_cap=20, house_site=True)
+    assert engine.hold_army and runtime.general.stance == "hold" and engine.goals["sortie_departed"] is None
+    assert early_capped["planning"]["orders"][0]["status"] == "执行中 10/50"
+
+    saturated = send(3, chu_count=20, militia_count=118, pop_used=158, pop_cap=170, house_site=True, now=30)
+    assert not engine.hold_army and runtime.general.stance == "attack"
+    assert engine.roles["commander"].plan["stance"] == "pressure"
+    launched = send(4, chu_count=20, militia_count=118, pop_used=158, pop_cap=170, house_site=True, now=35)
+    assert engine.goals["sortie_departed"] == 35.0
+    assert launched["planning"]["orders"][0]["status"] == "执行中 20/50"
+
+    # Subsequent battle losses reduce pop_used, but the attack mandate finishes and does not recall.
+    losses = send(5, chu_count=18, militia_count=102, pop_used=140, pop_cap=170, house_site=True, now=40)
+    assert runtime.ledger.orders[0].status == ACTIVE
+    assert ("general", "stance") in runtime.ledger.orders[0].done
+    assert not engine.hold_army and engine.goals["phase"] != "retreat"
+    assert losses["planning"]["orders"][0]["status"] == "执行中 18/50"
+
+    # Hard pop-cap block (200/200, no house site) also releases a fresh deferred attack.
+    hard_runtime = cabinet("chinese")
+    hard_engine = hard_runtime.field
+
+    def send_hard(seq, *, chu_count, militia_count, pop_used, pop_cap, now=None):
+        entities = [
+            building(1, "town_center"),
+            building(2, "castle", trainable=["chu_ko_nu"]),
+            enemy_tc(),
+            *[unit(10 + i) for i in range(20)],
+            *[unit(100 + i, "chu_ko_nu") for i in range(chu_count)],
+            *[unit(300 + i, "militia") for i in range(militia_count)],
+        ]
+        req = stocked(frame(seq, entities=entities, time=now if now is not None else seq * 10, construction_options=[]), each=1000)
+        req.observation.economy.pop_used = pop_used
+        req.observation.economy.pop_cap = pop_cap
+        req.observation.progression = Progression(age=2)
+        req.observation.decision_context["catalog"]["units"] = _unit_catalog("villager", "militia", "chu_ko_nu")
+        req.observation.player_instructions = ["屯50个诸葛弩再进攻"]
+        return hard_runtime.tick(req)
+
+    send_hard(1, chu_count=0, militia_count=0, pop_used=20, pop_cap=200)
+    hard_runtime.planning_brief("premier_orders")
+    assert hard_runtime.apply_plan("premier_orders", read(m("stockpile", "chu_ko_nu", 50), m("attack")))
+    send_hard(2, chu_count=10, militia_count=20, pop_used=200, pop_cap=200, now=20)
+    assert not hard_engine.hold_army and hard_runtime.general.stance == "attack"
+    assert hard_engine.goals["sortie_departed"] == 20.0
