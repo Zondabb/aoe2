@@ -654,7 +654,7 @@ static func _farm_anchors(snapshots: Array, team: int) -> Array:
 
 static func _resource_anchors(building_id: String, snapshots: Array, base: Vector2, team: int = -1) -> Array:
 	var allowed: Array = ["WOOD"] if building_id == "lumber_camp" else ["GOLD", "STONE"] if building_id == "mining_camp" else ["FOOD"]
-	var resources: Array = snapshots.filter(func(item): return item.get("kind") == "resource" and String(item.get("resource_type", "")).to_upper() in allowed and float(item.get("amount", 0)) > 0)
+	var resources: Array = snapshots.filter(func(item): return item.get("kind") == "resource" and str(item.get("resource_type", "")).to_upper() in allowed and float(item.get("amount", 0)) > 0)
 	var own_camps: Array[Vector2] = []
 	var own_tcs: Array[Vector2] = []
 	var active_resource_ids := {}
@@ -666,7 +666,8 @@ static func _resource_anchors(building_id: String, snapshots: Array, base: Vecto
 		for item: Dictionary in snapshots:
 			if int(item.get("team", -1)) != team: continue
 			if item.get("kind") == "building" and float(item.get("hp", 0)) > 0:
-				var bid := String(item.get("def_id", ""))
+				var bid_raw: Variant = item.get("def_id")
+				var bid := str(bid_raw) if bid_raw != null else ""
 				if bid == building_id:
 					own_camps.append(Protocol.array_to_vec2(item.pos))
 				elif bid == "town_center":
@@ -674,7 +675,8 @@ static func _resource_anchors(building_id: String, snapshots: Array, base: Vecto
 			elif item.get("kind") == "unit" and item.get("def_id") == "villager" and item.get("order") == "GATHER":
 				var target_id: Variant = item.get("target_id")
 				var last_id: Variant = item.get("last_resource_id")
-				var carry := String(item.get("carry_type", "")).to_upper()
+				var carry_raw: Variant = item.get("carry_type")
+				var carry := str(carry_raw).to_upper() if carry_raw != null else ""
 				if carry in allowed or (target_id != null and allowed_resource_ids.has(target_id)) or (last_id != null and allowed_resource_ids.has(last_id)):
 					if target_id != null: active_resource_ids[target_id] = true
 					if last_id != null: active_resource_ids[last_id] = true

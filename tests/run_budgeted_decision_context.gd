@@ -46,6 +46,7 @@ func _run() -> void:
 	await _test_list_lifetimes()
 	await _test_cancellation()
 	await _test_detached_and_freed_scene()
+	await _test_resource_anchors_null_carry()
 	await _test_actor_deletion()
 	check(checks >= 25, "all context scheduling sections ran")
 	print("BUDGETED DECISION CONTEXT: %d checks, %d failures" % [checks, failures])
@@ -137,3 +138,39 @@ func _test_actor_deletion() -> void:
 	check(deleted.done and result.has("army") and result.has("scouting"), "actors/fog holder can disappear between collection slices without script errors")
 	check(result.construction_options.is_empty() and result.defense_options.is_empty(), "deleted builders cannot be offered as construction options")
 	check(result.army.ready_unit_ids.is_empty() and result.army.scout_ids.is_empty(), "deleted own units do not survive the collected actor lists")
+
+func _test_resource_anchors_null_carry() -> void:
+	var anchor_snapshots := [
+		{"id": 100, "kind": "building", "team": 1, "def_id": "lumber_camp", "hp": 100.0, "pos": [0.0, 0.0]},
+		{"id": 200, "kind": "resource", "resource_type": "WOOD", "amount": 100.0, "pos": [40.0, 0.0]},
+		{"id": 300, "kind": "unit", "team": 1, "def_id": "villager", "order": "GATHER", "carry_type": null, "target_id": 200, "last_resource_id": null, "pos": [38.0, 0.0]},
+	]
+	var anchors := Decision._resource_anchors("lumber_camp", anchor_snapshots, Vector2.ZERO, 1)
+	check(not anchors.is_empty() and anchors[0].resource_id == 200 and is_equal_approx(float(anchors[0].score_bonus), 12.0), "_resource_anchors handles null carry_type on active GATHER villager")
+	var villager: Node2D
+	for actor in entities.get_children():
+		if actor is UnitAgent and actor.team == 1 and actor.def != null and actor.def.id == &"villager":
+			villager = actor
+			break
+	check(villager != null, "team 1 villager exists for null carry_type context check")
+	if villager == null: return
+	var saved_order: int = villager.order
+	var saved_carry_amount: float = villager.carry_amount
+	var saved_carry_type: int = villager.carry_type
+	var saved_gather_state: StringName = villager._gather_state
+	villager.order = Enums.OrderType.GATHER
+	villager.carry_amount = 0.0
+	villager.carry_type = -1
+	villager._gather_state = &"to_resource"
+	var obs := Observation.build(state, entities, 1, 0, 240.0)
+	var gather_records: Array = obs.entities.filter(func(e): return e.get("kind") == "unit" and e.get("def_id") == "villager" and e.get("order") == "GATHER" and e.get("carry_type") == null)
+	check(not gather_records.is_empty(), "observation serializes GATHER villager with null carry_type")
+	var next_frame := func() -> bool:
+		await process_frame
+		return true
+	var staged := await Decision.build_budgeted(state, entities, 1, obs.entities, obs.derived, Observation.DEFAULT_DEFEND_RADIUS, false, next_frame, 50)
+	check(staged.has("construction_options"), "budgeted decision context succeeds when GATHER villager has null carry_type")
+	villager.order = saved_order
+	villager.carry_amount = saved_carry_amount
+	villager.carry_type = saved_carry_type
+	villager._gather_state = saved_gather_state
