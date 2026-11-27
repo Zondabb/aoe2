@@ -16,6 +16,7 @@ from .leaderboard import Leaderboard
 from .matchmaking import Close, Matchmaker, Player
 from .protocol import ProtocolError, parse_message
 from .settings import Settings
+from .wire import parse_binary_message
 
 logger = logging.getLogger(__name__)
 
@@ -28,21 +29,33 @@ async def _receive(websocket: WebSocket, player: Player, matchmaker: Matchmaker)
                 logger.warning("multiplayer_transport_closed player=%s room=%s websocket_code=%s",
                                player.id, player.room_id, packet.get("code"))
             return
-        raw = packet.get("text")
-        if raw is None:
-            await matchmaker.error(player, ProtocolError("invalid_payload", "Only JSON text frames are supported", 1003))
+        raw_text = packet.get("text")
+        raw_bytes = packet.get("bytes")
+        if raw_text is not None:
+            byte_count = len(raw_text.encode("utf-8"))
+            if not await matchmaker.admit_message(player, byte_count):
+                await asyncio.Future()
+            try:
+                message = parse_message(raw_text, matchmaker.settings)
+                await matchmaker.handle(player, message)
+            except ProtocolError as error:
+                await matchmaker.error(player, error)
+                if error.close_code is not None:
+                    await asyncio.Future()
+        elif raw_bytes is not None:
+            if not await matchmaker.admit_message(player, len(raw_bytes)):
+                await asyncio.Future()
+            try:
+                message = parse_binary_message(raw_bytes, matchmaker.settings)
+                await matchmaker.handle_binary(player, message, raw_bytes)
+            except ProtocolError as error:
+                await matchmaker.error(player, error)
+                if error.close_code is not None:
+                    await asyncio.Future()
+        else:
+            await matchmaker.error(player, ProtocolError("invalid_payload", "Unsupported WebSocket frame", 1003))
             # Let the writer deliver the terminal error and close frame.
             await asyncio.Future()
-        byte_count = len(raw.encode("utf-8"))
-        if not await matchmaker.admit_message(player, byte_count):
-            await asyncio.Future()
-        try:
-            message = parse_message(raw, matchmaker.settings)
-            await matchmaker.handle(player, message)
-        except ProtocolError as error:
-            await matchmaker.error(player, error)
-            if error.close_code is not None:
-                await asyncio.Future()
         # Buffered messages are otherwise handled back to back without
         # suspending; let receivers' writers drain relayed commands between them.
         await asyncio.sleep(0)
@@ -58,9 +71,12 @@ async def _send(websocket: WebSocket, player: Player, settings: Settings) -> Non
                                        timeout=settings.send_timeout)
             await asyncio.wait_for(websocket.close(code=outgoing.code), timeout=settings.send_timeout)
             return
-        # ASCII escaping also safely transports names to all Godot JSON parsers.
-        raw = json.dumps(outgoing, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
-        await asyncio.wait_for(websocket.send_text(raw), timeout=settings.send_timeout)
+        if isinstance(outgoing, (bytes, bytearray)):
+            await asyncio.wait_for(websocket.send_bytes(bytes(outgoing)), timeout=settings.send_timeout)
+        else:
+            # ASCII escaping also safely transports names to all Godot JSON parsers.
+            raw = json.dumps(outgoing, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+            await asyncio.wait_for(websocket.send_text(raw), timeout=settings.send_timeout)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -85,7 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await matchmaker.shutdown()
             leaderboard.close()
 
-    app = FastAPI(title="AoE2 Multiplayer Service", version="2.0.0", lifespan=lifespan)
+    app = FastAPI(title="AoE2 Multiplayer Service", version="3.0.0", lifespan=lifespan)
     app.state.matchmaker = matchmaker
     app.state.leaderboard = leaderboard
     static = Path(__file__).resolve().parent / "static"
@@ -110,11 +126,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict:
         return await matchmaker.status()
-
-    @app.get("/api/matches")
-    async def active_matches(response: Response) -> dict:
-        response.headers["Cache-Control"] = "no-store"
-        return await matchmaker.list_matches()
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:

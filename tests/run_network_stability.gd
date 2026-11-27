@@ -55,18 +55,11 @@ func _run() -> void:
 	network.matched.connect(_matched)
 	network.ended.connect(_ended)
 	network.status_changed.connect(func(message: String): print(label, ": ", message))
-	if role == "player":
-		network.join_queue(endpoint, label, "chinese")
-	else:
-		network.matches_received.connect(_matches)
-		network.request_matches(endpoint)
-
-func _matches(matches: Array) -> void:
-	if world == null and not matches.is_empty(): network.watch_match(endpoint, String(matches[0].match_id))
+	network.join_queue(endpoint, label, "chinese")
 
 func _matched(info: Dictionary) -> void:
 	session.online_active = true
-	session.online_spectator = role != "player"
+	session.online_spectator = false
 	session.online_team = int(info.get("team", -1))
 	session.player_civ_id = StringName(info.players[0].civ)
 	session.ai_civ_id = StringName(info.players[1].civ)
@@ -114,17 +107,17 @@ func _process(_delta: float) -> bool:
 	if now - last_print_at >= 5000:
 		last_print_at = now
 		print("NETWORK STABILITY METRIC ", JSON.stringify(_report()))
+	if not extras_spawned:
+		extras_spawned = true
+		for index in extra_units:
+			var extra: UnitAgent = load("res://scenes/entities/unit_view.tscn").instantiate()
+			extra.def = load("res://scripts/data/game_catalog.gd").get_unit(&"militia")
+			extra.team = Enums.Team.PLAYER
+			extra.civ = load("res://data/civs/chinese.tres")
+			extra.match_state = world.get_node("Bootstrap").match_state
+			extra.sim_pos = Vector2(-110 + (index % 20) * 3, -105 + int(index / 20) * 3)
+			world.get_node("Entities").add_child(extra)
 	if runtime.is_host:
-		if not extras_spawned:
-			extras_spawned = true
-			for index in extra_units:
-				var extra: UnitAgent = load("res://scenes/entities/unit_view.tscn").instantiate()
-				extra.def = load("res://scripts/data/game_catalog.gd").get_unit(&"militia")
-				extra.team = Enums.Team.PLAYER
-				extra.civ = load("res://data/civs/chinese.tres")
-				extra.match_state = world.get_node("Bootstrap").match_state
-				extra.sim_pos = Vector2(-110 + (index % 20) * 3, -105 + int(index / 20) * 3)
-				world.get_node("Entities").add_child(extra)
 		if FileAccess.file_exists(finish_file):
 			world.get_node("Bootstrap").match_state.set_winner(Enums.Team.AI)
 			return false
@@ -158,7 +151,9 @@ func _report() -> Dictionary:
 		"state": network.state if network != null else "unknown", "last_runtime_status": last_runtime_status,
 		"entity_count": world.get_node("Entities").get_child_count() if world != null else 0}
 	if network != null: result.merge(network.probe_report())
-	if runtime != null: result.merge(runtime.probe_report())
+	if runtime != null:
+		result["is_host"] = bool(runtime.is_host)
+		result.merge(runtime.probe_report())
 	return result
 
 func _write_report() -> void:

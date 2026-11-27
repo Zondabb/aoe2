@@ -18,50 +18,14 @@ Linux/macOS 将解释器路径换成 `multiplayer_service_python/.venv/bin/pytho
 
 健康检查：`GET http://127.0.0.1:8001/healthz`。
 
-## 增量指令同步与观战
+## 事件驱动二进制同步（协议 v10）
 
-服务使用 **协议 v9**。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号仍决定单位归属，和主机身份独立。旧版 v1–v8 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
+服务使用 **协议 v10**（已移除在线观战）。匹配时随机选择 `host_team=0` 或 `1`，并下发相同的地图 `seed`、`tick_rate=30`、`frame_ticks=3`。队伍编号决定单位归属，和主机身份独立。旧版 v1–v9 客户端收到 `protocol_mismatch`，客户端和服务需一起更新。
 
-双方玩家按相同未来帧规则提交操作，主机提前广播输入，开局时钟校准后主机直接提交共同执行时刻，持续运行不再等待每帧接收确认往返。双方在该时刻校验并运行固定模拟，主机随后发送操作结果与摘要，观众只接收完成帧。服务只转发和校验报文，不运行游戏逻辑。当前游戏已移除本地预测实现，按现实时间 100ms 输入预算安排指令（1 倍速 3 ticks，2 倍速 6 ticks），详见 [对等调度与延后执行](../docs/online_fair.md)。
+- **JSON 文本帧**：仅用于匹配队列（`join_queue`/`cancel_queue`）、准备（`ready`）、失步关键帧恢复（`request_keyframe`/`keyframe`）、终局（`finish_match`/`match_ended`）与低频保活（`ping`/`pong`）。
+- **二进制帧**：局内时钟校准（`0x01`/`0x02`）、开局同种子时间线同步（`0x03 SYNC_INIT`）、玩家指令批量提交（`0x04 CMD_SUBMIT`）、两阶段日程确认（`0x05 SCHEDULE` / `0x06 SCHEDULE_ACK`）及 1 Hz 32-bit 摘要心跳（`0x07 HEARTBEAT` / `0x08 HEARTBEAT_ACK`）。无操作时不发送空帧；若 `SCHEDULE` 迟到，客机以 `accepted=0` 通知主机无损顺延，不触发关键帧重传。
 
-UTF-8 JSON 文本帧，端点 `/ws`。部分核心消息（省略中间准备/提交帧，示例中的校验值实际为 64 位 SHA-256 十六进制串）：
-
-稳定阶段用一条 `input_step` 合并准备指令和执行时刻；速度、输入预算仅在初始化、变化或关键帧恢复时传递。`input_ack` 只在开局及恢复后确认一次，执行完成的 `ack` 仍逐帧保留。双方游戏与中转需一起升级到 v9。
-
-编队移动使用 `command_batch`（每包最多 64 条，连续序号、共同来源/目标帧），主机按原次序展开并逐单位校验。中转发给玩家的完成帧仅保留摘要、结果及 速度更新；观众收到完整成功操作。关键帧使用 `codec="zlib"`、`raw_size` 和 Base64 `data` 传输，解压上限 4 MiB；恢复后的游戏状态仍按原摘要校验。
-
-```json
-{"type":"join_queue","protocol_version":9,"name":"玩家","civ":"chinese"}
-{"type":"ready"}
-{"type":"command","seq":1,"source_tick":0,"execute_tick":6,"command":{"op":"move","unit_id":10,"pos":[30,36]}}
-{"type":"input_commit","tick":6,"execute_at_usec":1250000,"speed":2.0,"input_delay_ticks":6,"delay_from_tick":0}
-{"type":"frame","tick":6,"commands":[{"team":1,"command":{"op":"move","unit_id":10,"pos":[30,36]}}],"checksum":"64位校验值","results":[{"team":1,"seq":1,"accepted":true}]}
-{"type":"ack","tick":6,"checksum":"64位校验值"}
-{"type":"request_keyframe"}
-{"type":"keyframe","request_id":"服务分配的32位ID","tick":6,"state":{"world":{},"simulation":{}},"checksum":"64位校验值"}
-{"type":"input_step","tick":9,"execute_at_usec":1300000,"commands":[]}
-```
-
-上面的完整 `frame.commands` 是主机上传/观众接收的版本；客端收到的版本仅保留状态更新。明文 `state` 是调试格式；正式客户端发送压缩关键帧：
-
-```json
-{"type":"keyframe","request_id":"服务端请求ID","tick":6,"checksum":"64位校验值","codec":"zlib","raw_size":546000,"data":"Base64压缩数据"}
-{"type":"command_batch","seq":10,"source_tick":6,"execute_tick":12,"commands":[{"op":"move","unit_id":10,"pos":[30,36]},{"op":"move","unit_id":11,"pos":[32,36]}]}
-```
-
-`command.seq` 是每位玩家独立递增序号。`frame.tick` 必须从 3 开始，每次增加 3，重复或缺帧拒绝；只有主机能发送 `frame`、`keyframe` 或 `finish_match`。空操作帧仍传递时钟和校验值。每批最多 64 个操作、256 KiB，每条操作最多 16 KiB；完整关键帧最多 4 MiB。Python 只检查协议和身份，游戏规则及状态校验由游戏主机/客端执行。
-
-联机大厅列出双方已开局的对局；观众加入后走以下流程：
-
-1. `list_matches` 返回双方名称、文明、局时长与观众数；`watch_match` 返回 `spectate_started`，含显式 `role="spectator"`、随机 `host_team` 和模拟参数。
-2. 场景加载完成后发送 `watch_ready`，再发送 `request_keyframe`。服务分配请求 ID，将 `keyframe_request` 发给主机；主机在完整模拟帧边界捕获全量状态并回答。
-3. 关键帧只转交服务记录的请求者；之后按连接上的顺序接收增量 `frame`。加载期间不向观众堆积指令帧，观众在关键帧到达前忽略帧，恢复后从对应 tick 继续运算。缺帧或校验不一致时重新请求关键帧。
-
-服务不缓存全量状态。并发请求合并成一次主机捕获，目标集合由服务维护；单人重复请求不会增加主机队列。房间请求间隔受 `KEYFRAME_REQUEST_INTERVAL` 和最大关键帧带宽预算共同限制；`keyframe_rate_limited` 可等待后重试，主机超过 `KEYFRAME_TIMEOUT` 未回答则返回 `keyframe_timeout`。观众退出会移除自己的待响应资格，晚到的已取消响应不会结束玩家对局。
-
-观众没有玩家队伍，不能发送操作、AI 托管开关、准备、帧或胜负结算。视角切换与解除迷雾只影响显示，无法控制单位。观众离开、掉线或接收过慢不会结束双方对局或计入排行榜。
-
-只读 HTTP 列表 `GET /api/matches` 返回 `{"matches":[...]}`，设置 `Cache-Control: no-store`，不包含指令或世界数据。默认每局最多 16 位观众、列表最多 64 局，通过 `AOE2_MP_MAX_SPECTATORS_PER_MATCH` 和 `AOE2_MP_MAX_LISTED_MATCHES` 配置。观战满员返回 `spectators_full`，已结束或尚未开局返回 `match_unavailable`。
+健康检查：`GET http://127.0.0.1:8001/healthz`。服务不缓存全量世界状态，仅在异常失步时向请求者转发压缩关键帧。
 
 ## Web 排行榜
 

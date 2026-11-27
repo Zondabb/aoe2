@@ -345,8 +345,13 @@ func _apply_response(response: Dictionary) -> void:
 	if ctx == null:
 		return
 	ctx.sim_time = match_time
+	var network := entities.get_parent().get_node_or_null("NetworkMatch") if entities != null and entities.get_parent() != null else null
+	if network != null and network.has_method("begin_command_batch"):
+		network.begin_command_batch()
 	for cmd in response.get("commands", []):
 		if not enabled:
+			if network != null and network.has_method("end_command_batch"):
+				network.end_command_batch()
 			return
 		if cmd is Dictionary:
 			var result := CommandExecutorScript.execute(cmd, ctx)
@@ -369,6 +374,8 @@ func _apply_response(response: Dictionary) -> void:
 					if result.has(key):
 						feedback[key] = result[key]
 				EventBufferScript.push(feedback)
+	if network != null and network.has_method("end_command_batch"):
+		network.end_command_batch()
 	for debug_entry in response.get("debug", []):
 		if debug_entry is Dictionary and decision_log != null:
 			var label := _team_label(team)

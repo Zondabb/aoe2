@@ -1,103 +1,35 @@
-# 联机对等调度与延后执行（协议 v9）
+# 联机对等调度与事件驱动静默锁步（协议 v10）
 
-`online_fair` 保留玩家主机和轻量 Python 中转。主机决定有序输入，双方执行同一套固定步长游戏逻辑；云端不运行 Godot，不计算寻路、经济、战斗或 LLM。当前运行模式采用指令延后执行，仅在指令确定执行时更新游戏状态和单位画面，保留普通物理插值。
+`online_fair` 保留玩家主机和轻量 Python 中转。双方均在本地通过同一地图种子或地图数据确定性生成世界，主客双方按对齐后的单调时钟各自推进固定步长（`1/30` 秒）模拟；云端不运行 Godot，不计算寻路、经济、战斗或 LLM。仅在有玩家操作或调度参数变化时才交换紧凑二进制包，空帧零网络报文；本分支已移除在线观战同步路径。
 
-## 指令的生命周期
+## 指令与静默时间线生命周期
 
-1. 玩家操作分配本队独立递增的 `seq`，记录当前输入帧 `source_tick` 和未来执行帧 `execute_tick`。输入预算按现实时间 100ms 换算，再向上对齐到 3-tick 网络帧：1 倍速 `execute_tick = source_tick + 3`，2 倍速为 `source_tick + 6`，两者名义窗口均为 100ms；不随 RTT 自动扩大。实际响应还包含网络传输、封帧和寻路等待。
-2. 主机自己的操作也进入同一未来帧队列。非主机操作经 Python 转发到主机，服务根据连接注入 `team`。正常迟到的操作进入第一个尚未发布的帧；主机和客端使用同一规则，并保留本队人工指令的序号顺序。绝不改写已经发布的准备帧。超过 180 ticks 的陈旧输入或容量限制仍明确拒绝，实际执行帧由完成结果报告。
-3. 主机提前准备有序输入，稳定运行时用 `input_step` 同时广播指令和共同执行时刻，不提前扣费、创建建筑或移动单位。双方竞争同一帧的操作按队伍交替排列；队内按提交序号排序。每帧最多 62 条游戏操作。
-4. 开局仍使用 `input_frame → input_ack → input_commit`，等待客端完成时钟校准。首批准备帧提交后改为单条 `input_step`，确定该帧在主机单调时钟中的执行时刻；消息生成后立即发送，不等待凑批。`input_ack` 只在每次同步后发送一次，稳定期不再逐帧回复。执行完成的 `ack` 继续校验摘要并限制失联时的推进范围。
-5. 双方根据同一时间表，每次推进一个 `1/30` 秒固定步，在执行帧用同一游戏规则接受或拒绝指令。客户端未收到提交或尚未到执行时刻就等待。普通非法操作是失败的空操作，不触发整局回滚。
-6. 主机执行完成后发送 `frame`：成功操作、摘要以及每条玩家输入的 `{team, seq, accepted}` 结果。中转仅向观众转发完整成功操作；发给客端的 `commands` 只保留 `match_speed`，客端核对自己同帧的结果与摘要后确认。
-
-玩家在本机连接自己的 Python 服务。游戏只把决策转换后的普通操作交给调度队列；模型会话、自然语言和托管状态在本机处理。
-
-## 时间线与恢复
-
-`clock_probe` / `clock_reply` 经现有服务双向转发，不依赖两台电脑的系统时间相同。客户端从最近 8 个样本中选择低 RTT 样本估算时钟偏移并平滑调整；主机取最近样本的 RTT 75 分位，给提交留出半个 RTT 加 10 ms 的到达余量（最少 12 ms）。两端不再以“主机算完，客端才开始”为正常节奏。
-
-时钟采样只在世界同步完成后启动，主机还需收到客端初始关键帧确认。捕获或恢复关键帧后丢弃旧探针和样本，并暂停探针收发 200 ms，避免加载期间积压的请求把 CPU 加载时间误算成网络 RTT。保留原有时钟偏移、已公布输入窗口和执行时刻；新的有效高 RTT 仅影响运输准备范围，不改变 100ms 输入预算。
-
-输入预算固定为现实时间 100ms，RTT 仅用于提交到达余量与时钟估计。`delay_schedule` 字段继续用于 v9 传输和关键帧恢复；新对局按速度发布初始策略（1 倍速为 `{from_tick: 0, ticks: 3}`，2 倍速为 `{from_tick: 0, ticks: 6}`），不生成自适应窗口变化。其他倍速向上对齐到网络帧，窗口可能大于 100ms。指令若错过已发布的帧，沿用顺延规则，因此不能保证所有网络条件下恰好在 100ms 内生效。
-
-准备窗口独立覆盖单程传输和帧内推进时间，额外保留一个模拟步的调度余量，不受输入目标限制。主机提前发送足够的准备帧及共同执行时刻，连续帧以固定间隔推进。新输入如果落在已发布帧内，沿用下一可用帧的顺延规则，绝不修改已经发出的输入。网络拥塞、极端不对称链路或某台电脑过载仍可能造成暂时偏差和减速；这不是严格同时的硬实时协议，也不消除可信主机的作弊权限。常规同步用共同截止时间推进，主机仍保留约 0.6 秒已执行帧确认窗口作为失联保护。
-
-状态摘要不一致时沿用低频全量关键帧恢复，恢复人工接管代次，再重发尚未执行的准备帧和提交时刻。不存在逐输入保存整局历史、逆转碰撞或重放整个世界的预测回滚。自然胜负在双方相同的帧边界停止；测试工具通过未来帧的内部结束操作验证最终帧一致。
-
-## v7 合并帧与参数恢复
-
-正常稳定帧：
-
-```json
-{"type":"input_step","tick":9,"execute_at_usec":1300000,"commands":[]}
-```
-
-速度、输入延迟与策略生效 tick 初始由关键帧和开局提交提供；稳定帧不重复携带。参数变化时，仅第一个后续合并帧增加 `timing`：
-
-```json
-{"type":"input_step","tick":12,"execute_at_usec":1350000,"commands":[],"timing":{"speed":2.0,"input_delay_ticks":6,"delay_from_tick":0}}
-```
-
-恢复时先应用关键帧中的 `fair.speed` 和完整 `delay_schedule`，再重放原样保留的未完成 `input_step`；不能为了恢复而改写已发布帧的字段。重复帧必须内容与时间完全相同，缺帧或冲突则请求关键帧。恢复后的客端只确认一次准备状态，不恢复逐帧 `input_ack`。观众仍只接收完成帧，速度从关键帧恢复；完成帧中的 `match_speed` 仅初始化或变化时发送。
-
-云端按连续 tick、180-tick 提前范围、身份和报文摘要校验；只保存至多 60 个未完成帧的哈希和执行时间，不缓存合并帧中的整份指令数组。旧分离报文仅用于开局及该阶段的恢复重发。
-
-## v8 批量指令、完成帧去重与压缩快照
-
-编队移动及阵型切换沿用原来的每单位目标和共同速度，用 `command_batch` 一次传递至多 64 条操作。`seq` 表示首条序号，后续依次加一；超过 64 条分包且保持共同来源/目标帧。主机入队后仍是独立命令，保留 62 条/执行帧的容量与溢出拒绝规则、双方公平排序、权限校验、人工接管代次和每条执行结果。不会为了积累批次额外等待，也不会把批次当成绕过配额的一条游戏操作。单个非法传输成员使整包拒绝；合法传输内的操作仍逐条接受或拒绝。
-
-完成帧的去重发生在中转分发阶段：客端已有准备指令，只接收摘要、逐条结果及主机额外产生的状态更新；观众仍收到完整操作。主机到中转这一跳仍发送完整完成帧，避免云端保存或重建整份待执行指令。
-
-主机用 JSON 的原有全精度模式序列化 `state`，经 zlib 压缩和 Base64 编码后发送。云端限制压缩包大小、声明展开大小、实际展开大小和 JSON 嵌套，校验后仍按压缩格式转发；每份展开上限 4 MiB。解压只发生在低频关键帧校验/恢复，不增加逐 tick 模拟。客户端解码为原关键帧结构，沿用状态校验及恢复后未完成合并帧的原样重发。单元测试保留明文关键帧诊断格式，正式游戏使用压缩格式。
-
-## 显示与输入反馈
-
-本地预测模块、预测位置偏移、待确认预测画面及专用测试已删除。指令仅进入未来帧队列，在双方共同执行时刻生效。单位显示保留正常物理插值，遮挡轮廓继续跟随插值位置；提交操作不会提前改变模拟状态或单位位置。
-
-## 部署与服务开销
-
-双方游戏和 Python 联机服务必须一起更新到 **v9**，v8 及更旧客户端不能混用。AI Python 服务的 HTTP 协议没有变化。
-
-服务新增的工作是校验小消息、转发准备帧和时钟报文、保存最多 60 个未完成准备帧的摘要及少量提交时间信息。它不保存第二份游戏世界，不按模拟 tick 运行游戏，也不访问模型。消息数量会增加；默认每连接限流改为 `MESSAGES_PER_SECOND=300`、`MESSAGE_BURST=600`，以容纳高倍速的准备、提交和确认消息。若部署环境显式覆盖这些值，需要相应调整；这不是并发容量保证，仍应根据实际云主机压测。
+1. **同种子零关键帧开局**：双方 `ready` 后，服务下发 `start`（含一致的 `seed`、`host_team`、`tick_rate=30`、`frame_ticks=3`）。双方各自生成实体并计算 `tick=0` 摘要。客机发 `0x01` `CLOCK_PROBE`（13 字节）校准时钟偏移与 RTT，随后发 `0x08` `HEARTBEAT_ACK`（13 字节，附 32-bit 摘要与 `echo_usec32=0`）；主机核对摘要一致后回发 `0x03` `SYNC_INIT`（26 字节，含共同起点 `epoch_usec`、倍速与输入预算），直接开局而无需传输约 49 KB 的初始关键帧。仅当初始摘要不符或自定义差异时才回退到压缩关键帧。
+2. **玩家输入提交（`0x04` `CMD_SUBMIT`）**：玩家操作分配本队递增 `seq`，输入预算按现实时间 100ms 换算并向上对齐到 3-tick 网络帧（1 倍速 3 ticks，2 倍速 6 ticks，最多 180 ticks）。主机本机操作直接进入 `pending`（并对浮点坐标做 32-bit wire 规范化保证确定性）；客机操作通过二进制 `CMD_SUBMIT` 发往主机（1～64 条批量，单条移动仅约 15–22 字节），由 Python 中转校验顺序并覆盖写入真实 `team`。玩家在本机连接自己的 Python AI 服务；AI 单回合下发的多条指令通过 `begin_command_batch()` / `end_command_batch()` 合并为单个 `CMD_SUBMIT`。
+3. **两阶段日程确认（`0x05` `SCHEDULE` / `0x06` `SCHEDULE_ACK`）**：
+   - 无新指令、无溢出拒绝且调度参数未变时，主机和客机按 `SYNC_INIT` 约定的 `epoch_usec` 与倍速各自静默推进，**不发送任何空帧报文**。
+   - 当存在待执行指令或参数变化时，主机发出一条紧凑二进制 `SCHEDULE`（含 `schedule_id`、`tick`、`epoch_usec`、按队伍公平交替排序且最多 62 条指令、可选溢出 `rejected` 与变化时的 `timing`）。主机在尚未收到 `SCHEDULE_ACK` 前于 `tick` 边界短暂等待，不会自行提前跑过未确认日程。
+   - 若客机尚未执行到 `schedule.tick`，接收 `SCHEDULE` 并回复 `SCHEDULE_ACK(accepted=1)`（10 字节）；若 `SCHEDULE` 迟到且客机已进入或越过 `schedule.tick`，客机在当前帧边界暂停于 `guest_tick` 并回复 `SCHEDULE_ACK(accepted=0, guest_tick)`，主机将指令无损顺延至 `guest_tick + 3` 后重新下发 `SCHEDULE`，**不触发失步与全量关键帧重传**。
+4. **1 Hz 心跳与全量摘要核对（`0x07` `HEARTBEAT` / `0x08` `HEARTBEAT_ACK`）**：
+   - 主机每现实秒在整模拟秒边界（`tick % 30 == 0`，即 `LockstepState.full_digest` 边界；1 倍速每 30 ticks、2 倍速每 60 ticks）发送 1 次 13 字节二进制 `HEARTBEAT`（含 `tick`、`checksum32`、`sent_usec32`）。
+   - 客机核对同 tick 的 `checksum32` 后回复 13 字节 `HEARTBEAT_ACK`。主机据此更新 RTT 与最长 3.0 秒失联保护租约；客机仅保留启动后每 10 秒 1 次 `CLOCK_PROBE` 防晶振漂移。
+5. **关键帧恢复与终局对齐**：若 `HEARTBEAT` 摘要不一致，客机发送 JSON `request_keyframe`，主机将未执行的未来日程指令退回 `pending`、暂停推进并在帧边界返回 zlib+Base64 压缩关键帧，客机恢复后发 `HEARTBEAT_ACK(echo=0)` 重新对齐时间线。终局 `finish_match` 携带主机最终 `tick`，客机 `drain(final_tick)` 推进至完全一致的结束帧。
 
 ## 验证
 
 ```powershell
-python -m pytest multiplayer_service_python/tests -q
+.\.godot\civ-python\Scripts\python.exe -m pytest -o cache_dir=.godot/pytest_cache multiplayer_service_python/tests -q
 Godot_console.exe --headless --path . --script res://tests/run_online_fair.gd
 Godot_console.exe --headless --path . --script res://tests/run_incremental_transport.gd
 Godot_console.exe --headless --path . --script res://tests/run_lockstep_state.gd
-python tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 0
-python tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 1
-python tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 0 --delay-ms 0 --jitter-ms 0 --max-input-ms 250
-python tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 1 --default-map --max-final-window-ms 100
+.\.godot\civ-python\Scripts\python.exe tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 0 --delay-ms 0 --jitter-ms 0 --max-input-ms 250 --traffic-report
+.\.godot\civ-python\Scripts\python.exe tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 1 --traffic-report
+.\.godot\civ-python\Scripts\python.exe tools/test_online_fair_e2e.py --godot "<Godot console executable>" --host-team 0 --default-map --max-final-window-ms 100 --traffic-report
 ```
 
-E2E 启动真实服务、两个 Godot 玩家和晚加入观众。每个玩家连接经过独立 TCP 延迟代理，默认每方向增加 25 ms 与 0–10 ms 抖动，保持字节顺序。测试覆盖提交输入不立即修改完整状态及单位不提前移动、连续移动/停止、非法指令拒绝、同一目标帧生效、强制失步恢复、观战和最终摘要一致。额外用独立直线移动测量操作到首次显示移动、真实移动、指令确认的时间，并逐显示帧检查确认后的后退距离（默认上限 1 像素）。`--max-input-ms` 可限制真实移动开始的延迟；`--delay-ms 0 --jitter-ms 0` 运行本机低延迟场景。记录双方同一 tick 的墙钟完成时间并检查时间线偏差；JSON 保留原始曲线及 RTT、窗口策略变化。`--max-final-window-ms` 可检测默认地图加载或恢复是否误抬高最终输入窗口。测试数据与排行榜使用临时目录，不调用真实付费模型。
+实测三组真实双进程测试（含零延迟、25ms+10ms 人工抖动交换主机、默认 480×480 大地图与强制失步恢复）：
+- 中转稳态出向应用层载荷：**0.208–0.209 kbps**（双端合计 2 条 13B 消息/秒），含 TCP/IP+WebSocket 包头约 **1.07–1.08 kbps**（计入 TCP ACK 估测约 **1.90–1.91 kbps**）。
+- 开局关键帧数：**0**；仅在 tick 210 注入失步后触发 1 次关键帧恢复。
+- 2 倍速稳态推进速度：**59.50–60.70 ticks/s**（设定速度的 99.2%–101.2%），时间线 P95 偏差 **5.0–29.0 ms**，直线移动回退 **0.000 px**。
 
-实现入口：`scripts/network/fair_lockstep.gd`、`scripts/network/network_match.gd`、`scripts/network/network_session.gd`。
-
-### 修复关闭预测后的游戏减速（2026-11-16）
-
-之前将准备窗口限制在输入目标以内；固定输入为 3 ticks 后，实际上只能准备一帧。主机完成该帧后才发送下一帧，并再次预留网络到达时间，导致模拟步之间不断出现等待。读取上轮真实测试的稳定区间，默认 2 倍速原本应为 60 ticks/s，低延迟只达到约 45 ticks/s，人工抖动只有约 19 ticks/s。
-
-这次修复把运输所需的提前准备数量与输入目标分开，根据 RTT 保持足够的已提交帧。执行间隔仍由对局速度决定；本地预测仍关闭，当时输入目标仍为来源帧加 3 ticks。更远的准备范围可能让输入顺延到后续可用帧，因此这不等于所有指令严格等待三个 tick 后就生效。
-
-回归增加两种检查：模拟 160ms RTT 时连续 40 帧的提交时刻必须保持 50ms 间隔；真实双端在避开主动失步恢复的稳定区间测量 ticks/s，至少达到设定速度的 90%（`--min-speed-ratio`）。同时保留无提前移动、指令顺序、状态一致和观战检查。
-
-本次验证：调度 108 项通过；低延迟、两种主机身份的人工抖动、默认大地图共四组真实联机测试通过。默认 2 倍速目标为 60 ticks/s，低延迟测得 59.6–59.8，人工抖动 57.9–59.8，默认大地图 58.7–58.9 ticks/s，约为设定速度的 96%–100%。所有隔离直线移动测试均无提前移动或回退，双方及观众最终状态一致。
-
-### 固定现实时间 100ms 输入预算（2026-11-16）
-
-按后续要求，1 倍速和 2 倍速都从 100ms 输入预算开始，不再让 2 倍速缩短为 50ms。`fair_lockstep.gd` 的 `INPUT_DELAY_SECONDS = 0.1` 按对局速度换算：1 倍速延后 3 ticks，2 倍速延后 6 ticks，3 倍速延后 9 ticks，4 倍速延后 12 ticks。其他倍速向上对齐到 3-tick 网络帧。
-
-输入等待与持续推进的间隔分开：2 倍速仍每 50ms 推进一个 3-tick 网络帧，保持每现实秒 60 ticks；指令请求的未来位置则相隔两个网络帧。提前准备的流水线、迟到输入顺延和关闭本地预测保持不变。双方需更新游戏并重新开局，中转服务无需修改。
-
-本轮验证：调度 110 项通过；低延迟与人工抖动（交换主机）两组真实联机测试通过。低延迟移动响应约 98–102ms，推进约 59.7 ticks/s；人工抖动推进约 56.4 ticks/s（目标 60）。两组均无提前移动或直线回退，双方及观众最终摘要一致。实际响应仍包含网络传输、帧内采样和迟到顺延，100ms 是输入预算，不是所有操作的墙钟延迟保证。
-
-### 删除本地预测实现（2026-11-16）
-
-删除独立预测模块、联机提交/确认/恢复中的预测回调、单位预测绘制偏移，以及鼠标选择和遮挡排序中的预测分支。三份预测专项测试及对应 UID 一并删除；联机测试保留提交不修改模拟、执行前不提前移动和直线移动无回退检查。普通物理插值、100ms 输入预算和运输流水线继续使用。
-
-验证通过：调度 101 项（含 1/2/3/4 倍速）、实际物理插值与遮挡渲染 198 项、选择生命周期 7 项；低延迟及人工抖动、交换主机的两组真实联机测试通过，双玩家与观众最终摘要一致，强制失步恢复正常。默认 2 倍速测得约 59.6–60.8 ticks/s，直线移动回退为 0。此次删除无需更新 v6 中转服务。
+实现入口：`scripts/network/wire_codec.gd`、`scripts/network/fair_lockstep.gd`、`scripts/network/network_match.gd`、`scripts/network/network_session.gd`、`multiplayer_service_python/wire.py`、`multiplayer_service_python/matchmaking.py`。

@@ -8,13 +8,13 @@ import pytest
 from multiplayer_service_python.matchmaking import Matchmaker
 from multiplayer_service_python.protocol import ProtocolError, decode_keyframe_state, parse_message
 from multiplayer_service_python.settings import Settings
-from multiplayer_service_python.tests.fair_helpers import publish
-from multiplayer_service_python.tests.test_incremental_sync import HASH, drain, frame, spectator, started
+from multiplayer_service_python.tests.test_incremental_sync import HASH, drain, started
+from multiplayer_service_python.wire import encode_packet, parse_binary_message
 
 
 def batch(**overrides):
-    return {"type": "command_batch", "seq": 1, "source_tick": 0, "execute_tick": 6,
-            "commands": [{"op": "move", "unit_id": i + 1, "pos": [i, 4]} for i in range(50)], **overrides}
+    return {"type": "command_batch", "team": 0, "seq": 1, "source_tick": 0, "execute_tick": 6,
+            "commands": [{"op": "move", "unit_id": i + 1, "pos": [float(i), 4.0]} for i in range(50)], **overrides}
 
 
 def compressed(raw=b'{"world":{"name":"test"},"simulation":{"next_id":1}}', **overrides):
@@ -24,47 +24,41 @@ def compressed(raw=b'{"world":{"name":"test"},"simulation":{"next_id":1}}', **ov
 
 
 @pytest.mark.parametrize("host_team", [0, 1])
-def test_batched_sequence_identity_and_player_frame_deduplication(monkeypatch, host_team):
+def test_binary_batched_sequence_identity_and_team_injection(monkeypatch, host_team):
     monkeypatch.setattr("multiplayer_service_python.matchmaking.secrets.randbelow", lambda n: host_team if n == 2 else 123)
 
     async def scenario():
         mm = Matchmaker(Settings())
         room, host, guest = await started(mm)
-        viewer = await spectator(mm, room)
-        packet = parse_message(json.dumps(batch()), Settings())
-        await mm.handle(guest, packet)
-        assert drain(host) == [{**packet, "team": guest.team}] and guest.seq == 50
-        assert not drain(viewer)
-        for old in (packet, batch(seq=50)):
+        raw = encode_packet(batch(team=0))
+        parsed = parse_binary_message(raw, Settings())
+        await mm.handle_binary(guest, parsed, raw)
+        relayed = drain(host)
+        assert len(relayed) == 1 and isinstance(relayed[0], bytes)
+        decoded = parse_binary_message(relayed[0], Settings())
+        assert decoded["team"] == guest.team and guest.seq == 50 and len(decoded["commands"]) == 50
+        for old in (batch(), batch(seq=50)):
+            r_old = encode_packet(old)
             with pytest.raises(ProtocolError):
-                await mm.handle(guest, old)
-        await mm.handle(guest, batch(seq=51))
-        assert guest.seq == 100 and drain(host)[0]["seq"] == 51
-        with pytest.raises(ProtocolError):
-            await mm.handle(viewer, batch())
-        move = {"team": guest.team, "command": {"op": "move", "unit_id": 1, "pos": [1, 4]}}
-        updates = [{"team": host.team, "command": {"op": "match_speed", "speed": 2.0}}]
-        outcome = {"team": guest.team, "seq": 1, "accepted": True}
-        completed = dict(frame(3), commands=[move, *updates], results=[outcome])
-        await publish(mm, host, completed)
-        assert drain(guest) == [{**completed, "commands": updates}]
-        assert drain(viewer) == [completed]
-        assert completed["commands"][0] == move  # filtering cannot mutate the observer's frame
+                await mm.handle_binary(guest, parse_binary_message(r_old, Settings()), r_old)
+        raw2 = encode_packet(batch(seq=51))
+        await mm.handle_binary(guest, parse_binary_message(raw2, Settings()), raw2)
+        assert guest.seq == 100 and parse_binary_message(drain(host)[0], Settings())["seq"] == 51
         await mm.shutdown()
 
     asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("packet", [
-    batch(commands=[]), batch(commands=[{"op": "stop"}] * 65),
+    batch(commands=[]), batch(commands=[{"op": "stop", "unit_id": 1}] * 65),
     batch(seq=0), batch(seq=True), batch(seq=2**53 - 10),
     batch(source_tick=1), batch(execute_tick=0), batch(execute_tick=183),
-    batch(commands=[{"op": "stop", "team": 1}]), batch(commands=[{"unit_id": 1}]),
-    batch(commands=[{"op": "stop", "blob": "x" * 16000}] * 20),
+    batch(commands=[{"op": "stop", "unit_id": 1, "team": 1}]), batch(commands=[{"unit_id": 1}]),
+    batch(commands=[{"op": "match_end", "winner": 0}]),
 ])
-def test_invalid_batch_is_rejected_atomically(packet):
+def test_invalid_binary_batch_is_rejected_atomically(packet):
     with pytest.raises(ProtocolError):
-        parse_message(json.dumps(packet), Settings())
+        encode_packet(packet)
 
 
 @pytest.mark.parametrize("packet", [
@@ -85,7 +79,6 @@ def test_compressed_keyframe_remains_compressed_in_targeted_relay():
     async def scenario():
         mm = Matchmaker(Settings())
         room, host, guest = await started(mm)
-        viewer = await spectator(mm, room)
         await mm.handle(guest, {"type": "request_keyframe"})
         request, = drain(host)
         state = {"world": {"name": "压缩", "entities": [{"pos": [1.125, -2.25]}] * 100}, "simulation": {"next_id": 9}}
@@ -94,7 +87,7 @@ def test_compressed_keyframe_remains_compressed_in_targeted_relay():
         assert decode_keyframe_state(packet, Settings()) == state
         assert len(json.dumps(packet)) < packet["raw_size"]
         await mm.handle(host, packet)
-        assert drain(guest) == [packet] and not drain(viewer)
+        assert drain(guest) == [packet]
         assert not room.keyframe_requests and guest.pending_keyframe is None
         await mm.shutdown()
 
@@ -104,12 +97,16 @@ def test_compressed_keyframe_remains_compressed_in_targeted_relay():
 @pytest.mark.parametrize("packet", [
     batch(commands=[{"op": "set_ai_control", "enabled": True}]),
     batch(commands=[{"op": "move", "unit_id": 1, "pos": [1, 2], "service_url": "private"}]),
-    dict(frame(3), commands=[{"team": 0, "command": {"op": "ai_control_state", "states": {}}}]),
-    {"type": "input_step", "tick": 3, "execute_at_usec": 1000,
-     "commands": [{"team": 0, "seq": 0, "command": {"op": "stop", "unit_id": 1}, "ai": {}}]},
-    compressed(b'{"world":{"ai_control":{"0":{"service_url":"private"}}}}'),
-    compressed(b'{"fair":{"generations":{},"controls":{}}}'),
 ])
-def test_private_controller_data_is_rejected_on_gameplay_routes(packet):
+def test_private_controller_data_is_rejected_on_binary_routes(packet):
     with pytest.raises(ProtocolError):
-        parse_message(json.dumps(packet), Settings())
+        encode_packet(packet)
+
+
+def test_private_controller_data_is_rejected_in_keyframes():
+    for packet in (
+        compressed(b'{"world":{"ai_control":{"0":{"service_url":"private"}}}}'),
+        compressed(b'{"fair":{"generations":{},"controls":{}}}'),
+    ):
+        with pytest.raises(ProtocolError):
+            parse_message(json.dumps(packet), Settings())

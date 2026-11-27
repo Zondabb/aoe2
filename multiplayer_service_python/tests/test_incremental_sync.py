@@ -1,4 +1,3 @@
-from multiplayer_service_python.tests.fair_helpers import publish, prepare_socket
 import asyncio
 import json
 
@@ -7,9 +6,10 @@ import pytest
 from multiplayer_service_python.matchmaking import Matchmaker
 from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
+from multiplayer_service_python.wire import encode_packet, parse_binary_message
 
 
-JOIN = {"type": "join_queue", "protocol_version": 9, "name": "Player", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 10, "name": "Player", "civ": "chinese"}
 HASH = "a" * 64
 
 
@@ -29,23 +29,11 @@ async def started(mm):
         found = drain(player)[-1]
         assert found["host_team"] == room.host_team
         assert found["seed"] == room.seed
-        assert found["protocol_version"] == 9
+        assert found["protocol_version"] == 10
         await mm.handle(player, {"type": "ready"})
     for player in players:
         assert drain(player)[-1]["type"] == "start"
     return room, room.players[room.host_team], room.players[1 - room.host_team]
-
-
-async def spectator(mm, room):
-    viewer = await mm.register()
-    await mm.handle(viewer, {"type": "watch_match", "match_id": room.id})
-    drain(viewer)
-    await mm.handle(viewer, {"type": "watch_ready"})
-    return viewer
-
-
-def frame(tick):
-    return {"type": "frame", "results": [], "tick": tick, "commands": [], "checksum": HASH}
 
 
 def keyframe(request, tick=0):
@@ -54,103 +42,54 @@ def keyframe(request, tick=0):
 
 
 @pytest.mark.parametrize("host_team", [0, 1])
-def test_incremental_timeline_and_targeted_recovery(monkeypatch, host_team):
+def test_heartbeat_and_targeted_keyframe_recovery(monkeypatch, host_team):
     monkeypatch.setattr("multiplayer_service_python.matchmaking.secrets.randbelow", lambda n: host_team if n == 2 else 123)
 
     async def scenario():
         now = [0.0]
         mm = Matchmaker(Settings(), clock=lambda: now[0])
         room, host, guest = await started(mm)
-        viewer = await spectator(mm, room)
+        hb0 = encode_packet({"type": "heartbeat", "tick": 0, "checksum32": 0x11223344, "sent_usec32": 10})
+        await mm.handle_binary(host, parse_binary_message(hb0, Settings()), hb0)
+        assert drain(guest) == [hb0]
+        ack0 = encode_packet({"type": "heartbeat_ack", "ack_tick": 0, "checksum32": 0x11223344, "echo_usec32": 10})
+        await mm.handle_binary(guest, parse_binary_message(ack0, Settings()), ack0)
+        assert drain(host) == [ack0]
+
+        hb60 = encode_packet({"type": "heartbeat", "tick": 60, "checksum32": 0xAABBCCDD, "sent_usec32": 20})
+        await mm.handle_binary(host, parse_binary_message(hb60, Settings()), hb60)
+        assert room.tick == 60 and drain(guest) == [hb60]
+
+        # Keyframe at tick >= room.tick is accepted (host advances silently between heartbeats)
         await mm.handle(guest, {"type": "request_keyframe"})
         request, = drain(host)
-        response = keyframe(request)
+        with pytest.raises(ProtocolError, match="out of bounds"):
+            await mm.handle(host, keyframe(request, 57))
+        assert guest.pending_keyframe == request["request_id"]
+        response = keyframe(request, 72)
         await mm.handle(host, response)
-        assert drain(guest) == [response] and not drain(viewer)
-        ack = {"type": "ack", "tick": 0, "checksum": HASH}
-        await mm.handle(guest, ack)
-        assert drain(host) == [{**ack, "team": guest.team}]
-        for tick in (3, 6, 9):
-            await publish(mm, host, frame(tick))
-            assert drain(guest) == drain(viewer) == [frame(tick)]
-        for tick in (9, 15):
-            with pytest.raises(ProtocolError, match="without gaps"):
-                await publish(mm, host, frame(tick))
-        assert room.tick == 9
-        now[0] = 2.0
-        await mm.handle(viewer, {"type": "request_keyframe"})
-        request, = drain(host)
-        with pytest.raises(ProtocolError, match="current completed frame"):
-            await mm.handle(host, keyframe(request, 6))
-        assert viewer.pending_keyframe == request["request_id"]
-        response = keyframe(request, 9)
-        await mm.handle(host, response)
-        assert drain(viewer) == [response] and not drain(guest)
-        await mm.handle(viewer, {"type": "ack", "tick": 9, "checksum": HASH})
-        assert not drain(host)  # An observer cannot unblock either player.
-        await publish(mm, host, frame(12))
-        assert drain(guest) == drain(viewer) == [frame(12)]
+        assert room.tick == 72 and drain(guest) == [response]
+        ack72 = encode_packet({"type": "heartbeat_ack", "ack_tick": 72, "checksum32": 0xAAAAAAAA, "echo_usec32": 0})
+        await mm.handle_binary(guest, parse_binary_message(ack72, Settings()), ack72)
+        assert drain(host) == [ack72]
         await mm.shutdown()
 
     asyncio.run(scenario())
 
 
-def test_concurrent_spectators_share_one_capture_and_cannot_disconnect_host():
-    async def scenario():
-        now = [0.0]
-        mm = Matchmaker(Settings(outgoing_queue_size=3), clock=lambda: now[0])
-        room, host, guest = await started(mm)
-        viewers = [await spectator(mm, room) for _ in range(16)]
-        for viewer in viewers:
-            for _ in range(10):
-                await mm.handle(viewer, {"type": "request_keyframe"})
-        request, = drain(host)
-        assert len(room.keyframe_requests) == 1 and len(mm.players) == 18
-        # Leaving one member must not cancel the capture needed by the rest.
-        await mm.handle(viewers[0], {"type": "leave"})
-        response = keyframe(request)
-        assert await mm.admit_message(host, len(json.dumps(response).encode()))
-        await mm.handle(host, response)
-        assert not drain(viewers[0]) and not drain(guest)
-        for viewer in viewers[1:]:
-            assert drain(viewer) == [response]
-            with pytest.raises(ProtocolError, match="Wait"):
-                await mm.handle(viewer, {"type": "request_keyframe"})
-        assert not drain(host) and not room.keyframe_requests
-        # A new identity cannot evade the room-wide capture rate limit.
-        await mm.handle(viewers[0], {"type": "watch_match", "match_id": room.id})
-        drain(viewers[0])
-        await mm.handle(viewers[0], {"type": "watch_ready"})
-        with pytest.raises(ProtocolError, match="room keyframe"):
-            await mm.handle(viewers[0], {"type": "request_keyframe"})
-        assert host.id in mm.players and room.id in mm.rooms
-        await mm.shutdown()
-
-    asyncio.run(scenario())
-
-
-def test_timed_out_and_cancelled_keyframe_responses_are_harmless():
+def test_timed_out_keyframe_response_is_harmless():
     async def scenario():
         now = [0.0]
         mm = Matchmaker(Settings(keyframe_timeout=2), clock=lambda: now[0])
         room, host, guest = await started(mm)
-        viewer = await spectator(mm, room)
-        for member in (guest, viewer):
-            await mm.handle(member, {"type": "request_keyframe"})
+        await mm.handle(guest, {"type": "request_keyframe"})
         request, = drain(host)
         now[0] = 3.0
         await mm.sweep()
-        for member in (guest, viewer):
-            assert drain(member)[0]["code"] == "keyframe_timeout"
-            assert member.pending_keyframe is None
+        assert drain(guest)[0]["code"] == "keyframe_timeout"
+        assert guest.pending_keyframe is None
         await mm.handle(host, keyframe(request))
-        assert not drain(host) and not drain(guest) and not drain(viewer)
-        await mm.handle(viewer, {"type": "request_keyframe"})
-        request, = drain(host)
-        await mm.disconnect(viewer)
-        assert not room.keyframe_requests
-        await mm.handle(host, keyframe(request))
-        assert room.id in mm.rooms and not drain(guest)
+        assert not drain(host) and not drain(guest)
         await mm.shutdown()
 
     asyncio.run(scenario())
@@ -158,43 +97,41 @@ def test_timed_out_and_cancelled_keyframe_responses_are_harmless():
 
 @pytest.mark.parametrize("packet", [
     {**JOIN, "protocol_version": 1},
-    {**JOIN, "protocol_version": 2},
-    {**JOIN, "protocol_version": 3},
-    {**JOIN, "protocol_version": 4},
-    {**JOIN, "protocol_version": 5},
-    {"type": "frame", "results": [], "tick": True, "commands": [], "checksum": HASH},
-    {"type": "frame", "results": [], "tick": 2, "commands": [], "checksum": HASH},
-    {"type": "frame", "results": [], "tick": 3, "commands": [], "checksum": "bad"},
-    {"type": "frame", "results": [], "tick": 3, "commands": [{"team": True, "command": {"op": "stop"}}], "checksum": HASH},
-    {"type": "frame", "results": [], "tick": 3, "commands": [{"team": 0, "command": {"op": "stop", "team": 1}}], "checksum": HASH},
-    {"type": "frame", "results": [], "tick": 3, "commands": [{"team": 0, "command": {"op": "stop"}}] * 65, "checksum": HASH},
-    {"type": "ack", "tick": -3, "checksum": HASH},
+    {**JOIN, "protocol_version": 8},
+    {**JOIN, "protocol_version": 9},
+    {"type": "frame", "results": [], "tick": 3, "commands": [], "checksum": HASH},
+    {"type": "ack", "tick": 0, "checksum": HASH},
+    {"type": "watch_match", "match_id": "a" * 32},
+    {"type": "list_matches"},
     {"type": "request_keyframe", "target": "someone"},
     {"type": "keyframe", "request_id": "../other", "tick": 0, "state": {"x": 1}, "checksum": HASH},
     {"type": "snapshot", "seq": 1, "state": {"x": 1}},
+    {"type": "finish_match", "winner": 0, "tick": 1},
 ])
-def test_incremental_wire_rejects_ambiguous_or_legacy_packets(packet):
+def test_incremental_wire_rejects_legacy_or_spectator_packets(packet):
     with pytest.raises(ProtocolError):
         parse_message(json.dumps(packet), Settings())
 
 
-def test_ack_cannot_advance_beyond_host_or_replay_backward():
+def test_heartbeat_ack_cannot_advance_beyond_host_or_regress():
     async def scenario():
         mm = Matchmaker(Settings())
         room, host, guest = await started(mm)
-        with pytest.raises(ProtocolError, match="replicas"):
-            await mm.handle(host, {"type": "ack", "tick": 0, "checksum": HASH})
+        bad_role = encode_packet({"type": "heartbeat_ack", "ack_tick": 0, "checksum32": 1, "echo_usec32": 0})
+        with pytest.raises(ProtocolError, match="guest"):
+            await mm.handle_binary(host, parse_binary_message(bad_role, Settings()), bad_role)
+        ahead = encode_packet({"type": "heartbeat_ack", "ack_tick": 3, "checksum32": 1, "echo_usec32": 0})
         with pytest.raises(ProtocolError, match="timeline"):
-            await mm.handle(guest, {"type": "ack", "tick": 3, "checksum": HASH})
-        await publish(mm, host, frame(3))
+            await mm.handle_binary(guest, parse_binary_message(ahead, Settings()), ahead)
+        hb3 = encode_packet({"type": "heartbeat", "tick": 3, "checksum32": 1, "sent_usec32": 99})
+        await mm.handle_binary(host, parse_binary_message(hb3, Settings()), hb3)
         drain(guest)
-        ack = {"type": "ack", "tick": 3, "checksum": HASH}
-        await mm.handle(guest, ack)
-        assert drain(host) == [{**ack, "team": guest.team}]
-        await mm.handle(guest, ack)
-        assert not drain(host)
+        ack3 = encode_packet({"type": "heartbeat_ack", "ack_tick": 3, "checksum32": 1, "echo_usec32": 99})
+        await mm.handle_binary(guest, parse_binary_message(ack3, Settings()), ack3)
+        assert drain(host) == [ack3]
+        back = encode_packet({"type": "heartbeat_ack", "ack_tick": 0, "checksum32": 1, "echo_usec32": 0})
         with pytest.raises(ProtocolError, match="timeline"):
-            await mm.handle(guest, {"type": "ack", "tick": 0, "checksum": HASH})
+            await mm.handle_binary(guest, parse_binary_message(back, Settings()), back)
         await mm.shutdown()
 
     asyncio.run(scenario())

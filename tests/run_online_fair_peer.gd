@@ -20,9 +20,6 @@ class MotionSampler extends Node:
 
 func _map() -> Dictionary:
 	var data := super._map()
-	# Keep a separate worker away from construction, combat and other walkers.
-	# This straight unobstructed path distinguishes movement regressions
-	# from a legitimate route reversal around an obstacle.
 	for side in [0, 1]:
 		var direction := -1 if side == 0 else 1
 		data.entities.append({"id": "fair_mover%d" % side, "type": "unit", "unit_id": "villager", "team": "player" if side == 0 else "ai", "pos": [direction * 50, direction * 30]})
@@ -40,12 +37,12 @@ func _process(delta: float) -> bool:
 			sampler.process_priority = 100
 			arena.add_child(sampler)
 	var result := super._process(delta)
-	if runtime != null and runtime.synchronized and runtime.tick != last_sample_tick:
+	if runtime != null and runtime.synchronized and (runtime.fair == null or runtime.fair.is_ready()) and runtime.tick != last_sample_tick:
 		last_sample_tick = runtime.tick
 		timeline.append([runtime.tick, Time.get_unix_time_from_system() * 1000.0])
 		if runtime.fair != null:
 			timing_samples.append([runtime.tick, runtime.fair.rtt_usec / 1000.0, runtime.fair.input_delay_ticks, runtime.fair.delay_schedule.duplicate(true)])
-	if runtime != null and runtime.synchronized and not runtime.spectator and runtime.tick >= 120 and not probe_started and not default_map:
+	if runtime != null and runtime.synchronized and (runtime.fair == null or runtime.fair.is_ready()) and runtime.tick >= 120 and not probe_started and not default_map:
 		_start_motion_probe()
 	return result
 
@@ -67,7 +64,6 @@ func _start_motion_probe() -> void:
 	var side := -1 if int(runtime.local_team) == 0 else 1
 	var expected := Vector2(side * 50, side * 30)
 	for unit in runtime.entities.get_children():
-		# map_id is editor metadata and is deliberately absent from keyframes.
 		if unit is UnitAgent and unit.team == runtime.local_team and unit.def.id == &"villager" and unit.sim_pos.distance_squared_to(expected) < 0.01:
 			probe_unit = unit
 			break
@@ -91,8 +87,6 @@ func _start_motion_probe() -> void:
 func _sample_motion() -> void:
 	if done or movement_probe.is_empty() or not is_instance_valid(probe_unit): return
 	var age := float(Time.get_ticks_usec() - int(movement_probe.wall_usec)) / 1000.0
-	# Sample through confirmation, before intentional keyframe corruption
-	# at tick 210 changes the unit position for the recovery test.
 	if runtime.tick >= 195: return
 	var drawn := probe_unit.global_position
 	var projection := (drawn - (movement_probe.origin as Vector2)).dot(movement_probe.direction)

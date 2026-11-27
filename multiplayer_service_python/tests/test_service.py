@@ -1,4 +1,3 @@
-from multiplayer_service_python.tests.fair_helpers import prepare_socket
 import asyncio
 import json
 
@@ -9,9 +8,11 @@ from multiplayer_service_python.main import create_app
 from multiplayer_service_python.matchmaking import Close, Matchmaker
 from multiplayer_service_python.protocol import ProtocolError, parse_message
 from multiplayer_service_python.settings import Settings
+from multiplayer_service_python.tests.fair_helpers import make_sync_init
+from multiplayer_service_python.wire import encode_packet, parse_binary_message
 
 
-JOIN = {"type": "join_queue", "protocol_version": 9, "name": "玩家", "civ": "chinese"}
+JOIN = {"type": "join_queue", "protocol_version": 10, "name": "玩家", "civ": "chinese"}
 
 
 def pair(host, guest):
@@ -42,21 +43,23 @@ def test_match_relay_complete_and_rematch(monkeypatch, host_team):
             match_id = pair(host, guest)
             assert match_id != previous
             previous = match_id
-            # Neither an unready client nor a one-sided ready can issue orders.
-            guest.send_json({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "unit_id": 2}})
+            cmd = encode_packet({"type": "command_batch", "team": 0, "seq": 1, "source_tick": 0, "execute_tick": 6,
+                                 "commands": [{"op": "stop", "unit_id": 2}]})
+            guest.send_bytes(cmd)
             assert guest.receive_json()["code"] == "invalid_state"
             start(host, guest)
-            guest.send_json({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "move", "unit_id": 2, "pos": [4, 5]}})
+            move_cmd = encode_packet({"type": "command_batch", "team": 0, "seq": 1, "source_tick": 0, "execute_tick": 6,
+                                      "commands": [{"op": "move", "unit_id": 2, "pos": [4.0, 5.0]}]})
+            guest.send_bytes(move_cmd)
             authority, replica = (host, guest) if host_team == 0 else (guest, host)
-            message = authority.receive_json()
-            assert message["team"] == 1 and message["seq"] == 1 and message["command"]["pos"] == [4, 5]
-            frame = {"type": "frame", "results": [], "tick": 3, "commands": [], "checksum": "a" * 64}
-            prepare_socket(authority, replica, 3)
-            authority.send_json(frame)
-            assert replica.receive_json() == frame
-            authority.send_json({"type": "finish_match", "winner": 1})
+            message = parse_binary_message(authority.receive_bytes(), Settings())
+            assert message["team"] == 1 and message["seq"] == 1 and message["commands"][0]["pos"] == [4.0, 5.0]
+            sync_raw = encode_packet(make_sync_init(0, 0x11223344, 2.0))
+            authority.send_bytes(sync_raw)
+            assert replica.receive_bytes() == sync_raw
+            authority.send_json({"type": "finish_match", "winner": 1, "tick": 3})
             for peer in [host, guest]:
-                assert peer.receive_json() == {"type": "match_ended", "match_id": match_id, "winner": 1, "reason": "completed"}
+                assert peer.receive_json() == {"type": "match_ended", "match_id": match_id, "winner": 1, "reason": "completed", "tick": 3}
             assert client.get("/healthz").json()["matches"] == 0
 
 
@@ -68,19 +71,21 @@ def test_role_spoofing_and_replayed_sequence_are_rejected(monkeypatch, host_team
         start(first, second)
         host, guest = (first, second) if host_team == 0 else (second, first)
         for message in [
-            {"type": "frame", "results": [], "tick": 3, "commands": [], "checksum": "a" * 64},
             {"type": "finish_match", "winner": 1},
             {"type": "keyframe", "request_id": "0" * 32, "tick": 0, "state": {"x": 1}, "checksum": "a" * 64},
         ]:
             guest.send_json(message)
             assert guest.receive_json()["code"] == "forbidden"
-        guest.send_json({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "team": 0}})
-        assert guest.receive_json()["code"] == "invalid_payload"
-        command = {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "unit_id": 2}}
+        guest.send_bytes(encode_packet(make_sync_init(0, 1, 2.0)))
+        assert guest.receive_json()["code"] == "forbidden"
+
+        command = {"type": "command_batch", "team": 0, "seq": 1, "source_tick": 0, "execute_tick": 6,
+                   "commands": [{"op": "stop", "unit_id": 2}]}
+        raw_cmd = encode_packet(command)
         for peer, team in ((first, 0), (second, 1)):
-            peer.send_json(command)
-            assert host.receive_json()["team"] == team
-            peer.send_json(command)
+            peer.send_bytes(raw_cmd)
+            assert parse_binary_message(host.receive_bytes(), Settings())["team"] == team
+            peer.send_bytes(raw_cmd)
             assert peer.receive_json()["code"] == "invalid_sequence"
         guest.send_json({"type": "ping"})
         assert guest.receive_json() == {"type": "pong"}
@@ -97,20 +102,24 @@ def test_player_order_relay_is_bound_to_sending_team():
         for player in players:
             while not player.outbox.empty():
                 player.outbox.get_nowait()
-        request = {"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": {"op": "stop", "unit_id": 3}}
+        request = {"type": "command_batch", "team": 0, "seq": 1, "source_tick": 0, "execute_tick": 6,
+                   "commands": [{"op": "stop", "unit_id": 3}]}
+        raw = encode_packet(request)
         with pytest.raises(ProtocolError, match="ready"):
-            await mm.handle(players[0], request)
+            await mm.handle_binary(players[0], parse_binary_message(raw, Settings()), raw)
         assert players[0].seq == 0
         for player in players:
             await mm.handle(player, {"type": "ready"})
         for player in players:
             assert player.outbox.get_nowait()["type"] == "start"
         for player in players:
-            await mm.handle(player, parse_message(json.dumps(request), Settings()))
-            assert authority.outbox.get_nowait() == {**request, "team": player.team}
+            await mm.handle_binary(player, parse_binary_message(raw, Settings()), raw)
+            relayed = parse_binary_message(authority.outbox.get_nowait(), Settings())
+            assert relayed == {**request, "team": player.team}
         await mm.handle(authority, {"type": "finish_match", "winner": 1})
+        raw2 = encode_packet({**request, "seq": 2})
         with pytest.raises(ProtocolError, match="not in a match"):
-            await mm.handle(players[0], dict(request, seq=2))
+            await mm.handle_binary(players[0], parse_binary_message(raw2, Settings()), raw2)
         await mm.shutdown()
     asyncio.run(scenario())
 
@@ -118,27 +127,12 @@ def test_player_order_relay_is_bound_to_sending_team():
 @pytest.mark.parametrize("command", [
     {"op": "set_ai_control"},
     {"op": "set_ai_control", "enabled": 1},
-    {"op": "set_ai_control", "enabled": "false"},
-    {"op": "set_ai_control", "enabled": None},
     {"op": "set_ai_control", "enabled": True, "team": 0},
-    {"op": "set_ai_control", "enabled": True, "unit_id": 5},
+    {"op": "ai_instruction", "text": "增加食物采集"},
 ])
-def test_external_ai_control_rejects_ambiguous_flags_and_spoofed_identity(command):
-    with pytest.raises(ProtocolError, match="gameplay|identity"):
-        parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": command}), Settings())
-
-
-def test_player_instruction_is_private_and_bounded():
-    settings = Settings()
-    command = {"op": "ai_instruction", "text": "增加食物采集"}
+def test_external_ai_control_is_rejected_on_wire(command):
     with pytest.raises(ProtocolError):
-        parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": command}), settings)
-    for invalid in [dict(command, team=0), dict(command, text="  "), dict(command, text=42), dict(command, text="a" * 241)]:
-        with pytest.raises(ProtocolError):
-            parse_message(json.dumps({"type": "command", "source_tick": 0, "execute_tick": 30, "seq": 1, "command": invalid}), settings)
-    with pytest.raises(ProtocolError, match="gameplay"):
-        parse_message(json.dumps({"type": "frame", "results": [], "tick": 3, "checksum": "0" * 64,
-                                  "commands": [{"team": 0, "command": command}]}), settings)
+        encode_packet({"type": "command_batch", "team": 0, "seq": 1, "source_tick": 0, "execute_tick": 6, "commands": [command]})
 
 
 def test_queue_cancel_and_cancel_after_match_race_cleanup():
@@ -175,9 +169,6 @@ def test_disconnect_awards_opponent_and_removes_room():
     ('{"type":"ping","type":"leave"}', "invalid_json"),
     ('{"type":"unknown"}', "unknown_type"),
     ('{"type":"ping","team":0}', "invalid_payload"),
-    ('{"type":"command","source_tick":0,"execute_tick":30,"seq":true,"command":{"op":"stop"}}', "invalid_sequence"),
-    ('{"type":"command","source_tick":0,"execute_tick":30,"seq":1,"command":{"op":"stop","x":NaN}}', "invalid_json"),
-    ('{"type":"command","source_tick":0,"execute_tick":30,"seq":1,"command":{"op":"stop","x":1e999}}', "invalid_payload"),
     (json.dumps(dict(JOIN, protocol_version=1)), "protocol_mismatch"),
     (json.dumps(dict(JOIN, name="\n")), "invalid_name"),
     (json.dumps(dict(JOIN, civ="unknown")), "invalid_civ"),
@@ -194,7 +185,7 @@ def test_payload_size_and_depth_limits():
     with pytest.raises(ProtocolError, match="size limit"):
         parse_message(" " * 600, Settings(max_message_bytes=500))
     with pytest.raises(ProtocolError, match="too complex"):
-        parse_message('{"type":"command","source_tick":0,"execute_tick":30,"seq":1,"command":{"op":"stop","x":' + '[' * 40 + '0' + ']' * 40 + '}}', Settings())
+        parse_message('{"type":"keyframe","request_id":"' + "0" * 32 + '","tick":0,"checksum":"' + "a" * 64 + '","state":' + '[' * 40 + '0' + ']' * 40 + '}', Settings())
 
 
 def test_capacity_timeout_and_slow_consumer_cleanup():
@@ -219,7 +210,6 @@ def test_capacity_timeout_and_slow_consumer_cleanup():
         for player in [host, guest]:
             assert player.outbox.get_nowait()["reason"] == "ready_timeout"
             assert player.room_id is None
-        # Slow peers are detached without blocking or leaking a queue entry.
         for _ in range(5):
             await mm.handle(host, {"type": "ping"})
         assert host.id not in mm.players

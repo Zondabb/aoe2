@@ -1,37 +1,37 @@
-"""Publish startup prepare/commit packets before an execution report."""
+"""Helpers for Protocol v10 binary test packets."""
+from __future__ import annotations
 
-def commit(tick):
-    return {"type": "input_commit", "tick": tick, "execute_at_usec": tick * 100000,
-            "speed": 1.0, "input_delay_ticks": 18, "delay_from_tick": 0}
-
-
-def consume_control(player, kind, tick):
-    keep, found = [], []
-    while not player.outbox.empty():
-        item = player.outbox.get_nowait()
-        if isinstance(item, dict) and item.get("type") == kind and item.get("tick") == tick:
-            found.append(item)
-        else:
-            keep.append(item)
-    for item in keep:
-        player.outbox.put_nowait(item)
-    assert len(found) == 1
+from multiplayer_service_python.settings import Settings
+from multiplayer_service_python.wire import encode_packet, parse_binary_message
 
 
-async def publish(mm, host, frame):
-    room = mm.rooms[host.room_id]
-    tick = frame["tick"]
-    if tick == room.announced_tick + 3:
-        guest = room.players[1 - room.host_team]
-        await mm.handle(host, {"type": "input_frame", "tick": tick, "commands": []})
-        consume_control(guest, "input_frame", tick)
-        await mm.handle(host, commit(tick))
-        consume_control(guest, "input_commit", tick)
-    await mm.handle(host, frame)
+def make_sync_init(tick: int = 0, checksum32: int = 0x12345678, speed: float = 2.0) -> dict:
+    return {
+        "type": "sync_init",
+        "tick": tick,
+        "epoch_usec": 1_000_000,
+        "speed": speed,
+        "input_delay_ticks": 6,
+        "delay_from_tick": 0,
+        "checksum32": checksum32,
+    }
 
 
-def prepare_socket(host, guest, tick):
-    host.send_json({"type": "input_frame", "tick": tick, "commands": []})
-    assert guest.receive_json()["type"] == "input_frame"
-    host.send_json(commit(tick))
-    assert guest.receive_json()["type"] == "input_commit"
+def make_schedule(sched_id: int = 1, tick: int = 6, commands: list | None = None, **extra) -> dict:
+    if commands is None:
+        commands = [{"team": 0, "seq": 1, "command": {"op": "stop", "unit_id": 1}}]
+    return {
+        "type": "schedule",
+        "id": sched_id,
+        "tick": tick,
+        "epoch_usec": tick * 100_000,
+        "commands": commands,
+        **extra,
+    }
+
+
+async def send_bin(mm, player, message: dict) -> bytes:
+    raw = encode_packet(message)
+    parsed = parse_binary_message(raw, Settings())
+    await mm.handle_binary(player, parsed, raw)
+    return raw

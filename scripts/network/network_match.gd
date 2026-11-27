@@ -138,6 +138,11 @@ var fair: RefCounted
 var _local_input_seq := 0
 var match_speed := 1.0
 var _speed_announced_tick := -1000000
+var _batch_depth := 0
+var _batch_commands: Array = []
+var _batch_first_seq := 0
+var _batch_source := 0
+var _batch_target := 0
 
 
 func setup(bootstrap: Node) -> void:
@@ -170,10 +175,8 @@ func setup(bootstrap: Node) -> void:
 	if not spectator:
 		fair = FairLockstep.new()
 		fair.setup(self)
-	_set_status("正在载入观战关键帧…" if spectator else "等待双方载入地图…")
-	if spectator and session.get("state") == "watching":
-		_on_started()
-	elif session.get("state") == "playing" and not spectator:
+	_set_status("等待双方载入地图…")
+	if session.get("state") == "playing" and not spectator:
 		_on_started()
 	elif session.get("state") == "matched" and not spectator:
 		session.call("send_ready")
@@ -192,6 +195,29 @@ func entity_id(entity: Node) -> int:
 	return int(entity.get_meta("net_id", -1))
 
 
+func begin_command_batch() -> void:
+	_batch_depth += 1
+
+
+func end_command_batch() -> void:
+	if _batch_depth <= 0:
+		_batch_depth = 0
+		return
+	_batch_depth -= 1
+	if _batch_depth > 0 or _batch_commands.is_empty():
+		return
+	var commands := _batch_commands
+	var first_seq := _batch_first_seq
+	var source := _batch_source
+	var target := _batch_target
+	_batch_commands = []
+	_batch_first_seq = 0
+	if not is_host and fair != null and session != null:
+		for offset in range(0, commands.size(), 64):
+			var chunk: Array = commands.slice(offset, offset + 64)
+			session.send_command_batch(chunk, first_seq + offset, source, target)
+
+
 func submit_command(command: Dictionary) -> bool:
 	if spectator or not synchronized or local_team not in [0, 1] or not _playing or _terminal or match_state == null or match_state.frozen:
 		return false
@@ -200,6 +226,17 @@ func submit_command(command: Dictionary) -> bool:
 		for key in command:
 			if key not in COMMAND_FIELDS[command.op]: return false
 		_local_input_seq += 1
+		if _batch_depth > 0:
+			if _batch_commands.is_empty():
+				_batch_first_seq = _local_input_seq
+				_batch_source = fair.source_tick()
+				_batch_target = _batch_source + fair.delay_for_source(_batch_source)
+			var batch_accepted := true
+			if is_host: batch_accepted = fair.enqueue(command, local_team, _local_input_seq, _batch_source, _batch_target)
+			else: _batch_commands.append(command.duplicate(true))
+			if batch_accepted:
+				_submitted(command, _local_input_seq, _batch_source, _batch_target)
+			return batch_accepted
 		var source: int = fair.source_tick()
 		var target: int = source + fair.delay_for_source(source)
 		var accepted: bool
@@ -501,13 +538,17 @@ func _on_started() -> void:
 	_last_process_usec = Time.get_ticks_usec()
 	_last_snapshot_received_usec = _last_process_usec
 	_sim_clock_usec = -1
+	last_checksum = str(simulation.call("frame_checksum"))
+	_checksums[tick] = last_checksum
+	if fair != null:
+		fair.record_checksum(tick, last_checksum)
 	if is_host:
 		synchronized = true
-		last_checksum = str(simulation.call("frame_checksum"))
-		_checksums[tick] = last_checksum
-		_set_status("等待对手同步关键帧…")
+		_set_status("等待对手校准时钟…")
+	elif fair != null:
+		synchronized = true
+		_set_status("正在校准联机时钟…")
 	else:
-		if spectator: session.call("send_watch_ready")
 		_request_keyframe()
 
 
@@ -616,14 +657,13 @@ func _finish_host_frame() -> void:
 
 
 func _send_keyframe(request_id: String) -> void:
+	if fair != null: fair.on_send_keyframe()
 	var full: Dictionary = simulation.call("capture")
 	if fair != null: full["fair"] = {"input_delay_ticks": fair.delay_for_source(fair.source_tick()), "speed": match_speed, "delay_schedule": fair.delay_schedule.duplicate(true)}
 	last_checksum = str(simulation.call("frame_checksum"))
 	_checksums[tick] = last_checksum
 	if session.call("send_keyframe", request_id, tick, full, last_checksum):
 		keyframes_sent += 1
-		if fair != null: fair.resend()
-	if fair != null: fair.reset_clock_sampling()
 
 
 func _on_message(message: Dictionary) -> void:
@@ -632,6 +672,16 @@ func _on_message(message: Dictionary) -> void:
 	match String(message.get("type", "")):
 		"command_batch":
 			if not is_host: return
+			if fair != null:
+				var side := int(message.get("team", -1))
+				var base_seq := int(message.get("seq", -1))
+				if side not in [0, 1] or base_seq <= int(_command_sequences[side]): return
+				for i in message.commands.size():
+					var seq: int = base_seq + int(i)
+					_command_sequences[side] = seq
+					if message.commands[i] is Dictionary:
+						fair.enqueue(message.commands[i], side, seq, int(message.source_tick), int(message.execute_tick))
+				return
 			for i in message.commands.size():
 				_on_message({"type": "command", "team": message.team, "seq": int(message.seq) + i,
 					"source_tick": message.source_tick, "execute_tick": message.execute_tick, "command": message.commands[i]})
@@ -727,11 +777,11 @@ func _finish_replica_frame() -> bool:
 
 ## Execute every frame already received (match end: the result follows the
 ## last frame on the same connection, so the final state is complete).
-func _drain_frames() -> void:
+func _drain_frames(final_tick := -1) -> void:
 	if is_host or not synchronized or _awaiting_keyframe or _draining: return
 	_draining = true
 	if fair != null:
-		fair.drain()
+		fair.drain(final_tick)
 		_draining = false
 		return
 	while not _awaiting_keyframe:
@@ -802,8 +852,12 @@ func _receive_keyframe(message: Dictionary) -> void:
 	synchronized = true
 	_awaiting_keyframe = false
 	_last_snapshot_received_usec = Time.get_ticks_usec()
-	if not spectator: session.call("send_ack", tick, last_checksum)
-	_set_status("正在观战 · 只读 · 指令同步" if spectator else "联机对战 · 玩家 · 指令同步")
+	if fair != null:
+		fair.record_checksum(tick, last_checksum)
+		fair._maybe_send_sync_ack()
+	elif not spectator:
+		session.call("send_ack", tick, last_checksum)
+	_set_status("联机对战 · 玩家 · 静默同步")
 
 
 func _valid_fair_state(value: Variant) -> bool:
@@ -1268,12 +1322,14 @@ func _on_winner(winner: int) -> void:
 	if is_host and not spectator and not _terminal and session != null:
 		_pending_winner = winner
 		# Mid-frame, the result is published after that frame completes.
-		if not _frame_running and _frame_step == 0: session.call("finish_match", winner)
+		if not _frame_running and _frame_step == 0:
+			if fair != null: session.call("finish_match", winner, tick)
+			else: session.call("finish_match", winner)
 
 
-func _on_ending(_info: Dictionary) -> void:
+func _on_ending(info: Dictionary) -> void:
 	if not _terminal and _playing and not is_host:
-		_drain_frames()
+		_drain_frames(int(info.get("tick", -1)))
 
 
 func _on_ended(info: Dictionary) -> void:
