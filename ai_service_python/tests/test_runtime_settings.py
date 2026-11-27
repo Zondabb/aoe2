@@ -33,6 +33,7 @@ def test_cli_llm_token_overrides_env(monkeypatch, tmp_path: Path) -> None:
 def test_llm_model_override_replaces_game_model(monkeypatch) -> None:
     runtime_settings.clear_cli()
     monkeypatch.delenv("AOE2_LLM_MODEL", raising=False)
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
     monkeypatch.setenv("AOE2_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
     args = runtime_settings.build_parser().parse_args(["--llm-model", "qwen3:8b"])
     runtime_settings.apply_args(args)
@@ -87,6 +88,9 @@ def test_config_local_environment_and_cli_precedence(monkeypatch, tmp_path):
 
 
 def test_default_config_does_not_depend_on_working_directory(monkeypatch, tmp_path):
+    local_override = runtime_settings.DEFAULT_CONFIG_PATH.with_name("config.local.toml")
+    real_is_file = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda self: False if self == local_override else real_is_file(self))
     monkeypatch.chdir(tmp_path)
     runtime_settings.load_config()
     assert runtime_settings.config_path() == runtime_settings.DEFAULT_CONFIG_PATH

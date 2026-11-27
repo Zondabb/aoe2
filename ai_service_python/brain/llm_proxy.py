@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -17,7 +17,7 @@ from protocol.models import (
 )
 
 def is_openai_backend(name: str) -> bool:
-    return name.strip().lower() in {"openai", "llm", "openai_compat"}
+    return name.strip().lower() in {"openai", "llm", "openai_compat", "gemini", "google"}
 
 
 def resolve_backend(req: ChatCompletionRequest) -> str:
@@ -197,8 +197,118 @@ def _deepseek_forced_tool_thinking(tool_choice: Any) -> dict[str, str] | None:
     return {"type": "disabled"}
 
 
+def _gemini_generate_url(req: ChatCompletionRequest) -> str | None:
+    raw_base = llm_base_url(req)
+    base = urlsplit(raw_base)
+    explicit = runtime_settings.backend().strip().lower() in {"gemini", "google"}
+    is_google_host = (
+        base.hostname == "generativelanguage.googleapis.com"
+        and not base.path.rstrip("/").endswith("/openai")
+    )
+    if not (explicit or is_google_host):
+        return None
+    if raw_base.endswith(":generateContent"):
+        return raw_base
+    model = upstream_model(req).strip()
+    if model.startswith("models/"):
+        model = model[len("models/"):]
+    model_seg = quote(model, safe="-_.")
+    path = base.path.rstrip("/")
+    if path == "":
+        return f"{raw_base}/v1beta/models/{model_seg}:generateContent"
+    if path in {"/v1beta/models", "/v1/models"} or path.endswith("/models"):
+        return f"{raw_base}/{model_seg}:generateContent"
+    return f"{raw_base}/models/{model_seg}:generateContent"
+
+
+def _gemini_tool_config(tool_choice: Any) -> dict[str, Any] | None:
+    if tool_choice == "none":
+        return {"functionCallingConfig": {"mode": "NONE"}}
+    if tool_choice == "auto":
+        return {"functionCallingConfig": {"mode": "AUTO"}}
+    if tool_choice == "required":
+        return {"functionCallingConfig": {"mode": "ANY"}}
+    if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+        fn = tool_choice.get("function")
+        name = fn.get("name") if isinstance(fn, dict) else None
+        if isinstance(name, str) and name:
+            return {"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": [name]}}
+    return None
+
+
+def _build_gemini_payload(req: ChatCompletionRequest) -> dict[str, Any]:
+    system_parts: list[str] = []
+    contents: list[dict[str, Any]] = []
+    for msg in req.messages:
+        if msg.role == "system":
+            if msg.content:
+                system_parts.append(msg.content)
+            continue
+        role = "model" if msg.role == "assistant" else "user"
+        parts: list[dict[str, Any]] = []
+        if msg.content:
+            parts.append({"text": msg.content})
+        if msg.role == "assistant" and msg.tool_calls:
+            for call in msg.tool_calls:
+                if not isinstance(call, dict):
+                    continue
+                fn = call.get("function")
+                if not isinstance(fn, dict) or not fn.get("name"):
+                    continue
+                raw_args = fn.get("arguments")
+                if isinstance(raw_args, str):
+                    try:
+                        parsed = json.loads(raw_args)
+                    except (ValueError, TypeError):
+                        parsed = {}
+                    args = parsed if isinstance(parsed, dict) else {}
+                elif isinstance(raw_args, dict):
+                    args = raw_args
+                else:
+                    args = {}
+                parts.append({"functionCall": {"name": str(fn["name"]), "args": args}})
+        if not parts:
+            continue
+        if contents and contents[-1]["role"] == role:
+            contents[-1]["parts"].extend(parts)
+        else:
+            contents.append({"role": role, "parts": parts})
+    if not contents:
+        contents = [{"role": "user", "parts": [{"text": "Proceed."}]}]
+    max_output_tokens = (
+        runtime_settings.legislation_output_tokens()
+        if is_legislative_request(req)
+        else runtime_settings.llm_max_tokens()
+    )
+    payload: dict[str, Any] = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": runtime_settings.llm_temperature(),
+            "maxOutputTokens": max_output_tokens,
+        },
+    }
+    if system_parts:
+        payload["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+    if req.tools:
+        declarations: list[dict[str, Any]] = []
+        for tool in req.tools:
+            decl: dict[str, Any] = {"name": tool.function.name}
+            if tool.function.description:
+                decl["description"] = tool.function.description
+            if tool.function.parameters:
+                decl["parametersJsonSchema"] = tool.function.parameters
+            declarations.append(decl)
+        payload["tools"] = [{"functionDeclarations": declarations}]
+        tool_config = _gemini_tool_config(req.tool_choice)
+        if tool_config is not None:
+            payload["toolConfig"] = tool_config
+    return payload
+
+
 def build_openai_payload(req: ChatCompletionRequest) -> dict[str, Any]:
     """Actual upstream body, shared by HTTP forwarding and diagnostic logs."""
+    if _gemini_generate_url(req) is not None:
+        return _build_gemini_payload(req)
     if _ollama_plan_url(req) is not None:
         return _build_ollama_plan_payload(req)
     model = upstream_model(req)
@@ -227,6 +337,17 @@ def forward_openai(
     req: ChatCompletionRequest,
 ) -> tuple[ChatCompletionResponse, dict[str, Any], dict[str, Any]]:
     token = llm_token()
+    gemini_url = _gemini_generate_url(req)
+    if gemini_url is not None:
+        if not token:
+            raise RuntimeError("missing_llm_token")
+        payload = _build_gemini_payload(req)
+        headers = {"Content-Type": "application/json", "X-goog-api-key": token}
+        timeout = runtime_settings.legislation_timeout_sec() if is_legislative_request(req) else llm_timeout_sec()
+        raw = post_openai(gemini_url, headers, payload, timeout)
+        raw = dict(raw)
+        raw["usage"] = _gemini_usage(raw)
+        return _normalize_gemini_response(raw, upstream_model(req)), payload, raw
     native_url = _ollama_plan_url(req)
     if not token and _local_ollama_base_url() is None:
         raise RuntimeError("missing_llm_token")
@@ -322,6 +443,76 @@ def _normalize_openai_response(raw: dict[str, Any], fallback_model: str) -> Chat
     return ChatCompletionResponse(
         id=str(raw.get("id") or "chatcmpl_openai"),
         model=str(raw.get("model") or fallback_model),
+        choices=choices,
+        usage=ChatUsage(
+            prompt_tokens=int(usage_raw.get("prompt_tokens") or 0),
+            completion_tokens=int(usage_raw.get("completion_tokens") or 0),
+            total_tokens=int(usage_raw.get("total_tokens") or 0),
+        ),
+    )
+
+
+def _gemini_usage(raw: dict[str, Any]) -> dict[str, int]:
+    meta = raw.get("usageMetadata") if isinstance(raw.get("usageMetadata"), dict) else {}
+    prompt = int(meta.get("promptTokenCount") or 0)
+    completion = int(meta.get("candidatesTokenCount") or 0) + int(meta.get("thoughtsTokenCount") or 0)
+    total = int(meta.get("totalTokenCount") or (prompt + completion))
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
+def _normalize_gemini_response(raw: dict[str, Any], fallback_model: str) -> ChatCompletionResponse:
+    choices: list[ChatCompletionChoice] = []
+    for index, cand in enumerate(raw.get("candidates") or []):
+        if not isinstance(cand, dict):
+            continue
+        content_obj = cand.get("content") if isinstance(cand.get("content"), dict) else {}
+        parts = content_obj.get("parts") if isinstance(content_obj.get("parts"), list) else []
+        text_parts: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
+        for part in parts:
+            if not isinstance(part, dict) or part.get("thought") is True:
+                continue
+            fc = part.get("functionCall")
+            if isinstance(fc, dict):
+                fn_name = str(fc.get("name") or "")
+                raw_args = fc.get("args")
+                args_json = (
+                    raw_args
+                    if isinstance(raw_args, str)
+                    else json.dumps(raw_args if isinstance(raw_args, dict) else {}, ensure_ascii=False, allow_nan=False)
+                )
+                tool_calls.append(
+                    {
+                        "id": str(fc.get("id") or f"call_gemini_{len(tool_calls) + 1}"),
+                        "type": "function",
+                        "function": {"name": fn_name, "arguments": args_json},
+                    }
+                )
+            elif isinstance(part.get("text"), str):
+                text_parts.append(part["text"])
+        calls = tool_calls or None
+        text_content: str | None = "".join(text_parts) if text_parts else None
+        if calls and not (text_content or "").strip():
+            text_content = None
+        raw_finish = str(cand.get("finishReason") or "").upper()
+        finish = "length" if raw_finish == "MAX_TOKENS" else ("tool_calls" if calls else "stop")
+        choices.append(
+            ChatCompletionChoice(
+                index=int(cand.get("index", index)),
+                finish_reason=finish,  # type: ignore[arg-type]
+                message=ChatMessage(role="assistant", content=text_content, tool_calls=calls),
+            )
+        )
+    if not choices:
+        choices.append(
+            ChatCompletionChoice(
+                message=ChatMessage(role="assistant", content=None, tool_calls=None)
+            )
+        )
+    usage_raw = raw.get("usage") if isinstance(raw.get("usage"), dict) else _gemini_usage(raw)
+    return ChatCompletionResponse(
+        id=str(raw.get("responseId") or "chatcmpl_gemini"),
+        model=str(raw.get("modelVersion") or fallback_model),
         choices=choices,
         usage=ChatUsage(
             prompt_tokens=int(usage_raw.get("prompt_tokens") or 0),

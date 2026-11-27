@@ -358,11 +358,25 @@ def _summarize_llm_response(inbound: dict[str, Any]) -> dict[str, Any]:
         raw = choices[0].get("message")
         if isinstance(raw, dict):
             message = raw
+        finish_reason = choices[0].get("finish_reason")
+        tool_calls = message.get("tool_calls")
+    else:
+        candidates = inbound.get("candidates") or []
+        first_cand = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+        finish_reason = first_cand.get("finishReason")
+        content = first_cand.get("content") if isinstance(first_cand.get("content"), dict) else {}
+        parts = content.get("parts") if isinstance(content.get("parts"), list) else []
+        extracted_calls = [
+            part["functionCall"]
+            for part in parts
+            if isinstance(part, dict) and isinstance(part.get("functionCall"), dict)
+        ]
+        tool_calls = extracted_calls or None
     return {
-        "finish_reason": choices[0].get("finish_reason") if choices and isinstance(choices[0], dict) else None,
+        "finish_reason": finish_reason,
         "usage": inbound.get("usage"),
         "reasoning_content": message.get("reasoning_content"),
-        "tool_calls": message.get("tool_calls"),
+        "tool_calls": tool_calls,
     }
 
 

@@ -20,7 +20,7 @@ PLAN_SCHEMA = {
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch):
     runtime_settings.clear_cli()
-    for name in ("AOE2_LLM_TOKEN", "AOE2_LLM_BASE_URL", "AOE2_LLM_MODEL", "AOE2_LLM_NUM_CTX"):
+    for name in ("AOE2_LLM_TOKEN", "AOE2_LLM_BASE_URL", "AOE2_LLM_MODEL", "AOE2_LLM_NUM_CTX", "AOE2_AI_BACKEND"):
         monkeypatch.delenv(name, raising=False)
     yield
     runtime_settings.clear_cli()
@@ -285,3 +285,155 @@ def test_local_ollama_thinking_mode_and_typed_action_descriptions(monkeypatch):
     assert leg_payload["options"]["num_predict"] == 8192
     assert "Actions: list (" in leg_payload["messages"][0]["content"]
     assert "read (" in leg_payload["messages"][0]["content"]
+
+
+@pytest.mark.parametrize("base, model, expected", [
+    ("https://generativelanguage.googleapis.com/v1beta", "gemini-flash-latest",
+     "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"),
+    ("https://generativelanguage.googleapis.com", "gemini-flash-latest",
+     "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"),
+    ("https://generativelanguage.googleapis.com/v1beta/models", "models/gemini-2.5-flash",
+     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"),
+    ("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent", "ignored",
+     "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"),
+])
+def test_gemini_generate_url_resolution(base, model, expected, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", base)
+    monkeypatch.setenv("AOE2_LLM_MODEL", model)
+    assert llm_proxy._gemini_generate_url(plan_request()) == expected
+
+
+def test_gemini_openai_compat_path_uses_openai_payload(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "openai")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
+    monkeypatch.setenv("AOE2_LLM_MODEL", "gemini-2.5-flash")
+    assert llm_proxy._gemini_generate_url(plan_request()) is None
+    payload = llm_proxy.build_openai_payload(plan_request())
+    assert payload["model"] == "gemini-2.5-flash"
+    assert "contents" not in payload
+
+
+def test_gemini_backend_accepts_custom_proxy_url(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "gemini")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://proxy.example/gemini/v1beta")
+    monkeypatch.setenv("AOE2_LLM_MODEL", "gemini-flash-latest")
+    assert llm_proxy.is_openai_backend("gemini")
+    assert llm_proxy.is_openai_backend("google")
+    assert (
+        llm_proxy._gemini_generate_url(plan_request())
+        == "https://proxy.example/gemini/v1beta/models/gemini-flash-latest:generateContent"
+    )
+
+
+def test_gemini_requires_token(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "gemini")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+    with pytest.raises(RuntimeError, match="missing_llm_token"):
+        llm_proxy.forward_openai(plan_request())
+
+
+@pytest.mark.parametrize("tool_choice, expected_config", [
+    ("none", {"functionCallingConfig": {"mode": "NONE"}}),
+    ("auto", {"functionCallingConfig": {"mode": "AUTO"}}),
+    ("required", {"functionCallingConfig": {"mode": "ANY"}}),
+    ({"type": "function", "function": {"name": "propose_plan"}},
+     {"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["propose_plan"]}}),
+])
+def test_gemini_payload_and_forward_headers(tool_choice, expected_config, monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "gemini")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+    monkeypatch.setenv("AOE2_LLM_MODEL", "gemini-flash-latest")
+    monkeypatch.setenv("AOE2_LLM_TOKEN", "goog-test-key")
+    monkeypatch.setenv("AOE2_LLM_MAX_TOKENS", "4096")
+    req = plan_request()
+    req.messages.append(ChatCompletionRequest.model_validate({
+        "messages": [{"role": "user", "content": "Player order: build 2 barracks."}]
+    }).messages[0])
+    req.tool_choice = tool_choice
+    captured = {}
+
+    def post(url, headers, payload, timeout):
+        captured.update(url=url, headers=headers, payload=copy.deepcopy(payload), timeout=timeout)
+        return {
+            "responseId": "resp_1",
+            "modelVersion": "gemini-flash-latest",
+            "candidates": [{
+                "index": 0,
+                "finishReason": "STOP",
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"thought": True, "text": "hidden reasoning"},
+                        {"functionCall": {"name": "propose_plan", "args": {"stance": "pressure"}}},
+                    ],
+                },
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 120,
+                "candidatesTokenCount": 14,
+                "thoughtsTokenCount": 30,
+                "totalTokenCount": 164,
+            },
+        }
+
+    monkeypatch.setattr(llm_proxy, "post_openai", post)
+    response, sent, raw = llm_proxy.forward_openai(req)
+    assert captured["url"] == "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
+    assert captured["headers"] == {"Content-Type": "application/json", "X-goog-api-key": "goog-test-key"}
+    assert "Authorization" not in captured["headers"]
+    assert sent == captured["payload"]
+    assert sent["systemInstruction"] == {"parts": [{"text": "Choose a stance using propose_plan."}]}
+    assert len(sent["contents"]) == 1
+    assert sent["contents"][0] == {
+        "role": "user",
+        "parts": [{"text": '{"role":"commander"}'}, {"text": "Player order: build 2 barracks."}],
+    }
+    assert sent["generationConfig"] == {"temperature": 0.2, "maxOutputTokens": 4096}
+    assert "thinkingConfig" not in sent["generationConfig"]
+    assert sent["tools"] == [{
+        "functionDeclarations": [{
+            "name": "propose_plan",
+            "description": "Update the commander plan.",
+            "parametersJsonSchema": PLAN_SCHEMA,
+        }]
+    }]
+    assert sent["toolConfig"] == expected_config
+
+    choice = response.choices[0]
+    assert choice.finish_reason == "tool_calls"
+    assert choice.message.content is None
+    assert choice.message.tool_calls == [{
+        "id": "call_gemini_1",
+        "type": "function",
+        "function": {"name": "propose_plan", "arguments": '{"stance": "pressure"}'},
+    }]
+    assert response.usage.model_dump() == {"prompt_tokens": 120, "completion_tokens": 44, "total_tokens": 164}
+    assert raw["usage"] == {"prompt_tokens": 120, "completion_tokens": 44, "total_tokens": 164}
+
+
+def test_gemini_legislative_budget_and_text_or_length_normalization(monkeypatch):
+    monkeypatch.setenv("AOE2_AI_BACKEND", "gemini")
+    monkeypatch.setenv("AOE2_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+    monkeypatch.setenv("AOE2_AI_LEGISLATION_MAX_TOKENS", "4096")
+    req = plan_request()
+    req.tools[0].function.name = "legislative_step"
+    req.tool_choice = {"type": "function", "function": {"name": "legislative_step"}}
+    payload = llm_proxy.build_openai_payload(req)
+    assert payload["generationConfig"]["maxOutputTokens"] == 4096
+
+    text_resp = llm_proxy._normalize_gemini_response({
+        "candidates": [{
+            "finishReason": "STOP",
+            "content": {"parts": [{"thought": True, "text": "internal"}, {"text": "AI predicts tokens."}]},
+        }],
+        "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 4, "totalTokenCount": 9},
+    }, "gemini-flash-latest")
+    assert text_resp.choices[0].finish_reason == "stop"
+    assert text_resp.choices[0].message.content == "AI predicts tokens."
+    assert text_resp.choices[0].message.tool_calls is None
+
+    max_tok_resp = llm_proxy._normalize_gemini_response({
+        "candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "partial"}]}}],
+    }, "gemini-flash-latest")
+    assert max_tok_resp.choices[0].finish_reason == "length"

@@ -210,9 +210,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="", help="Server TOML settings (default: service directory/config.toml)")
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
-    parser.add_argument("--llm-token", default="", help="Upstream model API token (DeepSeek/OpenAI)")
+    parser.add_argument("--llm-token", default="", help="Upstream model API token (DeepSeek/OpenAI/Gemini)")
     parser.add_argument("--llm-token-file", default="", help="Read --llm-token from the first line of a file")
-    parser.add_argument("--llm-base-url", default="", help="OpenAI-compatible upstream base URL")
+    parser.add_argument("--llm-base-url", default="", help="Upstream LLM base URL (OpenAI-compatible or Google Gemini v1beta)")
     parser.add_argument("--llm-model", default="", help="Upstream model name")
     parser.add_argument("--llm-timeout-sec", default="", help="Upstream LLM HTTP timeout")
     parser.add_argument("--llm-max-tokens", default="", help="Upstream generation token budget")
@@ -222,7 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-observation", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--log-dir", default="", help="Log directory (relative to the selected config file)")
     parser.add_argument("--ai-token", default="", help="Optional Bearer token required from the game")
-    parser.add_argument("--backend", default="", help="Backend: openai | rules_compat")
+    parser.add_argument("--backend", default="", help="Backend: openai | gemini | rules_compat")
     parser.add_argument("--runtime", default="", help=f"v3 runtime: {' | '.join(AI_RUNTIMES)}")
     return parser
 

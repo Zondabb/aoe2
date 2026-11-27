@@ -17,3 +17,10 @@
 # model = "your-model"
 # base_url = "https://your-provider.example/v1"
 # token = "upstream-provider-api-token"
+
+# Google Gemini REST API example:
+# backend = "gemini"
+# model = "gemini-flash-latest"
+# base_url = "https://generativelanguage.googleapis.com/v1beta"
+# token = "your-google-api-key"
+# max_tokens = 4096
