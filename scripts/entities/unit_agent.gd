@@ -407,6 +407,8 @@ func _process_move(delta: float) -> void:
 		return
 	_skip_visible_waypoints()
 	var steer_target := _current_steer_target()
+	if _path_index >= _path.size() - 1 and _within_distance(steer_target, _move_target, 0.85):
+		steer_target = _move_target
 	var offset := steer_target - sim_pos
 	if Fixed.length_sq(Fixed.vector(offset)) <= Fixed.from_float(ARRIVAL_DISTANCE) * Fixed.from_float(ARRIVAL_DISTANCE):
 		if _advance_path_waypoint():
@@ -600,6 +602,16 @@ func _process_attack(delta: float) -> void:
 		_attack_target = null
 		order = Enums.OrderType.NONE
 		return
+	if _combat_action == &"attack" and not def.is_ranged:
+		if not _melee_swing_target_alive():
+			_cancel_combat_action()
+			_attack_target = null
+			order = Enums.OrderType.NONE
+			return
+		if _can_see(_attack_target):
+			_last_seen_attack_pos = _attack_target.get("sim_pos")
+		_process_attack_animation(delta)
+		return
 	if match_state != null and match_state.fog_enabled and not _can_see(_attack_target):
 		_cancel_combat_action()
 		command_move(_last_seen_attack_pos)
@@ -621,6 +633,11 @@ func _process_attack(delta: float) -> void:
 		return
 	_face_toward(_attack_target.get("sim_pos"), delta, false)
 	if _attack_cooldown_remaining > 0.0:
+		if not def.is_ranged and _attack_target.get("def") is UnitDef:
+			var keep_q := Fixed.coord(CollisionResolverScript.unit_radius(self) + _target_collision_radius(_attack_target)) + Fixed.from_float(0.25)
+			if _attack_distance_squared_to(_attack_target) > keep_q * keep_q:
+				_move_toward(_attack_approach_point(_attack_target), delta)
+				return
 		_update_idle_animation(delta)
 		return
 	_begin_attack()
@@ -642,7 +659,8 @@ func _cancel_combat_action() -> void:
 	_projectile_spawned = false
 
 func _process_attack_animation(delta: float) -> void:
-	if not _attack_target_available():
+	var target_valid := _melee_swing_target_alive() if not def.is_ranged else _attack_target_available()
+	if not target_valid:
 		_cancel_combat_action()
 		_attack_target = null
 		order = Enums.OrderType.NONE
@@ -661,15 +679,18 @@ func _process_attack_animation(delta: float) -> void:
 				_projectile_spawned = true
 	elif not _attack_hit_applied:
 		if _combat_anim_time_units >= Fixed.mul_div(duration, 45, 100):
-			if _attack_target_available():
+			if _melee_swing_target_alive():
 				CombatSystemScript.apply_hit(def, _attack_target, {"attacker": self})
 				audio_cue.emit(&"melee")
 			_attack_hit_applied = true
 	if _combat_anim_time_units >= duration:
 		_cancel_combat_action()
 		if not _attack_target_available():
-			_attack_target = null
-			order = Enums.OrderType.NONE
+			if match_state != null and match_state.fog_enabled and _melee_swing_target_alive() and not _can_see(_attack_target):
+				command_move(_last_seen_attack_pos)
+			else:
+				_attack_target = null
+				order = Enums.OrderType.NONE
 
 func _spawn_projectile() -> void:
 	if not _attack_target_available():
@@ -767,6 +788,15 @@ func take_damage_fixed(amount_q: int, source: Node = null) -> void:
 		_begin_die()
 		return
 	_try_retaliate(source)
+
+func _melee_swing_target_alive() -> bool:
+	return (
+		is_instance_valid(_attack_target)
+		and not _attack_target.is_queued_for_deletion()
+		and float(_attack_target.get("hp")) > 0.0
+		and _attack_target.get("team") != team
+	)
+
 
 func _try_retaliate(source: Node) -> void:
 	# Idle-only aggro: do not interrupt move / gather / build / active attack.
@@ -1437,10 +1467,7 @@ func _in_attack_range(target: Node2D) -> bool:
 
 
 func _needs_attack_chase(target: Node2D) -> bool:
-	if def.is_ranged or def.minimum_attack_range > 0.0:
-		return not _in_attack_range(target)
-	var maximum := Fixed.from_float(_effective_attack_range(target)) + Fixed.from_float(ATTACK_CHASE_SLACK)
-	return _attack_distance_squared_to(target) > maximum * maximum
+	return not _in_attack_range(target)
 
 
 ## Scale a direction with integer arithmetic. The fallback direction also
@@ -1494,9 +1521,14 @@ func _attack_approach_point(target: Node2D) -> Vector2:
 		if edge_direction_q == Vector2i.ZERO: edge_direction_q = offset_q
 		return Fixed.to_vector(edge_q + _direction_q(edge_direction_q, standoff_q))
 	var approach_q := _direction_q(offset_q)
+	var vel_q: Variant = target.get("_locomotion_velocity_q")
+	var target_moving: bool = (vel_q is Vector2i and (vel_q as Vector2i) != Vector2i.ZERO) or target.get("order") == Enums.OrderType.MOVE
+	if target_moving:
+		var contact_q := Fixed.coord(CollisionResolverScript.unit_radius(self) + _target_collision_radius(target))
+		return Fixed.to_vector(target_q + _direction_q(approach_q, contact_q))
 	var slot := int(get_meta("net_id", get_instance_id())) % MELEE_ATTACK_SLOTS
 	var blended_q: Vector2i = Vector2i(Fixed.mul_div(approach_q.x, 8, 5), Fixed.mul_div(approach_q.y, 8, 5)) + MELEE_DIRECTIONS_Q[slot]
-	return Fixed.to_vector(target_q + _direction_q(blended_q, Fixed.mul_div(maximum_q, 98, 100)))
+	return Fixed.to_vector(target_q + _direction_q(blended_q, Fixed.mul_div(maximum_q, 85, 100)))
 
 
 func _move_resolve_context() -> Dictionary:
@@ -1685,6 +1717,8 @@ func _move_toward(target: Vector2, delta: float) -> void:
 		return
 	_skip_visible_waypoints()
 	var steer_target := _current_steer_target()
+	if _path_index >= _path.size() - 1 and _within_distance(steer_target, _move_target, 0.85):
+		steer_target = _move_target
 	var offset := steer_target - sim_pos
 	if Fixed.length_sq(Fixed.vector(offset)) <= Fixed.from_float(ARRIVAL_DISTANCE) * Fixed.from_float(ARRIVAL_DISTANCE):
 		if _advance_path_waypoint():

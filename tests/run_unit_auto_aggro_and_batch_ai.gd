@@ -377,9 +377,41 @@ func _test_online_lockstep_batch() -> void:
 	check(pending.size() == 1 and pending[0].command.op == "attack", "online attack_same_type expands into attack wire command")
 
 
+func _test_melee_chase_and_committed_swing() -> void:
+	check(is_equal_approx(Catalog.get_unit(&"militia").attack_range, 1.0), "catalog militia melee attack_range is 1.0")
+	check(is_equal_approx(Catalog.get_unit(&"scout_cavalry").attack_range, 1.0), "catalog scout_cavalry melee attack_range is 1.0")
+	check(is_equal_approx((load("res://data/units/swordsman.tres") as UnitDef).attack_range, 1.0), "swordsman.tres melee attack_range is 1.0")
+	check(is_equal_approx((load("res://data/units/villager.tres") as UnitDef).attack_range, 1.0), "villager.tres melee attack_range is 1.0")
+
+	# 1. Committed melee swing deals damage even if the target moves far away before impact frame.
+	_fixture(false, true)
+	var attacker := _unit(&"militia", Vector2(0, 0), Enums.Team.PLAYER)
+	var runner := _unit(&"villager", Vector2(1.6, 0), Enums.Team.AI)
+	attacker.command_attack(runner)
+	attacker._physics_process(STEP)
+	check(attacker.get("_combat_action") == &"attack", "melee attacker enters attack swing inside range 1.0 + radii")
+	runner.sim_pos = Vector2(10, 0)
+	runner._vision_sync_position()
+	for _i in 30:
+		attacker._physics_process(STEP)
+	check(runner.hp < float(runner.def.max_hp), "committed melee swing lands damage after target moves away mid-swing")
+
+	# 2. Chasing a moving unit from behind catches up and lands multiple hits without getting stuck.
+	_fixture(false, true)
+	var chaser := _unit(&"militia", Vector2(0, 0), Enums.Team.PLAYER)
+	var fleeing := _unit(&"villager", Vector2(2.2, 0), Enums.Team.AI)
+	fleeing.command_move(Vector2(60, 0))
+	chaser.command_attack(fleeing)
+	for _i in 300:
+		fleeing._physics_process(STEP)
+		chaser._physics_process(STEP)
+	check(fleeing.hp <= float(fleeing.def.max_hp) - 8.0, "melee unit chasing moving target lands repeated hits (hp=%s)" % fleeing.hp)
+
+
 func _run() -> void:
 	UnitDebugFocus.set_spectator_mode(true)
 	_test_auto_aggro()
+	_test_melee_chase_and_committed_swing()
 	_test_batch_gateway_and_execution()
 	_test_online_lockstep_batch()
 	if is_instance_valid(container):

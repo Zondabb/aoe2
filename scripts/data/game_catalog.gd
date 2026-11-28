@@ -92,7 +92,7 @@ static func units() -> Dictionary:
 		u.max_hp = int(r.get("hp", 30))
 		u.attack = int(r.get("attack", 0))
 		u.attack_cooldown = maxf(0.1, float(r.get("cooldown", 2)))
-		u.attack_range = maxf(0.4, float(r.get("attack_range", 0.4)))
+		u.attack_range = maxf(1.0, float(r.get("attack_range", 1.0)))
 		u.is_ranged = u.attack_range > 1.5
 		u.source_attack_range = float(r.get("attack_range", 0.4))
 		if u.is_ranged:
