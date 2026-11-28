@@ -8,7 +8,13 @@ const TOOL_TRAIN := "train"
 const TOOL_PLACE_BUILDING := "place_building"
 const TOOL_BUILD := "build"
 const TOOL_MOVE := "move"
+const TOOL_MOVE_GROUP := "move_group"
+const TOOL_MOVE_BOX := "move_box"
+const TOOL_MOVE_SAME_TYPE := "move_same_type"
 const TOOL_ATTACK := "attack"
+const TOOL_ATTACK_GROUP := "attack_group"
+const TOOL_ATTACK_BOX := "attack_box"
+const TOOL_ATTACK_SAME_TYPE := "attack_same_type"
 const TOOL_STOP := "stop"
 const TOOL_NOOP := "noop"
 
@@ -20,7 +26,13 @@ const TOOL_NAMES := [
 	"set_gate_state",
 	TOOL_BUILD,
 	TOOL_MOVE,
+	TOOL_MOVE_GROUP,
+	TOOL_MOVE_BOX,
+	TOOL_MOVE_SAME_TYPE,
 	TOOL_ATTACK,
+	TOOL_ATTACK_GROUP,
+	TOOL_ATTACK_BOX,
+	TOOL_ATTACK_SAME_TYPE,
 	TOOL_STOP,
 	"research_age",
 	"cancel_research_age",
@@ -71,9 +83,60 @@ static func tools_payload() -> Array:
 			},
 		),
 		_fn(
+			TOOL_MOVE_GROUP,
+			"按指定队形批量移动一组指定 unit_ids 到 [x,y] 仿真坐标。",
+			{
+				"unit_ids": {"type": "array", "items": {"type": "integer"}, "minItems": 1, "maxItems": 64},
+				"pos": {"type": "array", "items": {"type": "number"}},
+				"formation": {"type": "string", "enum": ["line", "box", "staggered", "flank"]},
+			},
+		),
+		_fn(
+			TOOL_MOVE_BOX,
+			"像鼠标框选一样选中矩形框 [x1,y1,x2,y2] 内的己方军事单位，按队形移动到 [x,y]。",
+			{
+				"box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+				"pos": {"type": "array", "items": {"type": "number"}},
+				"formation": {"type": "string", "enum": ["line", "box", "staggered", "flank"]},
+			},
+		),
+		_fn(
+			TOOL_MOVE_SAME_TYPE,
+			"像双击一样选中某兵种（unit_def_id）在战场范围（或 [x,y] 附近）的同类己方单位，按队形移动到 [x,y]。",
+			{
+				"unit_def_id": {"type": "string"},
+				"pos": {"type": "array", "items": {"type": "number"}},
+				"formation": {"type": "string", "enum": ["line", "box", "staggered", "flank"]},
+			},
+		),
+		_fn(
 			TOOL_ATTACK,
 			"命令单位攻击目标 entity。",
 			{"unit_id": {"type": "integer"}, "target_id": {"type": "integer"}},
+		),
+		_fn(
+			TOOL_ATTACK_GROUP,
+			"命令一组己方 unit_ids 集火攻击目标 entity。",
+			{
+				"unit_ids": {"type": "array", "items": {"type": "integer"}, "minItems": 1, "maxItems": 64},
+				"target_id": {"type": "integer"},
+			},
+		),
+		_fn(
+			TOOL_ATTACK_BOX,
+			"框选矩形 [x1,y1,x2,y2] 内的己方军事单位集火攻击目标 entity。",
+			{
+				"box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+				"target_id": {"type": "integer"},
+			},
+		),
+		_fn(
+			TOOL_ATTACK_SAME_TYPE,
+			"双击选中某兵种（unit_def_id）的所有附近同类己方单位集火攻击目标 entity。",
+			{
+				"unit_def_id": {"type": "string"},
+				"target_id": {"type": "integer"},
+			},
 		),
 		_fn(
 			TOOL_STOP,
@@ -90,7 +153,7 @@ static func tools_payload() -> Array:
 
 static func _fn(name: String, description: String, properties: Dictionary) -> Dictionary:
 	for key in properties:
-		if properties[key].get("type") == "array":
+		if properties[key].get("type") == "array" and not properties[key].has("minItems"):
 			properties[key]["minItems"] = 2
 			properties[key]["maxItems"] = 2
 	return {

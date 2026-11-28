@@ -57,6 +57,14 @@ def _actor(command: dict):
     return command.get("unit_id", command.get("builder_id"))
 
 
+def _actors(command: dict) -> list[int]:
+    unit_ids = command.get("unit_ids")
+    if isinstance(unit_ids, list):
+        return list(dict.fromkeys(uid for uid in unit_ids if isinstance(uid, int) and not isinstance(uid, bool)))
+    uid = _actor(command)
+    return [uid] if isinstance(uid, int) and not isinstance(uid, bool) else []
+
+
 class Kernel:
     """Who may order a unit, which orders are in flight, and what became of them."""
 
@@ -135,6 +143,8 @@ class Kernel:
                     task["created_entity_id"] = report["created_entity_id"]
                 if isinstance(report.get("created_entity_ids"), list):
                     task["created_entity_ids"] = [eid for eid in report["created_entity_ids"] if isinstance(eid, int) and not isinstance(eid, bool)]
+                if isinstance(report.get("selected_unit_ids"), list):
+                    task["actor_ids"] = [eid for eid in report["selected_unit_ids"] if isinstance(eid, int) and not isinstance(eid, bool)]
                 if report.get("queue_id") is not None:
                     task["queue_id"] = report["queue_id"]
             elif task and report.get("type") in ("task_completed", "order_completed"):
@@ -149,7 +159,7 @@ class Kernel:
                         self.leases[uid] = {"role": HUMAN, "until": self.now + 12}
                         self.listener.unit_released(uid)
                         for previous in self.tasks.values():
-                            if _actor(previous["command"]) == uid and previous["status"] not in TERMINAL:
+                            if uid in (previous.get("actor_ids") or _actors(previous["command"])) and previous["status"] not in TERMINAL:
                                 previous["status"] = "cancelled"
                                 self.pending.pop(previous["id"], None)
             if report.get("type") == "unit_order_finished":
@@ -238,12 +248,22 @@ class Kernel:
                 observed = actor.get("order") == op.upper() and actor.get("target_id") == command.get("target_id")
                 # Gathering is a continuing assignment, not a single delivery.
                 completed = op == "attack" and task.get("target_destroyed", False)
+            elif op in ("move_group", "move_box", "move_same_type"):
+                actor_ids = task.get("actor_ids") or _actors(command)
+                actors = [f.entities[aid] for aid in actor_ids if aid in f.entities]
+                observed = bool(actors) and any(a.get("order") == "MOVE" for a in actors)
+                completed = bool(actors) and all(_distance(a["pos"], command["pos"]) <= 4 for a in actors)
+            elif op in ("attack_group", "attack_box", "attack_same_type"):
+                actor_ids = task.get("actor_ids") or _actors(command)
+                actors = [f.entities[aid] for aid in actor_ids if aid in f.entities]
+                observed = bool(actors) and any(a.get("order") == "ATTACK" and a.get("target_id") == command.get("target_id") for a in actors)
+                completed = bool(task.get("target_destroyed", False))
             if completed:
                 task["status"] = "completed"
                 self.pending.pop(task["id"], None)
-                uid = _actor(command)
-                if uid in self.leases and self.leases[uid]["role"] != HUMAN:
-                    self.leases.pop(uid, None)
+                for uid in set(task.get("actor_ids") or []) | set(_actors(command)):
+                    if uid in self.leases and self.leases[uid]["role"] != HUMAN:
+                        self.leases.pop(uid, None)
             elif observed:
                 task["status"] = "running"
                 self.pending.pop(task["id"], None)
@@ -255,6 +275,11 @@ class Kernel:
             if _actor(command) is not None and not actor:
                 task["status"] = "cancelled"
                 self.pending.pop(task["id"], None)
+            elif op in ("move_group", "move_box", "move_same_type", "attack_group", "attack_box", "attack_same_type"):
+                actor_ids = task.get("actor_ids") or _actors(command)
+                if actor_ids and not any(aid in f.entities for aid in actor_ids):
+                    task["status"] = "cancelled"
+                    self.pending.pop(task["id"], None)
             if op in ("train", "research_age", "research_technology", "set_gate_state") and not building:
                 task["status"] = "cancelled"
                 self.pending.pop(task["id"], None)
@@ -344,9 +369,9 @@ class Kernel:
         count = self.failures.get(key, {}).get("count", 0) + 1
         self.failures[key] = {"count": count, "until": self.now + min(120, 5 * 2 ** min(count, 5)), "last_failure": self.now}
         task["attempts"] = count
-        uid = _actor(task["command"])
-        if uid in self.leases and self.leases[uid]["role"] != HUMAN:
-            self.leases.pop(uid, None)
+        for uid in set(task.get("actor_ids") or []) | set(_actors(task["command"])):
+            if uid in self.leases and self.leases[uid]["role"] != HUMAN:
+                self.leases.pop(uid, None)
         self.listener.task_failed(task, reason)
 
     def target_destroyed(self, eid) -> None:
@@ -369,30 +394,53 @@ class Kernel:
         # Large armies may all need new routes at once. Leave room for the
         # later construction, production, defense and economy executors; the
         # global command bound remains unchanged. Training is not a move slot.
-        if role in ROUTE_HEAVY_ROLES and op in ("move", "attack", "stop") and len(f.commands) >= MAX_COMMANDS - RESERVED_SLOTS:
+        if role in ROUTE_HEAVY_ROLES and op in ("move", "attack", "stop", "move_group", "move_box", "move_same_type", "attack_group", "attack_box", "attack_same_type") and len(f.commands) >= MAX_COMMANDS - RESERVED_SLOTS:
             return False
         command = {"op": op, **args}
         key = self.validator._key(command)
         failure = self.failures.get(key, {})
         if failure.get("until", 0) > self.now:
             return False
-        uid = _actor(args)
-        if uid is not None and uid in f.actors:
+        uids = _actors(args)
+        if any(uid in f.actors for uid in uids):
             return False
-        previous_lease = copy.deepcopy(self.leases.get(uid))
-        if uid is not None and not self.claim(uid, role, emergency):
-            return False
+        previous_leases = {uid: copy.deepcopy(self.leases.get(uid)) for uid in uids}
+        claimed: list[int] = []
+        for uid in uids:
+            if not self.claim(uid, role, emergency):
+                for cid in claimed:
+                    prev = previous_leases.get(cid)
+                    if prev:
+                        self.leases[cid] = prev
+                    else:
+                        self.leases.pop(cid, None)
+                return False
+            claimed.append(uid)
         # Pending exact orders cannot be purchased twice on adjacent snapshots.
         if any(self.validator._key(task["command"]) == key for task in self.pending.values()):
+            for cid in claimed:
+                prev = previous_leases.get(cid)
+                if prev:
+                    self.leases[cid] = prev
+                else:
+                    self.leases.pop(cid, None)
             return False
         before_budget, before_pop = dict(f.budget), f.pop_used
+        before_actors = set(f.actors)
         if not f.add(op, args, role, quiet=True):
-            if uid is not None:
-                if previous_lease:
-                    self.leases[uid] = previous_lease
+            for cid in claimed:
+                prev = previous_leases.get(cid)
+                if prev:
+                    self.leases[cid] = prev
                 else:
-                    self.leases.pop(uid, None)
+                    self.leases.pop(cid, None)
             return False
+        added_ids = sorted(f.actors - before_actors)
+        extra_ids = [uid for uid in added_ids if uid not in claimed]
+        for uid in extra_ids:
+            previous_leases[uid] = copy.deepcopy(self.leases.get(uid))
+            self.claim(uid, role, emergency)
+        task_actors = sorted(set(claimed) | set(added_ids))
         parsed = f.commands[-1]
         old_id = parsed.command_id
         epoch = str(getattr(f.req.metadata, "session_epoch", 0))
@@ -401,13 +449,15 @@ class Kernel:
         self.validator.issued.pop(old_id, None)
         self.validator.issued[parsed.command_id] = command
         task = {"id": parsed.command_id, "role": role, "status": "dispatched", "command": command,
+                "actor_ids": task_actors,
                 "issued_at": self.now, "cost": {r: before_budget[r] - f.budget[r] for r in RESOURCES if before_budget[r] > f.budget[r]},
                 "population": f.pop_used - before_pop, "before_age": f.age,
                 "before_ids": [u["id"] for u in f.units] if op == "train" else [b["id"] for b in f.buildings] if op == "place_wall" else [], "attempts": failure.get("count", 0)}
         # A new actor order supersedes the previous continuing assignment.
-        if uid is not None:
+        if task_actors:
+            task_actor_set = set(task_actors)
             for prior in self.tasks.values():
-                if _actor(prior["command"]) == uid and prior["status"] in ("accepted", "running"):
+                if (set(prior.get("actor_ids") or []) | set(_actors(prior["command"]))) & task_actor_set and prior["status"] in ("accepted", "running"):
                     prior["status"] = "cancelled"
         self.tasks[task["id"]] = task
         self.pending[task["id"]] = task

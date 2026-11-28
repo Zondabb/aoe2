@@ -6,12 +6,15 @@ const AiToolCatalogScript := preload("res://scripts/ai_gateway/ai_tool_catalog.g
 const _ARG_KEYS := [
 	"command_id",
 	"unit_id",
+	"unit_ids",
 	"building_id",
 	"target_id",
 	"building_def_id",
 	"unit_def_id",
 	"technology_id",
 	"pos",
+	"box",
+	"formation",
 	"builder_id",
 	"start", "end", "include_gate", "orientation", "gate_state", "append_queue",
 ]

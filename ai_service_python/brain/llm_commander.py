@@ -222,6 +222,7 @@ class LlmCommander:
             "Use only owned actors and currently visible targets; enemy_memory supplies coordinates for scouting, never attack IDs. "
             "Use catalog costs/unlocks and legal construction_options. Do not interrupt BUILD, delivery or active scouting missions unnecessarily. "
             "A bounded executor continues scouting, foundations, economy, military production and rallying between plans. "
+            "Combat units auto-attack nearby visible enemies when idle or stalled; use move_box/move_same_type/move_group and attack_box/attack_same_type/attack_group for coordinated army orders. "
             "muster holds the army until you select attack; attack still requires army_target before first commitment. "
             "Rejected actions in recent_rejections must be repaired, not repeated. Keep your answer concise.")))
         if obs.player_instructions:
@@ -310,11 +311,15 @@ class LlmCommander:
 
     @staticmethod
     def _key(command: dict) -> str:
-        fields = ("op", "unit_id", "builder_id", "building_id", "target_id", "building_def_id", "unit_def_id", "technology_id", "pos",
-                  "start", "end", "include_gate", "orientation", "gate_state")
+        fields = ("op", "unit_id", "unit_ids", "builder_id", "building_id", "target_id", "building_def_id", "unit_def_id", "technology_id", "pos",
+                  "box", "formation", "start", "end", "include_gate", "orientation", "gate_state")
         values = {key: command[key] for key in fields if key in command}
         if _vec(values.get("pos")):
             values["pos"] = [round(float(n), 3) for n in values["pos"]]
+        if isinstance(values.get("box"), list) and len(values["box"]) >= 4:
+            values["box"] = [round(float(n), 3) for n in values["box"][:4]]
+        if isinstance(values.get("unit_ids"), list):
+            values["unit_ids"] = [int(n) for n in values["unit_ids"] if isinstance(n, int) and not isinstance(n, bool)]
         return json.dumps(values, sort_keys=True, separators=(",", ":"))
 
     def _continue_plan(self, f: _DecisionFrame) -> None:
@@ -452,6 +457,10 @@ class LlmCommander:
         # centers are last: charging a fresh small army into TC fire is costly.
         targets.sort(key=lambda e: (e.get("def_id") == "town_center", e.get("kind") != "unit", e.get("def_id") == "villager", _distance(f.base, e["pos"])))
         rally = _vec(army_context.get("rally_point")) or f.base
+        caps = f.obs.capabilities or f.context.get("capabilities") or {}
+        use_batches = bool(caps.get("batch_unit_commands"))
+        batched_attacks: dict[int, list[int]] = {}
+        batched_moves: dict[tuple[float, float], tuple[list[float], list[int]]] = {}
         for soldier in army:
             if soldier["id"] in f.actors or soldier["id"] in self.scout_missions:
                 continue
@@ -459,11 +468,15 @@ class LlmCommander:
                 continue
             if (self.phase == "defend" and targets) or (self.phase == "attack" and self.attack_committed and targets):
                 target = min(targets, key=lambda e: (_distance(soldier["pos"], e["pos"]), e.get("def_id") == "town_center")) if self.phase == "defend" else targets[0]
-                f.add("attack", {"unit_id": soldier["id"], "target_id": target["id"]}, self.phase)
+                if use_batches:
+                    batched_attacks.setdefault(target["id"], []).append(soldier["id"])
+                else:
+                    f.add("attack", {"unit_id": soldier["id"], "target_id": target["id"]}, self.phase)
             elif self.phase == "attack" and self.attack_committed:
                 if self.enemy_memory:
                     remembered = max(self.enemy_memory.values(), key=lambda e: (e["kind"] == "building", e["last_seen"]))
-                    f.move_if_needed(soldier, remembered["pos"], "search_last_seen")
+                    goal = remembered["pos"]
+                    reason = "search_last_seen"
                 else:
                     # A formed army must not wait forever for a scout to find
                     # the enemy. Advance through observed frontiers toward a
@@ -472,9 +485,33 @@ class LlmCommander:
                                  if isinstance(item, dict) and _vec(item.get("pos"))]
                     anchor = self._search_anchor(f, soldier["pos"])
                     goal = min(frontiers, key=lambda p: _distance(p, anchor), default=anchor)
-                    f.move_if_needed(soldier, goal, "army_explore")
+                    reason = "army_explore"
+                if use_batches:
+                    current_goal = _vec(soldier.get("move_goal"))
+                    if _distance(soldier["pos"], goal) > 3 and not (soldier.get("order") == "MOVE" and current_goal and _distance(current_goal, goal) <= 4):
+                        key_pos = (round(float(goal[0]), 2), round(float(goal[1]), 2))
+                        batched_moves.setdefault(key_pos, (list(goal), []))[1].append(soldier["id"])
+                else:
+                    f.move_if_needed(soldier, goal, reason)
             elif soldier.get("order", "NONE") in ("NONE", "MOVE"):
-                f.move_if_needed(soldier, rally, "rally")
+                if use_batches:
+                    current_goal = _vec(soldier.get("move_goal"))
+                    if _distance(soldier["pos"], rally) > 3 and not (soldier.get("order") == "MOVE" and current_goal and _distance(current_goal, rally) <= 4):
+                        key_pos = (round(float(rally[0]), 2), round(float(rally[1]), 2))
+                        batched_moves.setdefault(key_pos, (list(rally), []))[1].append(soldier["id"])
+                else:
+                    f.move_if_needed(soldier, rally, "rally")
+        if use_batches:
+            for tid, uids in batched_attacks.items():
+                if len(uids) > 1:
+                    f.add("attack_group", {"unit_ids": uids, "target_id": tid}, self.phase)
+                else:
+                    f.add("attack", {"unit_id": uids[0], "target_id": tid}, self.phase)
+            for goal_pos, uids in batched_moves.values():
+                if len(uids) > 1:
+                    f.add("move_group", {"unit_ids": uids, "pos": goal_pos, "formation": "line"}, self.phase)
+                else:
+                    f.add("move", {"unit_id": uids[0], "pos": goal_pos}, self.phase)
 
     def _scout(self, f: _DecisionFrame) -> None:
         frontiers = [item.get("pos") for item in f.context.get("scouting", {}).get("frontiers", []) if isinstance(item, dict) and _vec(item.get("pos"))]
@@ -641,6 +678,48 @@ class _DecisionFrame:
             techs = [*techs, definition["required_technology"]]
         return all(researched.get(name, False) for name in techs)
 
+    def select_box(self, box: Any, military_only: bool = True, combat_only: bool = False) -> list[dict]:
+        if not isinstance(box, (list, tuple)) or len(box) < 4:
+            return []
+        try:
+            coords = [float(box[i]) for i in range(4)]
+        except (TypeError, ValueError):
+            return []
+        if not all(math.isfinite(v) for v in coords):
+            return []
+        x0, x1 = min(coords[0], coords[2]), max(coords[0], coords[2])
+        y0, y1 = min(coords[1], coords[3]), max(coords[1], coords[3])
+        selected = []
+        for unit in self.units:
+            if float(unit.get("hp", 1)) <= 0 or unit["id"] in self.actors:
+                continue
+            if military_only and unit.get("def_id") == "villager":
+                continue
+            if combat_only and float(self.unit_defs.get(unit.get("def_id", ""), CATALOG["units"].get(unit.get("def_id", ""), {})).get("attack", 0)) <= 0:
+                continue
+            pos = _vec(unit.get("pos"))
+            if pos and x0 <= pos[0] <= x1 and y0 <= pos[1] <= y1:
+                selected.append(unit)
+        selected.sort(key=lambda u: u["id"])
+        return selected[:64]
+
+    def select_same_type(self, unit_def_id: str, ref_pos: list[float] | None = None, radius: float = 36.0, combat_only: bool = False) -> list[dict]:
+        if not unit_def_id:
+            return []
+        matching = []
+        for unit in self.units:
+            if float(unit.get("hp", 1)) <= 0 or unit["id"] in self.actors or unit.get("def_id") != unit_def_id:
+                continue
+            if combat_only and float(self.unit_defs.get(unit_def_id, CATALOG["units"].get(unit_def_id, {})).get("attack", 0)) <= 0:
+                continue
+            matching.append(unit)
+        if not matching:
+            return []
+        matching.sort(key=lambda u: u["id"])
+        anchor = min(matching, key=lambda u: _distance(u["pos"], ref_pos)) if ref_pos else matching[0]
+        anchor_pos = anchor["pos"]
+        return [u for u in matching if _distance(u["pos"], anchor_pos) <= radius][:64]
+
     def add(self, op: str, args: dict, source: str, quiet: bool = False) -> bool:
         def fail(reason: str) -> bool:
             if not quiet:
@@ -653,7 +732,11 @@ class _DecisionFrame:
         if len(self.commands) >= MAX_COMMANDS:
             return fail("command_limit")
         allowed = {
-            "move": {"unit_id", "pos"}, "stop": {"unit_id"}, "attack": {"unit_id", "target_id"},
+            "move": {"unit_id", "pos"}, "move_group": {"unit_ids", "pos", "formation"},
+            "move_box": {"box", "pos", "formation"}, "move_same_type": {"unit_def_id", "pos", "formation"},
+            "stop": {"unit_id"}, "attack": {"unit_id", "target_id"},
+            "attack_group": {"unit_ids", "target_id"}, "attack_box": {"box", "target_id"},
+            "attack_same_type": {"unit_def_id", "target_id"},
             "gather": {"unit_id", "target_id"}, "build": {"unit_id", "building_id"},
             "place_building": {"builder_id", "building_def_id", "pos", "orientation"}, "train": {"building_id", "unit_def_id"},
             "place_wall": {"builder_id", "building_def_id", "start", "end", "include_gate"},
@@ -668,6 +751,7 @@ class _DecisionFrame:
             return fail("recent_rejection_or_pending")
         uid, bid = _id(command.get("unit_id")), _id(command.get("building_id"))
         actor, building = self.entities.get(uid, {}), self.entities.get(bid, {})
+        batch_ids: list[int] = []
         cost: dict = {}
         population = 0
         if op in ("move", "stop", "attack", "gather", "build"):
@@ -675,7 +759,39 @@ class _DecisionFrame:
                 return fail("actor_not_owned")
             if uid in self.actors:
                 return fail("actor_conflict")
-        if op in ("move", "place_building"):
+        if op in ("move_group", "attack_group"):
+            raw_ids = command.get("unit_ids")
+            if not isinstance(raw_ids, list) or not raw_ids:
+                return fail("actor_not_owned")
+            selected_units: list[dict] = []
+            seen_ids: set[int] = set()
+            for raw_uid in raw_ids:
+                cand_id = _id(raw_uid)
+                if cand_id is None or cand_id in seen_ids:
+                    continue
+                cand = self.entities.get(cand_id, {})
+                if cand.get("kind") != "unit" or cand.get("team") != self.team or float(cand.get("hp", 1)) <= 0:
+                    continue
+                if cand_id in self.actors:
+                    continue
+                seen_ids.add(cand_id)
+                selected_units.append(cand)
+                if len(selected_units) >= 64:
+                    break
+            if not selected_units:
+                return fail("actor_not_owned")
+            batch_ids = [u["id"] for u in selected_units]
+            command["unit_ids"] = batch_ids
+        if op in ("move_box", "attack_box"):
+            raw_box = command.get("box")
+            if not isinstance(raw_box, list) or len(raw_box) < 4:
+                return fail("invalid_box")
+            selected_units = self.select_box(raw_box, military_only=True, combat_only=(op == "attack_box"))
+            if not selected_units:
+                return fail("no_matching_units")
+            command["box"] = [float(raw_box[i]) for i in range(4)]
+            batch_ids = [u["id"] for u in selected_units]
+        if op in ("move", "move_group", "move_box", "move_same_type", "place_building"):
             pos = _vec(command.get("pos"))
             if pos is None:
                 return fail("invalid_position")
@@ -683,9 +799,20 @@ class _DecisionFrame:
             if box and any(pos[i] < float(box["min"][i]) or pos[i] > float(box["max"][i]) for i in (0, 1)):
                 return fail("position_outside_map")
             command["pos"] = pos
-        if op == "attack":
-            if not self.enemy(self.entities.get(_id(command.get("target_id")), {})):
+            if op in ("move_group", "move_box", "move_same_type") and command.get("formation") is not None:
+                if command["formation"] not in ("line", "box", "staggered", "flank"):
+                    return fail("invalid_formation")
+        if op in ("attack", "attack_group", "attack_box", "attack_same_type"):
+            target_entity = self.entities.get(_id(command.get("target_id")), {})
+            if not self.enemy(target_entity):
                 return fail("target_not_visible_enemy")
+        if op in ("move_same_type", "attack_same_type"):
+            def_id = str(command.get("unit_def_id", ""))
+            ref_pos = _vec(self.entities.get(_id(command.get("target_id")), {}).get("pos")) if op == "attack_same_type" else command.get("pos")
+            selected_units = self.select_same_type(def_id, ref_pos=ref_pos, combat_only=(op == "attack_same_type"))
+            if not selected_units:
+                return fail("no_matching_units")
+            batch_ids = [u["id"] for u in selected_units]
         if op == "gather":
             resource = self.entities.get(_id(command.get("target_id")), {})
             if actor.get("def_id") != "villager" or float(resource.get("amount", 0)) <= 0 or not (resource.get("kind") == "resource" or resource.get("def_id") == "farm" and resource.get("team") == self.team and resource.get("is_complete")):
@@ -820,6 +947,8 @@ class _DecisionFrame:
         self.commands.append(parsed)
         if uid is not None:
             self.actors.add(uid)
+        for batch_uid in batch_ids:
+            self.actors.add(batch_uid)
         if op in ("train", "research_age", "research_technology", "cancel_research_age", "cancel_technology", "set_gate_state"):
             self.producers.add(bid)
         if op in ("place_building", "place_wall"):
@@ -835,6 +964,9 @@ class _DecisionFrame:
             self.owner.scout_missions.pop(uid, None)
             if source == "model" and op == "move" and (uid in self.scout_ids or actor.get("def_id") in SCOUT_TYPES):
                 self.owner.scout_missions[uid] = ScoutMission(list(command["pos"]), list(actor["pos"]), self.now)
+        for batch_uid in batch_ids:
+            if source == "model" or not op.startswith("move"):
+                self.owner.scout_missions.pop(batch_uid, None)
         # Suppress purchases reissued before a foundation/queue is observed.
         if op in ("place_building", "place_wall", "set_gate_state", "train", "research_age", "research_technology"):
             self.owner.cooldowns[key] = self.now + 2

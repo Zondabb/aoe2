@@ -8,6 +8,9 @@ const Walls := preload("res://scripts/systems/wall_system.gd")
 const AiProtocolScript := preload("res://scripts/ai_gateway/ai_protocol.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const AiBuildPlacementScript := preload("res://scripts/ai_gateway/build_placement.gd")
+const SAME_TYPE_SELECT_RADIUS := 36.0
+const MAX_BATCH_UNITS := 64
+const VALID_FORMATIONS := ["line", "box", "staggered", "flank"]
 
 
 class ValidationResult:
@@ -30,6 +33,8 @@ static func validate(cmd: Dictionary, ctx: CommandExecutionContext) -> Validatio
 	match op:
 		AiProtocolScript.OP_MOVE:
 			return _validate_move(cmd, ctx)
+		AiProtocolScript.OP_MOVE_GROUP, AiProtocolScript.OP_MOVE_BOX, AiProtocolScript.OP_MOVE_SAME_TYPE:
+			return _validate_batch_move(cmd, ctx)
 		AiProtocolScript.OP_STOP:
 			return _validate_unit_command(cmd, ctx, "unit_id")
 		AiProtocolScript.OP_GATHER:
@@ -38,6 +43,8 @@ static func validate(cmd: Dictionary, ctx: CommandExecutionContext) -> Validatio
 			return _validate_build(cmd, ctx)
 		AiProtocolScript.OP_ATTACK:
 			return _validate_attack(cmd, ctx)
+		AiProtocolScript.OP_ATTACK_GROUP, AiProtocolScript.OP_ATTACK_BOX, AiProtocolScript.OP_ATTACK_SAME_TYPE:
+			return _validate_batch_attack(cmd, ctx)
 		AiProtocolScript.OP_PLACE_BUILDING:
 			return _validate_place_building(cmd, ctx)
 		AiProtocolScript.OP_PLACE_WALL:
@@ -109,37 +116,208 @@ static func _validate_build(cmd: Dictionary, ctx: CommandExecutionContext) -> Va
 	return result
 
 
-static func _validate_attack(cmd: Dictionary, ctx: CommandExecutionContext) -> ValidationResult:
-	var result := _validate_unit_command(cmd, ctx, "unit_id")
-	if not result.ok:
-		return result
+static func _validate_attack_target(cmd: Dictionary, ctx: CommandExecutionContext) -> ValidationResult:
+	var result := ValidationResult.new()
 	var target := _resolve_entity(int(cmd.get("target_id", -1)))
 	if ctx.match_state != null and ctx.match_state.fog_enabled and not FogAccess.state_can_see(ctx.match_state, ctx.team, target):
-		result.ok = false
 		result.reason = "target_unavailable"
 		return result
 	if target == null:
-		result.ok = false
 		result.reason = "missing_target"
 		return result
 	if not target.has_method("take_damage"):
-		result.ok = false
 		result.reason = "target_not_attackable"
 		return result
 	if float(target.get("hp")) <= 0.0:
-		result.ok = false
 		result.reason = "target_dead"
 		return result
 	if int(target.get("team")) == int(ctx.team):
-		result.ok = false
 		result.reason = "friendly_target"
 		return result
 	if target.get("is_placement_ghost") == true:
-		result.ok = false
 		result.reason = "invalid_target"
 		return result
 	result.ok = true
 	return result
+
+
+static func _validate_attack(cmd: Dictionary, ctx: CommandExecutionContext) -> ValidationResult:
+	var result := _validate_unit_command(cmd, ctx, "unit_id")
+	if not result.ok:
+		return result
+	return _validate_attack_target(cmd, ctx)
+
+
+static func is_batch_op(op: StringName) -> bool:
+	return op in [
+		AiProtocolScript.OP_MOVE_GROUP,
+		AiProtocolScript.OP_MOVE_BOX,
+		AiProtocolScript.OP_MOVE_SAME_TYPE,
+		AiProtocolScript.OP_ATTACK_GROUP,
+		AiProtocolScript.OP_ATTACK_BOX,
+		AiProtocolScript.OP_ATTACK_SAME_TYPE,
+	]
+
+
+static func is_manual_held(actor: Node, ctx: CommandExecutionContext) -> bool:
+	if actor == null or ctx == null:
+		return false
+	return int(actor.get_meta("manual_command_revision", 0)) > ctx.observed_manual_revision or ctx.sim_time < float(actor.get_meta("manual_control_until_sim_time", -1.0))
+
+
+static func resolve_batch_units(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary:
+	var op := AiProtocolScript.op_from_string(String(cmd.get("op", "")))
+	var is_attack := op in [AiProtocolScript.OP_ATTACK_GROUP, AiProtocolScript.OP_ATTACK_BOX, AiProtocolScript.OP_ATTACK_SAME_TYPE]
+	var check_hold := ctx != null and (ctx.require_session_epoch or not String(cmd.get("command_id", "")).is_empty())
+	var units: Array[Node2D] = []
+	var seen := {}
+	var held_count := 0
+	var first_reason := ""
+
+	if op in [AiProtocolScript.OP_MOVE_GROUP, AiProtocolScript.OP_ATTACK_GROUP]:
+		var raw_ids: Variant = cmd.get("unit_ids")
+		if raw_ids is not Array or (raw_ids as Array).is_empty():
+			return {"units": units, "reason": "missing_units"}
+		for raw_id in raw_ids as Array:
+			var unit := _resolve_entity(int(raw_id))
+			var check := _validate_unit_entity(unit, ctx)
+			if not check.ok:
+				if first_reason.is_empty():
+					first_reason = check.reason
+				continue
+			var key := unit.get_instance_id()
+			if seen.has(key):
+				continue
+			seen[key] = true
+			if check_hold and is_manual_held(unit, ctx):
+				held_count += 1
+				continue
+			units.append(unit)
+			if units.size() >= MAX_BATCH_UNITS:
+				break
+		if units.is_empty():
+			return {"units": units, "reason": "manual_control_hold" if held_count > 0 else (first_reason if not first_reason.is_empty() else "missing_units")}
+		return {"units": units, "reason": ""}
+
+	if ctx.entities == null:
+		return {"units": units, "reason": "missing_context"}
+
+	if op in [AiProtocolScript.OP_MOVE_BOX, AiProtocolScript.OP_ATTACK_BOX]:
+		var rect_v: Variant = AiProtocolScript.array_to_rect2(cmd.get("box"))
+		if rect_v is not Rect2:
+			return {"units": units, "reason": "invalid_box"}
+		var rect := rect_v as Rect2
+		var candidates: Array[Node2D] = []
+		for child in ctx.entities.get_children():
+			var unit := child as Node2D
+			if unit == null or not _validate_unit_entity(unit, ctx).ok:
+				continue
+			var definition := unit.get("def") as UnitDef
+			if definition.id == &"villager":
+				continue
+			if is_attack and definition.attack <= 0:
+				continue
+			var pos_v: Variant = unit.get("sim_pos")
+			if pos_v is not Vector2:
+				continue
+			var pos := pos_v as Vector2
+			if pos.x < rect.position.x or pos.x > rect.end.x or pos.y < rect.position.y or pos.y > rect.end.y:
+				continue
+			if check_hold and is_manual_held(unit, ctx):
+				held_count += 1
+				continue
+			candidates.append(unit)
+		candidates.sort_custom(func(a: Node2D, b: Node2D) -> bool: return EntityRegistryScript.id_of(a) < EntityRegistryScript.id_of(b))
+		if candidates.size() > MAX_BATCH_UNITS:
+			candidates = candidates.slice(0, MAX_BATCH_UNITS)
+		if candidates.is_empty():
+			return {"units": candidates, "reason": "manual_control_hold" if held_count > 0 else "no_matching_units"}
+		return {"units": candidates, "reason": ""}
+
+	if op in [AiProtocolScript.OP_MOVE_SAME_TYPE, AiProtocolScript.OP_ATTACK_SAME_TYPE]:
+		var unit_def_id := StringName(String(cmd.get("unit_def_id", "")))
+		if unit_def_id.is_empty() or AiProtocolScript.unit_def_for_id(String(unit_def_id)) == null:
+			return {"units": units, "reason": "unknown_unit_def"}
+		var matching: Array[Node2D] = []
+		for child in ctx.entities.get_children():
+			var unit := child as Node2D
+			if unit == null or not _validate_unit_entity(unit, ctx).ok:
+				continue
+			var definition := unit.get("def") as UnitDef
+			if definition.id != unit_def_id:
+				continue
+			if is_attack and definition.attack <= 0:
+				continue
+			matching.append(unit)
+		if matching.is_empty():
+			return {"units": units, "reason": "no_matching_units"}
+		matching.sort_custom(func(a: Node2D, b: Node2D) -> bool: return EntityRegistryScript.id_of(a) < EntityRegistryScript.id_of(b))
+		var ref_pos: Variant = null
+		if is_attack:
+			var target := _resolve_entity(int(cmd.get("target_id", -1)))
+			if target != null:
+				ref_pos = target.get("sim_pos")
+		elif cmd.has("pos"):
+			ref_pos = AiProtocolScript.array_to_vec2(cmd.get("pos"))
+		var anchor := matching[0]
+		if ref_pos is Vector2:
+			var ref := ref_pos as Vector2
+			var best_dist := INF
+			for candidate in matching:
+				var cpos: Variant = candidate.get("sim_pos")
+				if cpos is Vector2:
+					var d := (cpos as Vector2).distance_squared_to(ref)
+					if d < best_dist:
+						best_dist = d
+						anchor = candidate
+		var anchor_pos := anchor.get("sim_pos") as Vector2
+		var radius_sq := SAME_TYPE_SELECT_RADIUS * SAME_TYPE_SELECT_RADIUS
+		var candidates: Array[Node2D] = []
+		for candidate in matching:
+			var cpos := candidate.get("sim_pos") as Vector2
+			if cpos.distance_squared_to(anchor_pos) > radius_sq:
+				continue
+			if check_hold and is_manual_held(candidate, ctx):
+				held_count += 1
+				continue
+			candidates.append(candidate)
+			if candidates.size() >= MAX_BATCH_UNITS:
+				break
+		if candidates.is_empty():
+			return {"units": candidates, "reason": "manual_control_hold" if held_count > 0 else "no_matching_units"}
+		return {"units": candidates, "reason": ""}
+
+	return {"units": units, "reason": "unsupported_op"}
+
+
+static func _validate_batch_move(cmd: Dictionary, ctx: CommandExecutionContext) -> ValidationResult:
+	var result := ValidationResult.new()
+	if AiProtocolScript.array_to_vec2(cmd.get("pos")) == null:
+		result.reason = "invalid_pos"
+		return result
+	if cmd.has("formation") and String(cmd.get("formation", "")) not in VALID_FORMATIONS:
+		result.reason = "invalid_formation"
+		return result
+	var resolved := resolve_batch_units(cmd, ctx)
+	if (resolved.get("units", []) as Array).is_empty():
+		result.reason = String(resolved.get("reason", "no_matching_units"))
+		return result
+	result.ok = true
+	return result
+
+
+static func _validate_batch_attack(cmd: Dictionary, ctx: CommandExecutionContext) -> ValidationResult:
+	var target_check := _validate_attack_target(cmd, ctx)
+	if not target_check.ok:
+		return target_check
+	var resolved := resolve_batch_units(cmd, ctx)
+	if (resolved.get("units", []) as Array).is_empty():
+		var result := ValidationResult.new()
+		result.reason = String(resolved.get("reason", "no_matching_units"))
+		return result
+	var ok_result := ValidationResult.new()
+	ok_result.ok = true
+	return ok_result
 
 
 static func _validate_place_building(

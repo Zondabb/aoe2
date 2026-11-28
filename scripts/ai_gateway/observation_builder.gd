@@ -70,7 +70,8 @@ static func _build_impl(
 	observation["capabilities"] = {"schema_version": 3, "zoned_construction": true,
 		"production_status": true, "farm_depletion_frees_plot": true,
 		"ram_building_class_damage": true, "wall_segments": true,
-		"gate_control": true, "trebuchet_pack_unpack": false}
+		"gate_control": true, "trebuchet_pack_unpack": false,
+		"batch_unit_commands": true, "unit_auto_aggro": true}
 	observation["victory_conditions"] = {"type": "destroy_any_enemy_town_center",
 		"target_def_id": "town_center", "winner": match_state.winner,
 		"match_over": match_state.winner >= 0}

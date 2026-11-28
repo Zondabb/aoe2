@@ -88,7 +88,7 @@ func rally_to_base(ctx: AiRunContext, engaged: Dictionary = {}) -> void:
 			continue
 		if engaged.has(unit.get_instance_id()) or _already_commanded(ctx, unit):
 			continue
-		if unit.get("order") in [Enums.OrderType.GATHER, Enums.OrderType.BUILD]:
+		if unit.get("order") in [Enums.OrderType.GATHER, Enums.OrderType.BUILD, Enums.OrderType.ATTACK]:
 			continue
 		var position: Vector2 = unit.get("sim_pos")
 		if position.distance_to(ctx.blackboard.own_tc_pos) > ctx.profile.rally_radius and _move(ctx, unit, ctx.blackboard.own_tc_pos):

@@ -703,11 +703,23 @@ class MultiAgentRuntime:
         self._status(task["role"], "blocked", reason)
 
     def command_issued(self, role: str, op: str, args: dict) -> None:
-        uid = args.get("unit_id", args.get("builder_id"))
-        if role == "combat" and uid is not None:
-            self.roles[role].memory.setdefault("command_times", {})[uid] = self.now
-            if op == "attack":
-                self.roles[role].memory.setdefault("last_attack", {})[uid] = (args["target_id"], self.now)
+        uids = args.get("unit_ids")
+        if not isinstance(uids, list):
+            uid = args.get("unit_id", args.get("builder_id"))
+            uids = [uid] if uid is not None else []
+        if role == "combat":
+            for uid in uids:
+                self.roles[role].memory.setdefault("command_times", {})[uid] = self.now
+                if op in ("attack", "attack_group"):
+                    self.roles[role].memory.setdefault("last_attack", {})[uid] = (args["target_id"], self.now)
+
+    @staticmethod
+    def select_box(f: _DecisionFrame, box: Any, military_only: bool = True, combat_only: bool = False) -> list[dict]:
+        return f.select_box(box, military_only=military_only, combat_only=combat_only)
+
+    @staticmethod
+    def select_same_type(f: _DecisionFrame, unit_def_id: str, ref_pos: list[float] | None = None, radius: float = 36.0, combat_only: bool = False) -> list[dict]:
+        return f.select_same_type(unit_def_id, ref_pos=ref_pos, radius=radius, combat_only=combat_only)
 
     def _knowledge(self, f: _DecisionFrame) -> None:
         previously_over = self.goals.get("match_over", False)
@@ -1224,6 +1236,12 @@ class MultiAgentRuntime:
         command_times = role.memory.get("command_times", {})
         enemy_units = [e for e in f.obs.entities if f.enemy(e) and e.get("kind") == "unit"]
         kites = 0
+        caps = getattr(f.obs, "capabilities", None) or {}
+        auto_aggro = bool(caps.get("unit_auto_aggro"))
+        batch_capable = bool(caps.get("batch_unit_commands"))
+        rally_radius = max(3.0, min(10.0, 2.5 + math.sqrt(max(1, len(army))) * 1.4)) if (auto_aggro or batch_capable) and len(army) > 1 else 3.0
+        batched_attacks: dict[int, tuple[list[int], bool]] = {}
+        batched_moves: dict[tuple[float, float], tuple[list[float], list[int], bool]] = {}
         # Credit every ongoing attack first so allocation is stable across frames;
         # a unit that just kited (order MOVE) keeps its last target for 8 s.
         self._recent_targets = {uid: target for uid, (target, at) in role.memory.get("last_attack", {}).items()
@@ -1242,7 +1260,20 @@ class MultiAgentRuntime:
                 protected.update(u["id"] for u in f.units if u.get("def_id") == "villager")
                 chosen = min(home, key=lambda e: (e.get("target_id") not in protected, _distance(unit["pos"], e["pos"])))
             elif retreat or self.goals["sortie_departed"] is None:
-                self._move(f, "combat", unit, rally)
+                if auto_aggro and not retreat:
+                    engaged = unit.get("order") == "ATTACK" and f.enemy(f.entities.get(unit.get("target_id"), {}))
+                    nearby_hostile = any(_distance(unit["pos"], e["pos"]) <= 18 for e in enemy_units)
+                    if engaged or nearby_hostile:
+                        continue
+                if batch_capable:
+                    if _distance(unit["pos"], rally) > rally_radius:
+                        current_goal = _vec(unit.get("move_goal"))
+                        if unit.get("order") != "MOVE" or not current_goal or _distance(current_goal, rally) >= 3:
+                            key_pos = (round(float(rally[0]), 2), round(float(rally[1]), 2))
+                            entry = batched_moves.setdefault(key_pos, (list(rally), [], False))
+                            entry[1].append(uid)
+                else:
+                    self._move(f, "combat", unit, rally, arrival_radius=rally_radius)
                 continue
             else:
                 chosen = self._offensive_target(f, unit, visible_tc, known, army)
@@ -1254,7 +1285,14 @@ class MultiAgentRuntime:
                     # An unsupported ram does not chase infantry; if its base
                     # is under attack and no assault is active, shelter it.
                     if threats and self._demolition(unit) and _distance(unit["pos"], f.base) < 30:
-                        self._move(f, "combat", unit, rally)
+                        if batch_capable:
+                            if _distance(unit["pos"], rally) > rally_radius:
+                                current_goal = _vec(unit.get("move_goal"))
+                                if unit.get("order") != "MOVE" or not current_goal or _distance(current_goal, rally) >= 3:
+                                    key_pos = (round(float(rally[0]), 2), round(float(rally[1]), 2))
+                                    batched_moves.setdefault(key_pos, (list(rally), [], False))[1].append(uid)
+                        else:
+                            self._move(f, "combat", unit, rally, arrival_radius=rally_radius)
                         continue
             if chosen:
                 if self._friendly_blast_risk(f, unit, chosen):
@@ -1276,11 +1314,42 @@ class MultiAgentRuntime:
                 if not defending and _distance(unit["pos"], chosen["pos"]) > attack_range + 3 and self._recover_approach(f, unit, chosen["pos"]):
                     continue
                 if unit.get("order") != "ATTACK" or unit.get("target_id") != chosen["id"]:
-                    self._emit(f, "combat", "attack", {"unit_id": uid, "target_id": chosen["id"]}, emergency=defending)
+                    if batch_capable:
+                        entry = batched_attacks.get(chosen["id"])
+                        if entry is None:
+                            batched_attacks[chosen["id"]] = ([uid], defending)
+                        else:
+                            entry[0].append(uid)
+                            if defending and not entry[1]:
+                                batched_attacks[chosen["id"]] = (entry[0], True)
+                    else:
+                        self._emit(f, "combat", "attack", {"unit_id": uid, "target_id": chosen["id"]}, emergency=defending)
             else:
                 self.goals["phase"] = "march"
                 if not self._recover_approach(f, unit, goal):
-                    self._move(f, "combat", unit, goal)
+                    if batch_capable:
+                        if _distance(unit["pos"], goal) > 3:
+                            current_goal = _vec(unit.get("move_goal"))
+                            if unit.get("order") != "MOVE" or not current_goal or _distance(current_goal, goal) >= 3:
+                                key_pos = (round(float(goal[0]), 2), round(float(goal[1]), 2))
+                                batched_moves.setdefault(key_pos, (list(goal), [], False))[1].append(uid)
+                    else:
+                        self._move(f, "combat", unit, goal)
+        if batch_capable:
+            for tid, (uids, is_defending) in batched_attacks.items():
+                for start in range(0, len(uids), 64):
+                    chunk = uids[start:start + 64]
+                    if len(chunk) > 1:
+                        self._emit(f, "combat", "attack_group", {"unit_ids": chunk, "target_id": tid}, emergency=is_defending)
+                    else:
+                        self._emit(f, "combat", "attack", {"unit_id": chunk[0], "target_id": tid}, emergency=is_defending)
+            for goal_pos, uids, is_defending in batched_moves.values():
+                for start in range(0, len(uids), 64):
+                    chunk = uids[start:start + 64]
+                    if len(chunk) > 1:
+                        self._emit(f, "combat", "move_group", {"unit_ids": chunk, "pos": goal_pos, "formation": "line"}, emergency=is_defending)
+                    else:
+                        self._emit(f, "combat", "move", {"unit_id": chunk[0], "pos": goal_pos}, emergency=is_defending)
         self._request_building(f, "barracks", 110 if f.pop_cap - f.pop_used > 0 else 95, "opening_military_capacity")
         self._request_building(f, role.plan["producer"], 60, "military_plan_capacity", role.plan["producer_count"])
         composition_producer = self._composition_producer(f)

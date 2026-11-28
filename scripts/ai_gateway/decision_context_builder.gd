@@ -821,6 +821,10 @@ static func _army(own: Array[Node2D], snapshots: Array, derived: Dictionary, tea
 	var scouts: Array = []
 	var fallback_scouts: Array = []
 	var strength := 0.0
+	var groups_by_def := {}
+	var has_cluster := false
+	var cluster_min := Vector2(INF, INF)
+	var cluster_max := Vector2(-INF, -INF)
 	for unit in own:
 		var definition := unit.get("def") as UnitDef
 		if definition == null: continue
@@ -828,10 +832,45 @@ static func _army(own: Array[Node2D], snapshots: Array, derived: Dictionary, tea
 		if definition.id == &"villager":
 			if unit.get("order") == Enums.OrderType.NONE: fallback_scouts.append(id)
 			continue
+		var pos := unit.get("sim_pos") as Vector2
+		if pos != null:
+			has_cluster = true
+			cluster_min = cluster_min.min(pos)
+			cluster_max = cluster_max.max(pos)
+			var def_key := String(definition.id)
+			if not groups_by_def.has(def_key):
+				groups_by_def[def_key] = {"unit_def_id": def_key, "count": 0, "unit_ids": [], "_sum": Vector2.ZERO, "_min": pos, "_max": pos}
+			var grp: Dictionary = groups_by_def[def_key]
+			grp["count"] = int(grp["count"]) + 1
+			(grp["unit_ids"] as Array).append(id)
+			grp["_sum"] = (grp["_sum"] as Vector2) + pos
+			grp["_min"] = (grp["_min"] as Vector2).min(pos)
+			grp["_max"] = (grp["_max"] as Vector2).max(pos)
 		if definition.id in [&"scout_cavalry", &"light_cavalry", &"hussar"] and unit.get("order") in [Enums.OrderType.NONE, Enums.OrderType.MOVE]: scouts.append(id)
 		if float(unit.get("hp")) >= definition.max_hp * 0.45: ready.append(id)
 		strength += float(unit.get("hp")) / maxf(definition.max_hp, 1) * maxf(definition.attack, 1)
 	if scouts.is_empty() and ready.is_empty() and not fallback_scouts.is_empty(): scouts.append(fallback_scouts[0])
+	var unit_groups: Array = []
+	var def_keys := groups_by_def.keys()
+	def_keys.sort()
+	for def_key in def_keys:
+		var grp: Dictionary = groups_by_def[def_key]
+		var count := maxi(1, int(grp["count"]))
+		var center := (grp["_sum"] as Vector2) / float(count)
+		var gmin := (grp["_min"] as Vector2) - Vector2.ONE * 1.5
+		var gmax := (grp["_max"] as Vector2) + Vector2.ONE * 1.5
+		unit_groups.append({
+			"unit_def_id": grp["unit_def_id"],
+			"count": int(grp["count"]),
+			"unit_ids": grp["unit_ids"],
+			"center": Protocol.vec2_to_array(center),
+			"box": [snappedf(gmin.x, 0.01), snappedf(gmin.y, 0.01), snappedf(gmax.x, 0.01), snappedf(gmax.y, 0.01)],
+		})
+	var cluster_box: Array = []
+	if has_cluster:
+		var cmin := cluster_min - Vector2.ONE * 1.5
+		var cmax := cluster_max + Vector2.ONE * 1.5
+		cluster_box = [snappedf(cmin.x, 0.01), snappedf(cmin.y, 0.01), snappedf(cmax.x, 0.01), snappedf(cmax.y, 0.01)]
 	var enemies: Array = []
 	var nearby: Array = []
 	var enemy_strength := 0.0
@@ -847,7 +886,7 @@ static func _army(own: Array[Node2D], snapshots: Array, derived: Dictionary, tea
 	if direction == Vector2.ZERO: direction = Vector2.RIGHT
 	var rally: Vector2 = nav.nearest_walkable_world((base + direction * 12).clamp(bounds.position + Vector2.ONE * 2, bounds.end - Vector2.ONE * 2))
 	if rally == Vector2.INF: rally = base
-	return {"ready_unit_ids": ready, "scout_ids": scouts, "rally_point": Protocol.vec2_to_array(rally), "visible_enemy_ids": enemies, "enemy_near_base_ids": nearby, "own_strength": snappedf(strength, 0.1), "visible_enemy_strength": snappedf(enemy_strength, 0.1)}
+	return {"ready_unit_ids": ready, "scout_ids": scouts, "rally_point": Protocol.vec2_to_array(rally), "visible_enemy_ids": enemies, "enemy_near_base_ids": nearby, "own_strength": snappedf(strength, 0.1), "visible_enemy_strength": snappedf(enemy_strength, 0.1), "unit_groups": unit_groups, "cluster_box": cluster_box}
 
 
 static func _scouting(state: MatchState, team: int, own: Array[Node2D], bounds: Rect2, nav: RefCounted, scout_ids: Array, derived: Dictionary) -> Dictionary:

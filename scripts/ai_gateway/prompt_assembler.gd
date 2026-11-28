@@ -14,6 +14,7 @@ const SYSTEM_PROMPT := (
 	+ "根据实际视野、兵力和资源自主选择探索、经济、扩军、集结、进攻或防守。"
 	+ "缺资源点或未知敌方基地时派侦察兵探索；保持已有 MOVE 目标直到到达或卡住，不反复改路。"
 	+ "让村民采集可见资源、完成已有地基；按 catalog 的真实成本和前置建兵营，再从完工建筑持续训练。"
+	+ "作战单位待命或遇阻时会自动迎战附近可见敌人；指挥军队整体调动时优先用 move_box / move_same_type / move_group 保持队形，用 attack_box / attack_same_type / attack_group 集火。"
 	+ "军队先在 rally_point 屯兵，达到合适规模后协同出击；只 attack 当前可见敌人，敌情消失时侦察或移动到此前已知位置。"
 	+ "train_queue 和人口预留表示已下达的生产，避免重复下单。command_result.ok 仅表示指令接受，reason 是拒绝原因，需修正下一步。"
 )

@@ -9,10 +9,16 @@ const MAX_PLAYER_INSTRUCTION_LENGTH := 240
 const META_ENTITY_ID := &"entity_id"
 
 const OP_MOVE := &"move"
+const OP_MOVE_GROUP := &"move_group"
+const OP_MOVE_BOX := &"move_box"
+const OP_MOVE_SAME_TYPE := &"move_same_type"
 const OP_STOP := &"stop"
 const OP_GATHER := &"gather"
 const OP_BUILD := &"build"
 const OP_ATTACK := &"attack"
+const OP_ATTACK_GROUP := &"attack_group"
+const OP_ATTACK_BOX := &"attack_box"
+const OP_ATTACK_SAME_TYPE := &"attack_same_type"
 const OP_PLACE_BUILDING := &"place_building"
 const OP_PLACE_WALL := &"place_wall"
 const OP_SET_GATE_STATE := &"set_gate_state"
@@ -114,6 +120,12 @@ static func op_from_string(value: String) -> StringName:
 	match value:
 		"move":
 			return OP_MOVE
+		"move_group":
+			return OP_MOVE_GROUP
+		"move_box":
+			return OP_MOVE_BOX
+		"move_same_type":
+			return OP_MOVE_SAME_TYPE
 		"stop":
 			return OP_STOP
 		"gather":
@@ -122,6 +134,12 @@ static func op_from_string(value: String) -> StringName:
 			return OP_BUILD
 		"attack":
 			return OP_ATTACK
+		"attack_group":
+			return OP_ATTACK_GROUP
+		"attack_box":
+			return OP_ATTACK_BOX
+		"attack_same_type":
+			return OP_ATTACK_SAME_TYPE
 		"place_building":
 			return OP_PLACE_BUILDING
 		"place_wall":
@@ -150,6 +168,23 @@ static func array_to_vec2(value: Variant) -> Variant:
 	if value is Array and (value as Array).size() >= 2:
 		var arr := value as Array
 		return Vector2(float(arr[0]), float(arr[1]))
+	return null
+
+
+static func array_to_rect2(value: Variant) -> Variant:
+	if value is Rect2:
+		return value
+	if value is Array and (value as Array).size() >= 4:
+		var arr := value as Array
+		var x1 := float(arr[0])
+		var y1 := float(arr[1])
+		var x2 := float(arr[2])
+		var y2 := float(arr[3])
+		if not (is_finite(x1) and is_finite(y1) and is_finite(x2) and is_finite(y2)):
+			return null
+		var min_pos := Vector2(minf(x1, x2), minf(y1, y2))
+		var max_pos := Vector2(maxf(x1, x2), maxf(y1, y2))
+		return Rect2(min_pos, max_pos - min_pos)
 	return null
 
 

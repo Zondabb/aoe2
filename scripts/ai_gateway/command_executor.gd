@@ -6,6 +6,7 @@ const CommandValidatorScript := preload("res://scripts/ai_gateway/command_valida
 const AiBuildPlacementScript := preload("res://scripts/ai_gateway/build_placement.gd")
 const EntityRegistryScript := preload("res://scripts/ai_gateway/entity_registry.gd")
 const Walls := preload("res://scripts/systems/wall_system.gd")
+const UnitFormationScript := preload("res://scripts/input/unit_formation.gd")
 
 
 static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary:
@@ -21,12 +22,14 @@ static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary
 	var command_id := String(cmd.get("command_id", ""))
 	if not command_id.is_empty() and ctx.executed_command_ids.has(command_id):
 		return _result(true, "duplicate_skipped")
+	var op := AiProtocolScript.op_from_string(String(cmd.get("op", "")))
+	var batch_op := CommandValidatorScript.is_batch_op(op)
 	var actor_id := int(cmd.get("unit_id", cmd.get("builder_id", cmd.get("building_id", -1))))
-	var actor := EntityRegistryScript.resolve(actor_id)
+	var actor := null if batch_op else EntityRegistryScript.resolve(actor_id)
 	# Player commands use the same primitive executor online without AI IDs.
 	# An AI response based on a pre-manual snapshot must never overwrite them.
 	if actor != null and actor.get("team") == ctx.team and (ctx.require_session_epoch or not command_id.is_empty()):
-		if int(actor.get_meta("manual_command_revision", 0)) > ctx.observed_manual_revision or ctx.sim_time < float(actor.get_meta("manual_control_until_sim_time", -1.0)):
+		if CommandValidatorScript.is_manual_held(actor, ctx):
 			return _result(false, "manual_control_hold")
 
 	var validation := CommandValidatorScript.validate(cmd, ctx)
@@ -41,15 +44,18 @@ static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary
 	if ctx.match_state != null and ctx.match_state.lockstep_enabled and ctx.entities != null:
 		var network := ctx.entities.get_parent().get_node_or_null("NetworkMatch")
 		if network != null and not bool(network.get("_frame_running")) and not bool(network.get("_replaying")):
+			if batch_op:
+				return _queue_online_batch(op, cmd, ctx, network)
 			return network.call("queue_ai_command", cmd, ctx)
 
-	var op := AiProtocolScript.op_from_string(String(cmd.get("op", "")))
 	var executed := false
 	match op:
 		AiProtocolScript.OP_NOOP:
 			executed = true
 		AiProtocolScript.OP_MOVE:
 			executed = _exec_move(cmd, ctx)
+		AiProtocolScript.OP_MOVE_GROUP, AiProtocolScript.OP_MOVE_BOX, AiProtocolScript.OP_MOVE_SAME_TYPE:
+			executed = _exec_batch_move(cmd, ctx)
 		AiProtocolScript.OP_STOP:
 			executed = _exec_stop(cmd, ctx)
 		AiProtocolScript.OP_GATHER:
@@ -58,6 +64,8 @@ static func execute(cmd: Dictionary, ctx: CommandExecutionContext) -> Dictionary
 			executed = _exec_build(cmd, ctx)
 		AiProtocolScript.OP_ATTACK:
 			executed = _exec_attack(cmd, ctx)
+		AiProtocolScript.OP_ATTACK_GROUP, AiProtocolScript.OP_ATTACK_BOX, AiProtocolScript.OP_ATTACK_SAME_TYPE:
+			executed = _exec_batch_attack(cmd, ctx)
 		AiProtocolScript.OP_PLACE_BUILDING:
 			executed = _exec_place_building(cmd, ctx)
 		AiProtocolScript.OP_PLACE_WALL:
@@ -98,7 +106,121 @@ static func _exec_move(cmd: Dictionary, _ctx: CommandExecutionContext) -> bool:
 	if unit == null or pos == null:
 		return false
 	unit.call("command_move", pos)
+	var formation_speed := float(cmd.get("formation_speed", 0.0))
+	if formation_speed > 0.0 and unit.has_method("set_formation_move_speed"):
+		unit.call("set_formation_move_speed", formation_speed)
 	return true
+
+
+static func _formation_speed(units: Array[Node2D]) -> float:
+	if units.size() <= 1:
+		return 0.0
+	var group_speed := INF
+	for unit in units:
+		var definition := unit.get("def") as UnitDef
+		if definition != null:
+			group_speed = minf(group_speed, definition.move_speed)
+	return group_speed if is_finite(group_speed) else 0.0
+
+
+static func _stamp_batch_lineage(unit: Node2D, cmd: Dictionary, ctx: CommandExecutionContext) -> void:
+	var command_id := String(cmd.get("command_id", ""))
+	if command_id.is_empty():
+		return
+	var lineage := {"command_id": command_id, "task_id": String(cmd.get("task_id", "")), "session_epoch": ctx.session_epoch, "issued_at_sim_time": ctx.sim_time}
+	if unit.get("def") is UnitDef:
+		lineage["order_signature"] = EntityRegistryScript.order_signature(unit)
+	unit.set_meta("ai_command_lineage", lineage)
+
+
+static func _clamp_to_map_bounds(pos: Vector2, ctx: CommandExecutionContext) -> Vector2:
+	if ctx != null and ctx.match_state != null and ctx.match_state.map_bounds.has_area():
+		var b := ctx.match_state.map_bounds
+		return pos.clamp(b.position + Vector2.ONE * 0.05, b.end - Vector2.ONE * 0.05)
+	return pos
+
+
+static func _exec_batch_move(cmd: Dictionary, ctx: CommandExecutionContext) -> bool:
+	var resolved := CommandValidatorScript.resolve_batch_units(cmd, ctx)
+	var units: Array[Node2D] = resolved.get("units", [])
+	var pos := AiProtocolScript.array_to_vec2(cmd.get("pos")) as Vector2
+	if units.is_empty() or pos == null:
+		return false
+	var formation := UnitFormationScript.normalize_kind(StringName(String(cmd.get("formation", "line"))))
+	var destinations := UnitFormationScript.destinations(units, pos, formation)
+	var group_speed := _formation_speed(units)
+	var selected_ids: Array = []
+	for i in units.size():
+		var unit := units[i]
+		var target_pos := _clamp_to_map_bounds(destinations[i] if i < destinations.size() else pos, ctx)
+		unit.call("command_move", target_pos)
+		if group_speed > 0.0 and unit.has_method("set_formation_move_speed"):
+			unit.call("set_formation_move_speed", group_speed)
+		_stamp_batch_lineage(unit, cmd, ctx)
+		selected_ids.append(EntityRegistryScript.id_of(unit))
+	ctx.last_execution_details = {"selected_unit_ids": selected_ids, "unit_count": selected_ids.size()}
+	return not selected_ids.is_empty()
+
+
+static func _exec_batch_attack(cmd: Dictionary, ctx: CommandExecutionContext) -> bool:
+	var resolved := CommandValidatorScript.resolve_batch_units(cmd, ctx)
+	var units: Array[Node2D] = resolved.get("units", [])
+	var target := EntityRegistryScript.resolve(int(cmd.get("target_id", -1)))
+	if units.is_empty() or target == null:
+		return false
+	var selected_ids: Array = []
+	for unit in units:
+		unit.call("command_attack", target)
+		_stamp_batch_lineage(unit, cmd, ctx)
+		selected_ids.append(EntityRegistryScript.id_of(unit))
+	ctx.last_execution_details = {"selected_unit_ids": selected_ids, "unit_count": selected_ids.size()}
+	return not selected_ids.is_empty()
+
+
+static func _queue_online_batch(op: StringName, cmd: Dictionary, ctx: CommandExecutionContext, network: Node) -> Dictionary:
+	var resolved := CommandValidatorScript.resolve_batch_units(cmd, ctx)
+	var units: Array[Node2D] = resolved.get("units", [])
+	if units.is_empty():
+		return _result(false, String(resolved.get("reason", "no_matching_units")))
+	var is_move := op in [AiProtocolScript.OP_MOVE_GROUP, AiProtocolScript.OP_MOVE_BOX, AiProtocolScript.OP_MOVE_SAME_TYPE]
+	var destinations := PackedVector2Array()
+	var group_speed := 0.0
+	if is_move:
+		var pos := AiProtocolScript.array_to_vec2(cmd.get("pos")) as Vector2
+		var formation := UnitFormationScript.normalize_kind(StringName(String(cmd.get("formation", "line"))))
+		destinations = UnitFormationScript.destinations(units, pos, formation)
+		group_speed = _formation_speed(units)
+	var command_id := String(cmd.get("command_id", ""))
+	var selected_ids: Array = []
+	var last_reason := ""
+	network.call("begin_command_batch")
+	for i in units.size():
+		var unit := units[i]
+		var uid := EntityRegistryScript.id_of(unit)
+		var sub_cmd := {}
+		if is_move:
+			var dest := _clamp_to_map_bounds(destinations[i] if i < destinations.size() else (AiProtocolScript.array_to_vec2(cmd.get("pos")) as Vector2), ctx)
+			sub_cmd = {"op": "move", "unit_id": uid, "pos": [dest.x, dest.y]}
+			var definition := unit.get("def") as UnitDef
+			if group_speed > 0.0 and definition != null and group_speed < definition.move_speed - 0.001:
+				sub_cmd["formation_speed"] = group_speed
+		else:
+			sub_cmd = {"op": "attack", "unit_id": uid, "target_id": int(cmd.get("target_id", -1))}
+		if not command_id.is_empty():
+			sub_cmd["command_id"] = "%s#%d" % [command_id, i]
+		if cmd.has("task_id"):
+			sub_cmd["task_id"] = cmd.get("task_id")
+		var res: Dictionary = network.call("queue_ai_command", sub_cmd, ctx)
+		if bool(res.get("ok")):
+			selected_ids.append(uid)
+		elif not String(res.get("reason", "")).is_empty():
+			last_reason = String(res.get("reason", ""))
+	network.call("end_command_batch")
+	if selected_ids.is_empty():
+		return _result(false, last_reason if not last_reason.is_empty() else "network_not_ready")
+	if not command_id.is_empty():
+		ctx.executed_command_ids[command_id] = true
+	return {"ok": true, "reason": "queued_for_frame", "selected_unit_ids": selected_ids, "unit_count": selected_ids.size()}
 
 
 static func _exec_stop(cmd: Dictionary, _ctx: CommandExecutionContext) -> bool:

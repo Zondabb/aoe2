@@ -10,10 +10,16 @@ ResourceTypeName = Literal["FOOD", "WOOD", "GOLD", "STONE", "UNKNOWN"]
 OrderName = Literal["NONE", "MOVE", "GATHER", "BUILD", "ATTACK"]
 CommandOp = Literal[
     "move",
+    "move_group",
+    "move_box",
+    "move_same_type",
     "stop",
     "gather",
     "build",
     "attack",
+    "attack_group",
+    "attack_box",
+    "attack_same_type",
     "place_building",
     "place_wall",
     "set_gate_state",
@@ -131,12 +137,15 @@ class Command(BaseModel):
     command_id: str
     op: CommandOp
     unit_id: int | None = None
+    unit_ids: list[int] | None = None
     building_id: int | None = None
     target_id: int | None = None
     building_def_id: str | None = None
     unit_def_id: str | None = None
     technology_id: str | None = None
     pos: list[float] | None = None
+    box: list[float] | None = None
+    formation: Literal["line", "box", "staggered", "flank"] | None = None
     builder_id: int | None = None
     start: list[float] | None = None
     end: list[float] | None = None

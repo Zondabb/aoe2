@@ -37,6 +37,16 @@ const ATTACK_SPOT_TOLERANCE := 0.25
 const ATTACK_SPOT_STUCK_TIME := 1.5
 const ATTACK_SPOT_STUCK_DISTANCE := 0.3
 const ATTACK_SPOT_NEAR := 3.0
+## Auto-aggro reaches only nearby enemies, never the whole sight radius:
+## melee about 1.5 original tiles; ranged its own reach, capped at 4 tiles.
+const AUTO_AGGRO_MELEE_RADIUS := 6.0
+const AUTO_AGGRO_RANGED_MAX_RADIUS := 16.0
+## After an explicit move/stop (and after arriving), wait before auto-aggro so
+## a unit the AI or player just pulled away is not immediately drawn back.
+const AUTO_AGGRO_COMMAND_HOLD := 4.0
+const STALLED_MOVE_AGGRO_FRAMES := 12
+const MELEE_DEMOLITION_IDS := [&"battering_ram", &"capped_ram", &"siege_ram"]
+const SCOUT_UNIT_IDS := [&"scout_cavalry", &"light_cavalry", &"hussar"]
 const WallRulesScript := preload("res://scripts/systems/wall_system.gd")
 const MELEE_ATTACK_SLOTS := 12
 ## Q10 unit directions at 30-degree intervals. These constants replace libm
@@ -115,6 +125,8 @@ var _attack_spot_skipped := {}
 var _attack_spot_check_q := Vector2i.ZERO
 var _attack_spot_check_units: int = 0
 var _attack_cooldown_remaining_units: int = 0
+## Remaining auto-aggro suppression after an explicit move/stop (lockstep time units).
+var _auto_aggro_hold_units: int = 0
 var _attack_cooldown_remaining: float:
 	get: return float(_attack_cooldown_remaining_units) / Fixed.TIME_SCALE
 	set(value): _attack_cooldown_remaining_units = roundi(value * Fixed.TIME_SCALE)
@@ -309,11 +321,15 @@ func _physics_process(delta: float) -> void:
 	var frame_start := sim_pos
 	var time_units := _simulation_time_delta(delta)
 	_attack_cooldown_remaining_units = maxi(0, _attack_cooldown_remaining_units - time_units)
+	_auto_aggro_hold_units = maxi(0, _auto_aggro_hold_units - time_units)
 	_repath_cooldown_units = maxi(0, _repath_cooldown_units - time_units)
 	_goal_refresh_remaining_units = maxi(0, _goal_refresh_remaining_units - time_units)
 	_path_retry_cooldown_units = maxi(0, _path_retry_cooldown_units - time_units)
 	if order == Enums.OrderType.MOVE:
-		_process_move(delta)
+		if _no_progress_frames >= STALLED_MOVE_AGGRO_FRAMES and _try_auto_attack(-1.0, true):
+			_process_attack(delta)
+		else:
+			_process_move(delta)
 	elif order == Enums.OrderType.GATHER:
 		_process_gather(delta)
 	elif order == Enums.OrderType.BUILD:
@@ -323,7 +339,10 @@ func _physics_process(delta: float) -> void:
 	elif _combat_action == &"die":
 		_process_die(delta)
 	else:
-		_update_idle_animation(delta)
+		if _try_auto_attack():
+			_process_attack(delta)
+		else:
+			_update_idle_animation(delta)
 	var moved_q := _sim_pos_q - Fixed.vector(frame_start)
 	_locomotion_velocity_q = Vector2i(Fixed.mul_div(moved_q.x, Fixed.TIME_SCALE, maxi(1, time_units)), Fixed.mul_div(moved_q.y, Fixed.TIME_SCALE, maxi(1, time_units)))
 	# Neighbours steer around this unit's settled position and velocity.
@@ -411,12 +430,17 @@ func _finish_move() -> void:
 	_path_index = 0
 	_path_pending = false
 	order = Enums.OrderType.NONE
+	_hold_auto_aggro()
 	_update_idle_animation(0.0)
+
+func _hold_auto_aggro() -> void:
+	_auto_aggro_hold_units = Fixed.time_from_seconds(AUTO_AGGRO_COMMAND_HOLD)
 
 func command_move(target: Vector2) -> void:
 	target = Fixed.quantize_vector(target)
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
+	_hold_auto_aggro()
 	_build_queue.clear()
 	_formation_move_speed = 0.0
 	if order == Enums.OrderType.MOVE and _requested_move_target == target:
@@ -455,6 +479,7 @@ func _movement_speed() -> float:
 func command_stop() -> void:
 	if hp <= 0.0 or is_queued_for_deletion():
 		return
+	_hold_auto_aggro()
 	_build_queue.clear()
 	_cancel_gather_search()
 	_cancel_combat_action()
@@ -561,6 +586,7 @@ func command_attack(target: Node) -> void:
 	_drop_off_target = null
 	_build_target = null
 	_gather_state = ""
+	_auto_aggro_hold_units = 0
 	order = Enums.OrderType.ATTACK
 	_unit_log("order", "ATTACK target=%s" % target_2d.name)
 
@@ -744,13 +770,150 @@ func take_damage_fixed(amount_q: int, source: Node = null) -> void:
 
 func _try_retaliate(source: Node) -> void:
 	# Idle-only aggro: do not interrupt move / gather / build / active attack.
-	if order != Enums.OrderType.NONE:
+	if order != Enums.OrderType.NONE or _auto_aggro_hold_units > 0:
 		return
 	if source == null or not is_instance_valid(source):
 		return
 	if source == self:
 		return
+	# Tower/TC arrows must not drag a passing unit (e.g. a scout) into a siege.
+	if source.get("def") is BuildingDef:
+		return
 	command_attack(source)
+
+
+func _auto_aggro_radius() -> float:
+	if def.is_ranged:
+		return maxf(clampf(def.attack_range, AUTO_AGGRO_MELEE_RADIUS, AUTO_AGGRO_RANGED_MAX_RADIUS), def.minimum_attack_range + 4.0)
+	return AUTO_AGGRO_MELEE_RADIUS
+
+
+func _is_auto_aggro_unit() -> bool:
+	if hp_q <= 0 or is_queued_for_deletion() or _combat_action == &"die" or def == null:
+		return false
+	if def.attack <= 0:
+		return false
+	if def.id in [&"villager", &"monk", &"missionary"]:
+		return false
+	return true
+
+
+func _auto_attack_blast_clear(target: Node2D) -> bool:
+	if def == null or not def.is_ranged or not def.projectile_friendly_fire or def.projectile_splash_radius <= 0.0:
+		return true
+	var impact := ProjectileAgentScript.aim_point_for_target(sim_pos, target)
+	var impact_q := Fixed.vector(impact)
+	var radius_q := Fixed.from_float(maxf(0.15, def.projectile_splash_radius))
+	var radius_sq := radius_q * radius_q
+	var vision := _get_vision_service()
+	var raw_allies: Array = []
+	if vision != null and vision.has_method("others_in_radius"):
+		raw_allies = vision.call("others_in_radius", self, def.attack_range + def.projectile_splash_radius + 4.0)
+	elif get_parent() != null:
+		raw_allies = get_parent().get_children()
+	for raw in raw_allies:
+		if raw == null or not is_instance_valid(raw):
+			continue
+		var ally := raw as Node2D
+		if ally == null or ally == self or ally.is_queued_for_deletion():
+			continue
+		var ally_team: Variant = ally.get("team")
+		if ally_team == null or int(ally_team) != int(team):
+			continue
+		if ally.get("is_placement_ghost") == true or not ally.has_method("take_damage"):
+			continue
+		var ally_hp: Variant = ally.get("hp")
+		if ally_hp == null or float(ally_hp) <= 0.0:
+			continue
+		var center_v: Variant = ally.get("sim_pos")
+		var center: Vector2 = center_v if center_v is Vector2 else ally.position
+		var building := ally.get("def") as BuildingDef
+		if building != null:
+			var footprint: Vector2 = ally.call("get_placement_footprint") if ally.has_method("get_placement_footprint") else building.footprint
+			var half := footprint * 0.5
+			center += (impact - center).clamp(-half, half)
+		var diff_q := Fixed.vector(center) - impact_q
+		if Fixed.length_sq(diff_q) <= radius_sq:
+			return false
+	return true
+
+
+func _try_auto_attack(max_radius: float = -1.0, units_only: bool = false) -> bool:
+	if not _is_auto_aggro_unit():
+		return false
+	if _auto_aggro_hold_units > 0:
+		return false
+	var is_ram := def.id in MELEE_DEMOLITION_IDS
+	if is_ram and units_only:
+		return false
+	var is_scout := def.id in SCOUT_UNIT_IDS
+	var radius := max_radius if max_radius > 0.0 else _auto_aggro_radius()
+	var radius_q := Fixed.from_float(radius)
+	var radius_sq := radius_q * radius_q
+	var min_q := Fixed.from_float(def.minimum_attack_range) if def.minimum_attack_range > 0.0 else 0
+	var min_sq := min_q * min_q
+	var vision := _get_vision_service()
+	var candidates: Array = []
+	if vision != null and vision.has_method("others_in_radius"):
+		candidates = vision.call("others_in_radius", self, radius)
+	elif get_parent() != null:
+		candidates = get_parent().get_children()
+	var best_target: Node2D = null
+	var best_rank := 999
+	var best_dist_sq := 0
+	var best_id := 0
+	for raw in candidates:
+		if raw == null or not is_instance_valid(raw):
+			continue
+		var candidate := raw as Node2D
+		if candidate == null or candidate == self or candidate.is_queued_for_deletion():
+			continue
+		var target_team: Variant = candidate.get("team")
+		if target_team == null or int(target_team) == int(team):
+			continue
+		if candidate.get("is_placement_ghost") == true or not candidate.has_method("take_damage"):
+			continue
+		var target_hp: Variant = candidate.get("hp")
+		if target_hp == null or float(target_hp) <= 0.0:
+			continue
+		var target_def: Variant = candidate.get("def")
+		var is_unit := target_def is UnitDef
+		var is_building := target_def is BuildingDef
+		if not is_unit and not is_building:
+			continue
+		if units_only and not is_unit:
+			continue
+		if is_ram and not is_building:
+			continue
+		if is_scout and is_building:
+			continue
+		if not _can_see(candidate):
+			continue
+		var aim := ProjectileAgentScript.aim_point_for_target(sim_pos, candidate)
+		var dist_sq := Fixed.distance_squared(sim_pos, aim)
+		if dist_sq > radius_sq:
+			continue
+		if min_sq > 0 and dist_sq < min_sq:
+			continue
+		if not _auto_attack_blast_clear(candidate):
+			continue
+		var rank := 0
+		if is_ram:
+			rank = 0
+		elif is_unit:
+			rank = 0 if (target_def as UnitDef).attack > 0 else 1
+		else:
+			rank = 2
+		var cand_id := int(candidate.get_meta("net_id", candidate.get_instance_id()))
+		if best_target == null or rank < best_rank or (rank == best_rank and (dist_sq < best_dist_sq or (dist_sq == best_dist_sq and cand_id < best_id))):
+			best_target = candidate
+			best_rank = rank
+			best_dist_sq = dist_sq
+			best_id = cand_id
+	if best_target == null:
+		return false
+	command_attack(best_target)
+	return order == Enums.OrderType.ATTACK and _attack_target == best_target
 
 func _attack_target_available() -> bool:
 	return (
